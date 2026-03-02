@@ -9,7 +9,7 @@
 
 ## Quick Start
 
-New to PACT? See **[Getting Started](./GETTING_STARTED.md)** for a 5-minute walkthrough: authenticate, join a document, and make your first proposal.
+New to PACT? See **[PACT Getting Started](./PACT_GETTING_STARTED.md)** for a 5-minute walkthrough: authenticate, join a document, and make your first proposal.
 
 **60-second overview:**
 
@@ -663,6 +663,97 @@ Trust levels are assigned by the document owner or an administrator.
 
 ---
 
+## Appendix A: API Schemas
+
+### A.1 Error Response Format
+
+All PACT API error responses MUST follow this structure:
+
+```json
+{
+  "errors": [
+    {
+      "code": "section.locked",
+      "description": "Section is locked by another agent.",
+      "metadata": { "lockedBy": "agent-xyz", "expiresAt": "2026-03-02T12:00:00Z" }
+    }
+  ]
+}
+```
+
+The `errors` array contains one or more error objects. Each error has a machine-readable `code` and a human-readable `description`. The optional `metadata` field carries structured context (e.g., who holds the lock, retry-after seconds).
+
+#### Standard Error Codes
+
+| Code | HTTP Status | Meaning |
+|---|---|---|
+| `auth.unauthorized` | 401 | Missing or invalid API key / bearer token |
+| `auth.forbidden` | 403 | Insufficient trust level for this operation |
+| `agent.not_joined` | 403 | Agent has not joined this document |
+| `agent.already_joined` | 409 | Agent is already registered on this document |
+| `section.not_found` | 404 | Section ID does not exist in the document |
+| `section.locked` | 409 | Section is locked by another agent |
+| `proposal.not_found` | 404 | Proposal ID does not exist |
+| `proposal.conflict` | 409 | Conflicting proposal on the same section |
+| `proposal.invalid_status` | 400 | Cannot perform action on proposal in its current status |
+| `document.not_found` | 404 | Document does not exist |
+| `document.locked` | 423 | Entire document is frozen |
+| `rate.limited` | 429 | Rate limit exceeded |
+
+Implementations MAY define additional error codes under custom namespaces (e.g., `classification.access_denied`). All custom codes MUST use the dot-delimited format.
+
+### A.2 Request/Response Schemas
+
+Full JSON Schema (draft-07) definitions for all API endpoints are available in the [schemas directory](https://github.com/TailorAU/pact/tree/main/spec/v0.3/schemas).
+
+| Schema | Endpoint | Description |
+|---|---|---|
+| `join-request.json` | `POST /join` | Agent registration request |
+| `join-response.json` | `POST /join` | Agent registration response |
+| `proposal-request.json` | `POST /proposals` | Edit proposal creation |
+| `proposal-response.json` | `POST /proposals` | Edit proposal with constraint warnings |
+| `intent-request.json` | `POST /intents` | Intent declaration |
+| `constraint-request.json` | `POST /constraints` | Constraint publication |
+| `salience-request.json` | `POST /salience` | Salience score assignment |
+| `lock-request.json` | `POST /sections/{id}/lock` | Section lock with TTL |
+| `done-request.json` | `POST /done` | Agent completion signal |
+| `ask-human-request.json` | `POST /ask-human` | Human escalation |
+| `error-response.json` | All endpoints | Standard error envelope |
+| `event.json` | Events / polling | Event structure (Section 6) |
+
+### A.3 Pagination
+
+List endpoints (proposals, agents, events, intents, constraints) support cursor-based pagination.
+
+**Request parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `cursor` | string? | `null` | Opaque cursor from a previous response. Omit for the first page. |
+| `limit` | integer? | 50 | Maximum items to return (1–200). |
+
+**Response envelope:**
+
+```json
+{
+  "items": [ ... ],
+  "nextCursor": "eyJzIjoxMjM0fQ==",
+  "hasMore": true
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `items` | array | The requested resources. |
+| `nextCursor` | string? | Pass as `cursor` in the next request. `null` when no more pages. |
+| `hasMore` | boolean | `true` if additional pages exist. |
+
+Implementations MUST return items in a stable, deterministic order (typically by creation time ascending).
+
+---
+
 *This is a living document. PACT Specification v0.3 — February 2026.*
 
-*Reference implementation: [Tailor](https://tailor.au) by [TailorAU](https://github.com/TailorAU)*
+*Reference implementation: [Tailor](https://tailor.au) by [TailorAU](https://github.com/TailorAU) — see [Tailor Implementation Notes](./PACT_TAILOR_IMPLEMENTATION.md) for implementation-specific details.*
+
+> **Standalone spec:** [github.com/TailorAU/pact](https://github.com/TailorAU/pact) — vendor-neutral specification auto-synced from this file.

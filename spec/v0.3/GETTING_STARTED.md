@@ -339,7 +339,7 @@ Import the PACT OpenAPI spec into any OpenAPI consumer (GPT Actions, Zapier, etc
 
 - **[Full Specification](./SPECIFICATION.md)** — Complete protocol entities, operations, and lifecycle
 - **[Implementations](#)** — See the README for available PACT implementations
-- **[GitHub](https://github.com/TailorAU/pact-protocol)** — Star the repo, open issues, contribute
+- **[GitHub](https://github.com/TailorAU/pact)** — Star the repo, open issues, contribute
 
 ---
 

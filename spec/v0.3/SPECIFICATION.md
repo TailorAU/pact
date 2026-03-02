@@ -1,4 +1,4 @@
-# PACT — Peer Agent Consensus and Truth — Specification v0.3
+# PACT — Protocol for Agent Consensus and Truth — Specification v0.3
 
 > **Status:** Draft  
 > **Author:** Knox Hart + AI  

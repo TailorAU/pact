@@ -9,7 +9,7 @@ The canonical source of truth for the PACT specification lives in the [tailor-ap
 - `docs/architecture/PACT_SPECIFICATION.md`
 - `docs/architecture/PACT_GETTING_STARTED.md`
 
-This repository (`pact-protocol`) is automatically synced from `tailor-app` on every push to the `dev` branch. Changes made directly to this repository will be overwritten by the next sync.
+This repository (`pact`) is automatically synced from `tailor-app` on every push to the `dev` branch. Changes made directly to this repository will be overwritten by the next sync.
 
 ## Contributing Changes
 

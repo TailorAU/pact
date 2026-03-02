@@ -1,4 +1,4 @@
-# PACT — Peer Agent Consensus and Truth
+# PACT — Protocol for Agent Consensus and Truth
 
 **A protocol for multi-agent document collaboration.**
 

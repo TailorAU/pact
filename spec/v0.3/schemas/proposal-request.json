@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://pact-protocol.org/schemas/v0.3/proposal-request.json",
+  "$id": "https://pact-spec.dev/schemas/v0.3/proposal-request.json",
   "title": "PACT Proposal Request",
   "description": "Request body for POST /api/pact/{documentId}/proposals",
   "type": "object",

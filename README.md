@@ -2,7 +2,7 @@
 
 **A protocol for multi-agent document collaboration.**
 
-[![Spec Version](https://img.shields.io/badge/spec-v0.3-blue)](spec/v0.3/SPECIFICATION.md)
+[![Spec Version](https://img.shields.io/badge/spec-v0.4--draft-blue)](spec/v0.4/SPECIFICATION.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -31,6 +31,8 @@ MCP gives agents hands. A2A gives agents voices. PACT gives agents a shared tabl
 | **Salience** | A 0-10 score for how much an agent cares about a section. Focuses attention. |
 | **Objection** | Active disagreement that blocks auto-merge and forces renegotiation. |
 | **Escalation** | A request for human review when agents can't resolve a disagreement. |
+| **Mediation** | An optional trusted intermediary that gates all inter-agent communication. *(v0.4)* |
+| **Negotiation** | Structured multi-round exchanges facilitated by the mediator to resolve conflicts. *(v0.4)* |
 
 ## How It Works
 
@@ -43,6 +45,20 @@ Agent A:  proposal.create(sec:budget, newContent, ttl=60)
           │  No objections from Agent B          │
           └─────────────────────────────────────┘
 System:   proposal.auto-merged ✓  (silence = consent)
+```
+
+### Mediated Mode (v0.4)
+
+When information barriers are needed, agents communicate through a mediator:
+
+```
+Agent A:  message.send("I need budget flexibility")
+          ┌─────────────────────────────────────┐
+          │  Mediator filters, summarises, or    │
+          │  redacts based on classification     │
+          └─────────────────────────────────────┘
+Agent B:  message.inbox → "An agent has a budget-related concern"
+          (graduated disclosure — no raw content leaked)
 ```
 
 ## Quick Start
@@ -69,9 +85,27 @@ curl -X POST https://api.example.com/api/pact/{docId}/proposals \
 
 ## Specification
 
-- **[Full Specification (v0.3)](spec/v0.3/SPECIFICATION.md)** — Protocol entities, operations, lifecycle, API surface
-- **[API Schemas (v0.3)](spec/v0.3/schemas/)** — JSON Schema definitions for all request/response bodies and error format
-- **[Getting Started Guide](spec/v0.3/GETTING_STARTED.md)** — 5-minute walkthrough with code examples for Python, LangChain, CrewAI, AutoGen, MCP
+### v0.4 (current draft)
+
+- **[Full Specification](spec/v0.4/SPECIFICATION.md)** — Protocol entities, operations, lifecycle, API surface, mediated communication
+- **[Getting Started Guide](spec/v0.4/GETTING_STARTED.md)** — 5-minute walkthrough with code examples for Python, LangChain, CrewAI, AutoGen, MCP
+- **[API Schemas](spec/v0.4/schemas/)** — JSON Schema definitions for all request/response bodies including mediation primitives
+
+### v0.3 (stable)
+
+- **[Full Specification](spec/v0.3/SPECIFICATION.md)** — Core protocol without mediated communication
+- **[Getting Started Guide](spec/v0.3/GETTING_STARTED.md)** — 5-minute walkthrough
+- **[API Schemas](spec/v0.3/schemas/)** — JSON Schema definitions for core request/response bodies
+
+## What's New in v0.4
+
+**Mediated Communication** — An optional layer that introduces a trusted intermediary (Mediator) between agents:
+
+- **Message Register** — Append-only audit log of all inter-agent communication, with both original and delivered content recorded
+- **Graduated Disclosure** — 4-level framework controlling how much context agents reveal (metadata → category → full reasoning → human-visible)
+- **Structured Negotiation** — Multi-round exchanges where agents submit positions and the mediator synthesises outcomes
+- **Content Gating** — Messages can be forwarded, summarised, redacted, blocked, or held by the mediator
+- **Cross-Pollination Prevention** — In mediated mode, agents cannot leak classified information through document edits
 
 ## Integration Paths
 
@@ -100,6 +134,7 @@ PACT is transport-agnostic. Implementations can expose the protocol via:
 3. **Humans always win.** Any human can override any agent decision at any time.
 4. **Event-sourced truth.** The operation log is the source of truth. Document content is a projection.
 5. **Section-level granularity.** Operations target sections (headings), not character offsets.
+6. **Silence is consent.** Proposals auto-merge after TTL unless actively objected to.
 
 ## Contributing
 

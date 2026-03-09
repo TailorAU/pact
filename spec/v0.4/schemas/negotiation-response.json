@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pact-spec.dev/schemas/v0.4/negotiation-response.json",
+  "title": "PACT Negotiation",
+  "description": "Represents a structured multi-round negotiation facilitated by the mediator.",
+  "type": "object",
+  "required": ["negotiationId", "documentId", "sectionId", "status", "currentRound", "participantIds"],
+  "properties": {
+    "negotiationId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique negotiation identifier."
+    },
+    "documentId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Document this negotiation belongs to."
+    },
+    "sectionId": {
+      "type": "string",
+      "description": "Section under negotiation."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["open", "in-progress", "aligned", "escalated", "timed-out", "closed"],
+      "description": "Current negotiation status."
+    },
+    "currentRound": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Current round number."
+    },
+    "participantIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "description": "Agent registration IDs participating in this negotiation."
+    },
+    "synthesis": {
+      "type": ["string", "null"],
+      "description": "Mediator's synthesis of positions from the latest round (content-filtered)."
+    },
+    "outcome": {
+      "type": ["string", "null"],
+      "enum": ["aligned", "escalation", "timeout", null],
+      "description": "Final outcome if negotiation is closed."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pact-spec.dev/schemas/v0.4/query-submit-request.json",
+  "title": "PACT Mediated Query Request",
+  "description": "Request body for POST /api/pact/{documentId}/queries (mediated mode). Structured Q&A with graduated disclosure.",
+  "type": "object",
+  "required": ["question"],
+  "properties": {
+    "question": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The question to route through the mediator."
+    },
+    "targetAgentId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Specific agent to query. Omit to let the mediator route based on salience."
+    },
+    "sectionId": {
+      "type": "string",
+      "maxLength": 256,
+      "description": "Section the query relates to."
+    },
+    "disclosureLevel": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "default": 2,
+      "description": "Requested disclosure level (1=metadata, 2=category, 3=full reasoning, 4=human-visible)."
+    }
+  },
+  "additionalProperties": false
+}

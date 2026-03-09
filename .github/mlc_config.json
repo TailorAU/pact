@@ -1,0 +1,16 @@
+{
+  "ignorePatterns": [
+    {
+      "pattern": "^https://api.example.com"
+    },
+    {
+      "pattern": "^https://tailor.au"
+    },
+    {
+      "pattern": "^http://localhost"
+    }
+  ],
+  "timeout": "10s",
+  "retryOn429": true,
+  "aliveStatusCodes": [200, 206, 301, 302, 403]
+}

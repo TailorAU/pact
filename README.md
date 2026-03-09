@@ -1,73 +1,106 @@
-# PACT — Protocol for Agent Consensus and Truth
+<p align="center">
+  <img src="https://img.shields.io/badge/PACT-Protocol_for_Agent_Consensus_and_Truth-6366f1?style=for-the-badge&labelColor=1e1b4b" alt="PACT" />
+</p>
 
-**A protocol for multi-agent document collaboration.**
+<h1 align="center">PACT</h1>
+<p align="center"><strong>The missing protocol for multi-agent document collaboration.</strong></p>
 
-[![Spec Version](https://img.shields.io/badge/spec-v0.4--draft-blue)](spec/v0.4/SPECIFICATION.md)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+<p align="center">
+  <a href="spec/v0.4/SPECIFICATION.md"><img src="https://img.shields.io/badge/spec-v0.4--draft-6366f1?style=flat-square" alt="Spec Version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="License: MIT" /></a>
+  <a href="https://github.com/TailorAU/pact/stargazers"><img src="https://img.shields.io/github/stars/TailorAU/pact?style=flat-square&color=f59e0b" alt="Stars" /></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-22c55e?style=flat-square" alt="PRs Welcome" /></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> &bull;
+  <a href="spec/v0.4/SPECIFICATION.md">Specification</a> &bull;
+  <a href="spec/v0.4/GETTING_STARTED.md">Getting Started</a> &bull;
+  <a href="examples/">Examples</a> &bull;
+  <a href="docs/integration-guide.md">Integration Guide</a> &bull;
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
 
 ---
 
-## What is PACT?
+## The Problem
 
-PACT is an open protocol that enables AI agents to collaboratively review and edit documents — with humans retaining final authority. Multiple agents join a document, declare intents, publish constraints, propose edits, and reach consensus at machine speed.
+You have 3 AI agents that need to negotiate a contract. Agent A drafts liability clauses. Agent B enforces budget caps. Agent C checks regulatory compliance.
 
-**Where it fits:**
+**How do they collaborate on the same document without stepping on each other?**
 
-| Protocol | What it does |
-|----------|-------------|
-| [MCP](https://modelcontextprotocol.io) | Connects agents to **tools and data** |
-| [A2A](https://github.com/google/A2A) | Connects agents to **other agents** |
-| **PACT** | Connects agents to **shared documents** |
+MCP gives agents tools. A2A gives agents communication. But neither gives agents a **shared document** with structured consensus rules, human oversight, and information barriers.
 
-MCP gives agents hands. A2A gives agents voices. PACT gives agents a shared table to negotiate at.
+**PACT does.**
 
-## Key Concepts
+## Where PACT Fits
 
-| Concept | What it does |
-|---------|-------------|
-| **Proposal** | A suggested edit to a document section. Must be approved or auto-merges after TTL. |
-| **Intent** | A declared goal ("I want X") before writing. Catches misalignment early. |
-| **Constraint** | A boundary condition ("X must not exceed Y"). Reveals limits without revealing reasoning. |
-| **Salience** | A 0-10 score for how much an agent cares about a section. Focuses attention. |
-| **Objection** | Active disagreement that blocks auto-merge and forces renegotiation. |
-| **Escalation** | A request for human review when agents can't resolve a disagreement. |
-| **Mediation** | An optional trusted intermediary that gates all inter-agent communication. *(v0.4)* |
-| **Negotiation** | Structured multi-round exchanges facilitated by the mediator to resolve conflicts. *(v0.4)* |
+```
+┌─────────────────────────────────────────────────────────┐
+│                    AI Agent Ecosystem                    │
+├──────────────┬──────────────┬───────────────────────────┤
+│     MCP      │     A2A      │          PACT             │
+│  Tools/Data  │  Agent Comms │  Document Collaboration   │
+│              │              │                           │
+│  "Hands"     │  "Voices"    │  "Shared negotiation      │
+│              │              │   table"                  │
+└──────────────┴──────────────┴───────────────────────────┘
+```
+
+| Protocol | Connects agents to... | Example |
+|----------|----------------------|---------|
+| [MCP](https://modelcontextprotocol.io) | **Tools and data** | "Read this database" |
+| [A2A](https://github.com/google/A2A) | **Other agents** | "Tell Agent B to start" |
+| **PACT** | **Shared documents** | "Propose a change to section 3, respect Agent B's constraints" |
 
 ## How It Works
 
-```
-Agent A:  intent.declare(sec:budget, "Reduce total by 10%")
-Agent B:  constraint.publish(sec:budget, "Personnel costs cannot decrease")
-Agent A:  proposal.create(sec:budget, newContent, ttl=60)
-          ┌─────────────────────────────────────┐
-          │  60-second TTL window                │
-          │  No objections from Agent B          │
-          └─────────────────────────────────────┘
-System:   proposal.auto-merged ✓  (silence = consent)
-```
-
-### Mediated Mode (v0.4)
-
-When information barriers are needed, agents communicate through a mediator:
+PACT introduces a simple but powerful loop: **Intent → Constraint → Propose → Consensus**.
 
 ```
-Agent A:  message.send("I need budget flexibility")
-          ┌─────────────────────────────────────┐
-          │  Mediator filters, summarises, or    │
-          │  redacts based on classification     │
-          └─────────────────────────────────────┘
-Agent B:  message.inbox → "An agent has a budget-related concern"
-          (graduated disclosure — no raw content leaked)
+┌─────────────────────────────────────────────────────────────────┐
+│                        PACT Workflow                            │
+│                                                                 │
+│  Agent A                  Document                  Agent B     │
+│  ┌──────┐                ┌────────┐                ┌──────┐    │
+│  │Legal │──intent───────▶│        │◀──constraint───│Budget│    │
+│  │      │  "Add currency │sec:    │  "Cap at $2M"  │      │    │
+│  │      │   risk clause" │liability                │      │    │
+│  │      │                │        │                │      │    │
+│  │      │──propose──────▶│  ✏️    │                │      │    │
+│  │      │                │        │──notify──────▶ │      │    │
+│  │      │                │        │                │      │    │
+│  │      │                │        │   No objection │      │    │
+│  │      │                │        │◀──(silence)────│      │    │
+│  │      │                │        │                │      │    │
+│  │      │                │ ✅ Auto│                │      │    │
+│  │      │                │ merged │                │      │    │
+│  └──────┘                └────────┘                └──────┘    │
+│                                                                 │
+│  Humans can override ANY decision at ANY time.                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+### The Core Primitives
+
+| Primitive | What it does | Why it matters |
+|-----------|-------------|----------------|
+| **Intent** | "I want to add X to this section" | Catches misalignment *before* anyone writes |
+| **Constraint** | "X must not exceed $2M" | Reveals limits without revealing reasoning |
+| **Salience** | Score 0-10: how much you care | Focuses attention on contested sections |
+| **Proposal** | Actual edit with TTL | Auto-merges if nobody objects (silence = consent) |
+| **Objection** | "This violates my constraint" | Blocks auto-merge, forces renegotiation |
+| **Escalation** | "Humans, we need you" | Agents know when to stop and ask |
 
 ## Quick Start
+
+### 30-Second Overview
 
 ```bash
 # Install the reference CLI
 npm install -g @tailor-app/cli
 
-# Join a document with an invite token (no account needed)
+# Join a document (no account needed — just an invite token)
 curl -X POST https://api.example.com/api/pact/{docId}/join-token \
   -H "Content-Type: application/json" \
   -d '{"agentName": "my-agent", "token": "INVITE_TOKEN"}'
@@ -76,74 +109,88 @@ curl -X POST https://api.example.com/api/pact/{docId}/join-token \
 curl https://api.example.com/api/pact/{docId}/content \
   -H "X-Api-Key: SCOPED_KEY"
 
-# Propose a change
+# Propose a change (auto-merges after TTL if no objections)
 curl -X POST https://api.example.com/api/pact/{docId}/proposals \
   -H "X-Api-Key: SCOPED_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"sectionId":"sec:intro","newContent":"# Intro\n\nRevised text.","summary":"Simplified intro"}'
+  -d '{
+    "sectionId": "sec:intro",
+    "newContent": "# Introduction\n\nRevised and improved text.",
+    "summary": "Simplified intro paragraph"
+  }'
 ```
 
-## Specification
+### Choose Your Integration
 
-### v0.4 (current draft)
+| Path | Best for | Get started |
+|------|----------|-------------|
+| **REST API** | Python/TS agents, custom frameworks | [Getting Started](spec/v0.4/GETTING_STARTED.md#6-integration-examples) |
+| **CLI** | Shell scripts, CI/CD, prototyping | [CLI Examples](spec/v0.4/GETTING_STARTED.md#3-join--read--propose--approve) |
+| **MCP Tools** | LangChain, CrewAI, AutoGen, Claude, Cursor | [MCP Setup](spec/v0.4/GETTING_STARTED.md#65-mcp-server-configuration-stdio--cursor-claude-desktop-windsurf) |
+| **SignalR/WebSocket** | Real-time event-driven agents | [SignalR Events](spec/v0.4/GETTING_STARTED.md#66-signalr-real-time-events) |
+| **OpenAPI** | GPT Actions, Zapier, no-code | [OpenAPI Import](spec/v0.4/GETTING_STARTED.md#67-openai-custom-gpts-gpt-actions) |
 
-- **[Full Specification](spec/v0.4/SPECIFICATION.md)** — Protocol entities, operations, lifecycle, API surface, mediated communication
-- **[Getting Started Guide](spec/v0.4/GETTING_STARTED.md)** — 5-minute walkthrough with code examples for Python, LangChain, CrewAI, AutoGen, MCP
-- **[API Schemas](spec/v0.4/schemas/)** — JSON Schema definitions for all request/response bodies including mediation primitives
+## Real-World Use Cases
 
-### v0.3 (stable)
+### Contract Negotiation
+Three agents (legal, commercial, compliance) negotiate contract terms. Each declares constraints, proposes edits, and the document converges through structured consensus — not chaos.
 
-- **[Full Specification](spec/v0.3/SPECIFICATION.md)** — Core protocol without mediated communication
-- **[Getting Started Guide](spec/v0.3/GETTING_STARTED.md)** — 5-minute walkthrough
-- **[API Schemas](spec/v0.3/schemas/)** — JSON Schema definitions for core request/response bodies
+### Multi-Agent Code Review
+Security, performance, and style agents review a design doc. High-salience sections get the most attention. Disagreements escalate to human architects.
+
+### Policy Drafting
+Regulatory agents maintain compliance policies across jurisdictions. Information barriers prevent cross-pollination of confidential reasoning between competing interests.
+
+### Community Consensus
+Multiple stakeholders collaborate on shared documents — proposals auto-merge when nobody objects, and contested sections get escalated for human review.
+
+## Key Design Principles
+
+1. **Humans always win.** Any human can override any agent decision, at any time, no exceptions.
+2. **Silence is consent.** Proposals auto-merge after TTL unless actively objected to. Only disagreements require action.
+3. **Document is always valid Markdown.** No protocol metadata pollutes the document body.
+4. **Section-level granularity.** Operations target headings, not character offsets. Agents think in sections.
+5. **Event-sourced truth.** The operation log is the source of truth. The document is a projection.
+6. **Transport-agnostic.** REST, CLI, MCP, WebSocket, OpenAPI — use whatever fits your stack.
 
 ## What's New in v0.4
 
-**Mediated Communication** — An optional layer that introduces a trusted intermediary (Mediator) between agents:
+**Mediated Communication** — an optional trusted intermediary layer for enterprise and regulated use cases:
 
-- **Message Register** — Append-only audit log of all inter-agent communication, with both original and delivered content recorded
-- **Graduated Disclosure** — 4-level framework controlling how much context agents reveal (metadata → category → full reasoning → human-visible)
-- **Structured Negotiation** — Multi-round exchanges where agents submit positions and the mediator synthesises outcomes
-- **Content Gating** — Messages can be forwarded, summarised, redacted, blocked, or held by the mediator
-- **Cross-Pollination Prevention** — In mediated mode, agents cannot leak classified information through document edits
+- **Information Barriers** — Classification frameworks, agent clearance levels, dissemination controls
+- **Message Register** — Append-only audit log of all inter-agent communication
+- **Graduated Disclosure** — 4-level framework (metadata → category → reasoning → full) controlling what agents can see
+- **Structured Negotiation** — Multi-round position exchanges facilitated by a mediator
+- **Invite Tokens (BYOK)** — Zero-trust agent onboarding; no account required
 
-## Integration Paths
+## Specification
 
-PACT is transport-agnostic. Implementations can expose the protocol via:
-
-| Transport | Description |
-|-----------|-------------|
-| **REST API** | Standard HTTP endpoints for any language/framework |
-| **CLI** | Shell commands for scripts, CI/CD, prototyping |
-| **MCP Tools** | Model Context Protocol for LLM-native agents (Cursor, Claude, etc.) |
-| **SignalR / WebSocket** | Real-time push events for live collaboration |
-| **OpenAPI** | Import into GPT Actions, Zapier, or any OpenAPI consumer |
+| Version | Status | Docs |
+|---------|--------|------|
+| **v0.4** | Draft | [Specification](spec/v0.4/SPECIFICATION.md) · [Getting Started](spec/v0.4/GETTING_STARTED.md) · [Schemas](spec/v0.4/schemas/) |
+| **v0.3** | Stable | [Specification](spec/v0.3/SPECIFICATION.md) · [Getting Started](spec/v0.3/GETTING_STARTED.md) · [Schemas](spec/v0.3/schemas/) |
 
 ## Implementations
 
 | Implementation | Status | Maintainer |
-|---------------|--------|-----------|
+|----------------|--------|------------|
 | [Tailor](https://tailor.au) | Reference implementation | [TailorAU](https://github.com/TailorAU) |
 
-> Want to add your implementation? Open a PR.
+> Building a PACT implementation? [Open a PR](CONTRIBUTING.md) to add it here.
 
-## Design Principles
+## Community
 
-1. **Document is always valid Markdown.** Protocol metadata lives in the event layer, not in the document body.
-2. **Agents submit operations, not raw edits.** Typed operations (propose, approve, reject, lock, merge) go through the server.
-3. **Humans always win.** Any human can override any agent decision at any time.
-4. **Event-sourced truth.** The operation log is the source of truth. Document content is a projection.
-5. **Section-level granularity.** Operations target sections (headings), not character offsets.
-6. **Silence is consent.** Proposals auto-merge after TTL unless actively objected to.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute to the specification.
+- [GitHub Issues](https://github.com/TailorAU/pact/issues) — Bug reports, feature requests, spec discussions
+- [Contributing Guide](CONTRIBUTING.md) — How to contribute to the specification
+- [Code of Conduct](CODE_OF_CONDUCT.md) — Community standards
+- [Security Policy](SECURITY.md) — Reporting vulnerabilities
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — Use PACT however you want. Build implementations, fork it, extend it.
 
 ---
 
-*PACT is maintained by [TailorAU](https://github.com/TailorAU). The specification is open and vendor-neutral — anyone can implement it.*
+<p align="center">
+  <sub>PACT is maintained by <a href="https://github.com/TailorAU">TailorAU</a>. The specification is open and vendor-neutral — anyone can implement it.</sub>
+</p>

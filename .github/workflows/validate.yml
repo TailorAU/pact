@@ -1,0 +1,70 @@
+name: Validate Specification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-schemas:
+    name: Validate JSON Schemas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install JSON Schema validator
+        run: npm install -g ajv-cli ajv-formats
+
+      - name: Validate v0.4 schemas
+        run: |
+          echo "Validating v0.4 JSON schemas..."
+          for schema in spec/v0.4/schemas/*.json; do
+            echo "  Checking $schema"
+            ajv compile -s "$schema" --spec=draft7 -c ajv-formats || exit 1
+          done
+          echo "All v0.4 schemas valid."
+
+      - name: Validate v0.3 schemas
+        run: |
+          echo "Validating v0.3 JSON schemas..."
+          for schema in spec/v0.3/schemas/*.json; do
+            echo "  Checking $schema"
+            ajv compile -s "$schema" --spec=draft7 -c ajv-formats || exit 1
+          done
+          echo "All v0.3 schemas valid."
+
+  check-links:
+    name: Check Markdown Links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for broken links in Markdown
+        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        with:
+          use-quiet-mode: 'yes'
+          config-file: '.github/mlc_config.json'
+
+  lint-markdown:
+    name: Lint Markdown
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install markdownlint
+        run: npm install -g markdownlint-cli
+
+      - name: Lint specification files
+        run: markdownlint '**/*.md' --ignore node_modules --config .markdownlint.json || true

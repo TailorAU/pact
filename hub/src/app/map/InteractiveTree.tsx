@@ -101,7 +101,10 @@ function flattenTree(
     }
 
     // If already rendered elsewhere in the tree, skip entirely to avoid DAG duplication
-    if (visited.has(topic.id)) return;
+    if (visited.has(topic.id)) {
+      console.log(`[flattenTree] SKIPPING duplicate: "${topic.title}" (${topic.id})`);
+      return;
+    }
 
     visited.add(topic.id);
     const children = getChildren(topic, topicMap);
@@ -130,6 +133,7 @@ function flattenTree(
   }
 
   roots.forEach((root, i) => walk(root, 0, 0, true, i === roots.length - 1));
+  console.log(`[flattenTree] ${rows.length} rows from ${roots.length} roots, visited ${visited.size} unique topics`);
   return rows;
 }
 

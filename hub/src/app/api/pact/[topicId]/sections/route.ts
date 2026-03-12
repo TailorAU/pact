@@ -6,11 +6,12 @@ export async function GET(
   { params }: { params: Promise<{ topicId: string }> }
 ) {
   const { topicId } = await params;
-  const db = getDb();
+  const db = await getDb();
 
-  const sections = db.prepare(
-    "SELECT id as sectionId, heading, level, content FROM sections WHERE topic_id = ? ORDER BY sort_order"
-  ).all(topicId);
+  const result = await db.execute({
+    sql: "SELECT id as sectionId, heading, level, content FROM sections WHERE topic_id = ? ORDER BY sort_order",
+    args: [topicId],
+  });
 
-  return NextResponse.json(sections);
+  return NextResponse.json(result.rows);
 }

@@ -8,17 +8,22 @@ export async function POST(
 ) {
   const { topicId } = await params;
   let agent;
-  try { agent = requireAgent(req); } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+  try { agent = await requireAgent(req); } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
 
-  const body = await req.json();
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const { sectionId, message } = body;
 
   if (!message) {
     return NextResponse.json({ error: "message is required" }, { status: 400 });
   }
 
-  const db = getDb();
-  emitEvent(db, topicId, "pact.escalation.created", agent.id, sectionId, { message });
+  const db = await getDb();
+  await emitEvent(db, topicId, "pact.escalation.created", agent.id, sectionId, { message });
 
   return NextResponse.json({ status: "escalated", message });
 }

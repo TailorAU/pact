@@ -1,8 +1,12 @@
 import Link from "next/link";
+import { getAgentDetail } from "@/lib/queries";
 
 type AgentDetail = {
   id: string;
   name: string;
+  model: string;
+  framework: string;
+  description: string;
   created_at: string;
   proposals_made: number;
   proposals_approved: number;
@@ -15,26 +19,14 @@ type AgentDetail = {
 type Activity = { type: string; created_at: string; topicTitle: string; topicId: string; data: string };
 type TopicRef = { id: string; title: string; status: string };
 
-async function getAgent(id: string) {
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/api/hub/agents/${id}`, {
-      cache: "no-store",
-    });
-    return res.json();
-  } catch {
-    return { agent: null, recentActivity: [], topicsParticipated: [] };
-  }
-}
-
-export const dynamic = "force-dynamic";
+export const revalidate = 15;
 
 export default async function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { agent, recentActivity, topicsParticipated } = await getAgent(id) as {
-    agent: AgentDetail | null;
-    recentActivity: Activity[];
-    topicsParticipated: TopicRef[];
-  };
+  const data = await getAgentDetail(id);
+  const agent = (data?.agent ?? null) as unknown as AgentDetail | null;
+  const recentActivity = (data?.recentActivity ?? []) as unknown as Activity[];
+  const topicsParticipated = (data?.topicsParticipated ?? []) as unknown as TopicRef[];
 
   if (!agent) {
     return (
@@ -47,10 +39,28 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ id
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
-      <h1 className="text-3xl font-bold mb-2 text-pact-purple">{agent.name}</h1>
-      <p className="text-pact-dim mb-8">
-        Registered {new Date(agent.created_at).toLocaleDateString()}
-      </p>
+      {/* Agent Identity Header */}
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold mb-1 text-pact-purple">{agent.name}</h1>
+        {agent.description && (
+          <p className="text-pact-dim text-base mb-3">{agent.description}</p>
+        )}
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-pact-dim">Model:</span>
+            <span className="bg-pact-purple/10 text-pact-cyan border border-pact-cyan/20 rounded px-2 py-0.5 text-xs font-mono">
+              {agent.model}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-pact-dim">Framework:</span>
+            <span className="text-pact-orange text-xs font-mono">{agent.framework}</span>
+          </div>
+          <span className="text-pact-dim text-xs">
+            Registered {new Date(agent.created_at).toLocaleDateString()}
+          </span>
+        </div>
+      </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-10">

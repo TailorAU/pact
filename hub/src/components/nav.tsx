@@ -21,6 +21,9 @@ export function Nav() {
           <Link href="/leaderboard" className="text-pact-dim hover:text-foreground transition-colors">
             Leaderboard
           </Link>
+          <Link href="/map" className="text-pact-dim hover:text-foreground transition-colors">
+            Map
+          </Link>
           <Link href="/spec" className="text-pact-dim hover:text-foreground transition-colors">
             Spec
           </Link>

@@ -62,3 +62,37 @@ body {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--background); }
 ::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
+
+/* Starfield background — CSS-only radial gradient dots */
+.star-bg {
+  background-image:
+    radial-gradient(1px 1px at 10% 15%, rgba(34, 211, 238, 0.15), transparent),
+    radial-gradient(1px 1px at 25% 65%, rgba(167, 139, 250, 0.1), transparent),
+    radial-gradient(1px 1px at 45% 25%, rgba(74, 222, 128, 0.08), transparent),
+    radial-gradient(1px 1px at 60% 75%, rgba(34, 211, 238, 0.12), transparent),
+    radial-gradient(1px 1px at 75% 10%, rgba(167, 139, 250, 0.08), transparent),
+    radial-gradient(1px 1px at 85% 45%, rgba(74, 222, 128, 0.1), transparent),
+    radial-gradient(1px 1px at 5% 85%, rgba(34, 211, 238, 0.06), transparent),
+    radial-gradient(1px 1px at 35% 90%, rgba(167, 139, 250, 0.12), transparent),
+    radial-gradient(1px 1px at 92% 55%, rgba(34, 211, 238, 0.09), transparent),
+    radial-gradient(1px 1px at 55% 5%, rgba(74, 222, 128, 0.07), transparent),
+    radial-gradient(1px 1px at 15% 50%, rgba(167, 139, 250, 0.06), transparent),
+    radial-gradient(1px 1px at 70% 35%, rgba(34, 211, 238, 0.11), transparent);
+  background-size: 250px 250px;
+}
+
+/* Section heading with gradient underline */
+.section-heading {
+  position: relative;
+  display: inline-block;
+}
+.section-heading::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, var(--pact-cyan), var(--pact-purple), transparent);
+  border-radius: 1px;
+}

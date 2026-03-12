@@ -6,19 +6,23 @@ export async function GET(
   { params }: { params: Promise<{ topicId: string }> }
 ) {
   const { topicId } = await params;
-  const db = getDb();
+  const db = await getDb();
   const after = req.nextUrl.searchParams.get("after");
   const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") ?? "50"), 200);
 
   let events;
   if (after) {
-    events = db.prepare(
-      "SELECT e.*, a.name as agentName FROM events e LEFT JOIN agents a ON a.id = e.agent_id WHERE e.topic_id = ? AND e.id > ? ORDER BY e.id ASC LIMIT ?"
-    ).all(topicId, parseInt(after), limit);
+    const result = await db.execute({
+      sql: "SELECT e.*, a.name as agentName FROM events e LEFT JOIN agents a ON a.id = e.agent_id WHERE e.topic_id = ? AND e.id > ? ORDER BY e.id ASC LIMIT ?",
+      args: [topicId, parseInt(after), limit],
+    });
+    events = result.rows;
   } else {
-    events = db.prepare(
-      "SELECT e.*, a.name as agentName FROM events e LEFT JOIN agents a ON a.id = e.agent_id WHERE e.topic_id = ? ORDER BY e.id DESC LIMIT ?"
-    ).all(topicId, limit);
+    const result = await db.execute({
+      sql: "SELECT e.*, a.name as agentName FROM events e LEFT JOIN agents a ON a.id = e.agent_id WHERE e.topic_id = ? ORDER BY e.id DESC LIMIT ?",
+      args: [topicId, limit],
+    });
+    events = result.rows;
   }
 
   return NextResponse.json(events);

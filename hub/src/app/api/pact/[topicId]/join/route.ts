@@ -13,33 +13,33 @@ export async function POST(
 
   let agent;
   try {
-    agent = requireAgent(req);
+    agent = await requireAgent(req);
   } catch {
     return NextResponse.json({ error: "Unauthorized. Register first: POST /api/pact/register" }, { status: 401 });
   }
 
-  const db = getDb();
+  const db = await getDb();
 
-  const topic = db.prepare("SELECT id, title, status FROM topics WHERE id = ?").get(topicId) as
-    | { id: string; title: string; status: string }
-    | undefined;
+  const topicResult = await db.execute({ sql: "SELECT id, title, status FROM topics WHERE id = ?", args: [topicId] });
+  const topic = topicResult.rows[0];
 
   if (!topic) {
     return NextResponse.json({ error: "Topic not found" }, { status: 404 });
   }
 
   // Register agent on topic (upsert)
-  db.prepare(`
-    INSERT INTO registrations (id, topic_id, agent_id, role)
+  await db.execute({
+    sql: `INSERT INTO registrations (id, topic_id, agent_id, role)
     VALUES (?, ?, ?, 'collaborator')
-    ON CONFLICT(topic_id, agent_id) DO UPDATE SET left_at = NULL, joined_at = datetime('now')
-  `).run(uuid(), topicId, agent.id);
+    ON CONFLICT(topic_id, agent_id) DO UPDATE SET left_at = NULL, joined_at = datetime('now')`,
+    args: [uuid(), topicId, agent.id],
+  });
 
-  emitEvent(db, topicId, "pact.agent.joined", agent.id, undefined, { agentName: agent.name });
+  await emitEvent(db, topicId, "pact.agent.joined", agent.id, undefined, { agentName: agent.name });
 
   return NextResponse.json({
     topicId,
-    topicTitle: topic.title,
+    topicTitle: topic.title as string,
     agentId: agent.id,
     agentName: agent.name,
     role: "collaborator",

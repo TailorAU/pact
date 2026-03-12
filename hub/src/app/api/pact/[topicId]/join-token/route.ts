@@ -14,24 +14,26 @@ export async function POST(
     return NextResponse.json({ error: "agentName and token are required" }, { status: 400 });
   }
 
-  const db = getDb();
+  const db = await getDb();
 
   // Validate invite token
-  const invite = db.prepare(
-    "SELECT * FROM invite_tokens WHERE token = ? AND topic_id = ?"
-  ).get(token, topicId) as { token: string; max_uses: number; uses: number } | undefined;
+  const inviteResult = await db.execute({
+    sql: "SELECT * FROM invite_tokens WHERE token = ? AND topic_id = ?",
+    args: [token, topicId],
+  });
+  const invite = inviteResult.rows[0];
 
   if (!invite) {
     return NextResponse.json({ error: "Invalid invite token" }, { status: 403 });
   }
 
-  if (invite.uses >= invite.max_uses) {
+  if ((invite.uses as number) >= (invite.max_uses as number)) {
     return NextResponse.json({ error: "Invite token exhausted" }, { status: 403 });
   }
 
   // Check topic exists
-  const topic = db.prepare("SELECT id FROM topics WHERE id = ?").get(topicId);
-  if (!topic) {
+  const topicResult = await db.execute({ sql: "SELECT id FROM topics WHERE id = ?", args: [topicId] });
+  if (!topicResult.rows[0]) {
     return NextResponse.json({ error: "Topic not found" }, { status: 404 });
   }
 
@@ -40,32 +42,36 @@ export async function POST(
   const agentId = uuid();
 
   // Check if agent name already exists
-  let agent = db.prepare("SELECT id, api_key FROM agents WHERE name = ?").get(agentName) as
-    | { id: string; api_key: string }
-    | undefined;
+  const agentResult = await db.execute({ sql: "SELECT id, api_key FROM agents WHERE name = ?", args: [agentName] });
+  let agentRow = agentResult.rows[0];
 
-  if (!agent) {
-    db.prepare("INSERT INTO agents (id, name, api_key) VALUES (?, ?, ?)").run(agentId, agentName, apiKey);
-    agent = { id: agentId, api_key: apiKey };
+  if (!agentRow) {
+    await db.execute({
+      sql: "INSERT INTO agents (id, name, api_key) VALUES (?, ?, ?)",
+      args: [agentId, agentName, apiKey],
+    });
+    const newResult = await db.execute({ sql: "SELECT id, api_key FROM agents WHERE id = ?", args: [agentId] });
+    agentRow = newResult.rows[0];
   }
 
   // Register agent on topic (upsert)
-  db.prepare(`
-    INSERT INTO registrations (id, topic_id, agent_id, role)
+  await db.execute({
+    sql: `INSERT INTO registrations (id, topic_id, agent_id, role)
     VALUES (?, ?, ?, 'collaborator')
-    ON CONFLICT(topic_id, agent_id) DO UPDATE SET left_at = NULL, joined_at = datetime('now')
-  `).run(uuid(), topicId, agent.id);
+    ON CONFLICT(topic_id, agent_id) DO UPDATE SET left_at = NULL, joined_at = datetime('now')`,
+    args: [uuid(), topicId, agentRow!.id as string],
+  });
 
   // Increment invite usage
-  db.prepare("UPDATE invite_tokens SET uses = uses + 1 WHERE token = ?").run(token);
+  await db.execute({ sql: "UPDATE invite_tokens SET uses = uses + 1 WHERE token = ?", args: [token] });
 
-  emitEvent(db, topicId, "pact.agent.joined", agent.id, undefined, { agentName });
+  await emitEvent(db, topicId, "pact.agent.joined", agentRow!.id as string, undefined, { agentName });
 
   return NextResponse.json({
     registrationId: uuid(),
-    agentId: agent.id,
+    agentId: agentRow!.id as string,
     agentName,
-    apiKey: agent.api_key,
+    apiKey: agentRow!.api_key as string,
     contextMode: "full",
     role: "collaborator",
   });

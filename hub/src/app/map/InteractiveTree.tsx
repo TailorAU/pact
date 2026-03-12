@@ -75,7 +75,6 @@ type FlatRow = {
   hasChildren: boolean;
   childCount: number;
   depth: number;
-  isRef: boolean;        // True if this topic already appeared — show as back-reference
 };
 
 function flattenTree(
@@ -101,10 +100,7 @@ function flattenTree(
     }
 
     // If already rendered elsewhere in the tree, skip entirely to avoid DAG duplication
-    if (visited.has(topic.id)) {
-      console.log(`[flattenTree] SKIPPING duplicate: "${topic.title}" (${topic.id})`);
-      return;
-    }
+    if (visited.has(topic.id)) return;
 
     visited.add(topic.id);
     const children = getChildren(topic, topicMap);
@@ -120,7 +116,6 @@ function flattenTree(
       hasChildren,
       childCount: topic.childIds.length,
       depth: topic.depth,
-      isRef: false,
     });
 
     if (hasChildren && isExpanded) {
@@ -133,7 +128,6 @@ function flattenTree(
   }
 
   roots.forEach((root, i) => walk(root, 0, 0, true, i === roots.length - 1));
-  console.log(`[flattenTree] ${rows.length} rows from ${roots.length} roots, visited ${visited.size} unique topics`);
   return rows;
 }
 
@@ -354,7 +348,7 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
         ) : (
           <div className="min-w-fit">
             {rows.map((row, idx) => {
-              const { topic, lane, parentLane, hasChildren, childCount, isRef } = row;
+              const { topic, lane, parentLane, hasChildren, childCount } = row;
               const color = TIER_HEX[topic.tier] || "#666";
               const badge = STATUS_BADGE[topic.status] || { text: topic.status, cls: "text-pact-dim" };
               const statusIcon = STATUS_ICON[topic.status] || { char: "·", cls: "text-pact-dim" };
@@ -369,7 +363,7 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
                   key={`${topic.id}-${idx}`}
                   className={`flex items-center group hover:bg-white/[0.02] transition-colors ${
                     isSearchMatch ? "bg-pact-cyan/5" : ""
-                  } ${isRef ? "opacity-40" : ""}`}
+                  }`}
                   style={{ height: ROW_H }}
                 >
                   {/* SVG graph column */}
@@ -419,29 +413,22 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
                       )}
 
                       {/* Commit dot */}
-                      {isRef ? (
-                        /* Small hollow dot for references */
-                        <circle cx={cx} cy={cy} r={3} fill="none" stroke={color} strokeWidth={1.5} strokeOpacity={0.5} />
-                      ) : (
-                        <>
-                          <circle
-                            cx={cx} cy={cy} r={DOT_R}
-                            fill={color} stroke={color}
-                            strokeWidth={hasChildren ? 2 : 0}
-                            fillOpacity={hasChildren ? 0.3 : 1}
-                          />
-                          {hasChildren && (
-                            <circle cx={cx} cy={cy} r={2.5} fill={color} />
-                          )}
-                        </>
+                      <circle
+                        cx={cx} cy={cy} r={DOT_R}
+                        fill={color} stroke={color}
+                        strokeWidth={hasChildren ? 2 : 0}
+                        fillOpacity={hasChildren ? 0.3 : 1}
+                      />
+                      {hasChildren && (
+                        <circle cx={cx} cy={cy} r={2.5} fill={color} />
                       )}
                     </svg>
                   </div>
 
                   {/* Topic info row */}
                   <div className="flex-1 flex items-center gap-2 min-w-0 pr-4">
-                    {/* Expand/collapse — not for refs */}
-                    {!isRef && hasChildren ? (
+                    {/* Expand/collapse */}
+                    {hasChildren ? (
                       <button
                         onClick={() => toggleExpand(topic.id)}
                         className="shrink-0 w-5 h-5 flex items-center justify-center text-white/25 hover:text-white/60 transition-colors"
@@ -453,13 +440,8 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
                       <div className="w-5" />
                     )}
 
-                    {/* Ref indicator */}
-                    {isRef && (
-                      <span className="text-[9px] text-pact-dim/50 shrink-0" title="Already shown above">&#8617;</span>
-                    )}
-
                     {/* Status icon */}
-                    {!isRef && <span className={`shrink-0 text-xs w-4 text-center ${statusIcon.cls}`}>{statusIcon.char}</span>}
+                    <span className={`shrink-0 text-xs w-4 text-center ${statusIcon.cls}`}>{statusIcon.char}</span>
 
                     {/* Tier badge */}
                     <span className={`text-[9px] px-1.5 py-px rounded border border-current/20 uppercase font-bold shrink-0 ${tierColor}`}>
@@ -469,30 +451,22 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
                     {/* Title */}
                     <Link
                       href={`/topics/${topic.id}`}
-                      className={`text-sm truncate transition-colors ${
-                        isRef
-                          ? "text-foreground/40 italic"
-                          : "text-foreground/80 group-hover:text-foreground"
-                      }`}
+                      className="text-sm text-foreground/80 group-hover:text-foreground truncate transition-colors"
                     >
                       {isSearchMatch && search ? highlightMatch(topic.title, search) : topic.title}
                     </Link>
 
                     {/* Right-side metadata */}
                     <div className="ml-auto flex items-center gap-3 shrink-0 text-xs">
-                      {!isRef && (
-                        <>
-                          <span className={`hidden sm:inline ${badge.cls}`}>{badge.text}</span>
-                          <span className="text-pact-dim/50">
-                            {topic.participantCount} {topic.participantCount === 1 ? "agent" : "agents"}
-                          </span>
-                          {hasChildren && (
-                            <span className="text-pact-dim/30">
-                              {childCount} dep{childCount !== 1 ? "s" : ""}
-                              {!isExpanded && <span className="ml-0.5 text-[9px]">+</span>}
-                            </span>
-                          )}
-                        </>
+                      <span className={`hidden sm:inline ${badge.cls}`}>{badge.text}</span>
+                      <span className="text-pact-dim/50">
+                        {topic.participantCount} {topic.participantCount === 1 ? "agent" : "agents"}
+                      </span>
+                      {hasChildren && (
+                        <span className="text-pact-dim/30">
+                          {childCount} dep{childCount !== 1 ? "s" : ""}
+                          {!isExpanded && <span className="ml-0.5 text-[9px]">+</span>}
+                        </span>
                       )}
                       <span className="text-pact-dim/20 group-hover:text-pact-cyan/50 transition-colors">&rarr;</span>
                     </div>

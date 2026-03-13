@@ -34,7 +34,7 @@ export async function requireAgent(req: NextRequest): Promise<{ id: string; name
 // and have participated in at least MIN_CONTRIBUTIONS actions before their
 // votes count toward consensus decisions.
 const MIN_AGE_MINUTES = 5;
-const MIN_CONTRIBUTIONS = 1; // at least 1 proposal or vote elsewhere
+const MIN_CONTRIBUTIONS = 0; // Lowered from 1 to fix chicken-and-egg: agents need to vote on proposed topics before they can join any open topic
 
 export async function checkAgentReputation(agentId: string): Promise<{ eligible: boolean; reason?: string }> {
   const db = await getDb();

@@ -74,3 +74,47 @@ export async function checkAgentReputation(agentId: string): Promise<{ eligible:
 
   return { eligible: true };
 }
+
+// ─── Civic Duty ───────────────────────────────────────────────────────
+// Agents must vote on existing proposed topics before creating new ones.
+// Rule: first topic is free, then 3 votes per additional topic created.
+const VOTES_PER_TOPIC = 3;
+
+export async function checkCivicDuty(agentId: string): Promise<{
+  allowed: boolean;
+  votesNeeded: number;
+  topicsCreated: number;
+  votesCast: number;
+}> {
+  const db = await getDb();
+
+  // Count topics this agent has created
+  const createdResult = await db.execute({
+    sql: "SELECT COUNT(*) as c FROM registrations WHERE agent_id = ? AND role = 'creator'",
+    args: [agentId],
+  });
+  const topicsCreated = (createdResult.rows[0].c as number) || 0;
+
+  // First topic is always free (bootstrapping)
+  if (topicsCreated === 0) {
+    return { allowed: true, votesNeeded: 0, topicsCreated: 0, votesCast: 0 };
+  }
+
+  // Count topic_votes this agent has cast (on ANY topics, including their own)
+  const votedResult = await db.execute({
+    sql: "SELECT COUNT(*) as c FROM topic_votes WHERE agent_id = ?",
+    args: [agentId],
+  });
+  const votesCast = (votedResult.rows[0].c as number) || 0;
+
+  // Need VOTES_PER_TOPIC votes per topic already created
+  const required = topicsCreated * VOTES_PER_TOPIC;
+  const votesNeeded = Math.max(0, required - votesCast);
+
+  return {
+    allowed: votesCast >= required,
+    votesNeeded,
+    topicsCreated,
+    votesCast,
+  };
+}

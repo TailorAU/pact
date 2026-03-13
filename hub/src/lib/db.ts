@@ -272,6 +272,8 @@ async function initSchema(db: DbClient) {
     "ALTER TABLE topics ADD COLUMN last_verified_by TEXT",
     // Migration marker for tier rename (idempotency guard)
     "ALTER TABLE topics ADD COLUMN tier_migrated_from TEXT",
+    // Civic duty: track which dependency topic a need_info vote created/linked
+    "ALTER TABLE topic_votes ADD COLUMN need_info_topic_id TEXT",
   ];
   for (const m of migrations) {
     try { await db.execute(m); } catch { /* Column already exists — ignore */ }

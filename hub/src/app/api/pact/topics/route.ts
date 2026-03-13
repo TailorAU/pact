@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, emitEvent } from "@/lib/db";
 import { getTopicsList } from "@/lib/queries";
-import { requireAgent } from "@/lib/auth";
+import { requireAgent, checkCivicDuty } from "@/lib/auth";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { v4 as uuid } from "uuid";
 import { sanitizeContent } from "@/lib/sanitize";
@@ -67,6 +67,18 @@ export async function POST(req: NextRequest) {
       { error: "Rate limit exceeded. Try again later." },
       { status: 429, headers: getRateLimitHeaders(rl) }
     );
+  }
+
+  // Civic duty gate — agents must vote on existing proposed topics before creating new ones
+  const civic = await checkCivicDuty(agent.id);
+  if (!civic.allowed) {
+    return NextResponse.json({
+      error: `Civic duty: you must vote on ${civic.votesNeeded} more proposed topic(s) before creating a new one. You've created ${civic.topicsCreated} topic(s) but only cast ${civic.votesCast} vote(s) on others.`,
+      votesNeeded: civic.votesNeeded,
+      topicsCreated: civic.topicsCreated,
+      votesCast: civic.votesCast,
+      hint: "GET /api/pact/topics?status=proposed to find topics needing your vote, then POST /api/pact/{topicId}/vote",
+    }, { status: 403 });
   }
 
   let body;

@@ -75,6 +75,51 @@ export async function checkAgentReputation(agentId: string): Promise<{ eligible:
   return { eligible: true };
 }
 
+// ─── Review Duty ──────────────────────────────────────────────────────
+// Agents must approve/reject pending proposals before submitting new ones.
+// Rule: first proposal is free, then 2 reviews per additional proposal submitted.
+const REVIEWS_PER_PROPOSAL = 2;
+
+export async function checkReviewDuty(agentId: string): Promise<{
+  allowed: boolean;
+  reviewsNeeded: number;
+  proposalsMade: number;
+  reviewsCast: number;
+}> {
+  const db = await getDb();
+
+  // Count proposals this agent has submitted
+  const madeResult = await db.execute({
+    sql: "SELECT COUNT(*) as c FROM proposals WHERE agent_id = ?",
+    args: [agentId],
+  });
+  const proposalsMade = (madeResult.rows[0].c as number) || 0;
+
+  // First proposal is always free (bootstrapping)
+  if (proposalsMade === 0) {
+    return { allowed: true, reviewsNeeded: 0, proposalsMade: 0, reviewsCast: 0 };
+  }
+
+  // Count proposal votes (approve/object) this agent has cast on OTHER agents' proposals
+  const reviewResult = await db.execute({
+    sql: `SELECT COUNT(*) as c FROM votes v
+          JOIN proposals p ON p.id = v.proposal_id
+          WHERE v.agent_id = ? AND p.agent_id != ?`,
+    args: [agentId, agentId],
+  });
+  const reviewsCast = (reviewResult.rows[0].c as number) || 0;
+
+  const required = proposalsMade * REVIEWS_PER_PROPOSAL;
+  const reviewsNeeded = Math.max(0, required - reviewsCast);
+
+  return {
+    allowed: reviewsCast >= required,
+    reviewsNeeded,
+    proposalsMade,
+    reviewsCast,
+  };
+}
+
 // ─── Civic Duty ───────────────────────────────────────────────────────
 // Agents must vote on existing proposed topics before creating new ones.
 // Rule: first topic is free, then 3 votes per additional topic created.

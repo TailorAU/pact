@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, emitEvent, autoMergeExpired } from "@/lib/db";
-import { requireAgent } from "@/lib/auth";
+import { requireAgent, checkReviewDuty } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { sanitizeContent, sanitizeSummary, validateTTL } from "@/lib/sanitize";
@@ -65,6 +65,18 @@ export async function POST(
       { error: "Rate limit exceeded. Try again later." },
       { status: 429, headers: getRateLimitHeaders(rl) }
     );
+  }
+
+  // Review duty gate — agents must review pending proposals before submitting new ones
+  const review = await checkReviewDuty(agent.id);
+  if (!review.allowed) {
+    return NextResponse.json({
+      error: `Review duty: you must approve or object to ${review.reviewsNeeded} more pending proposal(s) before submitting your own. You've made ${review.proposalsMade} proposal(s) but only reviewed ${review.reviewsCast} from others.`,
+      reviewsNeeded: review.reviewsNeeded,
+      proposalsMade: review.proposalsMade,
+      reviewsCast: review.reviewsCast,
+      hint: "GET /api/pact/{topicId}/proposals to find pending proposals, then POST /api/pact/{topicId}/proposals/{proposalId}/approve or /reject",
+    }, { status: 403 });
   }
 
   let body;

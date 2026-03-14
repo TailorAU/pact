@@ -958,12 +958,16 @@ export async function updateConsensusStatuses(db: DbClient) {
 
     const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
 
+    // Axiom-tier topics are foundational — they don't require dependency chains.
+    // Other tiers only require deps if they actually have them (non-blocking for bootstrap).
+    const depsOk = tier === "axiom" || unmetDeps === 0;
+
     if (
       pending === 0 &&                    // Debate has settled
       answerMerged > 0 &&                 // Answer section has been reviewed/updated
       aligned >= requiredAgents &&         // Enough agents explicitly aligned
       alignmentRatio >= CONSENSUS_RATIO && // 90% supermajority
-      unmetDeps === 0                      // All dependencies have reached consensus
+      depsOk                              // Dependencies met (axioms exempt)
     ) {
       // Consensus reached — mark it
       await db.execute({
@@ -998,7 +1002,7 @@ export async function updateConsensusStatuses(db: DbClient) {
       answerMerged > 0 &&
       aligned >= requiredAgents &&
       alignmentRatio >= CONSENSUS_RATIO &&
-      unmetDeps > 0
+      !depsOk
     ) {
       // Topic meets all criteria except dependency chain — emit informational event
       await emitEvent(db, t.id as string, "pact.consensus.blocked-by-dependencies", "", "", {

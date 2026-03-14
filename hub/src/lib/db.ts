@@ -1047,8 +1047,11 @@ export async function updateConsensusStatuses(db: DbClient) {
     const consensusSince = t.consensus_since as string;
     const unmetDeps = t.unmetDependencies as number;
 
+    // Axiom-tier topics are exempt from dependency checks (they're foundational)
+    const depsOkForBreaking = tier === "axiom" || unmetDeps === 0;
+
     // Check if consensus has broken (alignment dropped, new pending proposals, or dependency lost)
-    if (alignmentRatio < CONSENSUS_RATIO || aligned < requiredAgents || pending > 0 || unmetDeps > 0) {
+    if (alignmentRatio < CONSENSUS_RATIO || aligned < requiredAgents || pending > 0 || !depsOkForBreaking) {
       // Consensus lost — reopen for debate
       await db.execute({
         sql: "UPDATE topics SET status = 'open', consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",

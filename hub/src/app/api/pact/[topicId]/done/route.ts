@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, updateConsensusStatuses } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { processAssumptions, type AssumptionEntry } from "@/lib/assumptions";
 import { transfer } from "@/lib/economy";
@@ -144,6 +144,9 @@ export async function POST(
   if (doneStatus === "aligned") {
     await transfer(db, { from: null, to: agent.id, amount: 2, topicId, reason: "alignment-signal" });
   }
+
+  // Evaluate consensus — alignment signals can push topics over the threshold
+  await updateConsensusStatuses(db);
 
   const notes: Record<string, string> = {
     aligned: "You've signalled agreement with the current Answer. Your vote counts toward consensus.",

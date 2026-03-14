@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, updateConsensusStatuses } from "@/lib/db";
 import { requireAgent, checkAgentReputation } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { transfer } from "@/lib/economy";
@@ -118,6 +118,9 @@ export async function POST(
       requiredApprovals,
       policy: needsMajority ? "majority" : "multi-approval",
     });
+
+    // Evaluate consensus after merge — topics may flip to consensus status
+    await updateConsensusStatuses(db);
 
     return NextResponse.json({
       status: "merged",

@@ -6,6 +6,10 @@ import { getDb, autoMergeExpired } from "@/lib/db";
  * Proposals whose TTL has passed with no objections get auto-merged.
  * Can be called as a cron job or manually.
  */
+export async function POST() {
+  return GET();
+}
+
 export async function GET() {
   const db = await getDb();
   const merged = await autoMergeExpired(db);

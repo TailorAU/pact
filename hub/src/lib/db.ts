@@ -958,9 +958,9 @@ export async function updateConsensusStatuses(db: DbClient) {
 
     const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
 
-    // Axiom-tier topics are foundational — they don't require dependency chains.
-    // Other tiers only require deps if they actually have them (non-blocking for bootstrap).
-    const depsOk = tier === "axiom" || unmetDeps === 0;
+    // During bootstrap, dependency chains are circular and would block all consensus.
+    // Dependency checking will be re-enabled once the initial knowledge graph is established.
+    const depsOk = true; // TODO: Re-enable after bootstrap: tier === "axiom" || unmetDeps === 0;
 
     if (
       pending === 0 &&                    // Debate has settled
@@ -1047,8 +1047,8 @@ export async function updateConsensusStatuses(db: DbClient) {
     const consensusSince = t.consensus_since as string;
     const unmetDeps = t.unmetDependencies as number;
 
-    // Axiom-tier topics are exempt from dependency checks (they're foundational)
-    const depsOkForBreaking = tier === "axiom" || unmetDeps === 0;
+    // During bootstrap, skip dependency checks (circular chains block everything)
+    const depsOkForBreaking = true; // TODO: Re-enable: tier === "axiom" || unmetDeps === 0;
 
     // Check if consensus has broken (alignment dropped, new pending proposals, or dependency lost)
     if (alignmentRatio < CONSENSUS_RATIO || aligned < requiredAgents || pending > 0 || !depsOkForBreaking) {

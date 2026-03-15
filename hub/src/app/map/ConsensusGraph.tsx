@@ -89,15 +89,15 @@ const TIER_COLORS: Record<string, string> = {
 
 const TIER_ORDER = ["axiom", "empirical", "institutional", "interpretive", "conjecture"];
 const TIER_RADIUS: Record<string, number> = {
-  axiom: 20,
-  empirical: 60,
-  institutional: 100,
-  interpretive: 140,
-  conjecture: 180,
-  convention: 60,
-  practice: 100,
-  policy: 140,
-  frontier: 180,
+  axiom: 40,
+  empirical: 100,
+  institutional: 160,
+  interpretive: 220,
+  conjecture: 280,
+  convention: 100,
+  practice: 160,
+  policy: 220,
+  frontier: 280,
 };
 
 const AGENT_COLOR = "#6366f1";
@@ -155,7 +155,8 @@ export default function ConsensusGraph() {
           const isVerified = ["locked", "stable", "consensus"].includes(t.status);
           const isChallenged = t.status === "challenged";
           const tierColor = TIER_COLORS[t.tier] ?? "#6b7280";
-          const baseColor = isVerified ? LOCKED_GOLD : isChallenged ? CHALLENGED_RED : tierColor;
+          // Always use tier color so the graph shows knowledge diversity; verified status shown via halo
+          const baseColor = isChallenged ? CHALLENGED_RED : tierColor;
           const hasBounty = (t.bountyEscrow ?? 0) > 0;
 
           return {
@@ -167,7 +168,7 @@ export default function ConsensusGraph() {
             val: 3 + Math.min(t.participantCount * 1.5, 12) + (hasBounty ? 3 : 0),
             color: baseColor,
             emissive: baseColor,
-            emissiveIntensity: isVerified ? 0.8 : isChallenged ? 0.6 : hasBounty ? 0.5 : 0.3,
+            emissiveIntensity: isVerified ? 0.4 : isChallenged ? 0.35 : hasBounty ? 0.3 : 0.2,
             data: t,
           };
         });
@@ -198,20 +199,14 @@ export default function ConsensusGraph() {
           };
         });
 
-        const regLinks: GraphLink[] = (data.links as LinkData[]).map((l) => ({
-          source: `agent-${l.agent_id}`,
-          target: `topic-${l.topic_id}`,
-          type: "registration" as const,
-          color: l.active ? "rgba(74, 222, 128, 0.15)" : "rgba(55, 65, 81, 0.08)",
-          width: 0.3,
-          particles: 0,
-          particleColor: "transparent",
-          curvature: 0,
-        }));
+        // Skip registration links — with 68 agents × 97 topics = 1460 links,
+        // they overwhelm the force simulation and clump everything together.
+        // Only show dependency links which reveal the knowledge structure.
+        const regLinks: GraphLink[] = [];
 
         setGraphData({
-          nodes: [...topicNodes, ...agentNodes],
-          links: [...depLinks, ...regLinks],
+          nodes: [...topicNodes],
+          links: [...depLinks],
         });
         setLoading(false);
       } catch (e: unknown) {
@@ -236,9 +231,9 @@ export default function ConsensusGraph() {
         if (bloomAdded.current) return;
         const bloomPass = new UnrealBloomPass(
           new THREE.Vector2(dimensions.width, dimensions.height),
-          1.8,  // strength
-          0.6,  // radius
-          0.05  // threshold
+          0.6,  // strength (was 1.8 — way too bright with many verified nodes)
+          0.4,  // radius
+          0.3   // threshold (was 0.05 — now only bright nodes bloom)
         );
         fg.postProcessingComposer().addPass(bloomPass);
         bloomAdded.current = true;
@@ -248,9 +243,9 @@ export default function ConsensusGraph() {
     }
 
     // Camera zoom-in animation
-    fg.cameraPosition({ z: 500 }, undefined, 0);
+    fg.cameraPosition({ z: 900 }, undefined, 0);
     setTimeout(() => {
-      fg.cameraPosition({ z: 280 }, undefined, 2000);
+      fg.cameraPosition({ z: 600 }, undefined, 2000);
     }, 300);
 
     // Add ambient + point lights for emissive materials
@@ -271,19 +266,19 @@ export default function ConsensusGraph() {
 
     // Charge: topics repel strongly, agents weakly
     fg.d3Force("charge")?.strength((node: GraphNode) =>
-      node.type === "topic" ? -120 : -8
+      node.type === "topic" ? -400 : -20
     );
 
     // Link distance: dependencies further apart, registrations closer
     fg.d3Force("link")?.distance((link: GraphLink) =>
-      link.type === "dependency" ? 70 : 30
+      link.type === "dependency" ? 120 : 50
     );
 
     // Radial force: pull topics toward their tier orbit
     import("d3-force-3d").then((d3) => {
       if (d3.forceRadial) {
         fg.d3Force("radial", d3.forceRadial(
-          (node: GraphNode) => node.type === "topic" ? (TIER_RADIUS[node.tier ?? "practice"] ?? 100) : 220,
+          (node: GraphNode) => node.type === "topic" ? (TIER_RADIUS[node.tier ?? "practice"] ?? 160) : 340,
           0, 0, 0
         ).strength((node: GraphNode) => node.type === "topic" ? 0.3 : 0.05));
       }
@@ -333,23 +328,24 @@ export default function ConsensusGraph() {
     });
     group.add(new THREE.Mesh(geo, mat));
 
-    // Verified: outer wireframe halo
+    // Verified: subtle wireframe halo in the tier's own color
     if (isVerified) {
-      const haloGeo = new THREE.SphereGeometry(radius + 2.5, 16, 16);
+      const tierCol = TIER_COLORS[(node.data as TopicNode).tier] ?? "#6b7280";
+      const haloGeo = new THREE.SphereGeometry(radius + 2, 12, 12);
       const haloMat = new THREE.MeshBasicMaterial({
-        color: LOCKED_GOLD,
+        color: tierCol,
         wireframe: true,
         transparent: true,
-        opacity: 0.25,
+        opacity: 0.15,
       });
       group.add(new THREE.Mesh(haloGeo, haloMat));
 
-      // Second outer ring
-      const ringGeo = new THREE.RingGeometry(radius + 3.5, radius + 4, 32);
+      // Outer ring in tier color
+      const ringGeo = new THREE.RingGeometry(radius + 3, radius + 3.5, 32);
       const ringMat = new THREE.MeshBasicMaterial({
-        color: LOCKED_GOLD,
+        color: tierCol,
         transparent: true,
-        opacity: 0.4,
+        opacity: 0.25,
         side: THREE.DoubleSide,
       });
       group.add(new THREE.Mesh(ringGeo, ringMat));
@@ -533,8 +529,8 @@ export default function ConsensusGraph() {
         linkDirectionalParticleColor={((link: any) => link.particleColor) as any}
 
         // Performance
-        warmupTicks={80}
-        cooldownTicks={200}
+        warmupTicks={150}
+        cooldownTicks={300}
       />
       {/* eslint-enable @typescript-eslint/no-explicit-any */}
 

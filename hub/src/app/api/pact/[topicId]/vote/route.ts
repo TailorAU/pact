@@ -144,15 +144,37 @@ export async function POST(
     const depTitle = cleanTitle.sanitized!;
     const depTier = dependencyTier && VALID_TIERS.includes(dependencyTier) ? dependencyTier : "empirical";
 
-    // Check if a topic with similar title already exists (case-insensitive)
+    // Fuzzy dedup: exact match first, then keyword overlap
     const existing = await db.execute({
       sql: "SELECT id, title FROM topics WHERE LOWER(title) = LOWER(?)",
       args: [depTitle],
     });
 
-    if (existing.rows[0]) {
-      // Link to existing topic
-      needInfoTopicId = existing.rows[0].id as string;
+    let fuzzyMatchId: string | null = null;
+
+    // If no exact match, check for high keyword overlap to prevent near-dupes
+    if (existing.rows.length === 0) {
+      const words = depTitle.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w: string) => w.length >= 3);
+      if (words.length >= 3) {
+        const distinctiveWord = words.sort((a: string, b: string) => b.length - a.length)[0];
+        const candidates = await db.execute({
+          sql: "SELECT id, title FROM topics WHERE LOWER(title) LIKE ? LIMIT 50",
+          args: [`%${distinctiveWord}%`],
+        });
+        for (const row of candidates.rows) {
+          const cWords = (row.title as string).toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w: string) => w.length >= 3);
+          const overlap = words.filter((w: string) => cWords.includes(w)).length;
+          if (overlap / Math.max(words.length, cWords.length) >= 0.75) {
+            fuzzyMatchId = row.id as string;
+            break;
+          }
+        }
+      }
+    }
+
+    if (existing.rows[0] || fuzzyMatchId) {
+      // Link to existing topic (exact or fuzzy match)
+      needInfoTopicId = fuzzyMatchId || (existing.rows[0].id as string);
     } else {
       // Create new dependency topic in "proposed" status
       needInfoTopicId = uuid();

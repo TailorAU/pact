@@ -100,6 +100,12 @@ export interface ProcessResult {
   errors: string[];
 }
 
+// ── Anti-bloat limits ──────────────────────────────────────────────
+// These prevent the assumption chain from spawning unbounded topics.
+const MAX_ASSUMPTIONS_PER_PARENT = 10;   // Max distinct assumption topics linked to one parent
+const MAX_NEW_TOPICS_PER_CALL = 3;       // Max NEW topics a single declaration can create
+const MAX_TOPICS_PER_HOUR = 20;          // Global rate limit on auto-created assumption topics
+
 /**
  * Process assumption declarations for a topic.
  *
@@ -109,6 +115,9 @@ export interface ProcessResult {
  * 3. Add `assumes` dependency from parent to assumption topic
  * 4. Seed bounty from parent's escrow (5% per assumption, capped at 50, min 10)
  * 5. Record declaration in assumption_declarations table
+ *
+ * Anti-bloat: Caps new topic creation per parent and globally per hour.
+ * Linking to existing topics is always allowed.
  */
 export async function processAssumptions(
   db: DbClient,
@@ -117,6 +126,31 @@ export async function processAssumptions(
   assumptions: AssumptionEntry[]
 ): Promise<ProcessResult> {
   const result: ProcessResult = { created: [], linked: [], errors: [] };
+
+  // ── Anti-bloat check 1: How many assumptions does this parent already have?
+  const existingAssumptions = await db.execute({
+    sql: "SELECT COUNT(DISTINCT assumption_topic_id) as cnt FROM assumption_declarations WHERE topic_id = ?",
+    args: [parentTopicId],
+  });
+  const currentAssumptionCount = (existingAssumptions.rows[0]?.cnt as number) || 0;
+  if (currentAssumptionCount >= MAX_ASSUMPTIONS_PER_PARENT) {
+    // Still allow linking to existing topics, but don't create new ones
+    result.errors.push(
+      `This topic already has ${currentAssumptionCount} assumptions (max ${MAX_ASSUMPTIONS_PER_PARENT}). ` +
+      `You can link to existing topics via { topicId } but cannot create new ones.`
+    );
+  }
+
+  // ── Anti-bloat check 2: Global hourly rate limit on NEW assumption topics
+  const recentCreations = await db.execute({
+    sql: `SELECT COUNT(*) as cnt FROM assumption_declarations
+          WHERE created_new = 1 AND created_at > datetime('now', '-1 hour')`,
+    args: [],
+  });
+  const recentCount = (recentCreations.rows[0]?.cnt as number) || 0;
+  const globalBudgetLeft = Math.max(0, MAX_TOPICS_PER_HOUR - recentCount);
+
+  let newTopicsCreatedThisCall = 0;
 
   // Query parent topic's escrowed bounty for seeding
   const escrowResult = await db.execute({
@@ -158,17 +192,57 @@ export async function processAssumptions(
         continue;
       }
 
-      // Case-insensitive dedup against existing topics
+      // Fuzzy dedup: check exact match first, then keyword overlap
+      // Step 1: exact match
       const dup = await db.execute({
         sql: "SELECT id, title FROM topics WHERE LOWER(title) = LOWER(?)",
         args: [cleanTitle],
       });
 
-      if (dup.rows.length > 0) {
+      let fuzzyMatchId: string | null = null;
+      let fuzzyMatchTitle: string | null = null;
+
+      // Step 2: if no exact match, check for high keyword overlap
+      if (dup.rows.length === 0) {
+        const words = cleanTitle.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length >= 3);
+        if (words.length >= 3) {
+          const distinctiveWord = [...words].sort((a, b) => b.length - a.length)[0];
+          const candidates = await db.execute({
+            sql: "SELECT id, title FROM topics WHERE LOWER(title) LIKE ? LIMIT 50",
+            args: [`%${distinctiveWord}%`],
+          });
+          for (const row of candidates.rows) {
+            const candidateWords = (row.title as string).toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length >= 3);
+            const overlap = words.filter(w => candidateWords.includes(w)).length;
+            const ratio = overlap / Math.max(words.length, candidateWords.length);
+            if (ratio >= 0.75) {
+              fuzzyMatchId = row.id as string;
+              fuzzyMatchTitle = row.title as string;
+              break;
+            }
+          }
+        }
+      }
+
+      if (dup.rows.length > 0 || fuzzyMatchId) {
         // Already exists → link instead of creating
-        assumptionTopicId = dup.rows[0].id as string;
-        assumptionTitle = dup.rows[0].title as string;
+        assumptionTopicId = fuzzyMatchId || (dup.rows[0].id as string);
+        assumptionTitle = fuzzyMatchTitle || (dup.rows[0].title as string);
       } else {
+        // ── Anti-bloat: check creation budgets before spawning ──
+        if (currentAssumptionCount + newTopicsCreatedThisCall >= MAX_ASSUMPTIONS_PER_PARENT) {
+          result.errors.push(`assumptions[${i}]: parent topic at assumption limit (${MAX_ASSUMPTIONS_PER_PARENT}). Link to an existing topic instead.`);
+          continue;
+        }
+        if (newTopicsCreatedThisCall >= MAX_NEW_TOPICS_PER_CALL) {
+          result.errors.push(`assumptions[${i}]: max ${MAX_NEW_TOPICS_PER_CALL} new topics per call. Link to existing topics for the rest.`);
+          continue;
+        }
+        if (newTopicsCreatedThisCall >= globalBudgetLeft) {
+          result.errors.push(`assumptions[${i}]: global hourly limit reached (${MAX_TOPICS_PER_HOUR}/hour). Try again later or link to existing topics.`);
+          continue;
+        }
+
         // Create new assumption topic
         const tier = canonicalizeTier(entry.tier && VALID_TIERS.includes(entry.tier) ? entry.tier : "axiom");
         const created = await createTopicRecord(db, {
@@ -180,6 +254,7 @@ export async function processAssumptions(
         assumptionTopicId = created.topicId;
         assumptionTitle = created.title;
         createdNew = true;
+        newTopicsCreatedThisCall++;
 
         // Auto-register the declaring agent as first participant
         await db.execute({

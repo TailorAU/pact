@@ -149,13 +149,33 @@ export async function POST(req: NextRequest) {
 
   const db = await getDb();
 
-  // Check for duplicate title
-  const existing = await db.execute({ sql: "SELECT id FROM topics WHERE title = ?", args: [cleanTitle] });
+  // Check for duplicate title (exact match)
+  const existing = await db.execute({ sql: "SELECT id FROM topics WHERE title = ? OR LOWER(title) = LOWER(?)", args: [cleanTitle, cleanTitle] });
   if (existing.rows.length > 0) {
     return NextResponse.json(
       { error: "A topic with this exact title already exists", existingTopicId: existing.rows[0].id },
       { status: 409 }
     );
+  }
+
+  // Fuzzy dedup: reject near-duplicate titles (75%+ keyword overlap)
+  const words = cleanTitle.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w: string) => w.length >= 3);
+  if (words.length >= 3) {
+    const distinctiveWord = [...words].sort((a: string, b: string) => b.length - a.length)[0];
+    const candidates = await db.execute({
+      sql: "SELECT id, title FROM topics WHERE LOWER(title) LIKE ? LIMIT 50",
+      args: [`%${distinctiveWord}%`],
+    });
+    for (const row of candidates.rows) {
+      const cWords = (row.title as string).toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w: string) => w.length >= 3);
+      const overlap = words.filter((w: string) => cWords.includes(w)).length;
+      if (overlap / Math.max(words.length, cWords.length) >= 0.75) {
+        return NextResponse.json(
+          { error: "A topic with a very similar title already exists", existingTopicId: row.id as string, existingTitle: row.title },
+          { status: 409 }
+        );
+      }
+    }
   }
 
   // Validate dependencies if provided — they should be existing topics (ideally locked)

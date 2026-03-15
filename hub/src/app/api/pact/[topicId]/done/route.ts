@@ -89,9 +89,9 @@ export async function POST(
 
     if (assumptions.length > 0) {
       // Validate and process assumptions
-      if (assumptions.length > 20) {
+      if (assumptions.length > 5) {
         return NextResponse.json({
-          error: "Too many assumptions declared at once (max 20).",
+          error: "Too many assumptions declared at once (max 5). Focus on the most important foundational dependencies.",
         }, { status: 400 });
       }
 

@@ -135,8 +135,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Send { confirm: 'FORCE_ALL' } to force all open topics" }, { status: 400 });
   }
 
-  const result = await db.execute(`UPDATE topics SET status = 'consensus', consensus_ratio = 1.0, consensus_voters = 3, consensus_since = datetime('now') WHERE status IN ('open', 'proposed')`);
+  await db.execute(`UPDATE topics SET status = 'consensus', consensus_ratio = 1.0, consensus_voters = 3, consensus_since = datetime('now') WHERE status IN ('open', 'proposed')`);
   const after = await db.execute(`SELECT status, COUNT(*) as c FROM topics GROUP BY status`);
 
-  return NextResponse.json({ forced: result.rowsAffected, afterStatuses: after.rows });
+  return NextResponse.json({ forced: true, afterStatuses: after.rows });
 }

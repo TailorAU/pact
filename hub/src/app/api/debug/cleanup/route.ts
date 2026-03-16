@@ -89,7 +89,38 @@ export async function POST(req: Request) {
       return NextResponse.json({ action: "fix-tiers", results });
     }
 
-    return NextResponse.json({ error: "Unknown action. Use 'remove-duplicates' or 'fix-tiers'" }, { status: 400 });
+    if (action === "add-dependencies") {
+      const deps: { topicId: string; dependsOn: string; relationship: string }[] = body.dependencies || [];
+      const results = [];
+      for (const dep of deps) {
+        try {
+          // Check both topics exist
+          const [t1, t2] = await Promise.all([
+            db.execute({ sql: "SELECT id, title FROM topics WHERE id = ?", args: [dep.topicId] }),
+            db.execute({ sql: "SELECT id, title FROM topics WHERE id = ?", args: [dep.dependsOn] }),
+          ]);
+          if (t1.rows.length === 0 || t2.rows.length === 0) {
+            results.push({ ...dep, status: "topic_not_found" });
+            continue;
+          }
+          await db.execute({
+            sql: `INSERT OR IGNORE INTO topic_dependencies (topic_id, depends_on, relationship) VALUES (?, ?, ?)`,
+            args: [dep.topicId, dep.dependsOn, dep.relationship || "builds_on"],
+          });
+          results.push({
+            from: (t1.rows[0].title as string).slice(0, 50),
+            to: (t2.rows[0].title as string).slice(0, 50),
+            relationship: dep.relationship,
+            status: "added",
+          });
+        } catch (e) {
+          results.push({ ...dep, status: `error: ${e}` });
+        }
+      }
+      return NextResponse.json({ action: "add-dependencies", count: results.filter(r => r.status === "added").length, results });
+    }
+
+    return NextResponse.json({ error: "Unknown action. Use 'remove-duplicates', 'fix-tiers', or 'add-dependencies'" }, { status: 400 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

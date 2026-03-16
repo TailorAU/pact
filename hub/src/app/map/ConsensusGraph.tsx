@@ -105,14 +105,14 @@ const TIER_Y: Record<string, number> = {
 
 // Domain detection: keyword → domain cluster
 const DOMAIN_KEYWORDS: Record<string, string[]> = {
-  mathematics: ["math", "theorem", "axiom", "proof", "algebra", "calculus", "geometry", "number", "set theory", "zfc", "induction", "hilbert", "godel", "goedel", "incompleteness", "excluded middle", "modus ponens", "non-contradiction", "identity", "probability", "variations", "prime", "collatz", "completeness"],
-  physics: ["relativity", "quantum", "energy", "light", "gravity", "gravitational", "thermodynamic", "conservation", "speed of light", "spacetime", "newton", "noether", "symmetr", "cosmolog", "big bang", "microwave background", "atomic", "covalent", "molecule"],
-  computing: ["turing", "halting", "computational", "algorithm", "cap theorem", "http", "tls", "quic", "church-turing", "machine learning", "language model", "prompt injection", "rlhf", "ai-generated", "ai system", "ai act", "owasp", "pci dss", "iso 27001", "nist", "cybersecurity"],
-  biology: ["dna", "mrna", "vaccine", "genome", "molecular biology", "human body", "temperature", "thermoregulation", "physiology", "clinical trial", "randomized controlled"],
-  law: ["constitution", "amendment", "article", "gdpr", "hipaa", "ccpa", "section 230", "sox", "fcra", "privacy", "charter", "refugee", "treaty", "parliamentary", "criminal code", "right to", "data protection", "human rights", "renounce", "war"],
-  economics: ["inflation", "currency", "purchasing power", "bitcoin", "ethereum", "proof-of-work", "proof-of-stake", "pricing", "price-fixing", "basel", "fatf", "fed", "reserve"],
-  standards: ["iso", "wcag", "accessibility", "si system", "units", "measurement", "pci", "soc"],
-  environment: ["co2", "carbon", "climate", "atmospheric", "surface temperature"],
+  mathematics: ["math", "axiom", "proof", "algebra", "calculus", "geometry", "number", "set theory", "zfc", "induction", "hilbert", "godel", "goedel", "incompleteness", "excluded middle", "modus ponens", "non-contradiction", "identity", "probability", "variations", "prime", "collatz", "completeness", "postulate", "euclidean", "euclid"],
+  physics: ["relativity", "quantum", "energy", "light", "gravity", "gravitational", "thermodynamic", "conservation", "speed of light", "spacetime", "newton", "noether", "symmetr", "cosmolog", "big bang", "microwave background", "atomic", "covalent", "molecule", "boils", "boiling", "celsius", "kelvin", "pressure", "h2o", "water molecule"],
+  computing: ["turing", "halting", "computational", "algorithm", "cap theorem", "distributed system", "http", "tls", "quic", "church-turing", "machine learning", "language model", "prompt injection", "rlhf", "ai-generated", "ai system", "ai act", "owasp", "cybersecurity"],
+  biology: ["dna", "mrna", "vaccine", "genome", "molecular biology", "human body", "body core temperature", "thermoregulation", "physiology", "clinical trial", "randomized controlled", "base pairs", "chromosome"],
+  law: ["constitution", "amendment", "article", "gdpr", "hipaa", "ccpa", "section 230", "sox", "fcra", "privacy act", "charter", "refugee", "treaty", "parliamentary", "criminal code", "right to", "data protection", "human rights", "renounce", "war", "act 1", "act 2", "cmsha", "coal mining", "work health", "fair work", "unfair dismissal", "duty of care", "manslaughter", "legislation", "breach notification"],
+  economics: ["inflation", "currency", "purchasing power", "bitcoin", "ethereum", "proof-of-work", "proof-of-stake", "pricing", "price-fixing", "basel", "fatf", "fed", "reserve", "capital ratio", "tier 1"],
+  standards: ["iso 27001", "iso/iec", "wcag", "accessibility", "si base units", "si system", "units", "measurement", "pci dss", "pci security", "nist", "soc"],
+  environment: ["co2", "carbon", "climate", "surface temperature"],
 };
 
 // X-Z positions for each domain (spread in a meaningful ring)

@@ -115,3 +115,28 @@ export async function GET() {
     afterStatuses: afterResult.rows,
   });
 }
+
+// POST /api/debug/force-consensus — Force ALL open topics to consensus (bootstrap only)
+// Body: { "confirm": "FORCE_ALL" } or { "topicId": "..." }
+export async function POST(req: Request) {
+  const body = await req.json();
+  const db = await getDb();
+
+  if (body.topicId) {
+    // Force single topic
+    await db.execute({
+      sql: `UPDATE topics SET status = 'consensus', consensus_ratio = 1.0, consensus_voters = 3, consensus_since = datetime('now') WHERE id = ?`,
+      args: [body.topicId],
+    });
+    return NextResponse.json({ forced: 1, topicId: body.topicId });
+  }
+
+  if (body.confirm !== "FORCE_ALL") {
+    return NextResponse.json({ error: "Send { confirm: 'FORCE_ALL' } to force all open topics" }, { status: 400 });
+  }
+
+  const result = await db.execute(`UPDATE topics SET status = 'consensus', consensus_ratio = 1.0, consensus_voters = 3, consensus_since = datetime('now') WHERE status IN ('open', 'proposed')`);
+  const after = await db.execute(`SELECT status, COUNT(*) as c FROM topics GROUP BY status`);
+
+  return NextResponse.json({ forced: result.rowsAffected, afterStatuses: after.rows });
+}

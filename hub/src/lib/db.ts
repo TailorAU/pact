@@ -200,6 +200,7 @@ async function initSchema(db: DbClient) {
       topic_id TEXT NOT NULL REFERENCES topics(id),
       depends_on TEXT NOT NULL REFERENCES topics(id),
       relationship TEXT NOT NULL DEFAULT 'builds_on',
+      justification TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY(topic_id, depends_on)
     )`,
@@ -278,6 +279,8 @@ async function initSchema(db: DbClient) {
     "ALTER TABLE api_keys ADD COLUMN email TEXT",
     // Axiom API: tier label (free, starter, pro)
     "ALTER TABLE api_keys ADD COLUMN tier TEXT NOT NULL DEFAULT 'free'",
+    // Dependency justification — first-principles reasoning for why the link exists
+    "ALTER TABLE topic_dependencies ADD COLUMN justification TEXT",
   ];
   for (const m of migrations) {
     try { await db.execute(m); } catch { /* Column already exists — ignore */ }

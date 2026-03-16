@@ -9,5 +9,6 @@
       "autoPort": false,
       "cwd": "hub"
     }
-  ]
+  ],
+  "autoVerify": false
 }

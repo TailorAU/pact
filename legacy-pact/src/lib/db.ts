@@ -30,11 +30,12 @@ function getPool(): pg.Pool {
 }
 
 /** Convert SQLite-style ? positional params to Postgres $1, $2, ...
- *  Also quotes camelCase column aliases to preserve case. */
+ *  Also double-quotes all camelCase identifiers (column aliases) so
+ *  Postgres preserves case in SELECT, ORDER BY, GROUP BY, etc. */
 function pgify(sql: string): string {
   let idx = 0;
   let s = sql.replace(/\?/g, () => `$${++idx}`);
-  s = s.replace(/\bas\s+([a-z][a-zA-Z]*[A-Z]\w*)/g, 'as "$1"');
+  s = s.replace(/\b([a-z][a-zA-Z]*[A-Z]\w*)\b/g, '"$1"');
   return s;
 }
 

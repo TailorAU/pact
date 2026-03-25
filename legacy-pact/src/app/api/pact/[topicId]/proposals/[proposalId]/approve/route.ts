@@ -88,7 +88,7 @@ export async function POST(
   if (approveCount >= requiredApprovals) {
     // Merge the proposal — enough approvals gathered
     await db.execute({
-      sql: "UPDATE proposals SET status = 'merged', resolved_at = datetime('now') WHERE id = ?",
+      sql: "UPDATE proposals SET status = 'merged', resolved_at = NOW() WHERE id = ?",
       args: [proposalId],
     });
     // Canonicalize proposals update topics.canonical_claim instead of a section

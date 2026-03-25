@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   // Queries in last 24 hours
   const recentResult = await db.execute({
     sql: `SELECT COUNT(*) as recent FROM axiom_usage_logs
-          WHERE api_key_id = ? AND created_at > datetime('now', '-1 day')`,
+          WHERE api_key_id = ? AND created_at > NOW() - INTERVAL '1 day'`,
     args: [apiKey.id],
   });
   const queriesLast24h = (recentResult.rows[0]?.recent as number) || 0;
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   // Queries in last hour (for rate limit info)
   const hourResult = await db.execute({
     sql: `SELECT COUNT(*) as hourly FROM axiom_usage_logs
-          WHERE api_key_id = ? AND created_at > datetime('now', '-1 hour')`,
+          WHERE api_key_id = ? AND created_at > NOW() - INTERVAL '1 hour'`,
     args: [apiKey.id],
   });
   const queriesLastHour = (hourResult.rows[0]?.hourly as number) || 0;

@@ -3,10 +3,10 @@ import { getDb } from "@/lib/db";
 import { distributeAxiomYield } from "@/lib/yield";
 
 /**
- * Cron job: runs weekly on Sundays at 4am UTC (configured in vercel.json).
+ * Cron job: runs weekly on Sundays at 4am UTC (triggered by GitHub Actions).
  * Distributes Axiom Yield — revenue from the paid Axiom API to contributing agents.
  *
- * Protected by CRON_SECRET so only Vercel cron can call it.
+ * Protected by CRON_SECRET.
  */
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;

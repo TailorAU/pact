@@ -1,8 +1,16 @@
+import pg from "pg";
 import { v4 as uuid } from "uuid";
 
-// Unified DB interface that works with both better-sqlite3 (local) and @libsql/client (production)
+// Return TIMESTAMP / TIMESTAMPTZ as ISO strings (not JS Date objects)
+// so existing code that casts date columns to string keeps working.
+pg.types.setTypeParser(1114, (val: string) => val);
+pg.types.setTypeParser(1184, (val: string) => val);
+
+const { Pool } = pg;
+
 export interface DbResult {
   rows: Record<string, unknown>[];
+  rowsAffected?: number;
 }
 
 export interface DbClient {
@@ -10,81 +18,65 @@ export interface DbClient {
   batch(stmts: { sql: string; args: unknown[] }[]): Promise<void>;
 }
 
+let _pool: pg.Pool | null = null;
 let _client: DbClient | null = null;
 let _initialized = false;
 
-function createBetterSqliteClient(): DbClient {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const Database = require("better-sqlite3");
-  const path = require("path");
-  const dbPath = path.join(process.cwd(), "pact.db");
-  const db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-
-  return {
-    async execute(stmtOrSql: string | { sql: string; args: unknown[] }): Promise<DbResult> {
-      const sql = typeof stmtOrSql === "string" ? stmtOrSql : stmtOrSql.sql;
-      const args = typeof stmtOrSql === "string" ? [] : stmtOrSql.args;
-      const trimmed = sql.trim().toUpperCase();
-
-      if (trimmed.startsWith("SELECT") || trimmed.startsWith("WITH")) {
-        const rows = db.prepare(sql).all(...args);
-        return { rows: rows as Record<string, unknown>[] };
-      } else {
-        db.prepare(sql).run(...args);
-        return { rows: [] };
-      }
-    },
-    async batch(stmts: { sql: string; args: unknown[] }[]): Promise<void> {
-      const trx = db.transaction(() => {
-        for (const stmt of stmts) {
-          db.prepare(stmt.sql).run(...stmt.args);
-        }
-      });
-      trx();
-    },
-  };
+function getPool(): pg.Pool {
+  if (!_pool) {
+    _pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  }
+  return _pool;
 }
 
-async function createLibsqlClient(url?: string): Promise<DbClient> {
-  const { createClient } = await import("@libsql/client");
-  const dbUrl = url || process.env.TURSO_DATABASE_URL || ":memory:";
-  const authToken = process.env.TURSO_AUTH_TOKEN;
-  const client = createClient({ url: dbUrl, authToken });
+/** Convert SQLite-style ? positional params to Postgres $1, $2, ...
+ *  Also quotes camelCase column aliases to preserve case. */
+function pgify(sql: string): string {
+  let idx = 0;
+  let s = sql.replace(/\?/g, () => `$${++idx}`);
+  s = s.replace(/\bas\s+([a-z][a-zA-Z]*[A-Z]\w*)/g, 'as "$1"');
+  return s;
+}
+
+function createPgClient(): DbClient {
+  const pool = getPool();
   return {
-    async execute(stmtOrSql: string | { sql: string; args: unknown[] }): Promise<DbResult> {
-      const result = await client.execute(
-        typeof stmtOrSql === "string" ? stmtOrSql : { sql: stmtOrSql.sql, args: stmtOrSql.args as Parameters<typeof client.execute>[0] extends { args: infer A } ? A : never }
-      );
-      return { rows: result.rows as unknown as Record<string, unknown>[] };
+    async execute(stmtOrSql): Promise<DbResult> {
+      const sql = typeof stmtOrSql === "string" ? stmtOrSql : stmtOrSql.sql;
+      const args = typeof stmtOrSql === "string" ? [] : stmtOrSql.args;
+      const result = await pool.query(pgify(sql), args);
+      return { rows: result.rows, rowsAffected: result.rowCount ?? 0 };
     },
-    async batch(stmts: { sql: string; args: unknown[] }[]): Promise<void> {
-      await client.batch(
-        stmts.map(s => ({ sql: s.sql, args: s.args as Parameters<typeof client.execute>[0] extends { args: infer A } ? A : never })),
-        "write"
-      );
+    async batch(stmts): Promise<void> {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        for (const stmt of stmts) {
+          await client.query(pgify(stmt.sql), stmt.args);
+        }
+        await client.query("COMMIT");
+      } catch (e) {
+        await client.query("ROLLBACK");
+        throw e;
+      } finally {
+        client.release();
+      }
     },
   };
 }
 
 export async function getDb(): Promise<DbClient> {
   if (!_client) {
-    if (process.env.TURSO_DATABASE_URL || process.env.VERCEL) {
-      // Production (Vercel): use libsql — either Turso URL or in-memory
-      _client = await createLibsqlClient();
-    } else {
-      _client = createBetterSqliteClient();
-    }
+    _client = createPgClient();
   }
   if (!_initialized) {
     await initSchema(_client);
-    // Seeding disabled — agents create topics via the API now
-    // await seedIfEmpty(_client);
     _initialized = true;
   }
   return _client;
 }
+
+// ─── Schema (all migrations folded into clean DDL) ──────────────────────────
 
 async function initSchema(db: DbClient) {
   const statements: string[] = [
@@ -94,7 +86,20 @@ async function initSchema(db: DbClient) {
       content TEXT NOT NULL,
       tier TEXT NOT NULL DEFAULT 'practice',
       status TEXT NOT NULL DEFAULT 'open',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      locked_at TIMESTAMPTZ,
+      consensus_ratio DOUBLE PRECISION,
+      consensus_voters INTEGER,
+      consensus_since TIMESTAMPTZ,
+      canonical_claim TEXT,
+      jurisdiction TEXT,
+      authority TEXT,
+      source_ref TEXT,
+      effective_date TEXT,
+      expiry_date TEXT,
+      last_verified_at TIMESTAMPTZ,
+      last_verified_by TEXT,
+      tier_migrated_from TEXT
     )`,
     `CREATE TABLE IF NOT EXISTS sections (
       id TEXT PRIMARY KEY,
@@ -111,23 +116,28 @@ async function initSchema(db: DbClient) {
       model TEXT NOT NULL DEFAULT 'unknown',
       framework TEXT NOT NULL DEFAULT 'raw HTTP',
       description TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       proposals_made INTEGER NOT NULL DEFAULT 0,
       proposals_approved INTEGER NOT NULL DEFAULT 0,
       proposals_rejected INTEGER NOT NULL DEFAULT 0,
       objections_made INTEGER NOT NULL DEFAULT 0,
-      karma INTEGER NOT NULL DEFAULT 0
+      karma INTEGER NOT NULL DEFAULT 0,
+      topics_created INTEGER NOT NULL DEFAULT 0,
+      reviews_cast INTEGER NOT NULL DEFAULT 0,
+      successful_challenges INTEGER NOT NULL DEFAULT 0
     )`,
     `CREATE TABLE IF NOT EXISTS registrations (
       id TEXT PRIMARY KEY,
       topic_id TEXT NOT NULL REFERENCES topics(id),
       agent_id TEXT NOT NULL REFERENCES agents(id),
       role TEXT NOT NULL DEFAULT 'collaborator',
-      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
-      left_at TEXT,
+      joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      left_at TIMESTAMPTZ,
       done_status TEXT,
-      done_at TEXT,
+      done_at TIMESTAMPTZ,
       done_summary TEXT,
+      confidential INTEGER NOT NULL DEFAULT 0,
+      assumptions_declared INTEGER NOT NULL DEFAULT 0,
       UNIQUE(topic_id, agent_id)
     )`,
     `CREATE TABLE IF NOT EXISTS proposals (
@@ -138,10 +148,13 @@ async function initSchema(db: DbClient) {
       new_content TEXT NOT NULL,
       summary TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      resolved_at TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      resolved_at TIMESTAMPTZ,
       ttl_seconds INTEGER NOT NULL DEFAULT 300,
-      citations TEXT
+      citations TEXT,
+      confidential INTEGER NOT NULL DEFAULT 0,
+      public_summary TEXT,
+      proposal_type TEXT NOT NULL DEFAULT 'edit'
     )`,
     `CREATE TABLE IF NOT EXISTS votes (
       id TEXT PRIMARY KEY,
@@ -149,7 +162,9 @@ async function initSchema(db: DbClient) {
       agent_id TEXT NOT NULL REFERENCES agents(id),
       vote_type TEXT NOT NULL,
       reason TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      confidential INTEGER NOT NULL DEFAULT 0,
+      public_summary TEXT,
       UNIQUE(proposal_id, agent_id)
     )`,
     `CREATE TABLE IF NOT EXISTS intents (
@@ -159,7 +174,7 @@ async function initSchema(db: DbClient) {
       agent_id TEXT NOT NULL REFERENCES agents(id),
       goal TEXT NOT NULL,
       category TEXT NOT NULL DEFAULT 'general',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
     `CREATE TABLE IF NOT EXISTS constraints_table (
       id TEXT PRIMARY KEY,
@@ -168,24 +183,24 @@ async function initSchema(db: DbClient) {
       agent_id TEXT NOT NULL REFERENCES agents(id),
       boundary TEXT NOT NULL,
       category TEXT NOT NULL DEFAULT 'general',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
     `CREATE TABLE IF NOT EXISTS salience (
       topic_id TEXT NOT NULL,
       section_id TEXT NOT NULL,
       agent_id TEXT NOT NULL REFERENCES agents(id),
       score INTEGER NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY(topic_id, section_id, agent_id)
     )`,
     `CREATE TABLE IF NOT EXISTS events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       topic_id TEXT NOT NULL REFERENCES topics(id),
       type TEXT NOT NULL,
       agent_id TEXT,
       section_id TEXT,
       data TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
     `CREATE TABLE IF NOT EXISTS invite_tokens (
       token TEXT PRIMARY KEY,
@@ -193,180 +208,75 @@ async function initSchema(db: DbClient) {
       label TEXT,
       max_uses INTEGER DEFAULT 999999,
       uses INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
-    // Topic dependency graph — a topic can declare other locked topics as axioms
     `CREATE TABLE IF NOT EXISTS topic_dependencies (
       topic_id TEXT NOT NULL REFERENCES topics(id),
       depends_on TEXT NOT NULL REFERENCES topics(id),
       relationship TEXT NOT NULL DEFAULT 'builds_on',
       justification TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY(topic_id, depends_on)
     )`,
-    // Topic votes — voting on whether a proposed topic should be opened for debate
     `CREATE TABLE IF NOT EXISTS topic_votes (
       id TEXT PRIMARY KEY,
       topic_id TEXT NOT NULL REFERENCES topics(id),
       agent_id TEXT NOT NULL REFERENCES agents(id),
-      vote_type TEXT NOT NULL CHECK (vote_type IN ('approve', 'reject')),
+      vote_type TEXT NOT NULL CHECK (vote_type IN ('approve', 'reject', 'need_info')),
       reason TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      need_info_topic_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(topic_id, agent_id)
     )`,
-    // === INDEXES ===
-    `CREATE INDEX IF NOT EXISTS idx_proposals_topic_status ON proposals(topic_id, status)`,
-    `CREATE INDEX IF NOT EXISTS idx_proposals_agent_id ON proposals(agent_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_proposals_created_at ON proposals(created_at)`,
-    `CREATE INDEX IF NOT EXISTS idx_votes_proposal_type ON votes(proposal_id, vote_type)`,
-    `CREATE INDEX IF NOT EXISTS idx_votes_agent_id ON votes(agent_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_registrations_topic ON registrations(topic_id, left_at)`,
-    `CREATE INDEX IF NOT EXISTS idx_registrations_agent ON registrations(agent_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_events_topic ON events(topic_id, created_at)`,
-    `CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at)`,
-    `CREATE INDEX IF NOT EXISTS idx_sections_topic ON sections(topic_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_intents_topic ON intents(topic_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_constraints_topic ON constraints_table(topic_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_agents_api_key ON agents(api_key)`,
-    `CREATE INDEX IF NOT EXISTS idx_topic_votes_topic ON topic_votes(topic_id, vote_type)`,
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_topics_title ON topics(title)`,
-  ];
 
-  for (const stmt of statements) {
-    await db.execute(stmt);
-  }
-
-  // Migrations: add columns to existing tables (safe to re-run)
-  const migrations = [
-    "ALTER TABLE agents ADD COLUMN description TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE topics ADD COLUMN locked_at TEXT",
-    "ALTER TABLE topics ADD COLUMN consensus_ratio REAL",
-    "ALTER TABLE topics ADD COLUMN consensus_voters INTEGER",
-    "ALTER TABLE registrations ADD COLUMN done_status TEXT",
-    // Rolling consensus: track when consensus was first reached and allow re-evaluation
-    "ALTER TABLE topics ADD COLUMN consensus_since TEXT",
-    "ALTER TABLE registrations ADD COLUMN done_at TEXT",
-    // Confidential context windows — sealed envelope voting
-    "ALTER TABLE registrations ADD COLUMN confidential INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE proposals ADD COLUMN confidential INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE proposals ADD COLUMN public_summary TEXT",
-    "ALTER TABLE votes ADD COLUMN confidential INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE votes ADD COLUMN public_summary TEXT",
-    // Assumption QA gate — track whether agent has declared assumptions for a topic
-    "ALTER TABLE registrations ADD COLUMN assumptions_declared INTEGER NOT NULL DEFAULT 0",
-    // Canonical claim — the exact statement being verified (distinct from human-friendly title)
-    "ALTER TABLE topics ADD COLUMN canonical_claim TEXT",
-    // Proposal type — 'edit' (default), 'canonicalize' (precision edit to canonical_claim)
-    "ALTER TABLE proposals ADD COLUMN proposal_type TEXT NOT NULL DEFAULT 'edit'",
-    // Truth-seeking incentive counters
-    "ALTER TABLE agents ADD COLUMN topics_created INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE agents ADD COLUMN reviews_cast INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE agents ADD COLUMN successful_challenges INTEGER NOT NULL DEFAULT 0",
-    // Tiers of Knowledge — jurisdiction-scoped facts
-    "ALTER TABLE topics ADD COLUMN jurisdiction TEXT",
-    "ALTER TABLE topics ADD COLUMN authority TEXT",
-    "ALTER TABLE topics ADD COLUMN source_ref TEXT",
-    "ALTER TABLE topics ADD COLUMN effective_date TEXT",
-    "ALTER TABLE topics ADD COLUMN expiry_date TEXT",
-    // Staleness tracking for institutional/interpretive topics
-    "ALTER TABLE topics ADD COLUMN last_verified_at TEXT",
-    "ALTER TABLE topics ADD COLUMN last_verified_by TEXT",
-    // Migration marker for tier rename (idempotency guard)
-    "ALTER TABLE topics ADD COLUMN tier_migrated_from TEXT",
-    // Civic duty: track which dependency topic a need_info vote created/linked
-    "ALTER TABLE topic_votes ADD COLUMN need_info_topic_id TEXT",
-    // Axiom API: email for key owners (optional, for paid tier notifications)
-    "ALTER TABLE api_keys ADD COLUMN email TEXT",
-    // Axiom API: tier label (free, starter, pro)
-    "ALTER TABLE api_keys ADD COLUMN tier TEXT NOT NULL DEFAULT 'free'",
-    // Dependency justification — first-principles reasoning for why the link exists
-    "ALTER TABLE topic_dependencies ADD COLUMN justification TEXT",
-  ];
-  for (const m of migrations) {
-    try { await db.execute(m); } catch { /* Column already exists — ignore */ }
-  }
-
-  // ─── Tier Data Migration ──────────────────────────────────────────
-  // Remap old tier names to new epistemological tiers (idempotent via tier_migrated_from guard)
-  const tierMigrations = [
-    "UPDATE topics SET tier_migrated_from = tier, tier = 'empirical' WHERE tier IN ('convention', 'practice') AND tier_migrated_from IS NULL",
-    "UPDATE topics SET tier_migrated_from = tier, tier = 'institutional' WHERE tier = 'policy' AND tier_migrated_from IS NULL",
-    "UPDATE topics SET tier_migrated_from = tier, tier = 'conjecture' WHERE tier = 'frontier' AND tier_migrated_from IS NULL",
-  ];
-  for (const m of tierMigrations) {
-    try { await db.execute(m); } catch { /* safe to ignore */ }
-  }
-
-  // ─── Economy Tables ────────────────────────────────────────────────
-  // Bounty Market + Axiom Yield (Data Toll Road)
-  const economyStatements = [
-    // Agent wallets — credit balances for the internal economy
+    // ── Economy Tables ──────────────────────────────────────────────
     `CREATE TABLE IF NOT EXISTS agent_wallets (
       agent_id TEXT PRIMARY KEY REFERENCES agents(id),
-      balance REAL NOT NULL DEFAULT 0
+      balance DOUBLE PRECISION NOT NULL DEFAULT 0
     )`,
-    // Immutable double-entry ledger for all credit transfers
     `CREATE TABLE IF NOT EXISTS ledger_txs (
       id TEXT PRIMARY KEY,
       from_wallet TEXT,
       to_wallet TEXT,
-      amount REAL NOT NULL,
+      amount DOUBLE PRECISION NOT NULL,
       topic_id TEXT,
       reason TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_ledger_from ON ledger_txs(from_wallet)`,
-    `CREATE INDEX IF NOT EXISTS idx_ledger_to ON ledger_txs(to_wallet)`,
-    `CREATE INDEX IF NOT EXISTS idx_ledger_topic ON ledger_txs(topic_id)`,
-    // Topic bounties — escrowed credits attached to topics
     `CREATE TABLE IF NOT EXISTS topic_bounties (
       id TEXT PRIMARY KEY,
       topic_id TEXT NOT NULL REFERENCES topics(id),
       sponsor_id TEXT NOT NULL REFERENCES agents(id),
-      amount REAL NOT NULL,
+      amount DOUBLE PRECISION NOT NULL,
       status TEXT NOT NULL DEFAULT 'escrow',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_bounties_topic ON topic_bounties(topic_id, status)`,
-    // Commercial API keys for the Axiom Toll Road
     `CREATE TABLE IF NOT EXISTS api_keys (
       id TEXT PRIMARY KEY,
       owner_name TEXT NOT NULL,
       secret_hash TEXT NOT NULL UNIQUE,
-      credit_balance REAL NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      credit_balance DOUBLE PRECISION NOT NULL DEFAULT 0,
+      email TEXT,
+      tier TEXT NOT NULL DEFAULT 'free',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
-    // Usage logs for Axiom Yield calculation
     `CREATE TABLE IF NOT EXISTS axiom_usage_logs (
       id TEXT PRIMARY KEY,
       topic_id TEXT NOT NULL,
       api_key_id TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_usage_topic ON axiom_usage_logs(topic_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_usage_key ON axiom_usage_logs(api_key_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_usage_created ON axiom_usage_logs(created_at)`,
-    // ─── Assumption QA Gate ────────────────────────────────────────────
-    // Tracks which agent declared which assumptions on which topic
     `CREATE TABLE IF NOT EXISTS assumption_declarations (
       id TEXT PRIMARY KEY,
       topic_id TEXT NOT NULL REFERENCES topics(id),
       agent_id TEXT NOT NULL REFERENCES agents(id),
       assumption_topic_id TEXT NOT NULL REFERENCES topics(id),
       created_new INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(topic_id, agent_id, assumption_topic_id)
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_assumption_decl_topic ON assumption_declarations(topic_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_assumption_decl_agent ON assumption_declarations(agent_id)`,
-  ];
-  for (const stmt of economyStatements) {
-    await db.execute(stmt);
-  }
 
-  // ─── Legislation Tables ──────────────────────────────────────────
-  // Structured legislation metadata — extends topics with per-section, per-act detail
-  const legislationStatements = [
+    // ── Legislation Tables ──────────────────────────────────────────
     `CREATE TABLE IF NOT EXISTS legislation_docs (
       id TEXT PRIMARY KEY,
       jurisdiction TEXT NOT NULL,
@@ -380,10 +290,8 @@ async function initSchema(db: DbClient) {
       repealed_date TEXT,
       administered_by TEXT,
       legislation_url TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_legdoc_jurisdiction ON legislation_docs(jurisdiction)`,
-    `CREATE INDEX IF NOT EXISTS idx_legdoc_type ON legislation_docs(doc_type)`,
     `CREATE TABLE IF NOT EXISTS legislation_sections (
       id TEXT PRIMARY KEY,
       doc_id TEXT NOT NULL REFERENCES legislation_docs(id),
@@ -399,30 +307,57 @@ async function initSchema(db: DbClient) {
       cross_references TEXT,
       notes TEXT
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_legsec_doc ON legislation_sections(doc_id, sort_order)`,
-    `CREATE INDEX IF NOT EXISTS idx_legsec_topic ON legislation_sections(topic_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_legsec_section_id ON legislation_sections(section_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_legsec_status ON legislation_sections(status)`,
-    // Related legislation links (Act → Regulation → Standards)
     `CREATE TABLE IF NOT EXISTS legislation_relations (
       id TEXT PRIMARY KEY,
       from_doc_id TEXT NOT NULL REFERENCES legislation_docs(id),
       to_doc_id TEXT NOT NULL REFERENCES legislation_docs(id),
       relation_type TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(from_doc_id, to_doc_id, relation_type)
     )`,
+
+    // ── Indexes ─────────────────────────────────────────────────────
+    `CREATE INDEX IF NOT EXISTS idx_proposals_topic_status ON proposals(topic_id, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_proposals_agent_id ON proposals(agent_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_proposals_created_at ON proposals(created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_votes_proposal_type ON votes(proposal_id, vote_type)`,
+    `CREATE INDEX IF NOT EXISTS idx_votes_agent_id ON votes(agent_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_registrations_topic ON registrations(topic_id, left_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_registrations_agent ON registrations(agent_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_events_topic ON events(topic_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_sections_topic ON sections(topic_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_intents_topic ON intents(topic_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_constraints_topic ON constraints_table(topic_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_agents_api_key ON agents(api_key)`,
+    `CREATE INDEX IF NOT EXISTS idx_topic_votes_topic ON topic_votes(topic_id, vote_type)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_topics_title ON topics(title)`,
+    `CREATE INDEX IF NOT EXISTS idx_ledger_from ON ledger_txs(from_wallet)`,
+    `CREATE INDEX IF NOT EXISTS idx_ledger_to ON ledger_txs(to_wallet)`,
+    `CREATE INDEX IF NOT EXISTS idx_ledger_topic ON ledger_txs(topic_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_bounties_topic ON topic_bounties(topic_id, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_usage_topic ON axiom_usage_logs(topic_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_usage_key ON axiom_usage_logs(api_key_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_usage_created ON axiom_usage_logs(created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_assumption_decl_topic ON assumption_declarations(topic_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_assumption_decl_agent ON assumption_declarations(agent_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_legdoc_jurisdiction ON legislation_docs(jurisdiction)`,
+    `CREATE INDEX IF NOT EXISTS idx_legdoc_type ON legislation_docs(doc_type)`,
+    `CREATE INDEX IF NOT EXISTS idx_legsec_doc ON legislation_sections(doc_id, sort_order)`,
+    `CREATE INDEX IF NOT EXISTS idx_legsec_topic ON legislation_sections(topic_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_legsec_section_id ON legislation_sections(section_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_legsec_status ON legislation_sections(status)`,
   ];
-  for (const stmt of legislationStatements) {
+
+  for (const stmt of statements) {
     await db.execute(stmt);
   }
 
-  // Ensure the Hub Protocol system agent and wallet exist (for fees, subsidies, starter credits)
+  // Ensure the Hub Protocol system agent and wallet exist
   try {
-    await db.execute("INSERT OR IGNORE INTO agents (id, name, api_key, model, framework, description) VALUES ('hub-protocol', 'Hub Protocol', 'system-no-key', 'system', 'internal', 'System wallet for protocol fees and subsidies')");
-    await db.execute("INSERT OR IGNORE INTO agent_wallets (agent_id, balance) VALUES ('hub-protocol', 0)");
+    await db.execute("INSERT INTO agents (id, name, api_key, model, framework, description) VALUES ('hub-protocol', 'Hub Protocol', 'system-no-key', 'system', 'internal', 'System wallet for protocol fees and subsidies') ON CONFLICT (id) DO NOTHING");
+    await db.execute("INSERT INTO agent_wallets (agent_id, balance) VALUES ('hub-protocol', 0) ON CONFLICT (agent_id) DO NOTHING");
   } catch { /* Already exists */ }
-
 }
 
 type SeedTopic = {
@@ -507,10 +442,6 @@ const SEED_TOPICS: SeedTopic[] = [
   },
 
   // ── ASSUMPTIONS ─────────────────────────────────────────────────
-  // Each seed topic declares its foundational assumptions as separate axiom-tier topics.
-  // Assumptions must reach consensus before the parent topic can lock.
-
-  // B1 assumptions (Energy conservation)
   {
     alias: "A-B1-1", tier: "axiom",
     title: "The laws of thermodynamics apply universally across all physical systems",
@@ -535,8 +466,6 @@ const SEED_TOPICS: SeedTopic[] = [
     answerContent: "Perfectly isolated systems are theoretical idealizations. However, systems can be isolated to arbitrary precision using vacuum chambers, cryogenic shielding, Faraday cages, and vibration isolation. The degree of isolation achieved in modern experiments is sufficient to verify energy conservation to parts-per-billion precision. The first law of thermodynamics holds in practice because sufficient isolation is achievable.",
     openQuestionsContent: "At what scale does quantum decoherence make isolation fundamentally impossible? Does Hawking radiation imply that even black holes are not truly isolated?",
   },
-
-  // C1 assumptions (Speed of light)
   {
     alias: "A-C1-1", tier: "axiom",
     title: "Special relativity accurately describes light propagation in vacuum",
@@ -561,8 +490,6 @@ const SEED_TOPICS: SeedTopic[] = [
     answerContent: "The 26th General Conference on Weights and Measures (2018, effective 2019) redefined the SI metre as the distance light travels in vacuum in exactly 1/299,792,458 of a second. This means c = 299,792,458 m/s is an exact defined constant, not a measurement. The definition is self-consistent and traceable: time is defined via the caesium-133 hyperfine transition, and the metre derives from time plus c.",
     openQuestionsContent: "Are there practical metrology challenges with the light-based definition at extreme scales (nanometer, astronomical)? Could future SI revisions change this definition?",
   },
-
-  // C2 assumptions (Measurements)
   {
     alias: "A-C2-1", tier: "axiom",
     title: "Objective measurement of physical quantities is possible",
@@ -579,8 +506,6 @@ const SEED_TOPICS: SeedTopic[] = [
     answerContent: "The SI system defines seven base units (second, metre, kilogram, ampere, kelvin, mole, candela), each anchored to an exact value of a fundamental constant since the 2019 redefinition. All derived units (newton, joule, watt, pascal, etc.) follow from these seven. The SI provides sufficient basis for measurement in all domains of science and engineering. Non-SI units (electronvolt, astronomical unit, etc.) are defined in terms of SI units for convenience but are not necessary.",
     openQuestionsContent: "Are seven base units the minimum needed, or could the system be simplified? How should SI handle information-theoretic quantities (bits, qubits)?",
   },
-
-  // D2 assumptions (Timestamps/UTC)
   {
     alias: "A-D2-1", tier: "axiom",
     title: "A universal time reference frame is necessary for distributed coordination",
@@ -597,8 +522,6 @@ const SEED_TOPICS: SeedTopic[] = [
     answerContent: "UTC is the best available universal time standard for distributed systems because: (1) it is maintained by BIPM using a weighted average of 400+ atomic clocks worldwide, (2) it is legally recognized in virtually all jurisdictions, (3) it is the basis of NTP, GPS, and internet time synchronization, (4) it provides sub-microsecond precision via atomic timekeeping. While TAI (International Atomic Time) is more uniform (no leap seconds), UTC's near-universal adoption makes it the practical choice.",
     openQuestionsContent: "Should leap seconds be abolished (as proposed for 2035)? Would TAI be superior for purely computational systems? How should UTC handle relativistic time dilation for space-based systems?",
   },
-
-  // C3 assumptions (Partial failure)
   {
     alias: "A-C3-1", tier: "axiom",
     title: "Network partitions are inevitable in geographically distributed systems",
@@ -615,8 +538,6 @@ const SEED_TOPICS: SeedTopic[] = [
     answerContent: "The CAP theorem (proved by Gilbert and Lynch, 2002) establishes that no distributed system can simultaneously provide all three of: Consistency (every read receives the most recent write), Availability (every request receives a response), and Partition tolerance (the system operates despite network partitions). The FLP impossibility result (Fischer, Lynch, Paterson, 1985) proves that no deterministic protocol can guarantee consensus in an asynchronous system if even one process may crash. Both are peer-reviewed, formally proven mathematical theorems — not conjectures or empirical observations.",
     openQuestionsContent: "Do relaxed consistency models (eventual consistency, CRDTs) fundamentally bypass CAP, or just trade off differently? Can randomized protocols fully circumvent FLP?",
   },
-
-  // C4 assumptions (Critical infrastructure)
   {
     alias: "A-C4-1", tier: "axiom",
     title: "Infrastructure failures cascade through dependent systems",
@@ -641,8 +562,6 @@ const SEED_TOPICS: SeedTopic[] = [
     answerContent: "Redundancy reduces single-point-of-failure risk by mathematical necessity: if a component has failure probability p, then N independent redundant copies have simultaneous failure probability p^N. N+1 redundancy means the system can tolerate one failure with zero downtime. This principle is applied universally: aircraft (dual engines, triple-redundant fly-by-wire), data centers (UPS + diesel generators + utility feeds), networks (multi-path routing), and databases (primary + replica + failover). The reliability improvement is multiplicative, not additive.",
     openQuestionsContent: "When does adding redundancy introduce more complexity-related failure modes than it prevents? How do correlated failures (common cause) undermine independence assumptions?",
   },
-
-  // C5 assumptions (Quantum-safe internet)
   {
     alias: "A-C5-1", tier: "axiom",
     title: "Sufficiently powerful quantum computers will eventually exist",
@@ -662,43 +581,27 @@ const SEED_TOPICS: SeedTopic[] = [
 ];
 
 // ─── Dependency Edges ──────────────────────────────────────────────
-// Each edge: { from: child alias, to: parent alias }
-// relationship: 'builds_on' (default) = logical deduction/convention chain
-// relationship: 'assumes' = foundational premise that must be independently verified
 const SEED_DEPENDENCIES: { from: string; to: string; relationship?: string }[] = [
-  // Conventions ← Axioms (builds_on)
   { from: "C2", to: "C1" }, { from: "C2", to: "B1" },
   { from: "D2", to: "C2" },
-  // Practice ← Conventions
   { from: "C3", to: "C2" }, { from: "C3", to: "D2" },
-  // Policy ← Practice
   { from: "C4", to: "C3" },
-  // Frontier ← Policy
   { from: "C5", to: "C4" },
-
-  // ── Assumption edges ──────────────────────────────────────────
-  // B1 (Energy conservation) assumes:
   { from: "B1", to: "A-B1-1", relationship: "assumes" },
   { from: "B1", to: "A-B1-2", relationship: "assumes" },
   { from: "B1", to: "A-B1-3", relationship: "assumes" },
-  // C1 (Speed of light) assumes:
   { from: "C1", to: "A-C1-1", relationship: "assumes" },
   { from: "C1", to: "A-C1-2", relationship: "assumes" },
   { from: "C1", to: "A-C1-3", relationship: "assumes" },
-  // C2 (Measurements) assumes:
   { from: "C2", to: "A-C2-1", relationship: "assumes" },
   { from: "C2", to: "A-C2-2", relationship: "assumes" },
-  // D2 (Timestamps/UTC) assumes:
   { from: "D2", to: "A-D2-1", relationship: "assumes" },
   { from: "D2", to: "A-D2-2", relationship: "assumes" },
-  // C3 (Partial failure) assumes:
   { from: "C3", to: "A-C3-1", relationship: "assumes" },
   { from: "C3", to: "A-C3-2", relationship: "assumes" },
-  // C4 (Critical infrastructure) assumes:
   { from: "C4", to: "A-C4-1", relationship: "assumes" },
   { from: "C4", to: "A-C4-2", relationship: "assumes" },
   { from: "C4", to: "A-C4-3", relationship: "assumes" },
-  // C5 (Quantum-safe internet) assumes:
   { from: "C5", to: "A-C5-1", relationship: "assumes" },
   { from: "C5", to: "A-C5-2", relationship: "assumes" },
 ];
@@ -708,19 +611,16 @@ async function seedIfEmpty(db: DbClient) {
   const count = result.rows[0]?.c as number;
   if (count >= SEED_TOPICS.length) return;
 
-  // Track alias → UUID for dependency resolution after all topics are inserted
   const aliasToId = new Map<string, string>();
 
   for (const topic of SEED_TOPICS) {
     const topicId = uuid();
-    // Use try/catch for race-condition safety (UNIQUE index on title)
     try {
       await db.execute({
         sql: "INSERT INTO topics (id, title, content, tier, status) VALUES (?, ?, ?, ?, 'open')",
         args: [topicId, topic.title, topic.content, topic.tier],
       });
     } catch {
-      // Already seeded — look up existing ID for dependency resolution
       const existing = await db.execute({
         sql: "SELECT id FROM topics WHERE title = ?",
         args: [topic.title],
@@ -733,7 +633,6 @@ async function seedIfEmpty(db: DbClient) {
 
     aliasToId.set(topic.alias, topicId);
 
-    // Create three sections: Context, Answer, Open Questions
     const contextId = `sec:context-${topicId.slice(0, 8)}`;
     const answerId = `sec:answer-${topicId.slice(0, 8)}`;
     const openQId = `sec:openq-${topicId.slice(0, 8)}`;
@@ -758,7 +657,6 @@ async function seedIfEmpty(db: DbClient) {
     });
   }
 
-  // Insert dependency edges (axiom chains + assumptions)
   for (const dep of SEED_DEPENDENCIES) {
     const fromId = aliasToId.get(dep.from);
     const toId = aliasToId.get(dep.to);
@@ -769,15 +667,13 @@ async function seedIfEmpty(db: DbClient) {
           args: [fromId, toId, dep.relationship ?? "builds_on"],
         });
       } catch {
-        // Already exists — ignore
+        // Already exists
       }
     }
   }
 }
 
 // ─── Cycle Detection ─────────────────────────────────────────────
-// BFS from the proposed dependency target to check if adding
-// topicId → dependsOn would create a cycle in the dependency DAG.
 export async function wouldCreateCycle(db: DbClient, topicId: string, dependsOn: string): Promise<boolean> {
   if (topicId === dependsOn) return true;
   const visited = new Set<string>();
@@ -798,7 +694,6 @@ export async function wouldCreateCycle(db: DbClient, topicId: string, dependsOn:
   return false;
 }
 
-// ─── Valid relationship types for topic_dependencies ──────────────
 export const VALID_RELATIONSHIPS = ["builds_on", "assumes"] as const;
 export type DependencyRelationship = (typeof VALID_RELATIONSHIPS)[number];
 
@@ -817,12 +712,10 @@ export async function emitEvent(
 }
 
 export async function autoMergeExpired(db: DbClient) {
-  // TTL auto-merge requires: TTL expired + no objections + at least 1 approval
-  // (prevents zero-vote silence-is-consent merges)
   const result = await db.execute(`
     SELECT p.* FROM proposals p
     WHERE p.status = 'pending'
-      AND datetime(p.created_at, '+' || p.ttl_seconds || ' seconds') <= datetime('now')
+      AND p.created_at + p.ttl_seconds * INTERVAL '1 second' <= NOW()
       AND NOT EXISTS (
         SELECT 1 FROM votes v WHERE v.proposal_id = p.id AND v.vote_type = 'object'
       )
@@ -833,10 +726,9 @@ export async function autoMergeExpired(db: DbClient) {
 
   for (const p of result.rows) {
     await db.execute({
-      sql: "UPDATE proposals SET status = 'merged', resolved_at = datetime('now') WHERE id = ?",
+      sql: "UPDATE proposals SET status = 'merged', resolved_at = NOW() WHERE id = ?",
       args: [p.id as string],
     });
-    // Canonicalize proposals update topics.canonical_claim instead of a section
     if (p.proposal_type === "canonicalize") {
       await db.execute({
         sql: "UPDATE topics SET canonical_claim = ? WHERE id = ?",
@@ -855,21 +747,14 @@ export async function autoMergeExpired(db: DbClient) {
     await emitEvent(db, p.topic_id as string, "pact.proposal.auto-merged", p.agent_id as string, p.section_id as string, { proposalId: p.id as string });
   }
 
-  // After merging, run all evaluations:
-  // 1. Check if proposed topics have enough approvals to open
   await evaluateTopicProposals(db);
-  // 2. Check open topics for consensus (99% threshold) → lock
   await updateConsensusStatuses(db);
-  // 3. Check challenges against locked topics → reopen
   await evaluateChallenges(db);
 
   return result.rows.length;
 }
 
 // ─── Topic Proposal Evaluation ──────────────────────────────────────
-// New topics start as "proposed" and need 3+ agent approvals to open.
-// This runs as a safety net — the vote endpoint already opens topics
-// immediately when the threshold is hit.
 
 const TOPIC_APPROVAL_THRESHOLD = 3;
 
@@ -901,37 +786,9 @@ export async function evaluateTopicProposals(db: DbClient) {
 }
 
 // ─── Consensus Engine ───────────────────────────────────────────────
-// Crowd-computed rolling consensus. Truth is determined by the crowd,
-// not by small committees. The model:
-//
-// 1. CROWD THRESHOLD: 90% of agents who voted must be "aligned".
-//    This is a supermajority — strong enough to be meaningful,
-//    but not so high that one contrarian blocks everything.
-//
-// 2. DYNAMIC MINIMUM: The minimum number of aligned agents scales
-//    with the amount of debate:
-//      min_agents = max(BASE_FOR_TIER, total_proposals)
-//    Uncontroversial facts (0-2 proposals) lock fast.
-//    Controversial topics (10+ proposals) need 10+ agents to settle.
-//
-// 3. ROLLING CONSENSUS: Consensus is not permanent. Agents can change
-//    their done_status at any time. If consensus drops below 90%,
-//    the topic reopens automatically. Truth is what the crowd agrees
-//    on RIGHT NOW, not what they agreed on 6 months ago.
-//
-// 4. STABLE STATUS: A topic that has maintained consensus for 30+ days
-//    becomes "stable" — a stronger signal of verified truth. Stable
-//    topics can still be challenged but carry more weight.
-//
-// Tier base thresholds (minimum agents even with zero proposals):
-//   axiom:      base 2 agents (obvious truths lock fast)
-//   convention: base 3 agents
-//   practice:   base 3 agents
-//   policy:     base 4 agents
-//   frontier:   base 5 agents
 
-const CONSENSUS_RATIO = 0.90; // 90% supermajority
-const STABLE_DAYS = 30; // Days of consensus before "stable" status
+const CONSENSUS_RATIO = 0.90;
+const STABLE_DAYS = 30;
 
 export const TIER_BASE_AGENTS: Record<string, number> = {
   axiom: 2,
@@ -939,7 +796,6 @@ export const TIER_BASE_AGENTS: Record<string, number> = {
   institutional: 3,
   interpretive: 4,
   conjecture: 5,
-  // Legacy aliases
   convention: 3,
   practice: 3,
   policy: 3,
@@ -948,54 +804,32 @@ export const TIER_BASE_AGENTS: Record<string, number> = {
 
 const DEFAULT_BASE = 3;
 
-/**
- * Calculate the dynamic minimum agents needed for a topic.
- * Scales with the breadth of debate (unique proposers), not raw volume.
- * Rejected proposals are excluded — they represent failed ideas, not ongoing debate.
- */
 function getRequiredAgents(tier: string, uniqueProposers: number): number {
   const base = TIER_BASE_AGENTS[tier] ?? DEFAULT_BASE;
   return Math.max(base, uniqueProposers);
 }
 
-/**
- * Evaluate all topics for crowd consensus.
- *
- * Consensus requires ALL of:
- *   1. No pending proposals remaining (debate has settled)
- *   2. At least 1 accepted proposal to the Answer section
- *   3. 90%+ of voting agents are "aligned"
- *   4. Enough agents have voted (dynamic min based on unique proposers)
- *   5. All dependency topics have reached consensus or stable status
- *
- * Topics can transition:
- *   open → consensus (90% aligned, enough agents)
- *   consensus → stable (held for 30+ days)
- *   consensus → open (alignment dropped below 90%)
- *   stable → challenged (if a challenge gathers support)
- *   challenged → open (reopened for debate)
- */
 export async function updateConsensusStatuses(db: DbClient) {
   // --- Phase 1: Check open/challenged topics for NEW consensus ---
   const openTopics = await db.execute(`
     SELECT t.id, t.status, t.tier, t.consensus_since,
       (SELECT COUNT(DISTINCT p.agent_id) FROM proposals p
-        WHERE p.topic_id = t.id AND p.status != 'rejected') as uniqueProposers,
-      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'pending') as pendingCount,
-      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'merged') as mergedCount,
+        WHERE p.topic_id = t.id AND p.status != 'rejected') as "uniqueProposers",
+      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'pending') as "pendingCount",
+      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'merged') as "mergedCount",
       (SELECT COUNT(*) FROM proposals p
         JOIN sections s ON s.id = p.section_id AND s.topic_id = p.topic_id
-        WHERE p.topic_id = t.id AND p.status = 'merged' AND s.heading = 'Answer') as answerMergedCount,
+        WHERE p.topic_id = t.id AND p.status = 'merged' AND s.heading = 'Answer') as "answerMergedCount",
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status = 'aligned') as alignedCount,
+        WHERE r.topic_id = t.id AND r.done_status = 'aligned') as "alignedCount",
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as dissentingCount,
+        WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as "dissentingCount",
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status IS NOT NULL) as totalDoneCount,
+        WHERE r.topic_id = t.id AND r.done_status IS NOT NULL) as "totalDoneCount",
       (SELECT COUNT(*) FROM topic_dependencies td
         JOIN topics dep ON dep.id = td.depends_on
         WHERE td.topic_id = t.id
-        AND dep.status NOT IN ('consensus', 'stable')) as unmetDependencies
+        AND dep.status NOT IN ('consensus', 'stable')) as "unmetDependencies"
     FROM topics t
     WHERE t.status IN ('open', 'challenged')
   `);
@@ -1014,24 +848,21 @@ export async function updateConsensusStatuses(db: DbClient) {
 
     const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
 
-    // During bootstrap, dependency chains are circular and would block all consensus.
-    // Dependency checking will be re-enabled once the initial knowledge graph is established.
     const depsOk = true; // TODO: Re-enable after bootstrap: tier === "axiom" || unmetDeps === 0;
 
     if (
-      pending === 0 &&                    // Debate has settled
-      answerMerged > 0 &&                 // Answer section has been reviewed/updated
-      aligned >= requiredAgents &&         // Enough agents explicitly aligned
-      alignmentRatio >= CONSENSUS_RATIO && // 90% supermajority
-      depsOk                              // Dependencies met (axioms exempt)
+      pending === 0 &&
+      answerMerged > 0 &&
+      aligned >= requiredAgents &&
+      alignmentRatio >= CONSENSUS_RATIO &&
+      depsOk
     ) {
-      // Consensus reached — mark it
       await db.execute({
         sql: `UPDATE topics SET
           status = 'consensus',
           consensus_ratio = ?,
           consensus_voters = ?,
-          consensus_since = COALESCE(consensus_since, datetime('now'))
+          consensus_since = COALESCE(consensus_since, NOW())
         WHERE id = ?`,
         args: [alignmentRatio, totalVoters, t.id as string],
       });
@@ -1044,7 +875,6 @@ export async function updateConsensusStatuses(db: DbClient) {
         tier,
       });
 
-      // Distribute bounty if any escrowed — non-fatal, consensus still stands on failure
       try {
         const { distributeBounty } = await import("./economy");
         await distributeBounty(db, t.id as string);
@@ -1060,7 +890,6 @@ export async function updateConsensusStatuses(db: DbClient) {
       alignmentRatio >= CONSENSUS_RATIO &&
       !depsOk
     ) {
-      // Topic meets all criteria except dependency chain — emit informational event
       await emitEvent(db, t.id as string, "pact.consensus.blocked-by-dependencies", "", "", {
         alignmentRatio: `${Math.round(alignmentRatio * 100)}%`,
         alignedAgents: aligned,
@@ -1072,21 +901,19 @@ export async function updateConsensusStatuses(db: DbClient) {
   }
 
   // --- Phase 2: Check existing consensus topics ---
-  // a) Promote to "stable" if consensus held for 30+ days
-  // b) Demote back to "open" if alignment has dropped below 90%
   const consensusTopics = await db.execute(`
     SELECT t.id, t.tier, t.consensus_since,
       (SELECT COUNT(DISTINCT p.agent_id) FROM proposals p
-        WHERE p.topic_id = t.id AND p.status != 'rejected') as uniqueProposers,
-      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'pending') as pendingCount,
+        WHERE p.topic_id = t.id AND p.status != 'rejected') as "uniqueProposers",
+      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'pending') as "pendingCount",
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status = 'aligned') as alignedCount,
+        WHERE r.topic_id = t.id AND r.done_status = 'aligned') as "alignedCount",
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as dissentingCount,
+        WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as "dissentingCount",
       (SELECT COUNT(*) FROM topic_dependencies td
         JOIN topics dep ON dep.id = td.depends_on
         WHERE td.topic_id = t.id
-        AND dep.status NOT IN ('consensus', 'stable')) as unmetDependencies
+        AND dep.status NOT IN ('consensus', 'stable')) as "unmetDependencies"
     FROM topics t
     WHERE t.status = 'consensus'
   `);
@@ -1103,14 +930,10 @@ export async function updateConsensusStatuses(db: DbClient) {
     const consensusSince = t.consensus_since as string;
     const unmetDeps = t.unmetDependencies as number;
 
-    // During bootstrap, skip dependency checks (circular chains block everything)
     const depsOkForBreaking = true; // TODO: Re-enable: tier === "axiom" || unmetDeps === 0;
 
-    // Check if consensus has broken (alignment dropped, new pending proposals, or dependency lost)
-    // Skip break check if this was a bootstrap-forced consensus (no actual voters yet)
     const wasForced = totalVoters === 0;
     if (!wasForced && (alignmentRatio < CONSENSUS_RATIO || aligned < requiredAgents || pending > 0 || !depsOkForBreaking)) {
-      // Consensus lost — reopen for debate
       await db.execute({
         sql: "UPDATE topics SET status = 'open', consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
         args: [t.id as string],
@@ -1126,13 +949,12 @@ export async function updateConsensusStatuses(db: DbClient) {
       continue;
     }
 
-    // Check if consensus has held long enough to become "stable"
     if (consensusSince) {
-      const sinceDate = new Date(consensusSince + "Z");
+      const sinceDate = new Date(String(consensusSince));
       const daysSince = (Date.now() - sinceDate.getTime()) / (1000 * 60 * 60 * 24);
       if (daysSince >= STABLE_DAYS) {
         await db.execute({
-          sql: "UPDATE topics SET status = 'stable', locked_at = datetime('now'), consensus_ratio = ?, consensus_voters = ? WHERE id = ?",
+          sql: "UPDATE topics SET status = 'stable', locked_at = NOW(), consensus_ratio = ?, consensus_voters = ? WHERE id = ?",
           args: [alignmentRatio, totalVoters, t.id as string],
         });
         await emitEvent(db, t.id as string, "pact.topic.stable", "", "", {
@@ -1148,11 +970,11 @@ export async function updateConsensusStatuses(db: DbClient) {
   // --- Phase 3: Check stable topics for consensus breakdown ---
   const stableTopics = await db.execute(`
     SELECT t.id, t.tier,
-      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id) as totalProposals,
+      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id) as "totalProposals",
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status = 'aligned') as alignedCount,
+        WHERE r.topic_id = t.id AND r.done_status = 'aligned') as "alignedCount",
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as dissentingCount
+        WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as "dissentingCount"
     FROM topics t
     WHERE t.status = 'stable'
   `);
@@ -1163,8 +985,6 @@ export async function updateConsensusStatuses(db: DbClient) {
     const totalVoters = aligned + dissenting;
     const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
 
-    // Stable topics only break consensus if alignment drops significantly (below 80%)
-    // This is a lower bar than the 90% entry threshold — hysteresis prevents oscillation
     if (alignmentRatio < 0.80) {
       await db.execute({
         sql: "UPDATE topics SET status = 'open', locked_at = NULL, consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
@@ -1175,7 +995,6 @@ export async function updateConsensusStatuses(db: DbClient) {
         reason: "Alignment dropped below 80% — stable consensus broken",
       });
 
-      // Flag dependent topics
       const deps = await db.execute({
         sql: "SELECT topic_id FROM topic_dependencies WHERE depends_on = ?",
         args: [t.id as string],
@@ -1195,21 +1014,14 @@ export async function updateConsensusStatuses(db: DbClient) {
 }
 
 // ─── Challenge Evaluation ──────────────────────────────────────────
-// Challenges are proposals filed against consensus or stable topics.
-// If a challenge gathers enough unique supporters, the topic is
-// REOPENED for debate. This is the safety net — bad consensus gets
-// corrected by the crowd.
-//
-// Reopen threshold: 3 unique agents must approve a single challenge.
 
 const CHALLENGE_REOPEN_VOTES = 3;
 
 export async function evaluateChallenges(db: DbClient) {
-  // Find consensus/stable topics that have challenges with enough support
   const challenges = await db.execute(`
-    SELECT p.id as challengeId, p.topic_id, p.summary, p.agent_id,
+    SELECT p.id as "challengeId", p.topic_id, p.summary, p.agent_id,
       (SELECT COUNT(DISTINCT v.agent_id) FROM votes v
-        WHERE v.proposal_id = p.id AND v.vote_type = 'approve') as supportCount
+        WHERE v.proposal_id = p.id AND v.vote_type = 'approve') as "supportCount"
     FROM proposals p
     JOIN topics t ON t.id = p.topic_id
     WHERE p.status = 'challenge'
@@ -1224,13 +1036,11 @@ export async function evaluateChallenges(db: DbClient) {
     const topicId = c.topic_id as string;
 
     if (support >= CHALLENGE_REOPEN_VOTES && !reopenedTopics.has(topicId)) {
-      // Reopen the topic — consensus is being challenged
       await db.execute({
         sql: "UPDATE topics SET status = 'challenged', locked_at = NULL, consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
         args: [topicId],
       });
 
-      // Convert the successful challenge to a pending proposal
       await db.execute({
         sql: "UPDATE proposals SET status = 'pending' WHERE id = ?",
         args: [c.challengeId as string],
@@ -1242,7 +1052,6 @@ export async function evaluateChallenges(db: DbClient) {
         supportVotes: support,
       });
 
-      // Challenger jackpot — reward successful truth correction
       const challengerAgentId = c.agent_id as string;
       try {
         const { transfer } = await import("./economy");
@@ -1255,7 +1064,6 @@ export async function evaluateChallenges(db: DbClient) {
         console.error(`Challenger reward failed for ${challengerAgentId}:`, e);
       }
 
-      // Flag dependent topics
       const deps = await db.execute({
         sql: "SELECT topic_id FROM topic_dependencies WHERE depends_on = ?",
         args: [topicId],

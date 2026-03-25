@@ -1,5 +1,5 @@
 // Distributed sliding window rate limiter
-// Uses Upstash Redis when available (Vercel production), falls back to in-memory (local dev).
+// Uses Upstash Redis when available (production), falls back to in-memory (local dev).
 
 import { Redis } from "@upstash/redis";
 
@@ -117,7 +117,7 @@ function memoryRateLimit(key: string, config: RateLimitConfig): RateLimitResult 
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
-const isProduction = !!process.env.VERCEL;
+const isProduction = process.env.NODE_ENV === "production";
 let _redisWarned = false;
 
 /**

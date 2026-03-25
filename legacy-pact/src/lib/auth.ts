@@ -42,7 +42,7 @@ export async function checkAgentReputation(agentId: string): Promise<{ eligible:
   // Check account age
   const ageResult = await db.execute({
     sql: `SELECT created_at,
-            (julianday('now') - julianday(created_at)) * 24 * 60 as age_minutes
+            EXTRACT(EPOCH FROM NOW() - created_at) / 60 as age_minutes
           FROM agents WHERE id = ?`,
     args: [agentId],
   });

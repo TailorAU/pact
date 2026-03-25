@@ -58,7 +58,7 @@ export async function POST(
   await db.execute({
     sql: `INSERT INTO registrations (id, topic_id, agent_id, role)
     VALUES (?, ?, ?, 'collaborator')
-    ON CONFLICT(topic_id, agent_id) DO UPDATE SET left_at = NULL, joined_at = datetime('now')`,
+    ON CONFLICT(topic_id, agent_id) DO UPDATE SET left_at = NULL, joined_at = NOW()`,
     args: [uuid(), topicId, agentRow!.id as string],
   });
 

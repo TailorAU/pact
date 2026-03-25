@@ -26,22 +26,22 @@ export async function GET(req: NextRequest) {
   // Find stale institutional topics (not verified in 90+ days)
   const staleInstitutional = await db.execute({
     sql: `SELECT id, title, jurisdiction, last_verified_at,
-            CAST(julianday('now') - julianday(COALESCE(last_verified_at, created_at)) AS INTEGER) as days_stale
+            CAST(EXTRACT(EPOCH FROM NOW() - COALESCE(last_verified_at, created_at)) / 86400 AS INTEGER) as days_stale
           FROM topics
           WHERE tier = 'institutional'
             AND status IN ('consensus', 'stable', 'locked')
-            AND CAST(julianday('now') - julianday(COALESCE(last_verified_at, created_at)) AS INTEGER) >= 90`,
+            AND EXTRACT(EPOCH FROM NOW() - COALESCE(last_verified_at, created_at)) / 86400 >= 90`,
     args: [],
   });
 
   // Find stale interpretive topics (not verified in 180+ days)
   const staleInterpretive = await db.execute({
     sql: `SELECT id, title, jurisdiction, last_verified_at,
-            CAST(julianday('now') - julianday(COALESCE(last_verified_at, created_at)) AS INTEGER) as days_stale
+            CAST(EXTRACT(EPOCH FROM NOW() - COALESCE(last_verified_at, created_at)) / 86400 AS INTEGER) as days_stale
           FROM topics
           WHERE tier = 'interpretive'
             AND status IN ('consensus', 'stable', 'locked')
-            AND CAST(julianday('now') - julianday(COALESCE(last_verified_at, created_at)) AS INTEGER) >= 180`,
+            AND EXTRACT(EPOCH FROM NOW() - COALESCE(last_verified_at, created_at)) / 86400 >= 180`,
     args: [],
   });
 

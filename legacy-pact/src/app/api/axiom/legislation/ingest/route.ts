@@ -124,8 +124,9 @@ export async function POST(req: NextRequest) {
       for (const relatedId of doc.relatedDocs) {
         try {
           await db.execute({
-            sql: `INSERT OR IGNORE INTO legislation_relations (id, from_doc_id, to_doc_id, relation_type)
-              VALUES (?, ?, ?, 'subordinate')`,
+            sql: `INSERT INTO legislation_relations (id, from_doc_id, to_doc_id, relation_type)
+              VALUES (?, ?, ?, 'subordinate')
+              ON CONFLICT (from_doc_id, to_doc_id, relation_type) DO NOTHING`,
             args: [randomUUID(), docId, relatedId],
           });
         } catch { /* Related doc may not exist yet — that's OK */ }

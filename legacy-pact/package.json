@@ -9,10 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@libsql/client": "^0.17.0",
     "@upstash/redis": "^1.36.3",
-    "better-sqlite3": "^12.6.2",
     "next": "16.1.6",
+    "pg": "^8.13.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-force-graph-3d": "^1.29.1",
@@ -21,8 +20,8 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
+    "@types/pg": "^8.11.10",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/three": "^0.183.1",

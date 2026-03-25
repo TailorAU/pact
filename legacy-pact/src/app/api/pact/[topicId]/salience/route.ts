@@ -43,7 +43,7 @@ export async function POST(
     sql: `
     INSERT INTO salience (topic_id, section_id, agent_id, score)
     VALUES (?, ?, ?, ?)
-    ON CONFLICT(topic_id, section_id, agent_id) DO UPDATE SET score = ?, updated_at = datetime('now')
+    ON CONFLICT(topic_id, section_id, agent_id) DO UPDATE SET score = ?, updated_at = NOW()
   `,
     args: [topicId, sectionId, agent.id, score, score],
   });

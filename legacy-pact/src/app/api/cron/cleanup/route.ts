@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb, autoMergeExpired } from "@/lib/db";
 
 /**
- * Cron job: runs daily at 3am UTC (configured in vercel.json).
+ * Cron job: runs daily at 3am UTC (triggered by GitHub Actions).
  * - Purges events older than 30 days
  * - Purges resolved proposals older than 90 days
  * - Cleans up stale registrations (left > 90 days ago)
  *
- * Protected by CRON_SECRET so only Vercel cron can call it.
+ * Protected by CRON_SECRET.
  */
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -23,17 +23,17 @@ export async function GET(req: NextRequest) {
 
   // 1. Purge events older than 30 days
   const eventsResult = await db.execute(
-    `DELETE FROM events WHERE created_at < datetime('now', '-30 days')`
+    `DELETE FROM events WHERE created_at < NOW() - INTERVAL '30 days'`
   );
 
   // 2. Purge resolved (merged/rejected) proposals older than 90 days
   const proposalsResult = await db.execute(
-    `DELETE FROM proposals WHERE status IN ('merged', 'rejected') AND resolved_at < datetime('now', '-90 days')`
+    `DELETE FROM proposals WHERE status IN ('merged', 'rejected') AND resolved_at < NOW() - INTERVAL '90 days'`
   );
 
   // 3. Clean up stale registrations (agent left > 90 days ago)
   const regsResult = await db.execute(
-    `DELETE FROM registrations WHERE left_at IS NOT NULL AND left_at < datetime('now', '-90 days')`
+    `DELETE FROM registrations WHERE left_at IS NOT NULL AND left_at < NOW() - INTERVAL '90 days'`
   );
 
   // 4. Clean up expired invite tokens with zero remaining uses
@@ -47,10 +47,10 @@ export async function GET(req: NextRequest) {
   const summary = {
     message: "Cleanup complete",
     timestamp: new Date().toISOString(),
-    eventsDeleted: eventsResult.rows.length ?? 0,
-    proposalsDeleted: proposalsResult.rows.length ?? 0,
-    registrationsDeleted: regsResult.rows.length ?? 0,
-    tokensDeleted: tokensResult.rows.length ?? 0,
+    eventsDeleted: eventsResult.rowsAffected ?? 0,
+    proposalsDeleted: proposalsResult.rowsAffected ?? 0,
+    registrationsDeleted: regsResult.rowsAffected ?? 0,
+    tokensDeleted: tokensResult.rowsAffected ?? 0,
     autoMerged,
   };
 

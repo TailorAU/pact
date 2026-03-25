@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
 
   const db = await getDb();
   const dailyCount = await db.execute(
-    "SELECT COUNT(*) as c FROM agents WHERE created_at > datetime('now', '-1 day')"
+    "SELECT COUNT(*) as c FROM agents WHERE created_at > NOW() - INTERVAL '1 day'"
   );
   if ((dailyCount.rows[0]?.c as number) >= MAX_DAILY_REGISTRATIONS) {
     return NextResponse.json(

@@ -56,7 +56,7 @@ export async function POST(
   }
 
   await db.execute({
-    sql: "UPDATE proposals SET status = 'rejected', resolved_at = datetime('now') WHERE id = ?",
+    sql: "UPDATE proposals SET status = 'rejected', resolved_at = NOW() WHERE id = ?",
     args: [proposalId],
   });
   await db.execute({

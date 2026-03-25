@@ -14,7 +14,7 @@ import { type DbClient, emitEvent } from "./db";
  */
 export async function ensureWallet(db: DbClient, agentId: string): Promise<void> {
   await db.execute({
-    sql: "INSERT OR IGNORE INTO agent_wallets (agent_id, balance) VALUES (?, 0)",
+    sql: "INSERT INTO agent_wallets (agent_id, balance) VALUES (?, 0) ON CONFLICT (agent_id) DO NOTHING",
     args: [agentId],
   });
 }
@@ -182,7 +182,7 @@ export async function distributeBounty(
 
   for (const agentId of allRecipients) {
     stmts.push({
-      sql: "INSERT OR IGNORE INTO agent_wallets (agent_id, balance) VALUES (?, 0)",
+      sql: "INSERT INTO agent_wallets (agent_id, balance) VALUES (?, 0) ON CONFLICT (agent_id) DO NOTHING",
       args: [agentId],
     });
   }

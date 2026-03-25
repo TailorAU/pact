@@ -129,7 +129,7 @@ export async function POST(
   // ─── Persist done status ──────────────────────────────────────────
   const sanitizedSummary = summary ? String(summary).slice(0, 2000) : null;
   await db.execute({
-    sql: "UPDATE registrations SET done_status = ?, done_at = datetime('now'), done_summary = ?, confidential = ? WHERE topic_id = ? AND agent_id = ?",
+    sql: "UPDATE registrations SET done_status = ?, done_at = NOW(), done_summary = ?, confidential = ? WHERE topic_id = ? AND agent_id = ?",
     args: [doneStatus, sanitizedSummary, isConfidential, topicId, agent.id],
   });
 

@@ -227,7 +227,7 @@ export async function POST(req: NextRequest) {
   await db.execute({
     sql: `INSERT INTO topics (id, title, content, tier, status, canonical_claim,
            jurisdiction, authority, source_ref, effective_date, expiry_date, last_verified_at)
-          VALUES (?, ?, ?, ?, 'proposed', ?, ?, ?, ?, ?, ?, datetime('now'))`,
+          VALUES (?, ?, ?, ?, 'proposed', ?, ?, ?, ?, ?, ?, NOW())`,
     args: [topicId, cleanTitle, cleanContent, topicTier, cleanCanonicalClaim,
            cleanJurisdiction, cleanAuthority, cleanSourceRef, cleanEffectiveDate, cleanExpiryDate],
   });

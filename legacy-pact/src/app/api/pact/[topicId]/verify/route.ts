@@ -77,7 +77,7 @@ export async function POST(
 
   // Update verification timestamp
   await db.execute({
-    sql: "UPDATE topics SET last_verified_at = datetime('now'), last_verified_by = ? WHERE id = ?",
+    sql: "UPDATE topics SET last_verified_at = NOW(), last_verified_by = ? WHERE id = ?",
     args: [agent.id, topicId],
   });
 

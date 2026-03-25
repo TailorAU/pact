@@ -144,7 +144,7 @@ export async function processAssumptions(
   // ── Anti-bloat check 2: Global hourly rate limit on NEW assumption topics
   const recentCreations = await db.execute({
     sql: `SELECT COUNT(*) as cnt FROM assumption_declarations
-          WHERE created_new = 1 AND created_at > datetime('now', '-1 hour')`,
+          WHERE created_new = 1 AND created_at > NOW() - INTERVAL '1 hour'`,
     args: [],
   });
   const recentCount = (recentCreations.rows[0]?.cnt as number) || 0;

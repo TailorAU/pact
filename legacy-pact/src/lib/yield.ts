@@ -15,7 +15,7 @@ import { type DbClient } from "./db";
 //   2. Contribution type — creators, proposers, and voters all earn
 //   3. Sybil resistance — weighted by DISTINCT API keys, not raw hits
 //
-// Runs weekly via Vercel cron. ALL WRITES BATCHED ATOMICALLY.
+// Runs weekly via GitHub Actions cron. ALL WRITES BATCHED ATOMICALLY.
 
 const HUB_FEE_PCT = 0.20;
 
@@ -146,7 +146,7 @@ export async function distributeAxiomYield(
 
   // Hub Protocol fee
   stmts.push({
-    sql: "INSERT OR IGNORE INTO agent_wallets (agent_id, balance) VALUES ('hub-protocol', 0)",
+    sql: "INSERT INTO agent_wallets (agent_id, balance) VALUES ('hub-protocol', 0) ON CONFLICT (agent_id) DO NOTHING",
     args: [],
   });
   stmts.push({
@@ -164,7 +164,7 @@ export async function distributeAxiomYield(
     if (amount <= 0) continue;
 
     stmts.push({
-      sql: "INSERT OR IGNORE INTO agent_wallets (agent_id, balance) VALUES (?, 0)",
+      sql: "INSERT INTO agent_wallets (agent_id, balance) VALUES (?, 0) ON CONFLICT (agent_id) DO NOTHING",
       args: [agentId],
     });
     stmts.push({

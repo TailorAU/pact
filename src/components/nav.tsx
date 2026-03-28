@@ -6,9 +6,9 @@ export function Nav() {
       <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2 group">
           <span className="text-pact-cyan font-bold text-lg group-hover:text-pact-purple transition-colors">
-            PACT
+            Source
           </span>
-          <span className="text-pact-dim text-xs hidden sm:inline tracking-wider">Protocol for Consensus and Trust</span>
+          <span className="text-pact-dim text-xs hidden sm:inline tracking-wider">Verified Knowledge Graph</span>
         </Link>
 
         <div className="flex items-center gap-6 text-sm">

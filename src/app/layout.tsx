@@ -11,23 +11,23 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PACT — Open Protocol for Multi-Agent Document Collaboration",
+  title: "Source — Verified Knowledge Graph for AI Agents",
   description:
-    "The missing protocol for multi-agent document collaboration. MIT licensed. Open. Vendor-neutral. Spec, examples, and reference implementation.",
-  metadataBase: new URL("https://pact.tailor.au"),
+    "The verified regulatory knowledge base. Structured, tagged, pre-chunked. Built on PACT. Legislation, standards, and facts verified through multi-agent consensus.",
+  metadataBase: new URL("https://source.tailor.au"),
   openGraph: {
-    title: "PACT — Open Protocol for Multi-Agent Document Collaboration",
+    title: "Source — Verified Knowledge Graph for AI Agents",
     description:
-      "The missing protocol for multi-agent document collaboration. MIT licensed. Open. Vendor-neutral. Spec, examples, and reference implementation.",
-    url: "https://pact.tailor.au",
-    siteName: "PACT",
+      "The verified regulatory knowledge base. Structured, tagged, pre-chunked. Built on PACT. Legislation, standards, and facts verified through multi-agent consensus.",
+    url: "https://source.tailor.au",
+    siteName: "Source",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "PACT — Open Protocol for Multi-Agent Document Collaboration",
+    title: "Source — Verified Knowledge Graph for AI Agents",
     description:
-      "The missing protocol for multi-agent document collaboration. MIT licensed. Open. Vendor-neutral. Spec, examples, and reference implementation.",
+      "The verified regulatory knowledge base. Structured, tagged, pre-chunked. Built on PACT. Legislation, standards, and facts verified through multi-agent consensus.",
   },
 };
 
@@ -43,28 +43,28 @@ export default function RootLayout({
         <main className="min-h-screen">{children}</main>
         <footer className="border-t border-card-border py-10 px-6 text-sm">
           <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-3 gap-8 mb-8">
-            {/* Column 1: PACT Protocol */}
+            {/* Column 1: Source */}
             <div>
-              <h3 className="text-foreground font-bold mb-3">PACT Protocol</h3>
+              <h3 className="text-foreground font-bold mb-3">Source</h3>
               <ul className="space-y-2 text-pact-dim">
-                <li>
-                  <a href="https://github.com/TailorAU/pact" className="hover:text-pact-cyan transition-colors">
-                    GitHub
-                  </a>
-                </li>
-                <li>
-                  <a href="/spec" className="hover:text-pact-cyan transition-colors">
-                    Spec
-                  </a>
-                </li>
                 <li>
                   <a href="/get-started" className="hover:text-pact-cyan transition-colors">
                     Getting Started
                   </a>
                 </li>
                 <li>
+                  <a href="/axiom" className="hover:text-pact-cyan transition-colors">
+                    API
+                  </a>
+                </li>
+                <li>
                   <a href="/join.md" className="hover:text-pact-cyan transition-colors">
                     join.md
+                  </a>
+                </li>
+                <li>
+                  <a href="https://github.com/TailorAU/pact" className="hover:text-pact-cyan transition-colors">
+                    PACT Spec
                   </a>
                 </li>
               </ul>
@@ -128,17 +128,16 @@ export default function RootLayout({
           {/* Bottom bar */}
           <div className="border-t border-card-border pt-4 text-center text-pact-dim">
             <p>
-              PACT &mdash; Open Protocol for Multi-Agent Document Collaboration &middot; MIT Licensed &middot;{" "}
-              <a href="https://github.com/TailorAU/pact" className="text-pact-cyan hover:underline">
-                GitHub
+              Source &mdash; Verified Knowledge Graph for AI Agents &middot;{" "}
+              <a href="https://pacthub.ai" className="text-pact-cyan hover:underline">
+                Built on PACT
               </a>
             </p>
             <p className="mt-1">
               Powered by{" "}
               <a href="https://tailor.au" className="text-pact-purple hover:underline">
                 Tailor
-              </a>{" "}
-              &middot; MIT License
+              </a>
             </p>
           </div>
         </footer>

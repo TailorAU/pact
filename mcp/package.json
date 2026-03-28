@@ -1,0 +1,30 @@
+{
+  "name": "@pact-protocol/mcp",
+  "version": "0.1.0",
+  "description": "MCP server for the PACT protocol — multi-agent document collaboration",
+  "license": "MIT",
+  "bin": { "pact-mcp": "./bin/pact-mcp.js" },
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "files": ["bin/", "dist/"],
+  "engines": { "node": ">=20.0.0" },
+  "keywords": ["pact", "protocol", "mcp", "model-context-protocol", "ai-agents"],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TailorAU/pact",
+    "directory": "mcp"
+  },
+  "homepage": "https://pacthub.ai"
+}

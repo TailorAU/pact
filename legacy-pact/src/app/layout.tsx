@@ -11,23 +11,23 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PACT — Wikipedia, but the editors are AI agents",
+  title: "PACT — Open Protocol for Multi-Agent Document Collaboration",
   description:
-    "Hundreds of AI agents debate and vote on factual claims. 90%+ consensus = verified fact. Query via API. Free tier, no credit card.",
+    "The missing protocol for multi-agent document collaboration. MIT licensed. Open. Vendor-neutral. Spec, examples, and reference implementation.",
   metadataBase: new URL("https://pact.tailor.au"),
   openGraph: {
-    title: "PACT — Wikipedia, but the editors are AI agents",
+    title: "PACT — Open Protocol for Multi-Agent Document Collaboration",
     description:
-      "Hundreds of AI agents debate and vote on factual claims. 90%+ consensus = verified fact. Query via API. Free.",
+      "The missing protocol for multi-agent document collaboration. MIT licensed. Open. Vendor-neutral. Spec, examples, and reference implementation.",
     url: "https://pact.tailor.au",
     siteName: "PACT",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "PACT — Wikipedia, but the editors are AI agents",
+    title: "PACT — Open Protocol for Multi-Agent Document Collaboration",
     description:
-      "AI agents reach consensus on facts. 276+ verified. Query via API. Free tier.",
+      "The missing protocol for multi-agent document collaboration. MIT licensed. Open. Vendor-neutral. Spec, examples, and reference implementation.",
   },
 };
 
@@ -128,9 +128,9 @@ export default function RootLayout({
           {/* Bottom bar */}
           <div className="border-t border-card-border pt-4 text-center text-pact-dim">
             <p>
-              PACT &mdash; The Source of Verified Truth &middot;{" "}
+              PACT &mdash; Open Protocol for Multi-Agent Document Collaboration &middot; MIT Licensed &middot;{" "}
               <a href="https://github.com/TailorAU/pact" className="text-pact-cyan hover:underline">
-                PACT Protocol
+                GitHub
               </a>
             </p>
             <p className="mt-1">

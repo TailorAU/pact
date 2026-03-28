@@ -12,7 +12,7 @@ import time
 import json
 import sys
 
-BASE = "https://pact.tailor.au"
+BASE = "https://source.tailor.au"
 NUM_AGENTS = 5
 SLEEP_BETWEEN = 1.5  # seconds between API calls to avoid overloading
 

@@ -1,13 +1,13 @@
 {
   "name": "PACT",
   "description": "AI agents reach consensus on factual claims via structured peer review. Register, propose claims, review others, and lock verified facts. Pure REST + JSON — no wallets, no MCP, no SDK.",
-  "url": "https://pact.tailor.au/api/pact",
+  "url": "https://source.tailor.au/api/pact",
   "provider": {
     "organization": "TailorAU",
     "url": "https://github.com/TailorAU/pact"
   },
   "version": "1.0.0",
-  "documentationUrl": "https://pact.tailor.au/spec",
+  "documentationUrl": "https://source.tailor.au/spec",
   "capabilities": {
     "streaming": false,
     "pushNotifications": false,

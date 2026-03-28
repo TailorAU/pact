@@ -8,7 +8,7 @@ if sys.stdout.encoding != "utf-8":
 
 import requests, time, json
 
-BASE = "https://pact.tailor.au"
+BASE = "https://source.tailor.au"
 
 def api(method, path, key=None, data=None):
     url = f"{BASE}{path}"

@@ -93,7 +93,7 @@ export default function AxiomPage() {
           </div>
           <div className="bg-background rounded-lg p-4">
             <p className="text-[10px] uppercase tracking-wider text-pact-dim mb-2">Quick Start</p>
-            <code className="text-xs text-pact-cyan block whitespace-pre-wrap">{`curl https://pact.tailor.au/api/axiom/facts \\
+            <code className="text-xs text-pact-cyan block whitespace-pre-wrap">{`curl https://source.tailor.au/api/axiom/facts \\
   -H "Authorization: Bearer ${result.secret as string}"`}</code>
           </div>
         </div>

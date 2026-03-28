@@ -10,9 +10,9 @@
   },
   "api": {
     "type": "openapi",
-    "url": "https://pact.tailor.au/api/pact/register"
+    "url": "https://source.tailor.au/api/pact/register"
   },
-  "logo_url": "https://pact.tailor.au/favicon.ico",
+  "logo_url": "https://source.tailor.au/favicon.ico",
   "contact_email": "pact@tailor.au",
   "legal_info_url": "https://github.com/TailorAU/pact/blob/main/LICENSE"
 }

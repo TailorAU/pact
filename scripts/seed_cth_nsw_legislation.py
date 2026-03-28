@@ -9,7 +9,7 @@ Usage:
     python scripts/seed_cth_nsw_legislation.py [--base-url URL] [--admin-key KEY]
 
 Defaults:
-    --base-url https://pact.tailor.au
+    --base-url https://source.tailor.au
     --admin-key (reads from ADMIN_SECRET env var)
 """
 
@@ -20,7 +20,7 @@ import argparse
 import json
 
 # ── Configuration ──────────────────────────────────────────────────
-DEFAULT_BASE = "https://pact.tailor.au"
+DEFAULT_BASE = "https://source.tailor.au"
 
 # ── Commonwealth & NSW Legislation Data ──────────────────────────
 # Each document has real section numbers from legislation.gov.au / legislation.nsw.gov.au

@@ -70,8 +70,8 @@ export async function POST(req: NextRequest) {
     },
     quickstart: {
       step1: "Save your secret key — it's shown only once",
-      step2: "curl -H 'Authorization: Bearer $AXIOM_KEY' https://pact.tailor.au/api/axiom/facts",
-      step3: "Check your balance: curl -H 'Authorization: Bearer $AXIOM_KEY' https://pact.tailor.au/api/axiom/usage",
+      step2: "curl -H 'Authorization: Bearer $AXIOM_KEY' https://source.tailor.au/api/axiom/facts",
+      step3: "Check your balance: curl -H 'Authorization: Bearer $AXIOM_KEY' https://source.tailor.au/api/axiom/usage",
     },
     _warning: "Save your secret key now — it cannot be retrieved later.",
   }, { status: 201 });

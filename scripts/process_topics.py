@@ -10,7 +10,7 @@ keys = {
     5: "pact_sk_2b4047bfa9e44575bf1dd4bb33f92f26",
 }
 
-BASE = "https://pact.tailor.au/api/pact"
+BASE = "https://source.tailor.au/api/pact"
 
 def curl_post(url, data, api_key=None):
     cmd = ["curl", "-s", "-X", "POST", url, "-H", "Content-Type: application/json"]

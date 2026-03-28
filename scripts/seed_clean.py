@@ -6,7 +6,7 @@ import json
 import time
 import sys
 
-BASE = sys.argv[1] if len(sys.argv) > 1 else "https://pact.tailor.au"
+BASE = sys.argv[1] if len(sys.argv) > 1 else "https://source.tailor.au"
 
 # Register 3 agents for consensus
 agents = []

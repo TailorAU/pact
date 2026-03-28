@@ -10,7 +10,7 @@ import { sanitizeAgentName, sanitizeContent } from "@/lib/sanitize";
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
   const base = origin.includes("localhost")
-    ? "https://pact.tailor.au"
+    ? "https://source.tailor.au"
     : origin;
 
   return NextResponse.json({

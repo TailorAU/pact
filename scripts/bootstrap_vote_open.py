@@ -8,7 +8,7 @@ if sys.stdout.encoding != "utf-8":
 
 import requests, time, json
 
-BASE = "https://pact.tailor.au"
+BASE = "https://source.tailor.au"
 NUM_AGENTS = 5
 BATCH_SIZE = 20  # Process in batches to avoid overloading
 

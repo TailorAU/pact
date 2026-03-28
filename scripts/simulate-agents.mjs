@@ -12,7 +12,7 @@
  * Run: node scripts/simulate-agents.mjs
  */
 
-const BASE_URL = "https://pact.tailor.au";
+const BASE_URL = "https://source.tailor.au";
 // Turso HTTP API for direct DB access (bypasses Sybil check for bootstrap)
 const TURSO_HTTP_URL = "https://pact-tailor-aus.aws-ap-northeast-1.turso.io";
 const TURSO_TOKEN = "REDACTED.JWT.REDACTED";

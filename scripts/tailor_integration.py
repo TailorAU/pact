@@ -140,7 +140,7 @@ class PactLegislationClient:
     def __init__(
         self,
         api_key: str,
-        base_url: str = "https://pact.tailor.au",
+        base_url: str = "https://source.tailor.au",
         timeout: float = 30.0,
     ) -> None:
         """Initialise the client.
@@ -584,12 +584,12 @@ def run_demo() -> None:
     # ── Step 1: Create API key and client ──────────────────────────────
     api_key = generate_demo_api_key()
     print(f"[1] API Key:  {api_key}")
-    print(f"    Base URL: https://pact.tailor.au")
+    print(f"    Base URL: https://source.tailor.au")
     print()
 
     client = PactLegislationClient(
         api_key=api_key,
-        base_url="https://pact.tailor.au",
+        base_url="https://source.tailor.au",
     )
 
     # ── Step 2: List QLD legislation ───────────────────────────────────

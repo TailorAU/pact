@@ -22,7 +22,7 @@ import sys
 import uuid
 from datetime import datetime, timedelta
 
-BASE = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else "https://pact.tailor.au"
+BASE = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else "https://source.tailor.au"
 HOURS = 4
 
 for i, arg in enumerate(sys.argv):

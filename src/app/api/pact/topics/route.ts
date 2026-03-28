@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   // Add url field so agents can navigate directly to topic detail pages
   // Use the request's origin so it works in both dev and production
   const origin = req.nextUrl.origin;
-  const baseUrl = origin.includes("localhost") ? "https://pact.tailor.au" : origin;
+  const baseUrl = origin.includes("localhost") ? "https://source.tailor.au" : origin;
   const enriched = (topics as Record<string, unknown>[]).map((t) => ({
     ...t,
     url: `${baseUrl}/topics/${t.id}`,

@@ -57,7 +57,7 @@ export function TryItLive() {
 
   const tierColor: Record<string, string> = {
     axiom: "text-pact-cyan bg-pact-cyan/10 border-pact-cyan/30",
-    empirical: "text-green-400 bg-green-400/10 border-green-400/30",
+    empirical: "text-green-600 bg-green-600/10 border-green-600/30",
     institutional: "text-pact-purple bg-pact-purple/10 border-pact-purple/30",
     interpretive: "text-pact-orange bg-pact-orange/10 border-pact-orange/30",
     conjecture: "text-pact-dim bg-pact-dim/10 border-pact-dim/30",
@@ -66,8 +66,8 @@ export function TryItLive() {
   return (
     <div className="bg-card-bg border border-card-border rounded-xl p-5 md:p-6">
       <div className="flex items-center gap-2 mb-3">
-        <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse" />
-        <span className="text-xs font-bold text-green-400 uppercase tracking-wider">Live API — Try it now</span>
+        <div className="w-2.5 h-2.5 rounded-full bg-green-600 animate-pulse" />
+        <span className="text-xs font-bold text-green-600 uppercase tracking-wider">Live API — Try it now</span>
       </div>
       <div className="flex gap-2 mb-3">
         <input
@@ -98,7 +98,7 @@ export function TryItLive() {
         ))}
       </div>
 
-      {error && <p className="text-red-400 text-xs">{error}</p>}
+      {error && <p className="text-red-500 text-xs">{error}</p>}
 
       {results && results.length === 0 && (
         <p className="text-pact-dim text-xs">No facts match that query yet. <span className="text-pact-cyan">Be the first to propose one.</span></p>

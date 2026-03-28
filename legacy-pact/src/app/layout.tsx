@@ -37,7 +37,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <body className={`${geistMono.variable} antialiased font-mono star-bg`}>
         <Nav />
         <main className="min-h-screen">{children}</main>

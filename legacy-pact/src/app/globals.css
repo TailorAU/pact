@@ -1,17 +1,17 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0a0a0f;
-  --foreground: #e0e0e8;
-  --pact-cyan: #22d3ee;
-  --pact-purple: #a78bfa;
-  --pact-green: #4ade80;
-  --pact-orange: #fb923c;
-  --pact-red: #f87171;
-  --pact-dim: #6b7280;
-  --card-bg: #111118;
-  --card-border: #1e1e2e;
-  --hover-bg: #1a1a28;
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --pact-cyan: #0891b2;
+  --pact-purple: #7c3aed;
+  --pact-green: #16a34a;
+  --pact-orange: #ea580c;
+  --pact-red: #dc2626;
+  --pact-dim: #64748b;
+  --card-bg: #f8fafc;
+  --card-border: #e2e8f0;
+  --hover-bg: #f1f5f9;
 }
 
 @theme inline {
@@ -34,6 +34,7 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-mono), 'IBM Plex Mono', 'Courier New', monospace;
+  -webkit-font-smoothing: antialiased;
 }
 
 @keyframes blink {
@@ -46,8 +47,8 @@ body {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 5px rgba(34, 211, 238, 0.3); }
-  50% { box-shadow: 0 0 20px rgba(34, 211, 238, 0.6); }
+  0%, 100% { box-shadow: 0 0 8px rgba(8, 145, 178, 0.15); }
+  50% { box-shadow: 0 0 24px rgba(8, 145, 178, 0.3); }
 }
 
 .glow {
@@ -63,25 +64,17 @@ body {
 ::-webkit-scrollbar-track { background: var(--background); }
 ::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
 
-/* Starfield background — CSS-only radial gradient dots */
 .star-bg {
   background-image:
-    radial-gradient(1px 1px at 10% 15%, rgba(34, 211, 238, 0.15), transparent),
-    radial-gradient(1px 1px at 25% 65%, rgba(167, 139, 250, 0.1), transparent),
-    radial-gradient(1px 1px at 45% 25%, rgba(74, 222, 128, 0.08), transparent),
-    radial-gradient(1px 1px at 60% 75%, rgba(34, 211, 238, 0.12), transparent),
-    radial-gradient(1px 1px at 75% 10%, rgba(167, 139, 250, 0.08), transparent),
-    radial-gradient(1px 1px at 85% 45%, rgba(74, 222, 128, 0.1), transparent),
-    radial-gradient(1px 1px at 5% 85%, rgba(34, 211, 238, 0.06), transparent),
-    radial-gradient(1px 1px at 35% 90%, rgba(167, 139, 250, 0.12), transparent),
-    radial-gradient(1px 1px at 92% 55%, rgba(34, 211, 238, 0.09), transparent),
-    radial-gradient(1px 1px at 55% 5%, rgba(74, 222, 128, 0.07), transparent),
-    radial-gradient(1px 1px at 15% 50%, rgba(167, 139, 250, 0.06), transparent),
-    radial-gradient(1px 1px at 70% 35%, rgba(34, 211, 238, 0.11), transparent);
+    radial-gradient(1px 1px at 10% 15%, rgba(8, 145, 178, 0.06), transparent),
+    radial-gradient(1px 1px at 25% 65%, rgba(124, 58, 237, 0.04), transparent),
+    radial-gradient(1px 1px at 45% 25%, rgba(22, 163, 74, 0.03), transparent),
+    radial-gradient(1px 1px at 60% 75%, rgba(8, 145, 178, 0.05), transparent),
+    radial-gradient(1px 1px at 75% 10%, rgba(124, 58, 237, 0.03), transparent),
+    radial-gradient(1px 1px at 85% 45%, rgba(22, 163, 74, 0.04), transparent);
   background-size: 250px 250px;
 }
 
-/* Section heading with gradient underline */
 .section-heading {
   position: relative;
   display: inline-block;

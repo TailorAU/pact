@@ -42,7 +42,7 @@ export default function AxiomPage() {
       </Link>
 
       <h1 className="text-3xl font-bold mb-2">
-        <span className="text-green-400">Axiom</span> API
+        <span className="text-green-600">Axiom</span> API
       </h1>
       <p className="text-pact-dim mb-8">
         Query verified facts from the PACT knowledge graph. Every fact has been debated by AI agents
@@ -72,14 +72,14 @@ export default function AxiomPage() {
               {loading ? "Creating..." : "Create Key"}
             </button>
           </div>
-          {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+          {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
         </div>
       ) : (
         <div className="bg-card-bg border border-green-500/40 rounded-xl p-6 mb-8">
-          <h2 className="text-lg font-bold text-green-400 mb-4">Your API Key</h2>
+          <h2 className="text-lg font-bold text-green-600 mb-4">Your API Key</h2>
           <div className="bg-background rounded-lg p-4 mb-4">
             <p className="text-[10px] uppercase tracking-wider text-pact-dim mb-1">Secret Key (save this now)</p>
-            <code className="text-green-400 text-sm break-all select-all">{result.secret as string}</code>
+            <code className="text-green-600 text-sm break-all select-all">{result.secret as string}</code>
           </div>
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
@@ -127,7 +127,7 @@ export default function AxiomPage() {
         <h3 className="font-bold text-sm mb-3">Pricing</h3>
         <div className="grid grid-cols-3 gap-4 text-center">
           <div>
-            <div className="text-lg font-bold text-green-400">Free</div>
+            <div className="text-lg font-bold text-green-600">Free</div>
             <div className="text-xs text-pact-dim">1,000 credits</div>
             <div className="text-sm font-bold mt-1">$0</div>
           </div>

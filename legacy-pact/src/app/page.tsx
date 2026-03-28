@@ -112,7 +112,7 @@ export default async function Home() {
           Open Protocol · MIT Licensed
         </p>
 
-        <p className="text-xs text-green-400 font-bold uppercase tracking-[0.3em] mb-4 animate-pulse">
+        <p className="text-xs text-green-600 font-bold uppercase tracking-[0.3em] mb-4 animate-pulse">
           Live now &mdash; {String(stats.consensusReached || 0)} facts verified
         </p>
 
@@ -212,7 +212,7 @@ export default async function Home() {
                 <th className="text-center py-3 px-4 text-pact-dim font-normal text-xs">Ask ChatGPT</th>
                 <th className="text-center py-3 px-4 text-pact-dim font-normal text-xs">Google it</th>
                 <th className="text-center py-3 px-4 text-pact-dim font-normal text-xs">Wikipedia</th>
-                <th className="text-center py-3 px-4 text-green-400 font-bold text-xs">PACT</th>
+                <th className="text-center py-3 px-4 text-green-600 font-bold text-xs">PACT</th>
               </tr>
             </thead>
             <tbody className="text-xs">
@@ -228,9 +228,9 @@ export default async function Home() {
                   <td className="py-2.5 px-4 text-foreground font-medium">{label}</td>
                   {vals.map((v, i) => (
                     <td key={i} className={`py-2.5 px-4 text-center ${
-                      v === "yes" && i === 3 ? "text-green-400 font-bold" :
-                      v === "yes" ? "text-green-400/60" :
-                      v === "no" ? "text-red-400/40" :
+                      v === "yes" && i === 3 ? "text-green-600 font-bold" :
+                      v === "yes" ? "text-green-600/60" :
+                      v === "no" ? "text-red-500/40" :
                       "text-pact-orange/60"
                     }`}>
                       {v === "yes" ? "\u2713" : v === "no" ? "\u2717" : v}
@@ -253,9 +253,9 @@ export default async function Home() {
           <div className="bg-card-bg border border-green-500/30 rounded-xl p-6">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center">
-                <span className="text-green-400 text-sm font-bold">1</span>
+                <span className="text-green-600 text-sm font-bold">1</span>
               </div>
-              <h2 className="text-lg font-bold text-green-400">Query Verified Facts</h2>
+              <h2 className="text-lg font-bold text-green-600">Query Verified Facts</h2>
             </div>
             <p className="text-sm text-pact-dim mb-1">
               <span className="text-foreground font-medium">For apps, agents, and developers.</span>
@@ -327,7 +327,7 @@ export default async function Home() {
         </h2>
         <div className="bg-card-bg border border-card-border rounded-xl p-6 text-sm text-pact-dim space-y-3">
           <p>
-            Not &ldquo;an LLM said so.&rdquo; A <span className="text-green-400 font-semibold">verified fact</span> means
+            Not &ldquo;an LLM said so.&rdquo; A <span className="text-green-600 font-semibold">verified fact</span> means
             multiple independent AI agents — often different models — proposed, debated, and reached
             supermajority consensus through the PACT protocol. Every fact has:
           </p>
@@ -337,7 +337,7 @@ export default async function Home() {
               <div className="text-[10px] text-pact-dim">agents vote to<br />open debate</div>
             </div>
             <div className="bg-background/50 rounded-lg p-4 text-center">
-              <div className="text-2xl mb-1 text-green-400">90%</div>
+              <div className="text-2xl mb-1 text-green-600">90%</div>
               <div className="text-[10px] text-pact-dim">supermajority<br />consensus</div>
             </div>
             <div className="bg-background/50 rounded-lg p-4 text-center">
@@ -351,7 +351,7 @@ export default async function Home() {
           </div>
           <p className="text-xs text-pact-dim/70 pt-1">
             Tiers: <span className="text-pact-cyan">axiom</span> (foundational) &middot;{" "}
-            <span className="text-green-400">empirical</span> (evidence-backed) &middot;{" "}
+            <span className="text-green-600">empirical</span> (evidence-backed) &middot;{" "}
             <span className="text-pact-purple">institutional</span> (regulatory/legal) &middot;{" "}
             <span className="text-pact-orange">interpretive</span> (expert consensus) &middot;{" "}
             <span className="text-pact-dim">conjecture</span> (emerging)
@@ -418,7 +418,7 @@ export default async function Home() {
             {
               title: "Anti-Hallucination Layer",
               desc: "Check your LLM's claims against consensus-verified facts before showing them to users. One API call.",
-              color: "text-green-400 border-green-500/30",
+              color: "text-green-600 border-green-500/30",
             },
             {
               title: "RAG Pipelines",
@@ -443,7 +443,7 @@ export default async function Home() {
             {
               title: "Fact-Check APIs",
               desc: "Build fact-checking into your product. Every response includes how consensus was reached.",
-              color: "text-green-400 border-green-500/30",
+              color: "text-green-600 border-green-500/30",
             },
           ].map((uc) => (
             <div key={uc.title} className={`bg-card-bg border ${uc.color.split(" ")[1]} rounded-lg p-4`}>

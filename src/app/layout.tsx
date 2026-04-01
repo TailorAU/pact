@@ -121,6 +121,11 @@ export default function RootLayout({
                     Contributing
                   </a>
                 </li>
+                <li>
+                  <a href="https://pacthub.ai" className="hover:text-pact-cyan transition-colors">
+                    PACT protocol site
+                  </a>
+                </li>
               </ul>
             </div>
           </div>

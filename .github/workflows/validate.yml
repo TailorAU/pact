@@ -68,3 +68,27 @@ jobs:
 
       - name: Lint specification files
         run: markdownlint '**/*.md' --ignore node_modules --config .markdownlint.json || true
+
+  build-packages:
+    name: Build CLI and MCP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build @pact-protocol/cli
+        working-directory: cli
+        run: |
+          npm ci
+          npm run build
+          npm run typecheck
+
+      - name: Build @pact-protocol/mcp
+        working-directory: mcp
+        run: |
+          npm ci
+          npm run build
+          npm run typecheck

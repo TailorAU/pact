@@ -1,9 +1,15 @@
 {
   "name": "@pact-protocol/cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "CLI for the PACT protocol — multi-agent document collaboration",
   "license": "MIT",
-  "bin": { "pact": "./bin/pact.js" },
+  "bin": {
+    "pact": "./bin/pact.js",
+    "pact-agent": "./bin/pact.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "scripts": {
     "build": "tsc",

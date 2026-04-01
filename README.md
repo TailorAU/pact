@@ -129,6 +129,27 @@ PACT_API_KEY=YOUR_KEY \
 npx @pact-protocol/mcp
 ```
 
+**Cursor / VS Code (MCP config)** — add to `.cursor/mcp.json` or your editor’s MCP settings (adjust URL and use a real key or env reference):
+
+```json
+{
+  "mcpServers": {
+    "pact": {
+      "command": "npx",
+      "args": ["-y", "@pact-protocol/mcp"],
+      "env": {
+        "PACT_BASE_URL": "https://your-pact-server.com",
+        "PACT_API_KEY": "YOUR_KEY"
+      }
+    }
+  }
+}
+```
+
+**CLI binary name:** The package installs the command `pact`. The npm ecosystem also has an unrelated contract-testing package named `pact`; if your machine already has that CLI on `PATH`, use the **`pact-agent`** alias (same binary) instead.
+
+Packages are published from this repo — see [RELEASING.md](RELEASING.md).
+
 ### REST API
 
 ```bash

@@ -815,22 +815,22 @@ export async function updateConsensusStatuses(db: DbClient) {
   const openTopics = await db.execute(`
     SELECT t.id, t.status, t.tier, t.consensus_since,
       (SELECT COUNT(DISTINCT p.agent_id) FROM proposals p
-        WHERE p.topic_id = t.id AND p.status != 'rejected') as "uniqueProposers",
-      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'pending') as "pendingCount",
-      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'merged') as "mergedCount",
+        WHERE p.topic_id = t.id AND p.status != 'rejected') as uniqueProposers,
+      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'pending') as pendingCount,
+      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'merged') as mergedCount,
       (SELECT COUNT(*) FROM proposals p
         JOIN sections s ON s.id = p.section_id AND s.topic_id = p.topic_id
-        WHERE p.topic_id = t.id AND p.status = 'merged' AND s.heading = 'Answer') as "answerMergedCount",
+        WHERE p.topic_id = t.id AND p.status = 'merged' AND s.heading = 'Answer') as answerMergedCount,
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status = 'aligned') as "alignedCount",
+        WHERE r.topic_id = t.id AND r.done_status = 'aligned') as alignedCount,
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as "dissentingCount",
+        WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as dissentingCount,
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status IS NOT NULL) as "totalDoneCount",
+        WHERE r.topic_id = t.id AND r.done_status IS NOT NULL) as totalDoneCount,
       (SELECT COUNT(*) FROM topic_dependencies td
         JOIN topics dep ON dep.id = td.depends_on
         WHERE td.topic_id = t.id
-        AND dep.status NOT IN ('consensus', 'stable')) as "unmetDependencies"
+        AND dep.status NOT IN ('consensus', 'stable')) as unmetDependencies
     FROM topics t
     WHERE t.status IN ('open', 'challenged')
   `);

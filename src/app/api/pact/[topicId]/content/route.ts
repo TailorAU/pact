@@ -11,8 +11,7 @@ export async function GET(
   const resolve = req.nextUrl.searchParams.get("resolve") === "true";
   const db = await getDb();
 
-  // Auto-merge any expired proposals
-  await autoMergeExpired(db);
+  try { await autoMergeExpired(db); } catch (e) { console.error("autoMergeExpired failed (non-fatal on read path):", e); }
 
   const topicResult = await db.execute({
     sql: "SELECT id, title, tier, status, content FROM topics WHERE id = ?",

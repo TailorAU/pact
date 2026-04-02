@@ -9,9 +9,8 @@ import { sanitizeAgentName, sanitizeContent } from "@/lib/sanitize";
 // Any agent that GETs this endpoint learns the full API instantly.
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
-  const base = origin.includes("localhost")
-    ? "https://source.tailor.au"
-    : origin;
+  const isLocal = origin.includes("localhost") || origin.includes("0.0.0.0") || origin.includes("127.0.0.1");
+  const base = isLocal ? "https://source.tailor.au" : origin;
 
   return NextResponse.json({
     name: "PACT",

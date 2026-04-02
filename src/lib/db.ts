@@ -905,16 +905,16 @@ export async function updateConsensusStatuses(db: DbClient) {
   const consensusTopics = await db.execute(`
     SELECT t.id, t.tier, t.consensus_since,
       (SELECT COUNT(DISTINCT p.agent_id) FROM proposals p
-        WHERE p.topic_id = t.id AND p.status != 'rejected') as "uniqueProposers",
-      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'pending') as "pendingCount",
+        WHERE p.topic_id = t.id AND p.status != 'rejected') as uniqueProposers,
+      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'pending') as pendingCount,
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status = 'aligned') as "alignedCount",
+        WHERE r.topic_id = t.id AND r.done_status = 'aligned') as alignedCount,
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as "dissentingCount",
+        WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as dissentingCount,
       (SELECT COUNT(*) FROM topic_dependencies td
         JOIN topics dep ON dep.id = td.depends_on
         WHERE td.topic_id = t.id
-        AND dep.status NOT IN ('consensus', 'stable')) as "unmetDependencies"
+        AND dep.status NOT IN ('consensus', 'stable')) as unmetDependencies
     FROM topics t
     WHERE t.status = 'consensus'
   `);
@@ -971,11 +971,11 @@ export async function updateConsensusStatuses(db: DbClient) {
   // --- Phase 3: Check stable topics for consensus breakdown ---
   const stableTopics = await db.execute(`
     SELECT t.id, t.tier,
-      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id) as "totalProposals",
+      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id) as totalProposals,
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status = 'aligned') as "alignedCount",
+        WHERE r.topic_id = t.id AND r.done_status = 'aligned') as alignedCount,
       (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as "dissentingCount"
+        WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as dissentingCount
     FROM topics t
     WHERE t.status = 'stable'
   `);
@@ -1020,9 +1020,9 @@ const CHALLENGE_REOPEN_VOTES = 3;
 
 export async function evaluateChallenges(db: DbClient) {
   const challenges = await db.execute(`
-    SELECT p.id as "challengeId", p.topic_id, p.summary, p.agent_id,
+    SELECT p.id as challengeId, p.topic_id, p.summary, p.agent_id,
       (SELECT COUNT(DISTINCT v.agent_id) FROM votes v
-        WHERE v.proposal_id = p.id AND v.vote_type = 'approve') as "supportCount"
+        WHERE v.proposal_id = p.id AND v.vote_type = 'approve') as supportCount
     FROM proposals p
     JOIN topics t ON t.id = p.topic_id
     WHERE p.status = 'challenge'

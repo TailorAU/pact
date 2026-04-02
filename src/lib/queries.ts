@@ -7,7 +7,7 @@ import { getDb, autoMergeExpired, type DbClient } from "./db";
 
 export async function getTopicsList(options?: { tier?: string; status?: string; jurisdiction?: string; limit?: number; offset?: number }) {
   const db = await getDb();
-  await autoMergeExpired(db);
+  try { await autoMergeExpired(db); } catch (e) { console.error("autoMergeExpired failed (non-fatal on read path):", e); }
 
   const limit = options?.limit ?? 50;
   const offset = options?.offset ?? 0;
@@ -179,7 +179,7 @@ export async function getAgentDetail(agentId: string) {
 
 export async function getTopicDetail(topicId: string) {
   const db = await getDb();
-  await autoMergeExpired(db);
+  try { await autoMergeExpired(db); } catch (e) { console.error("autoMergeExpired failed (non-fatal on read path):", e); }
 
   const topicResult = await db.execute({
     sql: `SELECT t.id, t.title, t.content, t.tier, t.status, t.created_at, t.canonical_claim,

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@upstash/redis": "^1.36.3",
+    "leaflet": "^1.9.4",
     "next": "16.1.6",
     "pg": "^8.13.1",
     "react": "19.2.3",
@@ -19,6 +20,7 @@
     "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.12",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.11.10",

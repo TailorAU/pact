@@ -34,7 +34,7 @@
 -- SELECT COUNT(*) FROM fuel_prices WHERE observed_at >= now() - INTERVAL '7 days';
 -- SELECT COUNT(*) FROM price_observations WHERE observed_at >= now() - INTERVAL '7 days';
 
--- On pact-pg-prod:
+-- On source-pg-prod:
 -- SELECT COUNT(*) FROM market.fuel_prices WHERE observed_at >= now() - INTERVAL '7 days';
 -- SELECT COUNT(*) FROM market.price_observations WHERE observed_at >= now() - INTERVAL '7 days';
 
@@ -48,7 +48,7 @@ SELECT timescaledb_pre_restore();
 --   --table=fuel_types --table=fuel_brands --table=fuel_stations \
 --   -h bestprice-pg-prod.postgres.database.azure.com -U admin bestprice \
 -- | sed 's/public\./market./g' \
--- | psql -h pact-pg-prod.postgres.database.azure.com -U admin pact
+-- | psql -h source-pg-prod.postgres.database.azure.com -U admin pact
 
 -- For hypertables (fuel_prices, price_observations, search_events), use COPY:
 -- psql bestprice -c "\copy (SELECT * FROM fuel_prices WHERE observed_at < '<double-write-start>') TO '/tmp/fuel_prices.csv' CSV"

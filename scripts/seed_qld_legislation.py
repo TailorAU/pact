@@ -327,8 +327,8 @@ QLD_ACTS = [
 
 def main():
     parser = argparse.ArgumentParser(description="Seed QLD legislation into PACT")
-    parser.add_argument("--base-url", default=os.environ.get("PACT_BASE_URL", DEFAULT_BASE))
-    parser.add_argument("--admin-key", default=os.environ.get("ADMIN_SECRET", os.environ.get("PACT_ADMIN_SECRET", "")))
+    parser.add_argument("--base-url", default=os.environ.get("SOURCE_BASE_URL", DEFAULT_BASE))
+    parser.add_argument("--admin-key", default=os.environ.get("ADMIN_SECRET", ""))
     args = parser.parse_args()
 
     base = args.base_url.rstrip("/")

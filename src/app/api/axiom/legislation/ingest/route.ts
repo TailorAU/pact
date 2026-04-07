@@ -42,7 +42,7 @@ import { randomUUID } from "crypto";
 export async function POST(req: NextRequest) {
   // Admin auth
   const adminKey = req.headers.get("x-admin-key");
-  const expectedKey = process.env.ADMIN_SECRET || process.env.PACT_ADMIN_SECRET;
+  const expectedKey = process.env.ADMIN_SECRET;
   if (!expectedKey || adminKey !== expectedKey) {
     return NextResponse.json({ error: "Unauthorized. Requires X-Admin-Key header." }, { status: 401 });
   }

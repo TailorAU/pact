@@ -1,6 +1,6 @@
 /**
  * Market data database connection.
- * Uses the same DATABASE_URL as the main Source database (pact-pg-prod),
+ * Uses the same DATABASE_URL as the main Source database (source-pg-prod),
  * but all market tables live in the `market` schema.
  */
 

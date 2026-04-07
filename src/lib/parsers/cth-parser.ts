@@ -3,193 +3,218 @@ import type { LegislationDoc, LegislationSection, SyncResult } from "../legislat
 import { ingestDocuments } from "../legislation-sync";
 
 const CTH_API = "https://api.prod.legislation.gov.au/v1";
-const BATCH_SIZE = 20;
+const CTH_WEB = "https://www.legislation.gov.au";
+const BATCH_SIZE = 10;
+const MAX_ACTS = 50;
 
 interface CthTitle {
   id: string;
   name: string;
-  collection: string;
   year: number;
   number: number;
   status: string;
-  isInForce: boolean;
-  makingDate: string;
   seriesType: string;
+  makingDate: string;
+}
+
+interface CthVersion {
+  titleId: string;
+  start: string;
+  registerId: string;
+  compilationNumber: string;
+  isLatest: boolean;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error(`CTH API ${res.status}: ${url}`);
+  const res = await fetch(url, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) throw new Error(`CTH API ${res.status}: ${url.slice(0, 120)}`);
   return res.json() as Promise<T>;
 }
 
-async function fetchInForceActs(skip: number, top: number): Promise<{ value: CthTitle[]; nextLink?: string }> {
+async function fetchInForceActs(skip: number, top: number): Promise<CthTitle[]> {
   const filter = encodeURIComponent("collection eq 'Act' and status eq 'InForce'");
-  const url = `${CTH_API}/Titles?$filter=${filter}&$top=${top}&$skip=${skip}&$orderby=year desc`;
-  return fetchJson(url);
+  const select = encodeURIComponent("id,name,year,number,status,seriesType,makingDate");
+  const url = `${CTH_API}/Titles?$filter=${filter}&$top=${top}&$skip=${skip}&$select=${select}&$orderby=year desc`;
+  const data = await fetchJson<{ value: CthTitle[] }>(url);
+  return data.value;
 }
 
-async function getExistingDocIds(db: DbClient): Promise<Map<string, string | null>> {
-  const result = await db.execute("SELECT id, last_amended_date FROM legislation_docs WHERE jurisdiction = 'CTH'");
-  const map = new Map<string, string | null>();
-  for (const row of result.rows) {
-    map.set(row.id as string, (row.last_amended_date as string) ?? null);
-  }
-  return map;
+async function getLatestVersion(titleId: string): Promise<CthVersion | null> {
+  const filter = encodeURIComponent(`titleId eq '${titleId}' and isLatest eq true`);
+  const url = `${CTH_API}/Versions?$filter=${filter}&$top=1`;
+  const data = await fetchJson<{ value: CthVersion[] }>(url);
+  return data.value[0] ?? null;
 }
 
-function cthIdToSourceId(cthId: string, year: number, number: number): string {
-  return `cth/act-${year}-${String(number).padStart(3, "0")}`;
+function buildEpubHtmlUrl(titleId: string, version: CthVersion): string {
+  const start = version.start.split("T")[0];
+  return `${CTH_WEB}/${titleId}/${start}/${start}/text/original/epub/OEBPS/document_1/document_1.html`;
 }
 
-async function fetchDocumentHtml(titleId: string): Promise<string | null> {
+async function fetchLegislationHtml(titleId: string, version: CthVersion): Promise<string | null> {
+  const url = buildEpubHtmlUrl(titleId, version);
   try {
-    const findUrl = `${CTH_API}/documents/find(titleid='${titleId}',asatspecification='Latest',type='Primary',format='Epub',uniqueTypeNumber=0,volumeNumber=0,rectificationVersionNumber=0)`;
-    const metaRes = await fetch(findUrl, { headers: { Accept: "application/json" } });
-    if (!metaRes.ok) return null;
-
-    const itemsUrl = `${findUrl}/getzipitems`;
-    const itemsRes = await fetch(itemsUrl, { headers: { Accept: "application/json" } });
-    if (!itemsRes.ok) return null;
-    const items: string[] = await itemsRes.json();
-
-    const htmlItems = items.filter(i => i.endsWith(".xhtml") || i.endsWith(".html"));
-    if (htmlItems.length === 0) return null;
-
-    const mainItem = htmlItems.find(i => i.includes("body") || i.includes("text")) || htmlItems[0];
-    const contentRes = await fetch(`${findUrl}/${mainItem}`);
-    if (!contentRes.ok) return null;
-    return contentRes.text();
+    const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+    if (!res.ok) return null;
+    return res.text();
   } catch {
     return null;
   }
 }
 
-function parseHtmlToSections(html: string, title: string): LegislationSection[] {
+function parseActHtml(html: string): LegislationSection[] {
   const sections: LegislationSection[] = [];
-  const sectionPattern = /<(?:h[1-6]|div[^>]*class="[^"]*(?:section|provision|part|division)[^"]*")[^>]*>([^<]*(?:<[^/][^>]*>[^<]*)*)<\/(?:h[1-6]|div)>/gi;
-
-  const partPattern = /(?:Part|Division|Chapter|Schedule)\s+[\dIVXLCDM]+[A-Z]?\s*[-–—]?\s*([^\n<]+)/gi;
-  const sectionIdPattern = /(?:(?:Section|s)\s*\.?\s*)(\d+[A-Z]*(?:\([^)]+\))?)/gi;
-
-  const lines = html.replace(/<[^>]+>/g, "\n").split("\n").map(l => l.trim()).filter(Boolean);
-
   let currentPart = "";
   let order = 0;
 
-  for (const line of lines) {
-    const partMatch = line.match(/^(Part|Division|Chapter|Schedule)\s+([\dIVXLCDM]+[A-Z]?)\s*[-–—]\s*(.+)/i);
-    if (partMatch) {
-      currentPart = `${partMatch[1]} ${partMatch[2]} — ${partMatch[3]}`;
-      continue;
-    }
-
-    const secMatch = line.match(/^(\d+[A-Z]*(?:\([^)]+\))?)\s+(.+)/);
-    if (secMatch && line.length > 20) {
-      const sectionId = `s ${secMatch[1]}`;
-      const sectionTitle = secMatch[2].slice(0, 200);
-      const depth = currentPart ? 2 : 1;
-
-      sections.push({
-        sectionId,
-        title: sectionTitle,
-        content: line,
-        depth,
-        parentSection: currentPart || undefined,
-        order: order++,
-        status: "in_force",
-      });
-    }
+  const partPattern = /class="ActHead([234])"[^>]*>(?:<a[^>]*>)?(?:<span[^>]*>)?([^<]+)/g;
+  let partMatch;
+  const parts: { index: number; level: number; title: string }[] = [];
+  while ((partMatch = partPattern.exec(html)) !== null) {
+    const level = parseInt(partMatch[1]);
+    let title = partMatch[2].replace(/&\w+;/g, " ").trim();
+    const restMatch = html.slice(partMatch.index, partMatch.index + 500).match(/<\/span>\s*<span[^>]*>([^<]+)/);
+    if (restMatch) title += " " + restMatch[1].replace(/&\w+;/g, " ").trim();
+    parts.push({ index: partMatch.index, level, title: title.trim() });
   }
 
-  if (sections.length === 0 && lines.length > 0) {
-    const chunkSize = 2000;
-    for (let i = 0; i < lines.length && sections.length < 50; i += 10) {
-      const chunk = lines.slice(i, i + 10).join(" ").slice(0, chunkSize);
-      if (chunk.length > 50) {
-        sections.push({
-          sectionId: `chunk-${sections.length + 1}`,
-          title: `Section ${sections.length + 1}`,
-          content: chunk,
-          depth: 1,
-          order: sections.length,
-          status: "in_force",
-        });
-      }
+  const sectionPattern = /class="ActHead5"[^>]*>(?:<a[^>]*(?:id="([^"]*)")?[^>]*>)?<span class="CharSectno">([^<]+)<\/span>(?:<span[^>]*>[^<]*<\/span>)*<span[^>]*>([^<]+)/g;
+  let secMatch;
+  const rawSections: { index: number; anchorId: string; sectionNo: string; title: string }[] = [];
+  while ((secMatch = sectionPattern.exec(html)) !== null) {
+    rawSections.push({
+      index: secMatch.index,
+      anchorId: secMatch[1] || "",
+      sectionNo: secMatch[2].trim(),
+      title: secMatch[3].replace(/&\w+;/g, " ").trim(),
+    });
+  }
+
+  for (let i = 0; i < rawSections.length; i++) {
+    const sec = rawSections[i];
+    const nextSecIndex = i + 1 < rawSections.length ? rawSections[i + 1].index : html.length;
+
+    const relevantPart = parts.filter(p => p.index < sec.index).pop();
+    if (relevantPart) currentPart = relevantPart.title;
+
+    const contentSlice = html.slice(sec.index, Math.min(sec.index + 5000, nextSecIndex));
+    const textParts: string[] = [];
+    const textPattern = /class="(?:subsection|paragraph|subparagraph|note|definition|DefnSectn)"[^>]*>([^<]*(?:<[^/][^>]*>[^<]*)*)/g;
+    let textMatch;
+    while ((textMatch = textPattern.exec(contentSlice)) !== null) {
+      const text = textMatch[1]
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;|&#xa0;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (text.length > 5) textParts.push(text);
     }
+
+    const content = textParts.join(" ").slice(0, 4000);
+    if (content.length < 10) continue;
+
+    sections.push({
+      sectionId: `s ${sec.sectionNo}`,
+      title: sec.title,
+      content,
+      depth: currentPart ? 2 : 1,
+      parentSection: currentPart || undefined,
+      order: order++,
+      status: "in_force",
+    });
   }
 
   return sections;
 }
 
+function cthSourceId(year: number, number: number): string {
+  return `cth/act-${year}-${String(number).padStart(3, "0")}`;
+}
+
 export async function syncCth(db: DbClient): Promise<SyncResult> {
   const result: SyncResult = { jurisdiction: "CTH", docsChecked: 0, docsUpdated: 0, sectionsTotal: 0, errors: [] };
-
-  const existing = await getExistingDocIds(db);
   const docsToIngest: LegislationDoc[] = [];
   let skip = 0;
 
-  while (true) {
+  while (result.docsChecked < MAX_ACTS) {
     let titles: CthTitle[];
     try {
-      const response = await fetchInForceActs(skip, BATCH_SIZE);
-      titles = response.value;
+      titles = await fetchInForceActs(skip, BATCH_SIZE);
     } catch (e) {
-      result.errors.push(`Failed to fetch titles at skip=${skip}: ${e instanceof Error ? e.message : String(e)}`);
+      result.errors.push(`Titles fetch at skip=${skip}: ${e instanceof Error ? e.message : String(e)}`);
       break;
     }
-
     if (titles.length === 0) break;
     result.docsChecked += titles.length;
 
     for (const title of titles) {
-      const sourceId = cthIdToSourceId(title.id, title.year, title.number);
+      try {
+        const version = await getLatestVersion(title.id);
+        if (!version) {
+          result.errors.push(`No latest version for ${title.name}`);
+          continue;
+        }
 
-      const html = await fetchDocumentHtml(title.id);
-      if (!html) {
-        result.errors.push(`No HTML content for ${title.name} (${title.id})`);
-        continue;
+        const html = await fetchLegislationHtml(title.id, version);
+        if (!html) {
+          result.errors.push(`No HTML for ${title.name}`);
+          continue;
+        }
+
+        const sections = parseActHtml(html);
+        if (sections.length === 0) {
+          result.errors.push(`No sections parsed for ${title.name} (html ${html.length} chars)`);
+          continue;
+        }
+
+        docsToIngest.push({
+          id: cthSourceId(title.year, title.number),
+          jurisdiction: "CTH",
+          type: "act",
+          title: `${title.name} (Cth)`,
+          shortTitle: title.name,
+          year: title.year,
+          number: `Act No. ${title.number} of ${title.year}`,
+          inForceDate: title.makingDate?.split("T")[0],
+          lastAmendedDate: version.start?.split("T")[0],
+          legislationUrl: `${CTH_WEB}/${title.id}/latest/text`,
+          sections,
+        });
+
+        await new Promise(r => setTimeout(r, 2000));
+      } catch (e) {
+        result.errors.push(`${title.name}: ${e instanceof Error ? e.message : String(e)}`);
       }
+    }
 
-      const sections = parseHtmlToSections(html, title.name);
-      if (sections.length === 0) {
-        result.errors.push(`No sections parsed for ${title.name}`);
-        continue;
-      }
-
-      docsToIngest.push({
-        id: sourceId,
-        jurisdiction: "CTH",
-        type: title.seriesType?.toLowerCase() === "act" ? "act" : "regulation",
-        title: `${title.name} (Cth)`,
-        shortTitle: title.name,
-        year: title.year,
-        number: `Act No. ${title.number} of ${title.year}`,
-        inForceDate: title.makingDate?.split("T")[0],
-        administeredBy: undefined,
-        legislationUrl: `https://www.legislation.gov.au/${title.id}/latest/text`,
-        sections,
-      });
-
-      if (docsToIngest.length >= 5) {
-        const batch = docsToIngest.splice(0, 5);
+    if (docsToIngest.length >= 5) {
+      const batch = docsToIngest.splice(0, 5);
+      try {
         const { sectionsTotal } = await ingestDocuments(db, batch);
         result.docsUpdated += batch.length;
         result.sectionsTotal += sectionsTotal;
+      } catch (e) {
+        result.errors.push(`Ingest batch failed: ${e instanceof Error ? e.message : String(e)}`);
       }
-
-      await new Promise(r => setTimeout(r, 1000));
     }
 
     skip += BATCH_SIZE;
-
-    if (skip >= 100) break;
   }
 
   if (docsToIngest.length > 0) {
-    const { sectionsTotal } = await ingestDocuments(db, docsToIngest);
-    result.docsUpdated += docsToIngest.length;
-    result.sectionsTotal += sectionsTotal;
+    try {
+      const { sectionsTotal } = await ingestDocuments(db, docsToIngest);
+      result.docsUpdated += docsToIngest.length;
+      result.sectionsTotal += sectionsTotal;
+    } catch (e) {
+      result.errors.push(`Final ingest batch failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   return result;

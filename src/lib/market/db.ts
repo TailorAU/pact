@@ -20,7 +20,7 @@ export function getMarketPool(): pg.Pool {
   return _pool;
 }
 
-export async function marketQuery<T extends Record<string, unknown>>(
+export async function marketQuery<T = Record<string, unknown>>(
   text: string,
   params: unknown[] = []
 ): Promise<T[]> {
@@ -29,7 +29,7 @@ export async function marketQuery<T extends Record<string, unknown>>(
   return result.rows as T[];
 }
 
-export async function marketQueryOne<T extends Record<string, unknown>>(
+export async function marketQueryOne<T = Record<string, unknown>>(
   text: string,
   params: unknown[] = []
 ): Promise<T | null> {

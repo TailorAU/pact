@@ -1,9 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { requireApiKey, deductApiCredit } from "@/lib/auth";
 
 // GET /api/axiom/legislation/search — Full-text search across all legislation
+//
+// Free, unauthenticated. Australian legislation is a public good.
 //
 // Query params:
 //   q             — Search query (required). Searches title, section content, section IDs.
@@ -12,17 +13,8 @@ import { requireApiKey, deductApiCredit } from "@/lib/auth";
 //   status        — Optional section status filter: "in_force", "repealed", "not_yet_commenced"
 //   limit/offset  — Pagination
 //
-// Auth: Requires Axiom API key. Costs 1 credit.
-//
 // Example: GET /api/axiom/legislation/search?q=assault&jurisdiction=QLD
 export async function GET(req: NextRequest) {
-  let apiKey;
-  try {
-    apiKey = await requireApiKey(req);
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Unauthorized";
-    return NextResponse.json({ error: msg }, { status: 401 });
-  }
 
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("q");
@@ -116,8 +108,6 @@ export async function GET(req: NextRequest) {
     args: [...args, limit, offset],
   });
 
-  // Deduct 1 credit
-  await deductApiCredit(apiKey.id, "legislation-search");
 
   // Format results with highlighted matches
   const results = result.rows.map((row) => {
@@ -167,7 +157,7 @@ export async function GET(req: NextRequest) {
     total,
     limit,
     offset,
-    creditsRemaining: apiKey.creditBalance - 1,
+    free: true,
     _links: {
       self: `/api/axiom/legislation/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`,
       next: offset + limit < total

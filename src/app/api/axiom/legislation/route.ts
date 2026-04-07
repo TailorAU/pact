@@ -1,10 +1,11 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { requireApiKey, deductApiCredit } from "@/lib/auth";
 import { formatLegislation, type LegislationDoc, type LegislationSection } from "@/lib/legislation-format";
 
 // GET /api/axiom/legislation — List legislation documents with structured sections
+//
+// Free, unauthenticated. Australian legislation is a public good.
 //
 // Query params:
 //   jurisdiction  — Filter: "QLD", "CTH", "NSW", etc. Prefix matching (QLD matches QLD-*)
@@ -14,16 +15,7 @@ import { formatLegislation, type LegislationDoc, type LegislationSection } from 
 //   format        — Response format: json (default), sections, text, citation, markdown
 //   include       — "sections" to include section content (default), "metadata" for docs only
 //   limit/offset  — Pagination
-//
-// Auth: Requires Axiom API key (pact_ax_*). Costs 1 credit per call.
 export async function GET(req: NextRequest) {
-  let apiKey;
-  try {
-    apiKey = await requireApiKey(req);
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Unauthorized";
-    return NextResponse.json({ error: msg }, { status: 401 });
-  }
 
   const { searchParams } = new URL(req.url);
   const jurisdiction = searchParams.get("jurisdiction");
@@ -147,9 +139,6 @@ export async function GET(req: NextRequest) {
     docs.push(doc);
   }
 
-  // Deduct 1 credit
-  await deductApiCredit(apiKey.id, "legislation-list");
-
   // Format response
   const { body, contentType } = formatLegislation(docs, format);
 
@@ -157,7 +146,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse(body as string, {
       headers: {
         "Content-Type": `${contentType}; charset=utf-8`,
-        "X-Credits-Remaining": String(apiKey.creditBalance - 1),
+        "Cache-Control": "public, max-age=86400",
         "X-Total-Results": String(total),
       },
     });
@@ -168,7 +157,7 @@ export async function GET(req: NextRequest) {
     total,
     limit,
     offset,
-    creditsRemaining: apiKey.creditBalance - 1,
+    free: true,
     _links: {
       self: `/api/axiom/legislation?limit=${limit}&offset=${offset}`,
       next: offset + limit < total ? `/api/axiom/legislation?limit=${limit}&offset=${offset + limit}` : null,

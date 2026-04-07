@@ -317,6 +317,19 @@ async function initSchema(db: DbClient) {
       UNIQUE(from_doc_id, to_doc_id, relation_type)
     )`,
 
+    // ── Legislation Sync Log ───────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS legislation_sync_log (
+      id TEXT PRIMARY KEY,
+      jurisdiction TEXT NOT NULL,
+      sync_type TEXT NOT NULL DEFAULT 'scheduled',
+      docs_checked INTEGER NOT NULL DEFAULT 0,
+      docs_updated INTEGER NOT NULL DEFAULT 0,
+      sections_total INTEGER NOT NULL DEFAULT 0,
+      errors TEXT,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ
+    )`,
+
     // ── Indexes ─────────────────────────────────────────────────────
     `CREATE INDEX IF NOT EXISTS idx_proposals_topic_status ON proposals(topic_id, status)`,
     `CREATE INDEX IF NOT EXISTS idx_proposals_agent_id ON proposals(agent_id)`,

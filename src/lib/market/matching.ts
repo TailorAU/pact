@@ -5,7 +5,7 @@
  * Uses EAN barcode when available, then fuzzy name + brand matching.
  */
 
-import { marketQuery, marketQueryOne } from "./db.js";
+import { marketQuery, marketQueryOne } from "./db";
 
 export async function matchOrCreateProduct(input: {
   ean: string | null;

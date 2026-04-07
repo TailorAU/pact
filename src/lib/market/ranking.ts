@@ -7,7 +7,7 @@
  * The affiliate module is not imported.
  */
 
-import type { PriceCandidate } from "./types.js";
+import type { PriceCandidate } from "./types";
 
 export interface RankingOptions {
   includeOutOfStock?: boolean;

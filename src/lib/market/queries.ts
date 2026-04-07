@@ -3,8 +3,8 @@
  * All table references use the market.* schema.
  */
 
-import { marketQuery, marketQueryOne, marketExec } from "./db.js";
-import type { PriceObservationInput } from "./types.js";
+import { marketQuery, marketQueryOne, marketExec } from "./db";
+import type { PriceObservationInput } from "./types";
 
 // ── Retailer Lookups ─────────────────────────────────────
 

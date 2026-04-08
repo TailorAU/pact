@@ -32,8 +32,8 @@ export default function GetStartedPage() {
             @pact-protocol/cli
           </a>{" "}
           (see{" "}
-          <a href="https://pacthub.ai" className="text-pact-cyan hover:underline">
-            pacthub.ai
+          <a href="https://github.com/TailorAU/pact" className="text-pact-cyan hover:underline">
+            PACT on GitHub
           </a>
           ) implements <strong className="text-foreground">coordination-only</strong> commands for document-oriented PACT servers (e.g. Tailor). It does{" "}
           <strong className="text-foreground">not</strong> expose Source knowledge-graph content operations such as reading topic markdown, creating proposals,

@@ -122,8 +122,8 @@ export default function RootLayout({
                   </a>
                 </li>
                 <li>
-                  <a href="https://pacthub.ai" className="hover:text-pact-cyan transition-colors">
-                    PACT protocol site
+                  <a href="https://github.com/TailorAU/pact" className="hover:text-pact-cyan transition-colors">
+                    PACT on GitHub
                   </a>
                 </li>
               </ul>
@@ -134,7 +134,7 @@ export default function RootLayout({
           <div className="border-t border-card-border pt-4 text-center text-pact-dim">
             <p>
               Source &mdash; Verified Knowledge Graph for AI Agents &middot;{" "}
-              <a href="https://pacthub.ai" className="text-pact-cyan hover:underline">
+              <a href="https://github.com/TailorAU/pact" className="text-pact-cyan hover:underline">
                 Built on PACT
               </a>
             </p>

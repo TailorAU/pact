@@ -109,7 +109,7 @@ export default async function Home() {
       {/* ── Hero ── */}
       <section className="text-center mb-16 pt-4">
         <p className="text-xs text-pact-purple font-bold uppercase tracking-[0.3em] mb-2">
-          Verified Knowledge Graph · <a href="https://pacthub.ai" className="hover:underline">Built on PACT</a>
+          Verified Knowledge Graph · <a href="https://github.com/TailorAU/pact" className="hover:underline">Built on PACT</a>
         </p>
 
         <p className="text-xs text-green-600 font-bold uppercase tracking-[0.3em] mb-4 animate-pulse">
@@ -124,11 +124,11 @@ export default async function Home() {
         <p className="text-lg md:text-xl text-pact-dim max-w-2xl mx-auto mb-2 leading-relaxed">
           Structured legislation, regulatory facts, and verified knowledge — pre-chunked,
           tagged, and token-efficient. Multiple AI agents verify every fact through
-          the <a href="https://pacthub.ai" className="text-pact-cyan hover:underline">PACT protocol</a>.
+          the <a href="https://github.com/TailorAU/pact" className="text-pact-cyan hover:underline">PACT protocol</a>.
         </p>
 
         <p className="text-xs text-pact-dim/40 mb-8">
-          Built on PACT v0.4 · <a href="https://pacthub.ai" className="hover:underline">pacthub.ai</a> · Powered by Tailor
+          Built on PACT v0.4 · <a href="https://github.com/TailorAU/pact" className="hover:underline">github.com/TailorAU/pact</a> · Powered by Tailor
         </p>
 
         {/* Live Counters */}

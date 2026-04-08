@@ -193,6 +193,108 @@ function createServer() {
             return errorResult(e);
         }
     });
+    // ── Fuel Tools ───────────────────────────────────────────────────
+    server.tool("source_cheapest_fuel", "Find the cheapest fuel stations in Australia right now. Free, real-time prices from 1,700+ stations.", {
+        fuelType: z.string().optional().describe("Fuel type: Diesel, U91, U95, U98, E10, LPG, E85, AdBlue, PremDSL (default: Diesel)"),
+        state: z.string().optional().describe("State: QLD, NSW, VIC, WA, SA, ACT, TAS, NT"),
+        limit: z.number().optional().describe("Max results (default: 10)"),
+    }, async ({ fuelType, state, limit }) => {
+        try {
+            const params = new URLSearchParams();
+            if (fuelType)
+                params.set("fuelType", fuelType);
+            if (state)
+                params.set("state", state);
+            if (limit)
+                params.set("limit", String(limit));
+            const qs = params.toString();
+            return jsonResult(await sourceGet(`/api/market/fuel/cheapest${qs ? `?${qs}` : ""}`));
+        }
+        catch (e) {
+            return errorResult(e);
+        }
+    });
+    server.tool("source_fuel_near_me", "Find fuel stations near a GPS location. Returns stations sorted by distance with current prices.", {
+        latitude: z.number().describe("GPS latitude"),
+        longitude: z.number().describe("GPS longitude"),
+        fuelType: z.string().optional().describe("Fuel type (default: Diesel)"),
+        radiusKm: z.number().optional().describe("Search radius in km (default: 10)"),
+        limit: z.number().optional().describe("Max results (default: 10)"),
+    }, async ({ latitude, longitude, fuelType, radiusKm, limit }) => {
+        try {
+            const params = new URLSearchParams({
+                latitude: String(latitude),
+                longitude: String(longitude),
+            });
+            if (fuelType)
+                params.set("fuelType", fuelType);
+            if (radiusKm)
+                params.set("radiusKm", String(radiusKm));
+            if (limit)
+                params.set("limit", String(limit));
+            return jsonResult(await sourceGet(`/api/market/fuel/near-me?${params}`));
+        }
+        catch (e) {
+            return errorResult(e);
+        }
+    });
+    server.tool("source_fuel_search", "Search fuel stations by type, state, or suburb.", {
+        fuelType: z.string().describe("Fuel type: Diesel, U91, U95, U98, E10, LPG"),
+        state: z.string().optional().describe("State filter"),
+        suburb: z.string().optional().describe("Suburb filter"),
+        limit: z.number().optional().describe("Max results (default: 20)"),
+    }, async ({ fuelType, state, suburb, limit }) => {
+        try {
+            const params = new URLSearchParams({ fuelType });
+            if (state)
+                params.set("state", state);
+            if (suburb)
+                params.set("suburb", suburb);
+            if (limit)
+                params.set("limit", String(limit));
+            return jsonResult(await sourceGet(`/api/market/fuel/search?${params}`));
+        }
+        catch (e) {
+            return errorResult(e);
+        }
+    });
+    server.tool("source_fuel_summary", "Get a national or state-level fuel price summary — average, min, max prices by fuel type.", {
+        state: z.string().optional().describe("State filter (omit for national summary)"),
+    }, async ({ state }) => {
+        try {
+            const qs = state ? `?state=${state}` : "";
+            return jsonResult(await sourceGet(`/api/market/fuel/summary${qs}`));
+        }
+        catch (e) {
+            return errorResult(e);
+        }
+    });
+    server.tool("source_station_prices", "Get all current fuel prices at a specific station.", {
+        stationId: z.string().describe("Station UUID"),
+    }, async ({ stationId }) => {
+        try {
+            return jsonResult(await sourceGet(`/api/market/fuel/stations/${stationId}`));
+        }
+        catch (e) {
+            return errorResult(e);
+        }
+    });
+    server.tool("source_fuel_history", "Get price history for a fuel type at a specific station.", {
+        stationId: z.string().describe("Station UUID"),
+        fuelType: z.string().describe("Fuel type"),
+        days: z.number().optional().describe("History period in days (default: 30)"),
+    }, async ({ stationId, fuelType, days }) => {
+        try {
+            const params = new URLSearchParams({ stationId, fuelType });
+            if (days)
+                params.set("days", String(days));
+            return jsonResult(await sourceGet(`/api/market/fuel/history?${params}`));
+        }
+        catch (e) {
+            return errorResult(e);
+        }
+    });
+    // ── Contribution Tools ──────────────────────────────────────────
     server.tool("source_contribute_legislation", "Propose a new legislation document for inclusion in Source. Goes through PACT consensus — 3+ agents must verify the text matches the official gazette before ingestion. Requires a PACT agent API key (SOURCE_PACT_KEY env var).", {
         title: z.string().describe("Full title of the legislation (e.g. 'Coal Mining Safety and Health Act 1999')"),
         jurisdiction: z.string().describe("Jurisdiction: QLD, CTH, NSW, VIC, WA, SA, TAS, ACT, NT"),

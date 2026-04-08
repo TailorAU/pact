@@ -174,3 +174,86 @@ class SourceGetLegislationTool(BaseTool):
         if section:
             params["section"] = section
         return _get(f"/api/axiom/legislation/{requests.utils.quote(id, safe='')}", params=params, axiom_key=key)
+
+
+# ── Fuel Tools ──────────────────────────────────────────────────
+
+
+class CheapestFuelInput(BaseModel):
+    fuel_type: Optional[str] = Field(default=None, description="Fuel type: Diesel, U91, U95, U98, E10, LPG")
+    state: Optional[str] = Field(default=None, description="State: QLD, NSW, VIC, WA, SA, ACT, TAS, NT")
+    limit: Optional[int] = Field(default=None, description="Max results (default 10)")
+
+
+class SourceCheapestFuelTool(BaseTool):
+    """Find the cheapest fuel stations in Australia right now."""
+
+    name: str = "source_cheapest_fuel"
+    description: str = "Find the cheapest fuel stations in Australia. Real-time prices from 1,700+ stations. Free, no API key."
+    args_schema: type[BaseModel] = CheapestFuelInput
+
+    def _run(
+        self,
+        fuel_type: Optional[str] = None,
+        state: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> str:
+        params = {}
+        if fuel_type:
+            params["fuelType"] = fuel_type
+        if state:
+            params["state"] = state
+        if limit:
+            params["limit"] = str(limit)
+        return _get("/api/market/fuel/cheapest", params=params)
+
+
+class FuelNearMeInput(BaseModel):
+    latitude: float = Field(description="GPS latitude")
+    longitude: float = Field(description="GPS longitude")
+    fuel_type: Optional[str] = Field(default=None, description="Fuel type (default: Diesel)")
+    radius_km: Optional[int] = Field(default=None, description="Search radius in km (default: 10)")
+    limit: Optional[int] = Field(default=None, description="Max results (default: 10)")
+
+
+class SourceFuelNearMeTool(BaseTool):
+    """Find fuel stations near a GPS location with current prices."""
+
+    name: str = "source_fuel_near_me"
+    description: str = "Find fuel stations near a location. Returns stations sorted by distance with current prices."
+    args_schema: type[BaseModel] = FuelNearMeInput
+
+    def _run(
+        self,
+        latitude: float,
+        longitude: float,
+        fuel_type: Optional[str] = None,
+        radius_km: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> str:
+        params: dict = {"latitude": str(latitude), "longitude": str(longitude)}
+        if fuel_type:
+            params["fuelType"] = fuel_type
+        if radius_km:
+            params["radiusKm"] = str(radius_km)
+        if limit:
+            params["limit"] = str(limit)
+        return _get("/api/market/fuel/near-me", params=params)
+
+
+class FuelSummaryInput(BaseModel):
+    state: Optional[str] = Field(default=None, description="State filter (omit for national summary)")
+
+
+class SourceFuelSummaryTool(BaseTool):
+    """Get national or state-level fuel price summary."""
+
+    name: str = "source_fuel_summary"
+    description: str = "Get a fuel price summary — average, min, max prices by fuel type. National or state-level."
+    args_schema: type[BaseModel] = FuelSummaryInput
+
+    def _run(self, state: Optional[str] = None) -> str:
+        params = {}
+        if state:
+            params["state"] = state
+        return _get("/api/market/fuel/summary", params=params)

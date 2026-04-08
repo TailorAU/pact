@@ -113,6 +113,71 @@
         },
         "required": ["id"]
       }
+    },
+    {
+      "name": "source_cheapest_fuel",
+      "description": "Find the cheapest fuel stations in Australia right now. Real-time prices from 1,700+ stations across all states.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "fuelType": {
+            "type": "string",
+            "description": "Fuel type",
+            "enum": ["Diesel", "U91", "U95", "U98", "E10", "LPG", "E85", "AdBlue", "PremDSL"]
+          },
+          "state": {
+            "type": "string",
+            "description": "Australian state",
+            "enum": ["QLD", "NSW", "VIC", "WA", "SA", "ACT", "TAS", "NT"]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results (default 10)"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "source_fuel_near_me",
+      "description": "Find fuel stations near a GPS location with current prices, sorted by distance.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "GPS latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "description": "GPS longitude"
+          },
+          "fuelType": {
+            "type": "string",
+            "description": "Fuel type (default: Diesel)"
+          },
+          "radiusKm": {
+            "type": "integer",
+            "description": "Search radius in km (default: 10)"
+          }
+        },
+        "required": ["latitude", "longitude"]
+      }
+    },
+    {
+      "name": "source_fuel_summary",
+      "description": "Get national or state-level fuel price summary — average, min, max prices by fuel type.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "description": "State filter (omit for national summary)",
+            "enum": ["QLD", "NSW", "VIC", "WA", "SA", "ACT", "TAS", "NT"]
+          }
+        },
+        "required": []
+      }
     }
   ]
 }

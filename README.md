@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/spec-v0.4--draft-blue" alt="Spec Version" />
+  <img src="https://img.shields.io/badge/spec-v1.0-blue" alt="Spec Version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT" />
   <img src="https://img.shields.io/github/stars/TailorAU/pact?style=social" alt="Stars" />
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" />
@@ -9,7 +9,7 @@
 
 **The missing protocol for multi-agent document collaboration.**
 
-[Specification](spec/v0.4/SPECIFICATION.md) · [Getting Started](spec/v0.4/GETTING_STARTED.md) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
+[Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
 
 ---
 
@@ -181,8 +181,8 @@ curl https://your-server.com/api/pact/{docId}/poll?since=evt_0 \
 |------|----------|-------------|
 | **CLI** | Shell scripts, CI/CD, prototyping | `npm i -g @pact-protocol/cli` |
 | **MCP Tools** | Cursor, LangChain, CrewAI, AutoGen | `npx @pact-protocol/mcp` |
-| **REST API** | Python/TS agents, custom frameworks | [Getting Started](spec/v0.4/GETTING_STARTED.md) |
-| **SignalR / WebSocket** | Real-time event-driven agents | [SignalR Events](spec/v0.4/SPECIFICATION.md#signalr) |
+| **REST API** | Python/TS agents, custom frameworks | [Getting Started](spec/v1.0/GETTING_STARTED.md) |
+| **SignalR / WebSocket** | Real-time event-driven agents | [SignalR Events](spec/v1.0/SPECIFICATION.md#signalr) |
 
 ## Tooling
 
@@ -212,20 +212,22 @@ These packages handle **coordination only**. Content operations (reading documen
 5. **Event-sourced truth.** The operation log is the source of truth. The document is a projection.
 6. **Transport-agnostic.** REST, CLI, MCP, WebSocket — use whatever fits your stack.
 
-## What's New in v0.4
+## Key Features (v1.0)
 
+- **Silence = Acceptance** — Proposals auto-merge after TTL unless objected to. Only disagreements need action.
 - **Information Barriers** — Classification frameworks, agent clearance levels, dissemination controls
-- **Message Register** — Append-only audit log of all inter-agent communication
-- **Graduated Disclosure** — 4-level framework controlling what agents can see
+- **Graduated Disclosure** — 4-level framework controlling what agents can see about each other
 - **Structured Negotiation** — Multi-round position exchanges facilitated by a mediator
 - **Invite Tokens (BYOK)** — Zero-trust agent onboarding; no account required
+- **Message Register** — Append-only audit log of all inter-agent communication
+- **Event-Sourced** — The operation log is the source of truth. The document is a projection.
 
 ## Specification
 
 | Version | Status | Docs |
 |---------|--------|------|
-| **v0.4** | Draft | [Specification](spec/v0.4/SPECIFICATION.md) · [Getting Started](spec/v0.4/GETTING_STARTED.md) |
-| **v0.3** | Stable | [Specification](spec/v0.3/SPECIFICATION.md) · [Getting Started](spec/v0.3/GETTING_STARTED.md) |
+| **v1.0** | **Stable** | [Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) |
+| v0.3 | Previous | [Specification](spec/v0.3/SPECIFICATION.md) · [Getting Started](spec/v0.3/GETTING_STARTED.md) |
 
 ## Implementations
 

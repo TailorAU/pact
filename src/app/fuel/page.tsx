@@ -99,7 +99,7 @@ export default function FuelPage() {
           <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-4 sm:p-5">
             <p className="text-gray-500 text-xs uppercase tracking-wide">Average</p>
             <p className="text-2xl font-semibold text-white mt-1 tabular-nums">
-              {rowForFuel != null ? `${rowForFuel.avgPriceCpl.toFixed(1)} c/L` : "—"}
+              {rowForFuel != null ? `${Number(rowForFuel.avgPriceCpl).toFixed(1)} c/L` : "—"}
             </p>
           </div>
           <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-4 sm:p-5">

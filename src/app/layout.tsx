@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Nav } from "@/components/nav";
+import { AudienceProvider } from "@/contexts/audience";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistMono.variable} antialiased font-mono star-bg`}>
+        <AudienceProvider>
         <Nav />
         <main className="min-h-screen">{children}</main>
         <footer className="border-t border-card-border py-10 px-6 text-sm">
@@ -146,6 +148,7 @@ export default function RootLayout({
             </p>
           </div>
         </footer>
+        </AudienceProvider>
       </body>
     </html>
   );

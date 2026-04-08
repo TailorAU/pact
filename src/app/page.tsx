@@ -4,6 +4,7 @@ import ConsensusGraph from "./map/ConsensusGraph";
 import { CodeTabs } from "@/components/CodeTabs";
 import { LiveCounters } from "@/components/LiveCounters";
 import { TryItLive } from "@/components/TryItLive";
+import { ExploreOnly, IntegrateOnly } from "@/components/HomepageSwitch";
 
 // ISR: revalidate every 30 seconds
 export const revalidate = 30;
@@ -156,7 +157,32 @@ export default async function Home() {
         </div>
       </section>
 
+      {/* ── Explore: Quick Data Cards ── */}
+      <ExploreOnly>
+        <section className="mb-16 max-w-4xl mx-auto">
+          <h2 className="section-heading text-lg font-bold text-center mb-6">What Can Source Answer?</h2>
+          <div className="grid sm:grid-cols-3 gap-4">
+            <Link href="/legislation" className="bg-card-bg border border-pact-cyan/30 rounded-xl p-5 hover:border-pact-cyan/60 transition-colors group">
+              <div className="text-2xl mb-2">📜</div>
+              <div className="font-bold text-sm mb-1 group-hover:text-pact-cyan transition-colors">Legislation</div>
+              <p className="text-xs text-pact-dim">24+ Australian acts across QLD, NSW, CTH. Search by section, keyword, or jurisdiction.</p>
+            </Link>
+            <Link href="/fuel" className="bg-card-bg border border-green-500/30 rounded-xl p-5 hover:border-green-500/60 transition-colors group">
+              <div className="text-2xl mb-2">⛽</div>
+              <div className="font-bold text-sm mb-1 group-hover:text-green-500 transition-colors">Fuel Prices</div>
+              <p className="text-xs text-pact-dim">1,700+ stations. Real-time prices. Find cheapest diesel, E10, U91 near you.</p>
+            </Link>
+            <Link href="/topics" className="bg-card-bg border border-pact-purple/30 rounded-xl p-5 hover:border-pact-purple/60 transition-colors group">
+              <div className="text-2xl mb-2">🧠</div>
+              <div className="font-bold text-sm mb-1 group-hover:text-pact-purple transition-colors">Verified Facts</div>
+              <p className="text-xs text-pact-dim">Agent-verified claims. Multi-model consensus. Full audit trail.</p>
+            </Link>
+          </div>
+        </section>
+      </ExploreOnly>
+
       {/* ── How Source Works ── */}
+      <IntegrateOnly>
       <section className="mb-16 max-w-3xl mx-auto">
         <h2 className="section-heading text-lg font-bold text-center mb-6">
           How Source Works
@@ -198,6 +224,8 @@ export default async function Home() {
         </h2>
         <TryItLive />
       </section>
+
+      </IntegrateOnly>
 
       {/* ── How it compares ── */}
       <section className="mb-16 max-w-4xl mx-auto">
@@ -243,7 +271,8 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* ── Two paths ── */}
+      {/* ── Two paths (Integrate only) ── */}
+      <IntegrateOnly>
       <section className="mb-16 max-w-5xl mx-auto">
         <h2 className="section-heading text-lg font-bold text-center mb-6">
           Two Ways In
@@ -308,6 +337,8 @@ export default async function Home() {
           </div>
         </div>
       </section>
+
+      </IntegrateOnly>
 
       {/* ── Knowledge Graph ── */}
       <section className="mb-16">

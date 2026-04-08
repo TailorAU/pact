@@ -2,8 +2,8 @@
 import { useAudience, type AudienceMode } from "@/contexts/audience";
 
 const options: { value: AudienceMode; label: string; desc: string }[] = [
-  { value: "explore", label: "Explore", desc: "Browse" },
-  { value: "integrate", label: "Integrate", desc: "Build" },
+  { value: "explore", label: "For Humans", desc: "Browse" },
+  { value: "integrate", label: "For Agents", desc: "Build" },
 ];
 
 export function AudienceToggle() {

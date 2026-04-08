@@ -9,23 +9,23 @@ export default function SpecPage() {
       </p>
 
       <div className="space-y-6">
-        {/* v0.4 */}
+        {/* v1.0 */}
         <div className="bg-card-bg border border-card-border rounded-lg p-6">
           <div className="flex items-center gap-3 mb-3">
-            <span className="text-xs px-2 py-0.5 rounded border text-pact-orange border-pact-orange/30">draft</span>
-            <h2 className="text-xl font-bold">v0.4</h2>
+            <span className="text-xs px-2 py-0.5 rounded border text-pact-green border-pact-green/30">stable</span>
+            <h2 className="text-xl font-bold">v1.0</h2>
           </div>
           <p className="text-pact-dim text-sm mb-4">
-            Current draft. Adds mediated communication, information barriers, invite tokens, and structured negotiation.
+            First stable release. Full coordination protocol with mediated communication, information barriers, invite tokens, structured negotiation, and graduated disclosure.
           </p>
           <div className="flex flex-wrap gap-3">
-            <a href="https://github.com/TailorAU/pact/blob/main/spec/v0.4/SPECIFICATION.md" className="text-pact-cyan hover:underline text-sm">
+            <a href="https://github.com/TailorAU/pact/blob/main/spec/v1.0/SPECIFICATION.md" className="text-pact-cyan hover:underline text-sm">
               Full Specification
             </a>
-            <a href="https://github.com/TailorAU/pact/blob/main/spec/v0.4/GETTING_STARTED.md" className="text-pact-cyan hover:underline text-sm">
+            <a href="https://github.com/TailorAU/pact/blob/main/spec/v1.0/GETTING_STARTED.md" className="text-pact-cyan hover:underline text-sm">
               Getting Started
             </a>
-            <a href="https://github.com/TailorAU/pact/tree/main/spec/v0.4/schemas" className="text-pact-cyan hover:underline text-sm">
+            <a href="https://github.com/TailorAU/pact/tree/main/spec/v1.0/schemas" className="text-pact-cyan hover:underline text-sm">
               JSON Schemas
             </a>
           </div>
@@ -34,11 +34,11 @@ export default function SpecPage() {
         {/* v0.3 */}
         <div className="bg-card-bg border border-card-border rounded-lg p-6">
           <div className="flex items-center gap-3 mb-3">
-            <span className="text-xs px-2 py-0.5 rounded border text-pact-green border-pact-green/30">stable</span>
+            <span className="text-xs px-2 py-0.5 rounded border text-pact-dim border-pact-dim/30">previous</span>
             <h2 className="text-xl font-bold">v0.3</h2>
           </div>
           <p className="text-pact-dim text-sm mb-4">
-            Stable core protocol. Proposals, ICS, section locking, escalation, event sourcing.
+            Core protocol foundation. Proposals, ICS, section locking, escalation, event sourcing.
           </p>
           <div className="flex flex-wrap gap-3">
             <a href="https://github.com/TailorAU/pact/blob/main/spec/v0.3/SPECIFICATION.md" className="text-pact-cyan hover:underline text-sm">
@@ -64,8 +64,8 @@ export default function SpecPage() {
               { name: "Salience", desc: "0-10 score for how much an agent cares about a section." },
               { name: "Objection", desc: "Active disagreement. Blocks auto-merge, forces renegotiation." },
               { name: "Escalation", desc: "Request for human review when agents can't resolve." },
-              { name: "Mediation", desc: "Optional trusted intermediary for information barriers. (v0.4)" },
-              { name: "Negotiation", desc: "Multi-round position exchanges facilitated by mediator. (v0.4)" },
+              { name: "Mediation", desc: "Optional trusted intermediary for information barriers." },
+              { name: "Negotiation", desc: "Multi-round position exchanges facilitated by mediator." },
             ].map((c) => (
               <div key={c.name} className="border border-card-border rounded p-3">
                 <span className="text-pact-cyan font-bold">{c.name}</span>

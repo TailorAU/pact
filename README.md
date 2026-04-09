@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/spec-v1.0-blue" alt="Spec Version" />
+  <img src="https://img.shields.io/badge/spec-v1.1-blue" alt="Spec Version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT" />
   <img src="https://img.shields.io/github/stars/TailorAU/pact?style=social" alt="Stars" />
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" />
@@ -7,9 +7,9 @@
 
 # PACT — Protocol for Agent Consensus and Truth
 
-**The missing protocol for multi-agent document collaboration.**
+**The open protocol for multi-agent consensus — documents, transactions, knowledge, and beyond.**
 
-[Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
+[Specification](spec/v1.1/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
 
 ---
 
@@ -17,9 +17,9 @@
 
 You have 3 AI agents that need to negotiate a contract. Agent A drafts liability clauses. Agent B enforces budget caps. Agent C checks regulatory compliance.
 
-How do they collaborate on the same document without stepping on each other?
+How do they collaborate on the same document without stepping on each other? Now imagine the same problem for payments, knowledge verification, clinical records, or any shared resource.
 
-**MCP** gives agents tools. **A2A** gives agents communication. But neither gives agents a **shared document with structured consensus rules**, human oversight, and information barriers.
+**MCP** gives agents tools. **A2A** gives agents communication. But neither gives agents **structured consensus rules**, human oversight, and information barriers over a shared resource.
 
 **PACT does.**
 
@@ -30,7 +30,7 @@ How do they collaborate on the same document without stepping on each other?
 │                    AI Agent Ecosystem                    │
 ├──────────────┬──────────────┬───────────────────────────┤
 │     MCP      │     A2A      │          PACT             │
-│  Tools/Data  │  Agent Comms │  Document Collaboration   │
+│  Tools/Data  │  Agent Comms │  Consensus Protocol       │
 │              │              │                           │
 │  "Hands"     │  "Voices"    │  "Shared negotiation      │
 │              │              │   table"                  │
@@ -41,7 +41,7 @@ How do they collaborate on the same document without stepping on each other?
 |----------|----------------------|---------|
 | **MCP**  | Tools and data       | "Read this database" |
 | **A2A**  | Other agents         | "Tell Agent B to start" |
-| **PACT** | Shared documents     | "Object to section 3 — it violates my budget constraint" |
+| **PACT** | Shared resources     | "Object to this proposal — it violates my constraint" |
 
 ## How It Works
 
@@ -181,8 +181,8 @@ curl https://your-server.com/api/pact/{docId}/poll?since=evt_0 \
 |------|----------|-------------|
 | **CLI** | Shell scripts, CI/CD, prototyping | `npm i -g @pact-protocol/cli` |
 | **MCP Tools** | Cursor, LangChain, CrewAI, AutoGen | `npx @pact-protocol/mcp` |
-| **REST API** | Python/TS agents, custom frameworks | [Getting Started](spec/v1.0/GETTING_STARTED.md) |
-| **SignalR / WebSocket** | Real-time event-driven agents | [SignalR Events](spec/v1.0/SPECIFICATION.md#signalr) |
+| **REST API** | Python/TS agents, custom frameworks | [Getting Started](spec/v1.1/GETTING_STARTED.md) |
+| **SignalR / WebSocket** | Real-time event-driven agents | [Specification](spec/v1.1/SPECIFICATION.md) |
 
 ## Tooling
 
@@ -208,35 +208,39 @@ These packages handle **coordination only**. Content operations (reading documen
 1. **Humans always win.** Any human can override any agent decision, at any time, no exceptions.
 2. **Silence is consent.** Proposals auto-merge after TTL unless actively objected to.
 3. **Agents bring their own context.** PACT coordinates — it doesn't read your mind or your data.
-4. **Section-level granularity.** Operations target headings, not character offsets.
-5. **Event-sourced truth.** The operation log is the source of truth. The document is a projection.
+4. **Field-level granularity.** Operations target addressable fields (sections, transaction fields, claims), not raw offsets.
+5. **Event-sourced truth.** The operation log is the source of truth. The resource state is a projection.
 6. **Transport-agnostic.** REST, CLI, MCP, WebSocket — use whatever fits your stack.
 
-## Key Features (v1.0)
+## Key Features (v1.1)
 
+- **Resource Types** — Consensus on any resource: documents, transactions, knowledge claims, clinical records
 - **Silence = Acceptance** — Proposals auto-merge after TTL unless objected to. Only disagreements need action.
 - **Information Barriers** — Classification frameworks, agent clearance levels, dissemination controls
 - **Graduated Disclosure** — 4-level framework controlling what agents can see about each other
 - **Structured Negotiation** — Multi-round position exchanges facilitated by a mediator
+- **Implementation Profiles** — Servers advertise supported resource types and conformance level
 - **Invite Tokens (BYOK)** — Zero-trust agent onboarding; no account required
 - **Message Register** — Append-only audit log of all inter-agent communication
-- **Event-Sourced** — The operation log is the source of truth. The document is a projection.
+- **Event-Sourced** — The operation log is the source of truth. The resource state is a projection.
 
 ## Specification
 
 | Version | Status | Docs |
 |---------|--------|------|
-| **v1.0** | **Stable** | [Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) |
-| v0.3 | Previous | [Specification](spec/v0.3/SPECIFICATION.md) · [Getting Started](spec/v0.3/GETTING_STARTED.md) |
+| **v1.1** | **Stable** | [Specification](spec/v1.1/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) |
+| v1.0 | Previous | [Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) |
+| v0.3 | Legacy | [Specification](spec/v0.3/SPECIFICATION.md) · [Getting Started](spec/v0.3/GETTING_STARTED.md) |
 
 ## Implementations
 
-PACT defines the consensus protocol. Implementations provide the content layer.
+PACT defines the consensus protocol. Implementations provide the content layer for their domain.
 
-| Implementation | What it adds on top of PACT | Status | Maintainer |
-|---------------|----------------------------|--------|------------|
-| [**Source**](https://source.tailor.au) | Verified knowledge graph — facts, legislation, standards | Live | [TailorAU](https://github.com/TailorAU) |
-| [**Tailor**](https://tailor.au) | Document collaboration — upload, edit, review, sign | Live | [TailorAU](https://github.com/TailorAU) |
+| Implementation | Resource Type | What it adds | Status | Maintainer |
+|---------------|--------------|-------------|--------|------------|
+| [**Tailor**](https://tailor.au) | `document` | Document collaboration — upload, edit, review, sign | Live | [TailorAU](https://github.com/TailorAU) |
+| [**Source**](https://source.tailor.au) | `fact` | Verified knowledge graph — facts, legislation, standards | Live | [TailorAU](https://github.com/TailorAU) |
+| **Baink** | `transaction` | Sovereign billing — multi-agent payment authorization | Planned | [TailorAU](https://github.com/TailorAU) |
 
 Building a PACT implementation? [Open a PR](https://github.com/TailorAU/pact/pulls) to add it here.
 

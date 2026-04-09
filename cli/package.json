@@ -1,6 +1,6 @@
 {
-  "name": "@pact-protocol/cli",
-  "version": "0.2.1",
+  "name": "@pact_/cli",
+  "version": "1.0.0",
   "description": "CLI for the PACT protocol — multi-agent document collaboration",
   "license": "MIT",
   "bin": {
@@ -32,5 +32,5 @@
     "url": "https://github.com/TailorAU/pact",
     "directory": "cli"
   },
-  "homepage": "https://pacthub.ai"
+  "homepage": "https://github.com/TailorAU/pact"
 }

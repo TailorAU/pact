@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pact-spec.dev/schemas/v0.4/negotiation-position-request.json",
+  "title": "PACT Negotiation Position Request",
+  "description": "Request body for POST /api/pact/{documentId}/negotiations/{negotiationId}/position. Agent submits their position in a structured negotiation round.",
+  "type": "object",
+  "required": ["position"],
+  "properties": {
+    "position": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The agent's position on the contested section. Subject to mediator filtering."
+    },
+    "proposedContent": {
+      "type": "string",
+      "description": "Optional proposed content for the section under negotiation."
+    }
+  },
+  "additionalProperties": false
+}

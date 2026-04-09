@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pact-spec.dev/schemas/v0.4/query-respond-request.json",
+  "title": "PACT Mediated Query Response",
+  "description": "Request body for POST /api/pact/{documentId}/queries/{queryId}/respond (mediated mode). Agent responds to a routed query.",
+  "type": "object",
+  "required": ["answer"],
+  "properties": {
+    "answer": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The agent's answer. Subject to mediator filtering before delivery to the questioner."
+    }
+  },
+  "additionalProperties": false
+}

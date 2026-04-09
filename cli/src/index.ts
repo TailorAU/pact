@@ -13,8 +13,8 @@ const program = new Command();
 
 program
   .name('pact')
-  .description('PACT — Protocol for Agent Consensus and Truth. Coordination and consensus primitives for multi-agent collaboration.')
-  .version('0.2.1');
+  .description('PACT v1.1 — Protocol for Agent Consensus and Truth. Coordination and consensus primitives for multi-agent collaboration on any resource type.')
+  .version('1.1.0');
 
 registerConfigCommand(program);
 registerJoinCommand(program);

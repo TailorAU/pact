@@ -14,14 +14,14 @@ function errorResult(err: unknown) {
 
 const server = new McpServer({
   name: 'PACT Protocol',
-  version: '0.2.0',
+  version: '1.1.0',
 });
 
 // ── Agent Lifecycle ──────────────────────────────────────────────
 
 server.tool(
   'pact_join',
-  'Join a document as a PACT agent. Required before any other operations.',
+  'Join a resource (document, transaction, topic) as a PACT agent. Required before any other operations.',
   {
     documentId: z.string().describe('Document ID'),
     agentName: z.string().describe('Agent display name'),

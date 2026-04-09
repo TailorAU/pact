@@ -4,7 +4,7 @@ import * as api from '../api.js';
 export function registerJoinCommand(program: Command): void {
   program
     .command('join <docId>')
-    .description('Join a document as an agent')
+    .description('Join a resource (document, transaction, topic) as an agent')
     .requiredOption('--as <name>', 'Agent name')
     .option('--role <role>', 'Agent role (e.g. editor, reviewer)')
     .option('--token <invite>', 'Join via invite token (no account needed)')

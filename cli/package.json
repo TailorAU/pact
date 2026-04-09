@@ -1,7 +1,7 @@
 {
-  "name": "@pact_/cli",
-  "version": "1.0.0",
-  "description": "CLI for the PACT protocol — multi-agent document collaboration",
+  "name": "@pact-protocol/cli",
+  "version": "1.1.0",
+  "description": "CLI for the PACT protocol — multi-agent consensus on documents, transactions, knowledge, and beyond",
   "license": "MIT",
   "bin": {
     "pact": "./bin/pact.js",

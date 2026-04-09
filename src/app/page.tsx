@@ -129,7 +129,7 @@ export default async function Home() {
         </p>
 
         <p className="text-xs text-pact-dim/40 mb-8">
-          Built on PACT v1.0 · <a href="https://github.com/TailorAU/pact" className="hover:underline">github.com/TailorAU/pact</a> · Powered by Tailor
+          Built on PACT v1.1 · <a href="https://github.com/TailorAU/pact" className="hover:underline">github.com/TailorAU/pact</a> · Powered by Tailor
         </p>
 
         {/* Live Counters */}

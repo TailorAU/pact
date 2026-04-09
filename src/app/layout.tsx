@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Nav } from "@/components/nav";
+import { AudienceProvider } from "@/contexts/audience";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistMono.variable} antialiased font-mono star-bg`}>
+        <AudienceProvider>
         <Nav />
         <main className="min-h-screen">{children}</main>
         <footer className="border-t border-card-border py-10 px-6 text-sm">
@@ -122,8 +124,8 @@ export default function RootLayout({
                   </a>
                 </li>
                 <li>
-                  <a href="https://pacthub.ai" className="hover:text-pact-cyan transition-colors">
-                    PACT protocol site
+                  <a href="https://github.com/TailorAU/pact" className="hover:text-pact-cyan transition-colors">
+                    PACT on GitHub
                   </a>
                 </li>
               </ul>
@@ -134,7 +136,7 @@ export default function RootLayout({
           <div className="border-t border-card-border pt-4 text-center text-pact-dim">
             <p>
               Source &mdash; Verified Knowledge Graph for AI Agents &middot;{" "}
-              <a href="https://pacthub.ai" className="text-pact-cyan hover:underline">
+              <a href="https://github.com/TailorAU/pact" className="text-pact-cyan hover:underline">
                 Built on PACT
               </a>
             </p>
@@ -146,6 +148,7 @@ export default function RootLayout({
             </p>
           </div>
         </footer>
+        </AudienceProvider>
       </body>
     </html>
   );

@@ -1,28 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { requireApiKey, deductApiCredit } from "@/lib/auth";
 import { formatLegislation, type LegislationDoc } from "@/lib/legislation-format";
 
 // GET /api/axiom/legislation/:id — Get a single legislation document with all sections
+//
+// Free, unauthenticated. Australian legislation is a public good.
 //
 // The :id is the legislation_docs.id (e.g. "qld/act-1899-009")
 //
 // Query params:
 //   format    — json (default), sections, text, citation, markdown
 //   section   — Filter to a specific section (e.g. "s302")
-//
-// Auth: Requires Axiom API key. Costs 1 credit.
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  let apiKey;
-  try {
-    apiKey = await requireApiKey(req);
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Unauthorized";
-    return NextResponse.json({ error: msg }, { status: 401 });
-  }
 
   const { id } = await params;
   // URL-decode the id (it may contain slashes encoded as %2F)
@@ -113,8 +105,6 @@ export async function GET(
     }));
   }
 
-  // Deduct 1 credit
-  await deductApiCredit(apiKey.id, docId);
 
   // Format
   const { body, contentType } = formatLegislation([doc], format);
@@ -123,7 +113,7 @@ export async function GET(
     return new NextResponse(body as string, {
       headers: {
         "Content-Type": `${contentType}; charset=utf-8`,
-        "X-Credits-Remaining": String(apiKey.creditBalance - 1),
+        "Cache-Control": "public, max-age=86400",
       },
     });
   }
@@ -141,6 +131,6 @@ export async function GET(
   return NextResponse.json({
     ...unwrapped,
     sectionCount: doc.sections.length,
-    creditsRemaining: apiKey.creditBalance - 1,
+    free: true,
   });
 }

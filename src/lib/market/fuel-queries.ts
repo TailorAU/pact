@@ -3,8 +3,8 @@
  * All table references use the market.* schema.
  */
 
-import { marketQuery, marketQueryOne, marketExec } from "./db.js";
-import type { FuelStationInput, FuelPriceResult } from "./types.js";
+import { marketQuery, marketQueryOne, marketExec } from "./db";
+import type { FuelStationInput, FuelPriceResult } from "./types";
 
 // ── Brand Resolution ─────────────────────────────────────
 
@@ -82,7 +82,7 @@ export async function insertFuelPriceBatch(
 ): Promise<void> {
   if (rows.length === 0) return;
   const BATCH = 500;
-  const pool = (await import("./db.js")).getMarketPool();
+  const pool = (await import("./db")).getMarketPool();
   for (let i = 0; i < rows.length; i += BATCH) {
     const chunk = rows.slice(i, i + BATCH);
     const values: string[] = [];

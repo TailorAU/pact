@@ -4,7 +4,7 @@
  */
 
 export * from "./types.js";
-export * from "./db.js";
+export * from "./db";
 export * from "./queries.js";
 export * from "./fuel-queries.js";
 export * from "./ranking.js";

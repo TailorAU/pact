@@ -317,6 +317,19 @@ async function initSchema(db: DbClient) {
       UNIQUE(from_doc_id, to_doc_id, relation_type)
     )`,
 
+    // ── Legislation Sync Log ───────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS legislation_sync_log (
+      id TEXT PRIMARY KEY,
+      jurisdiction TEXT NOT NULL,
+      sync_type TEXT NOT NULL DEFAULT 'scheduled',
+      docs_checked INTEGER NOT NULL DEFAULT 0,
+      docs_updated INTEGER NOT NULL DEFAULT 0,
+      sections_total INTEGER NOT NULL DEFAULT 0,
+      errors TEXT,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ
+    )`,
+
     // ── Indexes ─────────────────────────────────────────────────────
     `CREATE INDEX IF NOT EXISTS idx_proposals_topic_status ON proposals(topic_id, status)`,
     `CREATE INDEX IF NOT EXISTS idx_proposals_agent_id ON proposals(agent_id)`,
@@ -771,14 +784,45 @@ export async function evaluateTopicProposals(db: DbClient) {
   for (const t of proposed.rows) {
     const approvals = (t.approvals as number) || 0;
     if (approvals >= TOPIC_APPROVAL_THRESHOLD) {
+      const title = t.title as string;
+      const topicId = t.id as string;
+
+      // Auto-ingest legislation proposals on consensus
+      if (title.startsWith("[Legislation Proposal]")) {
+        try {
+          const legislationEvent = await db.execute({
+            sql: "SELECT data FROM events WHERE topic_id = ? AND type = 'pact.legislation.proposed' LIMIT 1",
+            args: [topicId],
+          });
+          if (legislationEvent.rows.length > 0) {
+            const payload = JSON.parse(legislationEvent.rows[0].data as string);
+            if (payload.document) {
+              const { ingestDocuments } = await import("./legislation-sync");
+              await ingestDocuments(db, [payload.document]);
+              await db.execute({ sql: "UPDATE topics SET status = 'consensus' WHERE id = ?", args: [topicId] });
+              await emitEvent(db, topicId, "pact.legislation.ingested", payload.proposedBy || "", "", {
+                approvals,
+                docId: payload.document.id,
+                title: payload.document.title,
+                sectionsCount: payload.document.sections?.length ?? 0,
+              });
+              opened++;
+              continue;
+            }
+          }
+        } catch (e) {
+          console.error(`Legislation auto-ingest failed for topic ${topicId}:`, e);
+        }
+      }
+
       await db.execute({
         sql: "UPDATE topics SET status = 'open' WHERE id = ?",
-        args: [t.id as string],
+        args: [topicId],
       });
-      await emitEvent(db, t.id as string, "pact.topic.approved", "", "", {
+      await emitEvent(db, topicId, "pact.topic.approved", "", "", {
         approvals,
         threshold: TOPIC_APPROVAL_THRESHOLD,
-        title: t.title as string,
+        title,
       });
       opened++;
     }

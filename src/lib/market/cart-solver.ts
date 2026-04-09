@@ -5,7 +5,7 @@
  * a shopping list, splitting across retailers with delivery fee logic.
  */
 
-import type { PriceCandidate, CartItem, CartSolution } from "./types.js";
+import type { PriceCandidate, CartItem, CartSolution } from "./types";
 
 export interface DeliveryRule {
   retailerSlug: string;

@@ -17,7 +17,7 @@ interface LegSection {
   jurisdiction: string;
 }
 
-function FuelResults(data: unknown) {
+function FuelResults(data: Record<string, unknown> | Record<string, unknown>[]) {
   const stations = (Array.isArray(data) ? data : []) as FuelStation[];
   if (stations.length === 0) return <div className="text-xs text-pact-dim">No results</div>;
   return (
@@ -35,7 +35,7 @@ function FuelResults(data: unknown) {
   );
 }
 
-function LegislationResults(data: unknown) {
+function LegislationResults(data: Record<string, unknown> | Record<string, unknown>[]) {
   const d = data as { results?: LegSection[] };
   const results = d?.results ?? [];
   if (results.length === 0) return <div className="text-xs text-pact-dim">No results</div>;

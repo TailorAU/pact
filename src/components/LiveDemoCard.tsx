@@ -1,25 +1,26 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 
 interface LiveDemoCardProps {
   title: string;
   question: string;
   apiUrl: string;
-  renderResult: (data: unknown) => React.JSX.Element;
+  renderResult: (data: Record<string, unknown> | Record<string, unknown>[]) => ReactNode;
   cta: string;
   accent?: string;
 }
 
 export function LiveDemoCard({ title, question, apiUrl, renderResult, cta, accent = "pact-cyan" }: LiveDemoCardProps) {
-  const [data, setData] = useState<unknown>(null);
+  const [result, setResult] = useState<ReactNode>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   useEffect(() => {
     fetch(apiUrl)
       .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
+      .then(d => { setResult(renderResult(d)); setLoading(false); })
       .catch(() => { setError(true); setLoading(false); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiUrl]);
 
   return (
@@ -35,7 +36,7 @@ export function LiveDemoCard({ title, question, apiUrl, renderResult, cta, accen
           </div>
         )}
         {error && <div className="text-xs text-red-400">Could not fetch live data</div>}
-        {data && !loading && <>{renderResult(data)}</>}
+        {!loading && !error && result}
       </div>
 
       <div className="mt-4 flex items-center justify-between">
@@ -48,7 +49,7 @@ export function LiveDemoCard({ title, question, apiUrl, renderResult, cta, accen
           rel="noopener noreferrer"
           className={`text-xs text-${accent} hover:underline`}
         >
-          Try it →
+          Try it &rarr;
         </a>
       </div>
 

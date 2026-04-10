@@ -18,7 +18,7 @@ interface LegSection {
 }
 
 function FuelResults(data: Record<string, unknown> | Record<string, unknown>[]) {
-  const stations = (Array.isArray(data) ? data : []) as FuelStation[];
+  const stations = (Array.isArray(data) ? data : []) as unknown as FuelStation[];
   if (stations.length === 0) return <div className="text-xs text-pact-dim">No results</div>;
   return (
     <div className="space-y-2">
@@ -36,7 +36,7 @@ function FuelResults(data: Record<string, unknown> | Record<string, unknown>[]) 
 }
 
 function LegislationResults(data: Record<string, unknown> | Record<string, unknown>[]) {
-  const d = data as { results?: LegSection[] };
+  const d = data as unknown as { results?: LegSection[] };
   const results = d?.results ?? [];
   if (results.length === 0) return <div className="text-xs text-pact-dim">No results</div>;
   return (

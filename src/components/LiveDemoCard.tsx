@@ -5,7 +5,7 @@ interface LiveDemoCardProps {
   title: string;
   question: string;
   apiUrl: string;
-  renderResult: (data: unknown) => React.ReactNode;
+  renderResult: (data: unknown) => React.JSX.Element;
   cta: string;
   accent?: string;
 }
@@ -35,7 +35,7 @@ export function LiveDemoCard({ title, question, apiUrl, renderResult, cta, accen
           </div>
         )}
         {error && <div className="text-xs text-red-400">Could not fetch live data</div>}
-        {data && !loading && renderResult(data)}
+        {data && !loading && <>{renderResult(data)}</>}
       </div>
 
       <div className="mt-4 flex items-center justify-between">

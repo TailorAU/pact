@@ -207,9 +207,9 @@ function createServer(): McpServer {
 
   server.tool(
     "source_cheapest_fuel",
-    "Find the cheapest fuel stations in Australia right now. Free, real-time prices from 1,700+ stations.",
+    "Find the cheapest fuel stations right now. Free, real-time prices from 1,500+ QLD stations.",
     {
-      fuelType: z.string().optional().describe("Fuel type: Diesel, U91, U95, U98, E10, LPG, E85, AdBlue, PremDSL (default: Diesel)"),
+      fuelType: z.string().optional().describe("Fuel type: U91, U95, U98, E10, Diesel, PremDSL, LPG, E85, AdBlue (default: U91)"),
       state: z.string().optional().describe("State: QLD, NSW, VIC, WA, SA, ACT, TAS, NT"),
       limit: z.number().optional().describe("Max results (default: 10)"),
     },
@@ -231,7 +231,7 @@ function createServer(): McpServer {
     {
       latitude: z.number().describe("GPS latitude"),
       longitude: z.number().describe("GPS longitude"),
-      fuelType: z.string().optional().describe("Fuel type (default: Diesel)"),
+      fuelType: z.string().optional().describe("Fuel type (default: U91)"),
       radiusKm: z.number().optional().describe("Search radius in km (default: 10)"),
       limit: z.number().optional().describe("Max results (default: 10)"),
     },

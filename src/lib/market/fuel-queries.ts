@@ -108,38 +108,42 @@ export async function getCheapestFuel(
   limit: number = 20
 ): Promise<FuelPriceResult[]> {
   const params: unknown[] = [fuelType];
-  let whereClause = "WHERE fp.fuel_type = $1";
+  let stateFilter = "";
   if (state) {
-    whereClause += " AND fs.state = $2";
+    stateFilter = "AND fs.state = $2";
     params.push(state);
   }
   params.push(limit);
   const limitParam = `$${params.length}`;
 
-  const rows = await marketQuery<FuelPriceResult>(
-    `SELECT DISTINCT ON (fp.station_id)
-      fp.station_id AS "stationId",
+  return marketQuery<FuelPriceResult>(
+    `WITH latest AS (
+      SELECT DISTINCT ON (fp.station_id)
+        fp.station_id, fp.fuel_type, fp.price_cpl, fp.observed_at
+      FROM market.fuel_prices fp
+      JOIN market.fuel_stations fs ON fs.id = fp.station_id
+      WHERE fp.fuel_type = $1 ${stateFilter}
+      ORDER BY fp.station_id, fp.observed_at DESC
+    )
+    SELECT
+      l.station_id AS "stationId",
       fs.name AS "stationName",
       fb.name AS "brandName",
       fs.address,
       fs.suburb,
       fs.state,
-      fp.fuel_type AS "fuelType",
-      fp.price_cpl AS "priceCpl",
+      l.fuel_type AS "fuelType",
+      l.price_cpl AS "priceCpl",
       fs.latitude,
       fs.longitude,
-      fp.observed_at AS "observedAt"
-    FROM market.fuel_prices fp
-    JOIN market.fuel_stations fs ON fs.id = fp.station_id
+      l.observed_at AS "observedAt"
+    FROM latest l
+    JOIN market.fuel_stations fs ON fs.id = l.station_id
     LEFT JOIN market.fuel_brands fb ON fb.id = fs.brand_id
-    ${whereClause}
-    ORDER BY fp.station_id, fp.observed_at DESC`,
-    params.slice(0, -1)
+    ORDER BY l.price_cpl ASC
+    LIMIT ${limitParam}`,
+    params
   );
-
-  return rows
-    .sort((a, b) => Number(a.priceCpl) - Number(b.priceCpl))
-    .slice(0, limit);
 }
 
 export async function getFuelPriceHistory(
@@ -203,30 +207,37 @@ export async function searchFuelStations(
     paramIdx++;
   }
 
-  const rows = await marketQuery<FuelPriceResult>(
-    `SELECT DISTINCT ON (fp.station_id)
-      fp.station_id AS "stationId",
+  params.push(limit);
+  const limitParam = `$${paramIdx}`;
+
+  return marketQuery<FuelPriceResult>(
+    `WITH latest AS (
+      SELECT DISTINCT ON (fp.station_id)
+        fp.station_id, fp.fuel_type, fp.price_cpl, fp.observed_at
+      FROM market.fuel_prices fp
+      JOIN market.fuel_stations fs ON fs.id = fp.station_id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY fp.station_id, fp.observed_at DESC
+    )
+    SELECT
+      l.station_id AS "stationId",
       fs.name AS "stationName",
       fb.name AS "brandName",
       fs.address,
       fs.suburb,
       fs.state,
-      fp.fuel_type AS "fuelType",
-      fp.price_cpl AS "priceCpl",
+      l.fuel_type AS "fuelType",
+      l.price_cpl AS "priceCpl",
       fs.latitude,
       fs.longitude,
-      fp.observed_at AS "observedAt"
-    FROM market.fuel_prices fp
-    JOIN market.fuel_stations fs ON fs.id = fp.station_id
+      l.observed_at AS "observedAt"
+    FROM latest l
+    JOIN market.fuel_stations fs ON fs.id = l.station_id
     LEFT JOIN market.fuel_brands fb ON fb.id = fs.brand_id
-    WHERE ${conditions.join(" AND ")}
-    ORDER BY fp.station_id, fp.observed_at DESC`,
+    ORDER BY l.price_cpl ASC
+    LIMIT ${limitParam}`,
     params
   );
-
-  return rows
-    .sort((a, b) => Number(a.priceCpl) - Number(b.priceCpl))
-    .slice(0, limit);
 }
 
 export async function getFuelNearMe(

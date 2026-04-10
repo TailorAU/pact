@@ -12,7 +12,7 @@ function parseLimit(value: string | null, defaultValue: number): number {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
-    const fuelType = searchParams.get("fuelType") ?? "Diesel";
+    const fuelType = searchParams.get("fuelType") ?? "U91";
     const state = searchParams.get("state") ?? undefined;
     const limit = parseLimit(searchParams.get("limit"), 10);
 

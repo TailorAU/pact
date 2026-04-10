@@ -63,7 +63,7 @@ export const DATA_CATEGORIES: DataCategoryCardProps[] = [
   {
     icon: "⛽",
     name: "Fuel Prices",
-    description: "1,700+ stations, all fuel types. Real-time prices across QLD.",
+    description: "1,500+ stations, 7 fuel types. Real-time prices across QLD.",
     sources: "QLD Direct Gov API, PetrolSpy",
     freshness: "Every 30 minutes",
     status: "live",

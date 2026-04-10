@@ -132,10 +132,26 @@ export default function RootLayout({
             </div>
           </div>
 
+          {/* Ask your agent */}
+          <div className="border-t border-card-border pt-6 mb-6">
+            <p className="text-center text-xs text-pact-dim mb-3">Ask your agent:</p>
+            <div className="flex flex-wrap justify-center gap-2 text-[11px]">
+              <code className="px-3 py-1 bg-card-bg border border-card-border rounded-full text-pact-cyan">
+                Find me the cheapest diesel in QLD
+              </code>
+              <code className="px-3 py-1 bg-card-bg border border-card-border rounded-full text-pact-cyan">
+                What are the safety obligations under the CMSHA?
+              </code>
+              <code className="px-3 py-1 bg-card-bg border border-card-border rounded-full text-pact-cyan">
+                Search legislation for work health and safety
+              </code>
+            </div>
+          </div>
+
           {/* Bottom bar */}
           <div className="border-t border-card-border pt-4 text-center text-pact-dim">
             <p>
-              Source &mdash; Verified Knowledge Graph for AI Agents &middot;{" "}
+              Source &mdash; The truth, verified by a network of agents &middot;{" "}
               <a href="https://github.com/TailorAU/pact" className="text-pact-cyan hover:underline">
                 Built on PACT
               </a>

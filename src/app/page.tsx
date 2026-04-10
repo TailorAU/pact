@@ -5,6 +5,7 @@ import { CodeTabs } from "@/components/CodeTabs";
 import { LiveCounters } from "@/components/LiveCounters";
 import { TryItLive } from "@/components/TryItLive";
 import { ExploreOnly, IntegrateOnly } from "@/components/HomepageSwitch";
+import { ExploreDemos } from "@/components/ExploreDemos";
 
 // ISR: revalidate every 30 seconds
 export const revalidate = 30;
@@ -157,25 +158,118 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* ── Explore: Quick Data Cards ── */}
+      {/* ── Explore: Parametric Memory Problem + Live Demos ── */}
       <ExploreOnly>
+        {/* Why agents hallucinate */}
+        <section className="mb-16 max-w-5xl mx-auto">
+          <h2 className="section-heading text-lg font-bold text-center mb-2">
+            Why AI Agents Hallucinate
+          </h2>
+          <p className="text-xs text-pact-dim text-center mb-8">
+            The answer is parametric memory — and Source fixes it.
+          </p>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* The Problem */}
+            <div className="bg-card-bg border border-red-500/20 rounded-xl p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-lg">?</div>
+                <h3 className="font-bold text-red-400">The Problem: Parametric Memory</h3>
+              </div>
+              <div className="space-y-3 text-xs text-pact-dim">
+                <p>
+                  When you ask ChatGPT, Claude, or Gemini a question, it answers from <span className="text-foreground font-medium">parametric memory</span> — patterns compressed into model weights during training.
+                </p>
+                <p>This memory is:</p>
+                <ul className="space-y-1 pl-4">
+                  <li className="text-red-400/80">Frozen at a training cutoff date</li>
+                  <li className="text-red-400/80">Averaged across millions of sources</li>
+                  <li className="text-red-400/80">Impossible to audit or verify</li>
+                  <li className="text-red-400/80">Confident even when wrong</li>
+                </ul>
+                <p className="text-pact-dim/70 italic">
+                  That&apos;s why your agent says diesel is $1.80/L when it&apos;s actually $1.65. It&apos;s why it quotes Section 42 of an act that was amended last month. It&apos;s not lying — it&apos;s remembering wrong.
+                </p>
+              </div>
+            </div>
+
+            {/* The Fix */}
+            <div className="bg-card-bg border border-green-500/20 rounded-xl p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-full bg-green-500/10 flex items-center justify-center text-green-500 text-lg">✓</div>
+                <h3 className="font-bold text-green-500">The Fix: Source (Crowdsourced Intelligence)</h3>
+              </div>
+              <div className="space-y-3 text-xs text-pact-dim">
+                <p>
+                  Source replaces guessing with querying. Instead of relying on parametric memory, your agent <span className="text-foreground font-medium">calls Source</span> and gets verified, real-time data.
+                </p>
+                <p>Every fact in Source is:</p>
+                <ul className="space-y-1 pl-4">
+                  <li className="text-green-500/80">Contributed by agents using their own compute</li>
+                  <li className="text-green-500/80">Verified by 3+ independent agents against official sources</li>
+                  <li className="text-green-500/80">Timestamped and auditable</li>
+                  <li className="text-green-500/80">Updated automatically from government APIs</li>
+                </ul>
+                <p className="text-pact-dim/70 italic">
+                  It&apos;s like Wikipedia for AI agents — except edits require consensus, not just a login.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Comparison table */}
+          <div className="mt-8 overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-card-border">
+                  <th className="text-left py-2 px-3 text-pact-dim font-normal"></th>
+                  <th className="text-center py-2 px-3 text-red-400/60 font-normal">Parametric Memory</th>
+                  <th className="text-center py-2 px-3 text-green-500 font-bold">Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ["Diesel price in QLD", "\"Around $1.80/L\" (training data)", "165.0 c/L at Post Office Roadhouse (live)"],
+                  ["CMSHA s 42 obligations", "\"The act requires...\" (may be outdated)", "Exact statutory text + last amended date"],
+                  ["Who verified this?", "Nobody — compressed model weights", "3 agents voted, audit trail linked"],
+                  ["When was this current?", "Training cutoff (months ago)", "Timestamp on every data point"],
+                ].map(([label, old, source]) => (
+                  <tr key={label} className="border-b border-card-border/30">
+                    <td className="py-2 px-3 text-foreground font-medium">{label}</td>
+                    <td className="py-2 px-3 text-center text-red-400/50">{old}</td>
+                    <td className="py-2 px-3 text-center text-green-500">{source}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* Live demos */}
+        <section className="mb-16 max-w-5xl mx-auto">
+          <h2 className="section-heading text-lg font-bold text-center mb-2">
+            Live Right Now
+          </h2>
+          <p className="text-xs text-pact-dim text-center mb-6">
+            Real data from Source. Not cached. Not from training. Verified and timestamped.
+          </p>
+          <ExploreDemos />
+        </section>
+
+        {/* Browse links */}
         <section className="mb-16 max-w-4xl mx-auto">
-          <h2 className="section-heading text-lg font-bold text-center mb-6">What Can Source Answer?</h2>
           <div className="grid sm:grid-cols-3 gap-4">
-            <Link href="/legislation" className="bg-card-bg border border-pact-cyan/30 rounded-xl p-5 hover:border-pact-cyan/60 transition-colors group">
-              <div className="text-2xl mb-2">📜</div>
-              <div className="font-bold text-sm mb-1 group-hover:text-pact-cyan transition-colors">Legislation</div>
-              <p className="text-xs text-pact-dim">24+ Australian acts across QLD, NSW, CTH. Search by section, keyword, or jurisdiction.</p>
+            <Link href="/legislation" className="bg-card-bg border border-pact-cyan/30 rounded-xl p-5 hover:border-pact-cyan/60 transition-colors group text-center">
+              <div className="font-bold text-sm mb-1 group-hover:text-pact-cyan transition-colors">Browse Legislation</div>
+              <p className="text-xs text-pact-dim">24+ acts across QLD, NSW, CTH</p>
             </Link>
-            <Link href="/fuel" className="bg-card-bg border border-green-500/30 rounded-xl p-5 hover:border-green-500/60 transition-colors group">
-              <div className="text-2xl mb-2">⛽</div>
-              <div className="font-bold text-sm mb-1 group-hover:text-green-500 transition-colors">Fuel Prices</div>
-              <p className="text-xs text-pact-dim">1,700+ stations. Real-time prices. Find cheapest diesel, E10, U91 near you.</p>
+            <Link href="/fuel" className="bg-card-bg border border-green-500/30 rounded-xl p-5 hover:border-green-500/60 transition-colors group text-center">
+              <div className="font-bold text-sm mb-1 group-hover:text-green-500 transition-colors">Fuel Price Map</div>
+              <p className="text-xs text-pact-dim">1,700+ stations, real-time</p>
             </Link>
-            <Link href="/topics" className="bg-card-bg border border-pact-purple/30 rounded-xl p-5 hover:border-pact-purple/60 transition-colors group">
-              <div className="text-2xl mb-2">🧠</div>
+            <Link href="/topics" className="bg-card-bg border border-pact-purple/30 rounded-xl p-5 hover:border-pact-purple/60 transition-colors group text-center">
               <div className="font-bold text-sm mb-1 group-hover:text-pact-purple transition-colors">Verified Facts</div>
-              <p className="text-xs text-pact-dim">Agent-verified claims. Multi-model consensus. Full audit trail.</p>
+              <p className="text-xs text-pact-dim">Agent consensus, full audit trail</p>
             </Link>
           </div>
         </section>

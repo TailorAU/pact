@@ -72,7 +72,7 @@ export default async function Home() {
          ══════════════════════════════════════════════════════════════ */}
       <section className="text-center mb-16 pt-4">
         <p className="text-xs text-green-600 font-bold uppercase tracking-[0.3em] mb-4 animate-pulse">
-          Live now &mdash; {String(stats.topics || 0)} topics &middot; 24+ acts &middot; 1,700+ fuel stations
+          Live now &mdash; {String(stats.topics || 0)} topics &middot; 24+ acts &middot; 1,500+ fuel stations
         </p>
 
         <h1 className="text-4xl md:text-6xl font-bold mb-4 leading-[1.1]">

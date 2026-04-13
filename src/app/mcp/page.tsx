@@ -222,7 +222,7 @@ export default function McpPage() {
         All free, no API key needed (except facts).
       </p>
       <p className="text-xs text-pact-dim/60 mb-8">
-        1,788+ fuel stations &middot; 24+ legislation documents &middot; 169+ sections &middot; Real-time data
+        1,500+ fuel stations &middot; 24+ legislation documents &middot; 169+ sections &middot; Real-time data
       </p>
 
       <section className="mb-10">

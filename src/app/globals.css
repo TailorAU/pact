@@ -89,3 +89,64 @@ body {
   background: linear-gradient(90deg, var(--pact-cyan), var(--pact-purple), transparent);
   border-radius: 1px;
 }
+
+/* ── Fuel map utilities (ported from BestPrice) ── */
+
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+@supports (height: 100dvh) {
+  .h-screen-safe { height: 100dvh; }
+}
+@supports not (height: 100dvh) {
+  .h-screen-safe { height: -webkit-fill-available; height: 100vh; }
+}
+
+.pb-safe { padding-bottom: var(--sab); }
+.pt-safe { padding-top: var(--sat); }
+.pl-safe { padding-left: var(--sal); }
+.pr-safe { padding-right: var(--sar); }
+
+.scroll-touch {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+.no-zoom-input {
+  font-size: 16px !important;
+}
+
+@supports (-webkit-backdrop-filter: blur(1px)) {
+  .backdrop-fix {
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    backdrop-filter: blur(12px) saturate(180%);
+  }
+}
+
+/* Google Places Autocomplete dropdown — dark theme */
+.pac-container {
+  background-color: #18181b;
+  border: 1px solid #3f3f46;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  margin-top: 4px;
+  font-family: inherit;
+  z-index: 9999 !important;
+}
+.pac-item {
+  padding: 8px 12px;
+  border-top: 1px solid #27272a;
+  color: #e4e4e7;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.pac-item:first-child { border-top: none; }
+.pac-item:hover, .pac-item-selected { background-color: #27272a; }
+.pac-item-query { color: #fff; font-weight: 600; }
+.pac-matched { color: #22c55e; font-weight: 700; }
+.pac-icon { display: none; }

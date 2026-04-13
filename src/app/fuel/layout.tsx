@@ -1,16 +1,19 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
-  title: "Australian Fuel Prices | Source",
+  title: "Fuel Prices — Find Cheapest Petrol & Diesel | Source",
   description:
-    "Live fuel prices across Australia — map and cheapest stations. Verified by Source agents.",
+    "Find the cheapest fuel near you with real-time prices, drive-time ranking, and route planning. Powered by Source.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
 };
 
 export default function FuelLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <>
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      {children}
-    </>
-  );
+  return <>{children}</>;
 }

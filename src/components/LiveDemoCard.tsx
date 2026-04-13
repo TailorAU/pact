@@ -1,19 +1,35 @@
 "use client";
 import { useState, useEffect, type ReactNode } from "react";
 
+const ACCENT_STYLES = {
+  "green-500": {
+    border: "border-green-500/30",
+    hoverBorder: "hover:border-green-500/60",
+    text: "text-green-500",
+  },
+  "pact-cyan": {
+    border: "border-pact-cyan/30",
+    hoverBorder: "hover:border-pact-cyan/60",
+    text: "text-pact-cyan",
+  },
+} as const;
+
+type AccentKey = keyof typeof ACCENT_STYLES;
+
 interface LiveDemoCardProps {
   title: string;
   question: string;
   apiUrl: string;
   renderResult: (data: Record<string, unknown> | Record<string, unknown>[]) => ReactNode;
   cta: string;
-  accent?: string;
+  accent?: AccentKey;
 }
 
 export function LiveDemoCard({ title, question, apiUrl, renderResult, cta, accent = "pact-cyan" }: LiveDemoCardProps) {
   const [result, setResult] = useState<ReactNode>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const a = ACCENT_STYLES[accent];
 
   useEffect(() => {
     fetch(apiUrl)
@@ -24,8 +40,8 @@ export function LiveDemoCard({ title, question, apiUrl, renderResult, cta, accen
   }, [apiUrl]);
 
   return (
-    <div className={`bg-card-bg border border-${accent}/30 rounded-xl p-6 hover:border-${accent}/60 transition-colors`}>
-      <div className={`text-xs font-bold text-${accent} uppercase tracking-widest mb-1`}>{title}</div>
+    <div className={`bg-card-bg border ${a.border} rounded-xl p-6 ${a.hoverBorder} transition-colors`}>
+      <div className={`text-xs font-bold ${a.text} uppercase tracking-widest mb-1`}>{title}</div>
       <div className="text-lg font-bold mb-3 text-foreground">&ldquo;{question}&rdquo;</div>
 
       <div className="min-h-[120px]">
@@ -47,7 +63,7 @@ export function LiveDemoCard({ title, question, apiUrl, renderResult, cta, accen
           href={apiUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className={`text-xs text-${accent} hover:underline`}
+          className={`text-xs ${a.text} hover:underline`}
         >
           Try it &rarr;
         </a>

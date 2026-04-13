@@ -16,6 +16,9 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=""
+ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+
 RUN npm run build
 
 # ── Runtime ───────────────────────────────────────────────

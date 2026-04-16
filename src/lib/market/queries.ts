@@ -64,17 +64,32 @@ export async function searchProducts(
   query: string,
   limit: number = 10
 ): Promise<ProductSearchResult[]> {
-  return marketQuery<ProductSearchResult>(
-    `SELECT
-      id, name, ean, brand, category,
-      image_url AS "imageUrl",
-      similarity(name, $1) AS similarity
-    FROM market.products
-    WHERE similarity(name, $1) > 0.2
-    ORDER BY similarity DESC
-    LIMIT $2`,
-    [query, limit]
-  );
+  try {
+    return await marketQuery<ProductSearchResult>(
+      `SELECT
+        id, name, ean, brand, category,
+        image_url AS "imageUrl",
+        similarity(name, $1) AS similarity
+      FROM market.products
+      WHERE similarity(name, $1) > 0.2
+      ORDER BY similarity DESC
+      LIMIT $2`,
+      [query, limit]
+    );
+  } catch {
+    console.warn("[product-search] similarity() failed, falling back to ILIKE");
+    return marketQuery<ProductSearchResult>(
+      `SELECT
+        id, name, ean, brand, category,
+        image_url AS "imageUrl",
+        0 AS similarity
+      FROM market.products
+      WHERE name ILIKE $1
+      ORDER BY name
+      LIMIT $2`,
+      [`%${query}%`, limit]
+    );
+  }
 }
 
 // ── Latest Prices ────────────────────────────────────────
@@ -161,55 +176,72 @@ export async function searchProductsWithPrices(
   query: string,
   limit: number = 10
 ): Promise<SearchWithPricesResult[]> {
-  return marketQuery<SearchWithPricesResult>(
-    `WITH matched AS (
-      SELECT id, name, ean, brand, category, image_url,
-             similarity(name, $1) AS sim
-      FROM market.products
-      WHERE similarity(name, $1) > 0.2
-      ORDER BY sim DESC
-      LIMIT $2
-    ),
-    latest AS (
-      SELECT DISTINCT ON (po.product_id, po.retailer_id)
-        po.product_id,
-        po.retailer_id,
-        po.price_cents,
-        po.delivery_cents,
-        r.slug AS retailer_slug,
-        po.observed_at
-      FROM market.price_observations po
-      JOIN market.retailers r ON r.id = po.retailer_id
-      WHERE po.product_id IN (SELECT id FROM matched)
-      ORDER BY po.product_id, po.retailer_id, po.observed_at DESC
-    ),
-    ranked AS (
+  try {
+    return await marketQuery<SearchWithPricesResult>(
+      `WITH matched AS (
+        SELECT id, name, ean, brand, category, image_url,
+               similarity(name, $1) AS sim
+        FROM market.products
+        WHERE similarity(name, $1) > 0.2
+        ORDER BY sim DESC
+        LIMIT $2
+      ),
+      latest AS (
+        SELECT DISTINCT ON (po.product_id, po.retailer_id)
+          po.product_id,
+          po.retailer_id,
+          po.price_cents,
+          po.delivery_cents,
+          r.slug AS retailer_slug,
+          po.observed_at
+        FROM market.price_observations po
+        JOIN market.retailers r ON r.id = po.retailer_id
+        WHERE po.product_id IN (SELECT id FROM matched)
+        ORDER BY po.product_id, po.retailer_id, po.observed_at DESC
+      ),
+      ranked AS (
+        SELECT
+          product_id,
+          retailer_slug,
+          price_cents + COALESCE(delivery_cents, 0) AS total_cents,
+          ROW_NUMBER() OVER (
+            PARTITION BY product_id
+            ORDER BY price_cents + COALESCE(delivery_cents, 0) ASC
+          ) AS rn,
+          COUNT(*) OVER (PARTITION BY product_id) AS retailer_count
+        FROM latest
+      )
       SELECT
-        product_id,
-        retailer_slug,
-        price_cents + COALESCE(delivery_cents, 0) AS total_cents,
-        ROW_NUMBER() OVER (
-          PARTITION BY product_id
-          ORDER BY price_cents + COALESCE(delivery_cents, 0) ASC
-        ) AS rn,
-        COUNT(*) OVER (PARTITION BY product_id) AS retailer_count
-      FROM latest
-    )
-    SELECT
-      m.id AS "productId",
-      m.name,
-      m.ean,
-      m.brand,
-      m.category,
-      m.image_url AS "imageUrl",
-      r.total_cents AS "cheapestPriceCents",
-      r.retailer_slug AS "cheapestRetailer",
-      r.retailer_count::int AS "retailerCount"
-    FROM matched m
-    LEFT JOIN ranked r ON r.product_id = m.id AND r.rn = 1
-    ORDER BY m.sim DESC`,
-    [query, limit]
-  );
+        m.id AS "productId",
+        m.name,
+        m.ean,
+        m.brand,
+        m.category,
+        m.image_url AS "imageUrl",
+        r.total_cents AS "cheapestPriceCents",
+        r.retailer_slug AS "cheapestRetailer",
+        r.retailer_count::int AS "retailerCount"
+      FROM matched m
+      LEFT JOIN ranked r ON r.product_id = m.id AND r.rn = 1
+      ORDER BY m.sim DESC`,
+      [query, limit]
+    );
+  } catch {
+    console.warn("[product-search] similarity() failed, falling back to ILIKE");
+    return marketQuery<SearchWithPricesResult>(
+      `SELECT
+        p.id AS "productId", p.name, p.ean, p.brand, p.category,
+        p.image_url AS "imageUrl",
+        NULL::int AS "cheapestPriceCents",
+        NULL::text AS "cheapestRetailer",
+        0 AS "retailerCount"
+      FROM market.products p
+      WHERE p.name ILIKE $1
+      ORDER BY p.name
+      LIMIT $2`,
+      [`%${query}%`, limit]
+    );
+  }
 }
 
 // ── Agent Contributions ──────────────────────────────────

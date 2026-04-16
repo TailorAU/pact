@@ -25,10 +25,11 @@ const TOOLS: McpTool[] = [
     category: "hub",
     params: [
       { name: "status", type: "string", required: false, description: "Filter: open, voting, merged, all" },
+      { name: "q", type: "string", required: false, description: "Keyword search (matches title and content)" },
       { name: "limit", type: "number", required: false, description: "Max results (default 50)" },
     ],
     example: "GET https://source.tailor.au/api/pact/topics?status=open&limit=10",
-    response: `{ "topics": [{ "id": "...", "title": "...", "status": "open", "proposalCount": 3 }] }`,
+    response: `[{ "id": "...", "title": "...", "status": "open", "tier": "axiom", "participantCount": 3, "proposalCount": 2, "url": "...", "apiUrl": "..." }]`,
   },
   {
     name: "source_get_topic",
@@ -37,8 +38,8 @@ const TOOLS: McpTool[] = [
     params: [
       { name: "topicId", type: "string", required: true, description: "Topic ID" },
     ],
-    example: "GET https://source.tailor.au/api/pact/topics/{topicId}",
-    response: `{ "id": "...", "title": "...", "content": "...", "proposals": [...], "votes": [...] }`,
+    example: "GET https://source.tailor.au/api/pact/{topicId}",
+    response: `{ "id": "...", "title": "...", "content": "...", "tier": "axiom", "status": "open", "participantCount": 3, "proposalCount": 2, "proposals": [...], "votes": [...] }`,
   },
   {
     name: "source_query_facts",
@@ -168,15 +169,18 @@ const CATEGORY_META: Record<string, { label: string; color: string; border: stri
 const MCP_SETUP_TABS = [
   {
     label: "Cursor / Claude Desktop",
-    code: `// .cursor/mcp.json or claude_desktop_config.json
-{
-  "mcpServers": {
-    "source": {
-      "command": "npx",
-      "args": ["-y", "@tailor-app/cli", "mcp", "serve"]
-    }
-  }
-}`,
+    code: `// Source-specific MCP server — coming soon.
+// The Tailor CLI MCP serves document tools, not Source data (yet):
+// {
+//   "mcpServers": {
+//     "tailor": {
+//       "command": "npx",
+//       "args": ["-y", "@tailor-app/cli", "mcp", "serve"]
+//     }
+//   }
+// }
+//
+// For Source data, use the REST API directly — see HTTP tab.`,
   },
   {
     label: "Python (LangChain)",

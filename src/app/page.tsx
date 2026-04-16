@@ -39,17 +39,17 @@ stations = requests.get(
   },
   {
     label: "MCP",
-    code: `// .cursor/mcp.json
-{
-  "source": {
-    "command": "npx",
-    "args": ["@source-tailor/mcp"]
-  }
-}
+    code: `// Source MCP — coming soon
+// For now, use the REST API directly:
 
-// Then ask your agent:
-// "Find me the cheapest diesel in QLD"
-// "Search legislation for mine safety"`,
+// Legislation (free, no key)
+// GET https://source.tailor.au/api/axiom/legislation/search?q=mine+safety
+
+// Fuel prices (free, no key)
+// GET https://source.tailor.au/api/market/fuel/cheapest?fuelType=Diesel&state=QLD
+
+// Knowledge topics (free, no key)
+// GET https://source.tailor.au/api/pact/topics`,
   },
 ];
 

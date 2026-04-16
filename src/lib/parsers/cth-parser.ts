@@ -54,12 +54,24 @@ function buildEpubHtmlUrl(titleId: string, version: CthVersion): string {
   return `${CTH_WEB}/${titleId}/${start}/${start}/text/original/epub/OEBPS/document_1/document_1.html`;
 }
 
+function normalizeEncoding(text: string): string {
+  return text
+    .replace(/\u00e2\u0080\u0099/g, "\u2019") // '
+    .replace(/\u00e2\u0080\u009c/g, "\u201c") // "
+    .replace(/\u00e2\u0080\u009d/g, "\u201d") // "
+    .replace(/\u00e2\u0080\u0093/g, "\u2013") // –
+    .replace(/\u00e2\u0080\u0094/g, "\u2014") // —
+    .replace(/\u00c2\u00a7/g, "\u00a7")       // §
+    .replace(/[\u0080-\u009f]/g, "");          // strip remaining C1 control chars
+}
+
 async function fetchLegislationHtml(titleId: string, version: CthVersion): Promise<string | null> {
   const url = buildEpubHtmlUrl(titleId, version);
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
     if (!res.ok) return null;
-    return res.text();
+    const raw = await res.text();
+    return normalizeEncoding(raw);
   } catch {
     return null;
   }

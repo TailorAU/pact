@@ -5,7 +5,7 @@ import { getDb, autoMergeExpired, type DbClient } from "./db";
 // server components (eliminating self-fetch anti-pattern)
 // =====================================================
 
-export async function getTopicsList(options?: { tier?: string; status?: string; jurisdiction?: string; limit?: number; offset?: number }) {
+export async function getTopicsList(options?: { tier?: string; status?: string; jurisdiction?: string; q?: string; limit?: number; offset?: number }) {
   const db = await getDb();
   try { await autoMergeExpired(db); } catch (e) { console.error("autoMergeExpired failed (non-fatal on read path):", e); }
 
@@ -23,12 +23,18 @@ export async function getTopicsList(options?: { tier?: string; status?: string; 
     params.push(options.status);
   }
   if (options?.jurisdiction) {
-    // Prefix matching: "AU" matches "AU", "AU-QLD", "AU-NSW"
     conditions.push("(t.jurisdiction = ? OR t.jurisdiction LIKE ? || '-%')");
     params.push(options.jurisdiction, options.jurisdiction);
   }
+  if (options?.q) {
+    conditions.push("(LOWER(t.title) LIKE '%' || LOWER(?) || '%' OR LOWER(t.content) LIKE '%' || LOWER(?) || '%')");
+    params.push(options.q, options.q);
+  }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const hasSearch = !!options?.q;
+  const orderBy = hasSearch ? "ORDER BY t.created_at DESC" : "ORDER BY t.created_at DESC";
 
   const result = await db.execute({
     sql: `SELECT t.id, t.title, t.content, t.tier, t.status, t.created_at,
@@ -45,12 +51,37 @@ export async function getTopicsList(options?: { tier?: string; status?: string; 
       (SELECT COUNT(*) FROM registrations r WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as dissentingCount,
       (SELECT COUNT(*) FROM registrations r WHERE r.topic_id = t.id AND r.done_status IS NOT NULL) as totalVotes
     FROM topics t ${where}
-    ORDER BY t.created_at DESC
+    ${orderBy}
     LIMIT ? OFFSET ?`,
     args: [...params, limit, offset],
   });
 
-  return result.rows;
+  if (!hasSearch) return result.rows;
+
+  const query = options!.q!.toLowerCase();
+  const keywords = query.split(/\s+/).filter((w: string) => w.length >= 2);
+
+  return result.rows.sort((a, b) => {
+    const scoreA = keywordRelevance(a as Record<string, string>, keywords);
+    const scoreB = keywordRelevance(b as Record<string, string>, keywords);
+    return scoreB - scoreA;
+  });
+}
+
+function keywordRelevance(topic: Record<string, string>, keywords: string[]): number {
+  const title = (topic.title || "").toLowerCase();
+  const content = (topic.content || "").toLowerCase();
+  const jurisdiction = (topic.jurisdiction || "").toLowerCase();
+  let score = 0;
+
+  for (const kw of keywords) {
+    if (title.includes(kw)) score += 3;
+    if (content.includes(kw)) score += 1;
+    if (jurisdiction.includes(kw)) score += 2;
+  }
+
+  if (topic.status === "locked" || topic.status === "consensus") score += 1;
+  return score;
 }
 
 export async function getHubStats() {

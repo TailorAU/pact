@@ -177,8 +177,11 @@ def seed_topic_batch(prefix: str, topics: list[dict]) -> dict[str, Optional[str]
 
     Returns: { title: topic_id_or_None }.
     """
-    # Use enough agents to cover the batch — each agent's first topic is free.
-    n_agents = min(max(3, (len(topics) + 1) // 2), 12)
+    # One fresh agent per topic: each agent's *first* topic is civic-duty-free,
+    # so N agents → N topics with zero voting required. The 5-minute voting age
+    # gate (sites/source/src/lib/auth.ts) makes the "vote on your peers" path
+    # impractical for a one-shot seed, so we just pay the registration cost.
+    n_agents = len(topics)
     print(f"\n=== Registering {n_agents} agents for {prefix} ===")
     keys = register_agents(prefix, n_agents)
     print(f"  got {len(keys)} API keys")
@@ -186,7 +189,9 @@ def seed_topic_batch(prefix: str, topics: list[dict]) -> dict[str, Optional[str]
     print(f"\n=== Creating {len(topics)} topics ({prefix}) ===")
     result: dict[str, Optional[str]] = {}
     for idx, t in enumerate(topics):
-        key = keys[idx % len(keys)]
+        # One agent → one topic. If we ever run short (e.g. registration
+        # failures), fall back to round-robin on whatever keys we got.
+        key = keys[idx] if idx < len(keys) else keys[idx % len(keys)]
         payload = {
             "title": t["title"],
             "content": t["content"],

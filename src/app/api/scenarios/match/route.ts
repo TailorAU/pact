@@ -42,19 +42,27 @@ export async function POST(req: Request) {
     );
   }
 
-  const scenarios = await listScenarios();
+  // #1160 Round 6.2 — matcher sees ALL scenarios (including deprecated) so
+  // callers relying on a deprecated id still get a signal. We cap deprecated
+  // match confidence at 0.3 and decorate the result with `deprecation` /
+  // `migrationHint` so consumers can migrate.
+  const scenarios = await listScenarios({ includeDeprecated: true });
   const rawMatches = matchScenarios(
     scenarios.map((s) => ({ id: s.id, title: s.title, predicates: s.predicates })),
     predicates as Record<string, unknown>,
   );
 
-  // Enrich each match with a `scenario` block containing source_ref + jurisdiction + industry,
-  // so callers (and the /scenarios UI) do not need a second round-trip to show citations.
+  const DEPRECATED_CONFIDENCE_CAP = 0.3;
   const scenarioById = new Map(scenarios.map((s) => [s.id, s]));
   const matches = rawMatches.map((m) => {
     const s = scenarioById.get(m.scenarioId);
+    const deprecated = !!s?.deprecatedAt;
+    const successor = s?.supersededBy ? scenarioById.get(s.supersededBy) : null;
     return {
       ...m,
+      confidence: deprecated
+        ? Math.min(m.confidence, DEPRECATED_CONFIDENCE_CAP)
+        : m.confidence,
       scenario: s
         ? {
             id: s.id,
@@ -64,14 +72,33 @@ export async function POST(req: Request) {
             industry: s.industry,
           }
         : null,
+      deprecation: deprecated
+        ? {
+            since: s?.deprecatedAt ?? null,
+            supersededBy: s?.supersededBy ?? null,
+          }
+        : null,
+      migrationHint: successor
+        ? {
+            successorId: successor.id,
+            successorTitle: successor.title,
+            reason: "This scenario has been superseded — match against the successor instead.",
+          }
+        : null,
     };
   });
+  // Re-sort after capping so deprecated rows fall behind live rows with
+  // equal raw confidence.
+  matches.sort((a, b) => b.confidence - a.confidence);
 
   let fallback: { model: string; rationale: string; scenarioId: string | null } | null = null;
   const topConfidence = matches[0]?.confidence ?? 0;
   if (topConfidence < 0.5 && scenarios.length > 0) {
+    // Fallback only considers live (non-deprecated) scenarios so we don't
+    // accidentally nudge callers back onto an archived rule set.
+    const liveScenarios = scenarios.filter((s) => !s.deprecatedAt);
     const llm = await llmMatch(
-      scenarios.map((s) => ({ id: s.id, title: s.title, predicates: s.predicates })),
+      liveScenarios.map((s) => ({ id: s.id, title: s.title, predicates: s.predicates })),
       predicates as Record<string, unknown>,
     );
     fallback = llm

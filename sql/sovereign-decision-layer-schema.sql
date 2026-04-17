@@ -145,3 +145,11 @@ CREATE TABLE IF NOT EXISTS scenario_revisions (
 );
 CREATE INDEX IF NOT EXISTS scenario_revisions_scenario_idx ON scenario_revisions (scenario_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS scenario_revisions_trigger_idx ON scenario_revisions (trigger_code);
+
+-- 11. #1160 Round 6.2 — deprecation + supersession columns on scenarios.
+-- Scenarios are never hard-deleted; they're deprecated and optionally
+-- pointed at a successor. Default listings exclude deprecated rows,
+-- ?includeDeprecated=true surfaces them, /match caps confidence at 0.3.
+ALTER TABLE scenarios ADD COLUMN IF NOT EXISTS deprecated_at TIMESTAMPTZ;
+ALTER TABLE scenarios ADD COLUMN IF NOT EXISTS superseded_by TEXT REFERENCES scenarios(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS scenarios_deprecated_idx ON scenarios (deprecated_at);

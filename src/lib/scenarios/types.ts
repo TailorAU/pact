@@ -13,6 +13,9 @@ export interface Scenario {
   sourceRef: string | null;
   jurisdiction: string | null;
   reviewCount: number;
+  /** #1160 Round 6.2 — deprecation + supersession */
+  deprecatedAt: string | null;
+  supersededBy: string | null;
 }
 
 export interface ScenarioAppliesWhen {

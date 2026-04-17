@@ -15,8 +15,11 @@ import { listScenarios } from "@/lib/scenarios/queries";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const scenarios = await listScenarios();
+export async function GET(req: Request) {
+  // #1160 Round 6.2 — honour ?includeDeprecated=true for audit/migration tooling.
+  const url = new URL(req.url);
+  const includeDeprecated = url.searchParams.get("includeDeprecated") === "true";
+  const scenarios = await listScenarios({ includeDeprecated });
   return NextResponse.json({ scenarios });
 }
 

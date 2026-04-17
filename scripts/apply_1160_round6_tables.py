@@ -39,6 +39,10 @@ STATEMENTS: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS scenario_revisions_scenario_idx ON scenario_revisions (scenario_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS scenario_revisions_trigger_idx ON scenario_revisions (trigger_code)",
+    # #1160 Round 6.2 — deprecation + supersession
+    "ALTER TABLE scenarios ADD COLUMN IF NOT EXISTS deprecated_at TIMESTAMPTZ",
+    "ALTER TABLE scenarios ADD COLUMN IF NOT EXISTS superseded_by TEXT REFERENCES scenarios(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS scenarios_deprecated_idx ON scenarios (deprecated_at)",
 ]
 
 

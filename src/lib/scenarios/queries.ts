@@ -32,16 +32,26 @@ function rowToScenario(row: Record<string, unknown>): Scenario {
     reviewCount: typeof row.review_count === "number"
       ? row.review_count
       : Number(row.review_count ?? 0) || 0,
+    deprecatedAt: row.deprecated_at ? String(row.deprecated_at) : null,
+    supersededBy: (row.superseded_by as string | null) ?? null,
   };
 }
 
 const SCENARIO_SELECT_COLS =
-  "id, title, description, industry, predicates, tags, created_at, updated_at, source_ref, jurisdiction, review_count";
+  "id, title, description, industry, predicates, tags, created_at, updated_at, source_ref, jurisdiction, review_count, deprecated_at, superseded_by";
 
-export async function listScenarios(): Promise<Scenario[]> {
+/**
+ * #1160 Round 6.2 — deprecated scenarios are excluded from default listings.
+ * Pass `{ includeDeprecated: true }` (e.g. from the `?includeDeprecated=true`
+ * query string) to surface them for audit or migration tooling.
+ */
+export async function listScenarios(
+  opts: { includeDeprecated?: boolean } = {},
+): Promise<Scenario[]> {
   const db = await getDb();
+  const where = opts.includeDeprecated ? "" : "WHERE deprecated_at IS NULL";
   const r = await db.execute(
-    `SELECT ${SCENARIO_SELECT_COLS} FROM scenarios ORDER BY industry NULLS LAST, title ASC`,
+    `SELECT ${SCENARIO_SELECT_COLS} FROM scenarios ${where} ORDER BY industry NULLS LAST, title ASC`,
   );
   return r.rows.map(rowToScenario);
 }

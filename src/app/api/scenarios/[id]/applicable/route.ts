@@ -7,17 +7,24 @@
  *   - its co_applies edges (legislation↔legislation / topic↔topic) scoped to it
  *   - enriched legislation_docs + topics metadata for presentation
  *
- * Unauthenticated; free-tier. Round 4 wires optional wallet debit.
+ * Unauthenticated reads remain free. When an agent supplies an
+ * `x-source-agent-key`, we debit 1 credit per call (reason `read.scenario`).
  */
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import {
   getScenario, getAppliesWhen, getCoApplies,
 } from "@/lib/scenarios/queries";
+import { debitIfAuthenticated } from "@/lib/wallet-debit";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const debit = await debitIfAuthenticated(req, 1, "read.scenario");
+  if (!debit.ok) {
+    return NextResponse.json(debit.body, { status: debit.status });
+  }
+
   const { id } = await params;
   const scenario = await getScenario(id);
   if (!scenario) {

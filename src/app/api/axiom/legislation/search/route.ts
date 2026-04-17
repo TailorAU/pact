@@ -1,10 +1,13 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { debitIfAuthenticated } from "@/lib/wallet-debit";
 
 // GET /api/axiom/legislation/search — Full-text search across all legislation
 //
 // Free, unauthenticated. Australian legislation is a public good.
+// When an agent supplies `x-source-agent-key`, we debit 1 credit per call
+// (reason `read.legislation`) — anonymous reads stay free.
 //
 // Query params:
 //   q             — Search query (required). Searches title, section content, section IDs.
@@ -15,6 +18,10 @@ import { getDb } from "@/lib/db";
 //
 // Example: GET /api/axiom/legislation/search?q=assault&jurisdiction=QLD
 export async function GET(req: NextRequest) {
+  const debit = await debitIfAuthenticated(req, 1, "read.legislation");
+  if (!debit.ok) {
+    return NextResponse.json(debit.body, { status: debit.status });
+  }
 
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("q");

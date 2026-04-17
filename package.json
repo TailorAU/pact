@@ -6,7 +6,9 @@
     "dev": "next dev -p 4000 --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@googlemaps/js-api-loader": "^2.0.2",
@@ -30,9 +32,11 @@
     "@types/react-dom": "^19",
     "@types/three": "^0.183.1",
     "@types/uuid": "^10.0.0",
+    "@vitest/ui": "^4.1.4",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.4"
   }
 }

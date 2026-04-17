@@ -24,7 +24,13 @@ import { WORK_REWARDS, type WorkType } from "@/lib/work/validators";
 export const dynamic = "force-dynamic";
 
 const DEFAULT_EXPIRES_MINUTES = 60;
-const VALID_TYPES = new Set<WorkType>(["scrape", "qa_spot_check", "dependency_proposal"]);
+// #1160 Round 3 — applicability_spotcheck joins the roster of claimable work types.
+const VALID_TYPES = new Set<WorkType>([
+  "scrape",
+  "qa_spot_check",
+  "dependency_proposal",
+  "applicability_spotcheck",
+]);
 
 export async function POST(req: Request) {
   const agent = await resolveAgentFromKey(req);
@@ -47,7 +53,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          "workType must be one of: scrape, qa_spot_check, dependency_proposal",
+          "workType must be one of: scrape, qa_spot_check, dependency_proposal, applicability_spotcheck",
       },
       { status: 400 },
     );

@@ -76,10 +76,11 @@ export async function POST(req: Request) {
   }
 
   const workType = row.work_type as string;
-  const validation = validate(workType, submission);
+  // #1160 Round 3 — validators now run async so `applicability_spotcheck`
+  // can consult `scenarios` / `scenario_applies_when` / `topics` /
+  // `legislation_docs` before accepting a submission.
+  const validation = await validate(workType, submission, { db });
 
-  // Build an atomic batch so assignment/ledger/wallet rows either all update
-  // or none do. Wallet writes only happen when accepted && !defer.
   const ledgerId = randomUUID();
   const stmts: { sql: string; args: unknown[] }[] = [
     {
@@ -126,6 +127,45 @@ export async function POST(req: Request) {
     });
   }
 
+  // #1160 Round 3 — review_existing defects are persisted in the same batch so
+  // the ledger + defects rows stay consistent. Even deferred (credits held)
+  // submissions capture the finding for curator review.
+  const defectIds: string[] = [];
+  if (
+    workType === "applicability_spotcheck" &&
+    validation.accept &&
+    validation.defects &&
+    validation.defects.length > 0
+  ) {
+    const scenarioId =
+      typeof submission.scenarioId === "string" ? submission.scenarioId : null;
+    if (scenarioId) {
+      for (const d of validation.defects) {
+        const defectId = randomUUID();
+        defectIds.push(defectId);
+        stmts.push({
+          sql: `INSERT INTO applicability_spotcheck_defects
+                  (id, scenario_id, submitted_by, assignment_id,
+                   finding_kind, edge_id, target_kind, target_id, reason,
+                   status, potential_credits)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+          args: [
+            defectId,
+            scenarioId,
+            agent.id,
+            assignmentId,
+            d.findingKind,
+            d.edgeId,
+            d.targetKind,
+            d.targetId,
+            d.reason,
+            d.potentialCredits,
+          ],
+        });
+      }
+    }
+  }
+
   await db.batch(stmts);
 
   return NextResponse.json({
@@ -134,5 +174,6 @@ export async function POST(req: Request) {
     creditsAwarded: validation.accept && !validation.defer ? validation.credits : 0,
     ledgerId,
     notes: validation.notes,
+    defectIds: defectIds.length > 0 ? defectIds : undefined,
   });
 }

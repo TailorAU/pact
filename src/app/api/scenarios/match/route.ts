@@ -8,10 +8,13 @@
  * `x-source-agent-key`, we debit 1 credit per call (reason `read.scenario`).
  */
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
+import { getDb } from "@/lib/db";
 import { listScenarios } from "@/lib/scenarios/queries";
 import { matchScenarios } from "@/lib/scenarios/predicate-match";
 import { llmMatch } from "@/lib/scenarios/llm-match";
 import { debitIfAuthenticated } from "@/lib/wallet-debit";
+import { resolveAgentFromKey } from "@/lib/work/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +77,24 @@ export async function POST(req: Request) {
     fallback = llm
       ? { model: llm.model, rationale: llm.rationale, scenarioId: llm.scenarioId }
       : null;
+  }
+
+  // #1160 Round 3 — log every predicate query to seed coverage-gap detection.
+  // Stateless best-effort: if the write fails (e.g. table not yet applied),
+  // we still return the match result to the caller.
+  try {
+    const agent = await resolveAgentFromKey(req);
+    const db = await getDb();
+    await db.execute({
+      sql: `INSERT INTO match_request_log (id, predicates, agent_id) VALUES (?, ?, ?)`,
+      args: [
+        randomUUID(),
+        JSON.stringify(predicates),
+        agent?.id ?? null,
+      ],
+    });
+  } catch {
+    /* swallow — logging is advisory */
   }
 
   return NextResponse.json({ matches, fallback });

@@ -96,3 +96,32 @@ ALTER TABLE scenarios ADD COLUMN IF NOT EXISTS source_ref TEXT;
 ALTER TABLE scenarios ADD COLUMN IF NOT EXISTS jurisdiction TEXT;
 ALTER TABLE scenarios ADD COLUMN IF NOT EXISTS review_count INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS scenarios_jurisdiction_idx ON scenarios (jurisdiction);
+
+-- 8. #1160 Round 3 — applicability_spotcheck_defects (open findings awaiting human curation)
+CREATE TABLE IF NOT EXISTS applicability_spotcheck_defects (
+  id                TEXT PRIMARY KEY,
+  scenario_id       TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
+  submitted_by      TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  assignment_id     TEXT REFERENCES agent_work_assignments(id) ON DELETE SET NULL,
+  finding_kind      TEXT NOT NULL,                         -- "reject" | "missing"
+  edge_id           TEXT,
+  target_kind       TEXT,                                  -- "topic" | "legislation"
+  target_id         TEXT,
+  reason            TEXT NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'open',          -- open | accepted | dismissed
+  resolved_by       TEXT,
+  resolved_at       TIMESTAMPTZ,
+  potential_credits INTEGER NOT NULL DEFAULT 0,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS defects_scenario_idx ON applicability_spotcheck_defects (scenario_id);
+CREATE INDEX IF NOT EXISTS defects_status_idx ON applicability_spotcheck_defects (status);
+
+-- 9. #1160 Round 3 — match_request_log (lightweight ring buffer of real-world predicate queries)
+CREATE TABLE IF NOT EXISTS match_request_log (
+  id         TEXT PRIMARY KEY,
+  predicates JSONB NOT NULL,
+  agent_id   TEXT REFERENCES agents(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS match_log_created_idx ON match_request_log (created_at DESC);

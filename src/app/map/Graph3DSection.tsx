@@ -5,7 +5,7 @@ import { useState, lazy, Suspense, useEffect } from "react";
 const ConsensusGraph = lazy(() => import("./ConsensusGraph"));
 
 export default function Graph3DSection() {
-  const [show, setShow] = useState(false);
+  const [show, setShow] = useState(true);
   const [webglOk, setWebglOk] = useState(true);
 
   useEffect(() => {

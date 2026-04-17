@@ -264,11 +264,13 @@ export default async function MapPage() {
       {/* #1152 Round 5a — always-visible legend block */}
       <GraphLegend />
 
-      {/* Interactive dependency tree — always works, primary view */}
-      <InteractiveTree topics={treeTopics} />
-
-      {/* 3D graph — optional, loaded on demand */}
+      {/* 3D graph — primary visual, auto-loaded with WebGL fallback */}
       <Graph3DSection />
+
+      {/* Interactive dependency tree — the accessible, expandable list view */}
+      <div className="mt-8">
+        <InteractiveTree topics={treeTopics} />
+      </div>
     </div>
   );
 }

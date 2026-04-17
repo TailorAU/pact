@@ -10,6 +10,9 @@ export interface Scenario {
   tags: string[];
   createdAt: string;
   updatedAt: string;
+  sourceRef: string | null;
+  jurisdiction: string | null;
+  reviewCount: number;
 }
 
 export interface ScenarioAppliesWhen {

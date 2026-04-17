@@ -42,6 +42,10 @@ export async function POST(req: Request) {
   const title = typeof input.title === "string" ? input.title : null;
   const description = typeof input.description === "string" ? input.description : null;
   const industry = typeof input.industry === "string" ? input.industry : null;
+  const sourceRef =
+    typeof input.sourceRef === "string" ? input.sourceRef :
+    typeof input.source_ref === "string" ? input.source_ref : null;
+  const jurisdiction = typeof input.jurisdiction === "string" ? input.jurisdiction : null;
   const predicates = input.predicates && typeof input.predicates === "object"
     ? input.predicates as Record<string, unknown>
     : null;
@@ -55,16 +59,18 @@ export async function POST(req: Request) {
 
   const db = await getDb();
   await db.execute({
-    sql: `INSERT INTO scenarios (id, title, description, industry, predicates, tags)
-          VALUES (?, ?, ?, ?, ?::jsonb, ?)
+    sql: `INSERT INTO scenarios (id, title, description, industry, predicates, tags, source_ref, jurisdiction)
+          VALUES (?, ?, ?, ?, ?::jsonb, ?, ?, ?)
           ON CONFLICT (id) DO UPDATE SET
             title = EXCLUDED.title,
             description = EXCLUDED.description,
             industry = EXCLUDED.industry,
             predicates = EXCLUDED.predicates,
             tags = EXCLUDED.tags,
+            source_ref = COALESCE(EXCLUDED.source_ref, scenarios.source_ref),
+            jurisdiction = COALESCE(EXCLUDED.jurisdiction, scenarios.jurisdiction),
             updated_at = now()`,
-    args: [id, title, description, industry, JSON.stringify(predicates), tags],
+    args: [id, title, description, industry, JSON.stringify(predicates), tags, sourceRef, jurisdiction],
   });
   return NextResponse.json({ id, status: "upserted" }, { status: 200 });
 }

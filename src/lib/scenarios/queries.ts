@@ -27,19 +27,29 @@ function rowToScenario(row: Record<string, unknown>): Scenario {
     tags: coerceTags(row.tags),
     createdAt: String(row.created_at ?? ""),
     updatedAt: String(row.updated_at ?? ""),
+    sourceRef: (row.source_ref as string | null) ?? null,
+    jurisdiction: (row.jurisdiction as string | null) ?? null,
+    reviewCount: typeof row.review_count === "number"
+      ? row.review_count
+      : Number(row.review_count ?? 0) || 0,
   };
 }
 
+const SCENARIO_SELECT_COLS =
+  "id, title, description, industry, predicates, tags, created_at, updated_at, source_ref, jurisdiction, review_count";
+
 export async function listScenarios(): Promise<Scenario[]> {
   const db = await getDb();
-  const r = await db.execute("SELECT id, title, description, industry, predicates, tags, created_at, updated_at FROM scenarios ORDER BY industry NULLS LAST, title ASC");
+  const r = await db.execute(
+    `SELECT ${SCENARIO_SELECT_COLS} FROM scenarios ORDER BY industry NULLS LAST, title ASC`,
+  );
   return r.rows.map(rowToScenario);
 }
 
 export async function getScenario(id: string): Promise<Scenario | null> {
   const db = await getDb();
   const r = await db.execute({
-    sql: "SELECT id, title, description, industry, predicates, tags, created_at, updated_at FROM scenarios WHERE id = ?",
+    sql: `SELECT ${SCENARIO_SELECT_COLS} FROM scenarios WHERE id = ?`,
     args: [id],
   });
   return r.rows[0] ? rowToScenario(r.rows[0]) : null;

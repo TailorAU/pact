@@ -90,3 +90,9 @@ CREATE TABLE IF NOT EXISTS agent_work_ledger (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ledger_agent_idx ON agent_work_ledger (agent_id);
+
+-- 7. #1160 Round 1 — scenario metadata: source_ref (statute-grade citation) + jurisdiction + review_count
+ALTER TABLE scenarios ADD COLUMN IF NOT EXISTS source_ref TEXT;
+ALTER TABLE scenarios ADD COLUMN IF NOT EXISTS jurisdiction TEXT;
+ALTER TABLE scenarios ADD COLUMN IF NOT EXISTS review_count INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS scenarios_jurisdiction_idx ON scenarios (jurisdiction);

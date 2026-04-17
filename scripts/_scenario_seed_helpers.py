@@ -49,22 +49,32 @@ def _sid(prefix: str, *parts: Any) -> str:
 
 
 def upsert_scenario(cur, scenario_id: str, title: str, description: str,
-                    industry: str, predicates: dict, tags: list[str] | None = None) -> str:
-    """Create-or-return scenario by stable id. Returns the id."""
+                    industry: str, predicates: dict, tags: list[str] | None = None,
+                    *, source_ref: str | None = None,
+                    jurisdiction: str | None = None) -> str:
+    """Create-or-return scenario by stable id. Returns the id.
+
+    source_ref + jurisdiction are #1160 Round 1 additions. They are upserted
+    non-destructively: if the caller omits them but a row already has a
+    value, the existing value is preserved (via COALESCE on the new column).
+    """
     cur.execute(
         """
-        INSERT INTO scenarios (id, title, description, industry, predicates, tags)
-        VALUES (%s, %s, %s, %s, %s::jsonb, %s)
+        INSERT INTO scenarios
+          (id, title, description, industry, predicates, tags, source_ref, jurisdiction)
+        VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s)
         ON CONFLICT (id) DO UPDATE SET
           title = EXCLUDED.title,
           description = EXCLUDED.description,
           industry = EXCLUDED.industry,
           predicates = EXCLUDED.predicates,
           tags = EXCLUDED.tags,
+          source_ref   = COALESCE(EXCLUDED.source_ref,   scenarios.source_ref),
+          jurisdiction = COALESCE(EXCLUDED.jurisdiction, scenarios.jurisdiction),
           updated_at = now()
         """,
         (scenario_id, title, description, industry,
-         json.dumps(predicates), tags or []),
+         json.dumps(predicates), tags or [], source_ref, jurisdiction),
     )
     return scenario_id
 
@@ -74,6 +84,44 @@ def topic_id_by_title_prefix(cur, prefix: str) -> str | None:
                 (prefix + "%",))
     row = cur.fetchone()
     return row[0] if row else None
+
+
+def upsert_topic_stub(cur, *, title: str, tier: str = "institutional",
+                      jurisdiction: str | None = None,
+                      authority: str | None = None,
+                      content: str | None = None,
+                      canonical_claim: str | None = None,
+                      source_ref: str | None = None) -> str:
+    """#1160 helper — create-or-return a minimal topic stub by deterministic id.
+
+    Used by scenario seed scripts when an `applies_when` edge needs to point
+    at a topic that does not yet exist in the graph. Stubs land with
+    `status = 'stub'` so PACT consensus flow can still promote them later
+    into the consensus lifecycle. Richer authoring is expected via a follow-on
+    PACT topic proposal; the seed comment should note this.
+
+    Id shape: `topic:stub:{sha16}` where sha16 is the first 16 hex chars of
+    sha256(title|tier|jurisdiction). Re-runs are idempotent.
+    """
+    stub_id = _sid("topic:stub", title, tier, jurisdiction or "-")
+    stub_content = content or canonical_claim or source_ref or title
+    cur.execute(
+        """
+        INSERT INTO topics (id, title, content, tier, status,
+                            jurisdiction, authority, canonical_claim, source_ref)
+        VALUES (%s, %s, %s, %s, 'stub', %s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE SET
+          title = EXCLUDED.title,
+          content = COALESCE(NULLIF(EXCLUDED.content, ''), topics.content),
+          jurisdiction = COALESCE(EXCLUDED.jurisdiction, topics.jurisdiction),
+          authority = COALESCE(EXCLUDED.authority, topics.authority),
+          canonical_claim = COALESCE(EXCLUDED.canonical_claim, topics.canonical_claim),
+          source_ref = COALESCE(EXCLUDED.source_ref, topics.source_ref)
+        """,
+        (stub_id, title, stub_content, tier, jurisdiction, authority,
+         canonical_claim, source_ref),
+    )
+    return stub_id
 
 
 def add_applies_when(cur, scenario_id: str, *, topic_id: str | None = None,

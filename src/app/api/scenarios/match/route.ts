@@ -40,10 +40,29 @@ export async function POST(req: Request) {
   }
 
   const scenarios = await listScenarios();
-  const matches = matchScenarios(
+  const rawMatches = matchScenarios(
     scenarios.map((s) => ({ id: s.id, title: s.title, predicates: s.predicates })),
     predicates as Record<string, unknown>,
   );
+
+  // Enrich each match with a `scenario` block containing source_ref + jurisdiction + industry,
+  // so callers (and the /scenarios UI) do not need a second round-trip to show citations.
+  const scenarioById = new Map(scenarios.map((s) => [s.id, s]));
+  const matches = rawMatches.map((m) => {
+    const s = scenarioById.get(m.scenarioId);
+    return {
+      ...m,
+      scenario: s
+        ? {
+            id: s.id,
+            title: s.title,
+            sourceRef: s.sourceRef,
+            jurisdiction: s.jurisdiction,
+            industry: s.industry,
+          }
+        : null,
+    };
+  });
 
   let fallback: { model: string; rationale: string; scenarioId: string | null } | null = null;
   const topConfidence = matches[0]?.confidence ?? 0;

@@ -80,9 +80,10 @@ export default async function Home() {
           <span className="text-pact-cyan">Already structured.</span>
         </h1>
 
+        {/* #1152 Round 5b — agent-native positioning tagline */}
         <p className="text-lg md:text-xl text-pact-dim max-w-3xl mx-auto mb-2 leading-relaxed">
-          Source continuously polls official APIs, structures the data, and serves it
-          instantly — so your agent never has to scrape.
+          Source &mdash; agent-native legislation and verified facts, pulled from official APIs
+          and emitted as MCP, A2A, and PACT.
         </p>
 
         <p className="text-xs text-pact-dim/40 mb-6">

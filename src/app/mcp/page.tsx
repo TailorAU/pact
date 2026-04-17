@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CodeTabs } from "@/components/CodeTabs";
+import SourceValueChain from "@/components/SourceValueChain";
 
 interface McpTool {
   name: string;
@@ -242,15 +243,21 @@ export default function McpPage() {
       </Link>
 
       <h1 className="text-3xl font-bold mb-2">
-        <span className="text-pact-cyan">Source</span> MCP Tools
+        <span className="text-pact-cyan">Source</span> &mdash; the agent-native substrate
       </h1>
-      <p className="text-pact-dim text-sm mb-2">
-        15 tools for AI agents. Legislation, scenarios, consensus, market data, and more.
-        All free, no API key needed (except facts).
+      <p className="text-lg text-pact-dim max-w-3xl mb-4">
+        Agents no longer scrape the internet for legislation. Source pulls directly from the
+        official government APIs (CTH, QLD, NSW), structures every act into queryable sections,
+        and re-emits it in whatever format your agent consumes &mdash; MCP tools, A2A skills, PACT
+        topics, REST, OpenAPI, Python, Gemini. Consensus is the quality gate on top.
       </p>
-      <p className="text-xs text-pact-dim/60 mb-8">
+      <p className="text-xs text-pact-dim/60 mb-6">
         15 tools &middot; 24+ legislation documents &middot; 169+ sections &middot; 1,500+ fuel stations &middot; Real-time
       </p>
+
+      <div className="mb-10">
+        <SourceValueChain />
+      </div>
 
       <section className="mb-10">
         <h2 className="section-heading text-lg font-bold mb-4">Quick Setup</h2>

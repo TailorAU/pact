@@ -49,9 +49,46 @@ type DepData = {
   relationship: string;
 };
 
+// #1152 Round 5a — tri-entity 3D support.
+type LegislationNodeData = {
+  id: string;
+  jurisdiction: string | null;
+  doc_type: string | null;
+  title: string;
+  short_title: string | null;
+  year: number | null;
+};
+
+type ScenarioNodeData = {
+  id: string;
+  title: string;
+  description: string | null;
+  industry: string | null;
+};
+
+type CiteEdgeData = {
+  topic_id: string;
+  legislation_id: string;
+};
+
+type AppliesEdgeData = {
+  scenario_id: string;
+  topic_id: string | null;
+  legislation_id: string | null;
+};
+
+type CoAppliesEdgeData = {
+  left_topic_id: string | null;
+  left_legislation_id: string | null;
+  right_topic_id: string | null;
+  right_legislation_id: string | null;
+  scenario_ids: string[];
+  relationship: string;
+};
+
 type GraphNode = {
   id: string;
-  type: "topic" | "agent";
+  type: "topic" | "agent" | "legislation" | "scenario";
   label: string;
   tier?: string;
   status?: string;
@@ -60,7 +97,7 @@ type GraphNode = {
   color: string;
   emissive: string;
   emissiveIntensity: number;
-  data: TopicNode | AgentNode;
+  data: TopicNode | AgentNode | LegislationNodeData | ScenarioNodeData;
   x?: number;
   y?: number;
   z?: number;
@@ -72,13 +109,14 @@ type GraphNode = {
 type GraphLink = {
   source: string;
   target: string;
-  type: "dependency" | "registration";
+  type: "dependency" | "registration" | "cites" | "applies_when" | "co_applies";
   relationship?: string;
   color: string;
   width: number;
   particles: number;
   particleColor: string;
   curvature: number;
+  dashed?: boolean;
 };
 
 // ── Color maps ─────────────────────────────────────────────────────
@@ -151,6 +189,15 @@ const LOCKED_GOLD = "#fbbf24";
 const CHALLENGED_RED = "#ef4444";
 const DEPENDENCY_GOLD = "#d97706";
 const ASSUMPTION_PURPLE = "#a855f7";
+
+// #1152 Round 5a — tri-entity palette. Neutral slate for legislation (per-jurisdiction
+// palette TBD by Chief of Source), orange for scenarios (matches /scenarios detail
+// accents and InteractiveTree scenario rows), indigo for co_applies cross-links.
+const LEGISLATION_SLATE = "#94a3b8";
+const SCENARIO_ORANGE = "#fb923c";
+const CITES_GREY = "#64748b";
+const APPLIES_ORANGE = "#fb923c";
+const COAPPLIES_INDIGO = "#a5b4fc";
 
 const THRESHOLDS: Record<string, { ratio: number; minVoters: number }> = {
   axiom: { ratio: 90, minVoters: 2 },
@@ -267,9 +314,131 @@ export default function ConsensusGraph() {
           };
         });
 
+        // #1152 Round 5a — legislation + scenario nodes. Graceful-degrade: if
+        // `/api/hub/graph` predates the migration the new arrays are missing and
+        // the graph still renders topics + dependencies only.
+        const topicIds = new Set((data.topics as TopicNode[]).map(t => t.id));
+        const legislationList = (data.legislation ?? []) as LegislationNodeData[];
+        const scenarioList = (data.scenarios ?? []) as ScenarioNodeData[];
+
+        const legislationNodes: GraphNode[] = legislationList.map((l, idx) => {
+          // Distribute below the institutional tier plane in a loose ring.
+          const angle = idx * 2.4;
+          const ringR = 140 + (idx % 5) * 8;
+          return {
+            id: `leg-${l.id}`,
+            type: "legislation" as const,
+            label: l.short_title || l.title,
+            val: 4,
+            color: LEGISLATION_SLATE,
+            emissive: LEGISLATION_SLATE,
+            emissiveIntensity: 0.15,
+            data: l,
+            x: Math.cos(angle) * ringR,
+            y: -160 + (idx % 3) * 12,
+            z: Math.sin(angle) * ringR,
+          };
+        });
+
+        const scenarioNodes: GraphNode[] = scenarioList.map((s, idx) => {
+          // Scenarios sit above the axiom plane (pseudo-tier "scenario").
+          const angle = idx * 2.4;
+          const ringR = 90 + (idx % 4) * 10;
+          return {
+            id: `scn-${s.id}`,
+            type: "scenario" as const,
+            label: s.title,
+            val: 5,
+            color: SCENARIO_ORANGE,
+            emissive: SCENARIO_ORANGE,
+            emissiveIntensity: 0.3,
+            data: s,
+            x: Math.cos(angle) * ringR,
+            y: 200 + (idx % 2) * 10,
+            z: Math.sin(angle) * ringR,
+          };
+        });
+
+        const legIds = new Set(legislationList.map(l => l.id));
+        const scnIds = new Set(scenarioList.map(s => s.id));
+
+        const citeLinks: GraphLink[] = ((data.cites ?? []) as CiteEdgeData[])
+          .filter(c => topicIds.has(c.topic_id) && legIds.has(c.legislation_id))
+          .map(c => ({
+            source: `topic-${c.topic_id}`,
+            target: `leg-${c.legislation_id}`,
+            type: "cites" as const,
+            color: CITES_GREY,
+            width: 0.8,
+            particles: 0,
+            particleColor: CITES_GREY,
+            curvature: 0.1,
+          }));
+
+        const appliesLinks: GraphLink[] = ((data.appliesWhen ?? []) as AppliesEdgeData[])
+          .map((a): GraphLink | null => {
+            if (a.topic_id && topicIds.has(a.topic_id) && scnIds.has(a.scenario_id)) {
+              return {
+                source: `scn-${a.scenario_id}`,
+                target: `topic-${a.topic_id}`,
+                type: "applies_when",
+                color: APPLIES_ORANGE,
+                width: 1.2,
+                particles: 2,
+                particleColor: APPLIES_ORANGE,
+                curvature: 0.2,
+                dashed: true,
+              };
+            }
+            if (a.legislation_id && legIds.has(a.legislation_id) && scnIds.has(a.scenario_id)) {
+              return {
+                source: `scn-${a.scenario_id}`,
+                target: `leg-${a.legislation_id}`,
+                type: "applies_when",
+                color: APPLIES_ORANGE,
+                width: 1.2,
+                particles: 2,
+                particleColor: APPLIES_ORANGE,
+                curvature: 0.2,
+                dashed: true,
+              };
+            }
+            return null;
+          })
+          .filter((l): l is GraphLink => l !== null);
+
+        const coAppliesLinks: GraphLink[] = ((data.coApplies ?? []) as CoAppliesEdgeData[])
+          .map((c): GraphLink | null => {
+            const leftId =
+              c.left_legislation_id && legIds.has(c.left_legislation_id)
+                ? `leg-${c.left_legislation_id}`
+                : c.left_topic_id && topicIds.has(c.left_topic_id)
+                  ? `topic-${c.left_topic_id}`
+                  : null;
+            const rightId =
+              c.right_legislation_id && legIds.has(c.right_legislation_id)
+                ? `leg-${c.right_legislation_id}`
+                : c.right_topic_id && topicIds.has(c.right_topic_id)
+                  ? `topic-${c.right_topic_id}`
+                  : null;
+            if (!leftId || !rightId) return null;
+            return {
+              source: leftId,
+              target: rightId,
+              type: "co_applies",
+              relationship: c.relationship,
+              color: COAPPLIES_INDIGO,
+              width: 1,
+              particles: 0,
+              particleColor: COAPPLIES_INDIGO,
+              curvature: 0.3,
+            };
+          })
+          .filter((l): l is GraphLink => l !== null);
+
         setGraphData({
-          nodes: [...topicNodes],
-          links: [...depLinks],
+          nodes: [...topicNodes, ...legislationNodes, ...scenarioNodes],
+          links: [...depLinks, ...citeLinks, ...appliesLinks, ...coAppliesLinks],
         });
         setLoading(false);
       } catch (e: unknown) {
@@ -355,7 +524,10 @@ export default function ConsensusGraph() {
     // Custom Y force: pull nodes toward their tier's Y level
     import("d3-force-3d").then((d3: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       // Y force: tier stratification (axioms top, conjectures bottom)
+      // Scenarios sit above axioms; legislation sits below conjectures.
       fg.d3Force("y", d3.forceY((node: GraphNode) => {
+        if (node.type === "scenario") return 200;
+        if (node.type === "legislation") return -160;
         if (node.type !== "topic") return 0;
         return TIER_Y[node.tier ?? "empirical"] ?? 0;
       }).strength(0.15));
@@ -396,6 +568,51 @@ export default function ConsensusGraph() {
         opacity: 0.5,
       });
       return new THREE.Mesh(geo, mat);
+    }
+
+    // #1152 Round 5a — legislation renders as a flat box (rectangle in the
+    // 2D tree, cuboid here). Per-jurisdiction colour palette is intentionally
+    // deferred; slate is the neutral placeholder.
+    if (node.type === "legislation") {
+      const geo = new THREE.BoxGeometry(5, 3.5, 0.8);
+      const mat = new THREE.MeshStandardMaterial({
+        color: node.color,
+        emissive: node.emissive,
+        emissiveIntensity: node.emissiveIntensity,
+        transparent: true,
+        opacity: 0.85,
+        roughness: 0.35,
+        metalness: 0.4,
+      });
+      return new THREE.Mesh(geo, mat);
+    }
+
+    // #1152 Round 5a — scenarios render as octahedrons (diamond silhouette in
+    // both top-down and isometric views).
+    if (node.type === "scenario") {
+      const group = new THREE.Group();
+      const geo = new THREE.OctahedronGeometry(3.5, 0);
+      const mat = new THREE.MeshStandardMaterial({
+        color: node.color,
+        emissive: node.emissive,
+        emissiveIntensity: node.emissiveIntensity,
+        transparent: true,
+        opacity: 0.9,
+        roughness: 0.25,
+        metalness: 0.5,
+      });
+      group.add(new THREE.Mesh(geo, mat));
+
+      // Soft halo to emphasise scenarios as "entry points" in the graph.
+      const haloGeo = new THREE.OctahedronGeometry(4.5, 0);
+      const haloMat = new THREE.MeshBasicMaterial({
+        color: node.color,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.25,
+      });
+      group.add(new THREE.Mesh(haloGeo, haloMat));
+      return group;
     }
 
     // Topic node
@@ -479,6 +696,27 @@ export default function ConsensusGraph() {
       </div>`;
     }
 
+    if (node.type === "legislation") {
+      const l = node.data as LegislationNodeData;
+      const jurisdiction = (l.jurisdiction || "").toUpperCase();
+      const year = l.year ? `(${l.year})` : "";
+      return `<div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:10px 14px;font-size:12px;color:#e2e8f0;max-width:320px;font-family:system-ui;line-height:1.5">
+        <div style="font-weight:700;font-size:13px;color:${LEGISLATION_SLATE};margin-bottom:4px">${l.short_title || l.title} ${year}</div>
+        <div style="color:#94a3b8;font-size:11px">${jurisdiction} · ${l.doc_type ?? "legislation"}</div>
+        <div style="margin-top:6px;font-size:10px;color:#475569">Click to view legislation details</div>
+      </div>`;
+    }
+
+    if (node.type === "scenario") {
+      const s = node.data as ScenarioNodeData;
+      return `<div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:10px 14px;font-size:12px;color:#e2e8f0;max-width:320px;font-family:system-ui;line-height:1.5">
+        <div style="font-weight:700;font-size:13px;color:${SCENARIO_ORANGE};margin-bottom:4px">${s.title}</div>
+        <div style="color:#94a3b8;font-size:11px">Scenario · ${s.industry ?? "general"}</div>
+        ${s.description ? `<div style="color:#cbd5e1;font-size:11px;margin-top:4px">${s.description}</div>` : ""}
+        <div style="margin-top:6px;font-size:10px;color:#475569">Click to view applicability subgraph</div>
+      </div>`;
+    }
+
     const t = node.data as TopicNode;
     const ratio = t.totalProposals > 0 ? Math.round((t.mergedCount / t.totalProposals) * 100) : 0;
     const tierColor = TIER_COLORS[t.tier] ?? "#6b7280";
@@ -511,6 +749,12 @@ export default function ConsensusGraph() {
     if (node.type === "topic") {
       const id = node.id.replace("topic-", "");
       router.push(`/topics/${id}`);
+    } else if (node.type === "legislation") {
+      const id = node.id.replace("leg-", "");
+      router.push(`/legislation/${encodeURIComponent(id)}`);
+    } else if (node.type === "scenario") {
+      const id = node.id.replace("scn-", "");
+      router.push(`/scenarios/${encodeURIComponent(id)}`);
     } else {
       const id = node.id.replace("agent-", "");
       router.push(`/agents/${id}`);

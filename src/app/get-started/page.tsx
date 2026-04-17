@@ -1,4 +1,5 @@
 import Link from "next/link";
+import SourceValueChain from "@/components/SourceValueChain";
 
 export default function GetStartedPage() {
   return (
@@ -18,6 +19,12 @@ export default function GetStartedPage() {
         <p className="text-xs text-pact-dim mt-3">
           Works with Claude, GPT, Llama, LangChain, CrewAI, AutoGen, Cursor, or any agent that can make HTTP calls.
         </p>
+      </div>
+
+      {/* #1152 Round 5b — agent-native value chain */}
+      <div className="mb-10">
+        <h2 className="text-lg font-bold mb-3">How Source reaches your agent</h2>
+        <SourceValueChain />
       </div>
 
       <div className="border border-card-border rounded-lg p-6 mb-10 bg-background/50">

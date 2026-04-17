@@ -6,6 +6,8 @@ import { z } from "zod";
 const BASE_URL = process.env.SOURCE_BASE_URL || "https://source.tailor.au";
 const AXIOM_KEY = process.env.SOURCE_AXIOM_KEY || "";
 const PACT_KEY = process.env.SOURCE_PACT_KEY || "";
+// #1160 Round 5 — agent-scoped key for the reciprocal work economy (claim + submit).
+const AGENT_KEY = process.env.SOURCE_AGENT_KEY || "";
 
 type TextContent = { type: "text"; text: string };
 type ToolResult = { content: TextContent[]; isError?: boolean };
@@ -17,6 +19,23 @@ function jsonResult(data: unknown): ToolResult {
 function errorResult(err: unknown): ToolResult {
   const message = err instanceof Error ? err.message : String(err);
   return { content: [{ type: "text" as const, text: `Error: ${message}` }], isError: true };
+}
+
+async function postAgent(path: string, body: unknown): Promise<unknown> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "x-source-agent-key": AGENT_KEY,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText}: ${txt.slice(0, 200)}`);
+  }
+  return res.json();
 }
 
 async function sourceGet(path: string, axiomAuth = false): Promise<unknown> {
@@ -35,7 +54,7 @@ async function sourceGet(path: string, axiomAuth = false): Promise<unknown> {
 function createServer(): McpServer {
   const server = new McpServer({
     name: "Source — Verified Knowledge Graph",
-    version: "0.1.0",
+    version: "0.4.0",
   });
 
   server.tool(
@@ -347,6 +366,78 @@ function createServer(): McpServer {
       try {
         const encoded = encodeURIComponent(scenarioId);
         return jsonResult(await sourceGet(`/api/scenarios/${encoded}/applicable`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  // ── Applicability Spot-check Tools (#1160 Round 5) ─────────────
+
+  server.tool(
+    "source_submit_applicability_prediction",
+    "Earn 3 credits by predicting which scenarios apply to a given predicate set BEFORE the graph is consulted (blind_predict mode). Deterministic validator: F1 >= 0.66 vs canonical match or rejected. Requires SOURCE_AGENT_KEY. Wrapper over POST /api/work/claim + POST /api/work/submit.",
+    {
+      predicates: z.record(z.unknown()).describe("Caller predicates (e.g. { country_of_operation: 'AU', handles_personal_information: true })"),
+      predictedScenarioIds: z.array(z.string()).describe("Scenario ids the caller predicts will apply (before looking at the graph)"),
+      rationale: z.string().min(80).describe("80+ chars explaining the prediction reasoning (mandatory — validator rejects short rationales)"),
+    },
+    async ({ predicates, predictedScenarioIds, rationale }) => {
+      try {
+        if (!AGENT_KEY) {
+          return errorResult("SOURCE_AGENT_KEY not configured. Register via POST /api/work/register to get an agent key.");
+        }
+        const claim = await postAgent("/api/work/claim", { workType: "applicability_spotcheck" });
+        const assignmentId = (claim as { assignmentId?: string })?.assignmentId;
+        if (!assignmentId) {
+          throw new Error(`claim did not return assignmentId: ${JSON.stringify(claim).slice(0, 200)}`);
+        }
+        const submit = await postAgent("/api/work/submit", {
+          assignmentId,
+          submission: {
+            mode: "blind_predict",
+            predicates,
+            predictedScenarioIds,
+            rationale,
+          },
+        });
+        return jsonResult({ assignmentId, ...((submit as object) ?? {}) });
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_review_scenario_applicability",
+    "Earn up to 5 credits per accepted submission by spot-checking an existing scenario's applies_when edges (review_existing mode). Confirm edges (1 credit each, cap 3), flag defects (reject / missing, 3 credits each, DEFERRED until a curator resolves). Requires SOURCE_AGENT_KEY. Findings must cite reasons >= 40 chars; overall rationale >= 120 chars.",
+    {
+      scenarioId: z.string().describe("Scenario id to review (e.g. 'scn.au-privacy-personal-info')"),
+      rationale: z.string().min(120).describe("120+ chars explaining overall assessment"),
+      findings: z.array(z.object({
+        action: z.enum(["confirm", "reject", "missing"]).describe("confirm existing edge | reject existing edge | flag missing edge"),
+        edgeId: z.string().optional().describe("Required for confirm/reject: the applies_when edge id"),
+        targetKind: z.enum(["topic", "legislation"]).optional().describe("Required for missing: what kind of node should be linked"),
+        targetId: z.string().optional().describe("Required for missing: the topic or legislation id"),
+        reason: z.string().min(40).describe("40+ chars justifying this finding"),
+      })).min(1).describe("At least one finding. Confirms-only with reasons < 40 chars are rejected."),
+    },
+    async ({ scenarioId, rationale, findings }) => {
+      try {
+        if (!AGENT_KEY) {
+          return errorResult("SOURCE_AGENT_KEY not configured. Register via POST /api/work/register to get an agent key.");
+        }
+        const claim = await postAgent("/api/work/claim", { workType: "applicability_spotcheck" });
+        const assignmentId = (claim as { assignmentId?: string })?.assignmentId;
+        if (!assignmentId) {
+          throw new Error(`claim did not return assignmentId: ${JSON.stringify(claim).slice(0, 200)}`);
+        }
+        const submit = await postAgent("/api/work/submit", {
+          assignmentId,
+          submission: {
+            mode: "review_existing",
+            scenarioId,
+            rationale,
+            findings,
+          },
+        });
+        return jsonResult({ assignmentId, ...((submit as object) ?? {}) });
       } catch (e) { return errorResult(e); }
     }
   );

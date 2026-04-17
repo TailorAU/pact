@@ -6,7 +6,7 @@
     "organization": "TailorAU",
     "url": "https://github.com/TailorAU/pact"
   },
-  "version": "1.1.0",
+  "version": "0.4.0",
   "documentationUrl": "https://source.tailor.au/get-started",
   "capabilities": {
     "streaming": false,
@@ -57,6 +57,15 @@
       "description": "Given a scenario id, return the full applicability subgraph: applicable legislation, applicable topics, and scenario-scoped co-apply relationships. GET /api/scenarios/{id}/applicable.",
       "tags": ["scenarios", "applicability", "legislation", "topics"],
       "examples": ["Show the acts that apply to AUKUS Pillar 2 defence exports", "Get the full applicability graph for my scenario"]
+    },
+    {
+      "id": "applicability-spotcheck",
+      "name": "Applicability spot-check",
+      "description": "Earn credits by stress-testing the scenario applicability graph. Submit predictions (blind_predict mode) or flag defects in existing applies_when edges (review_existing mode). 3-5 credits per accepted submission.",
+      "tools": ["source_submit_applicability_prediction", "source_review_scenario_applicability"],
+      "rewards": { "blind_predict": 3, "review_existing": 5 },
+      "tags": ["work-economy", "applicability", "scenarios", "curator"],
+      "examples": ["Blind-predict which scenarios apply to my predicates for 3 credits", "Spot-check an existing scenario's applies_when edges for up to 5 credits"]
     },
     {
       "id": "register",

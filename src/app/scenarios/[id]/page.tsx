@@ -20,10 +20,14 @@ import {
   getAppliesWhen,
   getCoApplies,
 } from "@/lib/scenarios/queries";
+import { SpotCheckCta } from "./spot-check-cta";
 
 export const revalidate = 60;
 
-type Props = { params: Promise<{ id: string }> };
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
 
 export async function generateMetadata({ params }: Props) {
   const { id } = await params;
@@ -53,8 +57,10 @@ type TopicDetail = {
   status: string;
 };
 
-export default async function ScenarioDetailPage({ params }: Props) {
+export default async function ScenarioDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
+  const qs = (await searchParams) ?? {};
+  const agentMode = qs.agent !== undefined;
   const scenario = await getScenario(id).catch(() => null);
   if (!scenario) notFound();
 
@@ -136,12 +142,24 @@ export default async function ScenarioDetailPage({ params }: Props) {
         <span className="text-[10px] px-2 py-1 rounded border border-pact-orange/40 text-pact-orange uppercase font-bold">
           scenario
         </span>
+        {scenario.jurisdiction && (
+          <span className="text-[10px] px-2 py-1 rounded border border-slate-400/30 text-slate-300 uppercase font-bold">
+            {scenario.jurisdiction}
+          </span>
+        )}
         {scenario.industry && (
           <span className="text-[10px] px-2 py-1 rounded border border-card-border text-pact-dim uppercase">
             {scenario.industry}
           </span>
         )}
       </div>
+
+      {scenario.sourceRef && (
+        <p className="text-sm text-pact-cyan/90 mb-3">
+          <span className="text-pact-dim/70 mr-2 text-xs uppercase tracking-wider">Source</span>
+          {scenario.sourceRef}
+        </p>
+      )}
 
       {scenario.description && (
         <p className="text-pact-dim max-w-3xl mb-8">{scenario.description}</p>
@@ -304,6 +322,10 @@ export default async function ScenarioDetailPage({ params }: Props) {
             })}
           </ul>
         </section>
+      )}
+
+      {agentMode && (
+        <SpotCheckCta scenarioId={scenario.id} appliesWhen={applies} />
       )}
 
       {/* Try in Fabric — coming soon until #1151 panel lands. */}

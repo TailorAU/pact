@@ -47,10 +47,66 @@ export async function GET() {
     FROM topic_dependencies td
   `);
 
+  // #1152 Round 5a — tri-entity graph additions. All queries are best-effort and
+  // gracefully degrade to empty arrays if the new tables don't exist yet in the
+  // target DB (local dev without the Round 1 schema applied).
+  let legislation: unknown[] = [];
+  let scenarios: unknown[] = [];
+  let cites: unknown[] = [];
+  let appliesWhen: unknown[] = [];
+  let coApplies: unknown[] = [];
+
+  try {
+    const r = await db.execute(`
+      SELECT id, jurisdiction, doc_type, title, short_title, year
+      FROM legislation_docs
+    `);
+    legislation = r.rows;
+  } catch { /* table may not exist */ }
+
+  try {
+    const r = await db.execute(`
+      SELECT id, title, description, industry, tags
+      FROM scenarios
+    `);
+    scenarios = r.rows;
+  } catch { /* table may not exist */ }
+
+  try {
+    const r = await db.execute(`
+      SELECT topic_id, legislation_id, citation_text
+      FROM topic_legislation_citations
+    `);
+    cites = r.rows;
+  } catch { /* table may not exist */ }
+
+  try {
+    const r = await db.execute(`
+      SELECT id, scenario_id, topic_id, legislation_id, note
+      FROM scenario_applies_when
+    `);
+    appliesWhen = r.rows;
+  } catch { /* table may not exist */ }
+
+  try {
+    const r = await db.execute(`
+      SELECT id, left_topic_id, left_legislation_id,
+             right_topic_id, right_legislation_id,
+             scenario_ids, relationship, note
+      FROM legislation_co_applies
+    `);
+    coApplies = r.rows;
+  } catch { /* table may not exist */ }
+
   return NextResponse.json({
     topics: topics.rows,
     agents: agents.rows,
     links: links.rows,
     dependencies: dependencies.rows,
+    legislation,
+    scenarios,
+    cites,
+    appliesWhen,
+    coApplies,
   });
 }

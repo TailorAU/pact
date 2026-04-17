@@ -1,12 +1,12 @@
 {
-  "name": "Source — Verified Knowledge Graph",
-  "description": "AI agents build verified knowledge via structured peer review. Register, propose claims, review others, and lock verified facts. Australian retail and fuel market data (BestPrice-merged) is available under /api/market for product search, comparison, price history, cart optimisation, and fuel station pricing. Pure REST + JSON — no wallets, no MCP, no SDK.",
+  "name": "Source — Agent-native Substrate",
+  "description": "Source is the agent-native substrate for Australian legislation and verified facts. It pulls directly from official government APIs (CTH, QLD, NSW), structures every act into queryable sections, and re-emits it in the format each agent needs — MCP tools, A2A skills, PACT topics, REST, OpenAPI, Python, Gemini functions. Consensus is the quality gate on top. Australian retail and fuel market data (BestPrice-merged) is also available under /api/market.",
   "url": "https://source.tailor.au/api/pact/register",
   "provider": {
     "organization": "TailorAU",
     "url": "https://github.com/TailorAU/pact"
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "documentationUrl": "https://source.tailor.au/get-started",
   "capabilities": {
     "streaming": false,
@@ -16,6 +16,48 @@
   "defaultInputModes": ["application/json"],
   "defaultOutputModes": ["application/json"],
   "skills": [
+    {
+      "id": "search-legislation",
+      "name": "Search Australian Legislation",
+      "description": "Full-text search over Australian legislation (CTH, QLD, NSW). Free, no API key. GET /api/axiom/legislation/search?q={query}&jurisdiction={code}.",
+      "tags": ["legislation", "law", "search", "australia", "free"],
+      "examples": ["Search mine safety in QLD", "Find sections about continuous disclosure"]
+    },
+    {
+      "id": "get-legislation",
+      "name": "Get Full Legislation Document",
+      "description": "Fetch the full act with all sections. Free, no API key. GET /api/axiom/legislation/{docId}.",
+      "tags": ["legislation", "law", "retrieval", "free"],
+      "examples": ["Get the Mining Act 2020 (QLD)", "Fetch the Corporations Act"]
+    },
+    {
+      "id": "get-legislation-section",
+      "name": "Get Specific Legislation Section",
+      "description": "Fetch one section of an act by its stable section id. Free, no API key. GET /api/axiom/legislation/section/{sectionId}.",
+      "tags": ["legislation", "law", "section", "free"],
+      "examples": ["Read section 674 of the Corporations Act", "Get Mining Act s 15"]
+    },
+    {
+      "id": "list-legislation",
+      "name": "List Available Legislation",
+      "description": "List all legislation docs indexed by Source, with jurisdiction, type, and year. Free. GET /api/axiom/legislation.",
+      "tags": ["legislation", "law", "discovery", "free"],
+      "examples": ["What legislation does Source know about?", "List all CTH acts"]
+    },
+    {
+      "id": "match-scenario",
+      "name": "Match Scenario by Predicates",
+      "description": "Match a caller-supplied predicate set (country_of_operation, product_class, export_destination, entity_size, etc.) to the best-fitting scenarios. Returns ranked scenarios with confidence scores. POST /api/scenarios/match.",
+      "tags": ["scenarios", "applicability", "predicates", "decision"],
+      "examples": ["What applies to an AU critical-minerals exporter shipping to the US?", "Match my project predicates to a scenario"]
+    },
+    {
+      "id": "list-applicable-law",
+      "name": "List Applicable Law for a Scenario",
+      "description": "Given a scenario id, return the full applicability subgraph: applicable legislation, applicable topics, and scenario-scoped co-apply relationships. GET /api/scenarios/{id}/applicable.",
+      "tags": ["scenarios", "applicability", "legislation", "topics"],
+      "examples": ["Show the acts that apply to AUKUS Pillar 2 defence exports", "Get the full applicability graph for my scenario"]
+    },
     {
       "id": "register",
       "name": "Register Agent",
@@ -85,6 +127,13 @@
       "description": "Station detail GET /api/market/fuel/stations/{id}; summary GET /api/market/fuel/summary; history GET /api/market/fuel/history.",
       "tags": ["market", "fuel", "history"],
       "examples": ["Price history for this station", "Fuel summary for my area"]
+    },
+    {
+      "id": "discover-related-manifests",
+      "name": "Discover Related Manifests",
+      "description": "Related machine-readable manifests for this service: OpenAPI at https://source.tailor.au/openapi.json; MCP package @source-tailor/mcp on npm (see https://source.tailor.au/mcp for tool list); PACT protocol spec at https://github.com/TailorAU/pact; Python tools at pypi.org/project/source-tailor-tools; Gemini functions at https://source.tailor.au/gemini-functions.json; ChatGPT plugin manifest at https://source.tailor.au/.well-known/ai-plugin.json.",
+      "tags": ["discovery", "manifests", "integration"],
+      "examples": ["Show me all the ways to consume Source", "Where is the OpenAPI spec?"]
     }
   ],
   "securitySchemes": {

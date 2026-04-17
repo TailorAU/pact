@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
   const enriched = (topics as Record<string, unknown>[]).map((t) => ({
     ...t,
     url: `${baseUrl}/topics/${t.id}`,
-    apiUrl: `${baseUrl}/api/pact/${t.id}`,
+    apiUrl: `${baseUrl}/api/pact/topics/${t.id}`,
   }));
 
   return NextResponse.json(enriched);

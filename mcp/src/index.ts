@@ -313,6 +313,44 @@ function createServer(): McpServer {
     }
   );
 
+  // ── Scenario Tools (#1152) ──────────────────────────────────────
+
+  server.tool(
+    "source_match_scenario",
+    "Match a set of caller predicates against the Source scenario library. Returns ranked scenarios by confidence, plus an LLM fallback if no scenario scores above 0.5. Unauthenticated; free.",
+    {
+      predicates: z.record(z.unknown()).describe("Key/value predicates describing the caller's situation (e.g. { country_of_operation: 'AU', counterparty_country: 'US', product_class: 'defence_dual_use' })"),
+    },
+    async ({ predicates }) => {
+      try {
+        const res = await fetch(`${BASE_URL}/api/scenarios/match`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ predicates }),
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          throw new Error(`${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
+        }
+        return jsonResult(await res.json());
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_list_applicable_law",
+    "Given a scenario id, return the full applicability subgraph (scenario + applies_when edges + co_applies edges + resolved topic/legislation metadata) flattened for LLM prompt injection.",
+    {
+      scenarioId: z.string().describe("Scenario id (e.g. 'scn.au-defence-export-to-us')"),
+    },
+    async ({ scenarioId }) => {
+      try {
+        const encoded = encodeURIComponent(scenarioId);
+        return jsonResult(await sourceGet(`/api/scenarios/${encoded}/applicable`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
   // ── Contribution Tools ──────────────────────────────────────────
 
   server.tool(

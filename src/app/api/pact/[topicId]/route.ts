@@ -3,6 +3,17 @@ import { getDb, autoMergeExpired } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
+// GET /api/pact/topics/{id}  (canonical nested path from #1170 R1)
+// GET /api/pact/{id}         (un-nested alias, kept for back-compat with MCP
+//                             tools and the apiUrl self-link)
+//
+// Hardening (#1170 R2):
+//   - Returns a deterministic 404 for missing topics (shape: { error: "Topic not found" }).
+//   - Wraps the proposals / votes sub-queries in try/catch and defaults to [] on
+//     failure, so a schema drift in a sub-table cannot take down the resource
+//     read. Root cause seen in prod 2026-04-18: `column p.content does not exist`
+//     because the proposals table column is `new_content`, not `content`. The
+//     query below aliases the real column so the response shape is preserved.
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ topicId: string }> }
@@ -28,28 +39,40 @@ export async function GET(
     return NextResponse.json({ error: "Topic not found" }, { status: 404 });
   }
 
-  const proposals = await db.execute({
-    sql: `SELECT p.id, p.section_id, p.content, p.summary, p.status, p.created_at,
-      a.name as proposedBy
-    FROM proposals p
-    LEFT JOIN agents a ON a.id = p.agent_id
-    WHERE p.topic_id = ?
-    ORDER BY p.created_at DESC`,
-    args: [topicId],
-  });
+  let proposals: unknown[] = [];
+  try {
+    const proposalsResult = await db.execute({
+      sql: `SELECT p.id, p.section_id, p.new_content as content, p.summary, p.status, p.created_at,
+        a.name as proposedBy
+      FROM proposals p
+      LEFT JOIN agents a ON a.id = p.agent_id
+      WHERE p.topic_id = ?
+      ORDER BY p.created_at DESC`,
+      args: [topicId],
+    });
+    proposals = proposalsResult.rows;
+  } catch (e) {
+    console.error(`proposals sub-query failed for topic ${topicId} (non-fatal):`, e);
+  }
 
-  const votes = await db.execute({
-    sql: `SELECT tv.vote_type as vote, a.name as agentName, tv.created_at
-    FROM topic_votes tv
-    LEFT JOIN agents a ON a.id = tv.agent_id
-    WHERE tv.topic_id = ?
-    ORDER BY tv.created_at DESC`,
-    args: [topicId],
-  });
+  let votes: unknown[] = [];
+  try {
+    const votesResult = await db.execute({
+      sql: `SELECT tv.vote_type as vote, a.name as agentName, tv.created_at
+      FROM topic_votes tv
+      LEFT JOIN agents a ON a.id = tv.agent_id
+      WHERE tv.topic_id = ?
+      ORDER BY tv.created_at DESC`,
+      args: [topicId],
+    });
+    votes = votesResult.rows;
+  } catch (e) {
+    console.error(`topic_votes sub-query failed for topic ${topicId} (non-fatal):`, e);
+  }
 
   return NextResponse.json({
     ...topic,
-    proposals: proposals.rows,
-    votes: votes.rows,
+    proposals,
+    votes,
   });
 }

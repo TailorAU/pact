@@ -77,13 +77,22 @@ def run() -> int:
         "summary": {},
     }
     try:
-        scenarios = _req("/scenarios")
+        payload = _req("/scenarios")
     except urllib.error.URLError as e:
         print(red(f"FATAL — cannot reach {BASE}/scenarios: {e}"), file=sys.stderr)
         return 2
 
-    if not isinstance(scenarios, list) or len(scenarios) == 0:
-        print(red("FATAL — /scenarios returned empty or non-list payload"), file=sys.stderr)
+    # The endpoint returns { scenarios: [...] }; accept a bare list too for back-compat.
+    if isinstance(payload, dict) and isinstance(payload.get("scenarios"), list):
+        scenarios = payload["scenarios"]
+    elif isinstance(payload, list):
+        scenarios = payload
+    else:
+        print(red("FATAL — /scenarios payload shape unrecognised (expected object with .scenarios or bare list)"), file=sys.stderr)
+        return 2
+
+    if len(scenarios) == 0:
+        print(red("FATAL — /scenarios returned empty list"), file=sys.stderr)
         return 2
 
     total = len(scenarios)

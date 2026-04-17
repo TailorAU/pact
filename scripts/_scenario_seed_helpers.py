@@ -181,3 +181,81 @@ def add_co_applies(cur, *, scenario_ids: list[str], relationship: str,
 
 def summarise(label: str, created: int, total: int) -> None:
     print(f"  {label}: {created} new / {total - created} already existed / {total} total")
+
+
+def run_scenario_seed(scenarios: list[dict], *,
+                      stub_jurisdiction: str = "AU",
+                      stub_authority: str | None = None) -> int:
+    """#1160 — Shared runner used by every `seed_scenarios_*.py` script.
+
+    Each scenario dict supports:
+      - id, title, description, industry, predicates, tags  (required)
+      - jurisdiction, source_ref                             (optional — scenarios.* cols)
+      - topic_stubs: list of {title, canonical_claim?, source_ref?, predicate?, note?}
+            → upsert_topic_stub(...) + add_applies_when(topic_id=...)
+      - topic_prefixes: list of (title_prefix, predicate, note)
+            → topic_id_by_title_prefix + add_applies_when(topic_id=...)
+      - legislation_links: list of (legislation_id, predicate, note)
+            → add_applies_when(legislation_id=...)
+
+    stub_jurisdiction + stub_authority feed through to upsert_topic_stub for
+    stubs that don't override them — keeps seed scripts terse.
+    """
+    conn = connect()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                created_scenarios = 0
+                created_edges = 0
+                total_edges = 0
+                for scn in scenarios:
+                    cur.execute("SELECT 1 FROM scenarios WHERE id = %s", (scn["id"],))
+                    existed_before = cur.fetchone() is not None
+                    upsert_scenario(
+                        cur, scn["id"], scn["title"], scn["description"],
+                        scn["industry"], scn["predicates"], scn.get("tags", []),
+                        source_ref=scn.get("source_ref"),
+                        jurisdiction=scn.get("jurisdiction"),
+                    )
+                    if not existed_before:
+                        created_scenarios += 1
+                        print(f"  CREATED scenario {scn['id']}")
+                    else:
+                        print(f"  UPDATED scenario {scn['id']}")
+                    for stub in scn.get("topic_stubs", []):
+                        topic_id = upsert_topic_stub(
+                            cur,
+                            title=stub["title"],
+                            tier=stub.get("tier", "institutional"),
+                            jurisdiction=stub.get("jurisdiction", stub_jurisdiction),
+                            authority=stub.get("authority", stub_authority),
+                            canonical_claim=stub.get("canonical_claim"),
+                            source_ref=stub.get("source_ref"),
+                        )
+                        total_edges += 1
+                        if add_applies_when(
+                            cur, scn["id"], topic_id=topic_id,
+                            predicate=stub.get("predicate") or {"required": True},
+                            note=stub.get("note", ""),
+                        ):
+                            created_edges += 1
+                    for prefix, predicate, note in scn.get("topic_prefixes", []):
+                        topic_id = topic_id_by_title_prefix(cur, prefix)
+                        total_edges += 1
+                        if not topic_id:
+                            print(f"    SKIP (no topic): '{prefix[:60]}...'")
+                            continue
+                        if add_applies_when(cur, scn["id"], topic_id=topic_id,
+                                            predicate=predicate, note=note):
+                            created_edges += 1
+                    for leg_id, predicate, note in scn.get("legislation_links", []):
+                        total_edges += 1
+                        if add_applies_when(cur, scn["id"], legislation_id=leg_id,
+                                            predicate=predicate, note=note):
+                            created_edges += 1
+                print()
+                summarise("Scenarios", created_scenarios, len(scenarios))
+                summarise("Applies-when edges", created_edges, total_edges)
+    finally:
+        conn.close()
+    return 0

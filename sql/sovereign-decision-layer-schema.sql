@@ -125,3 +125,23 @@ CREATE TABLE IF NOT EXISTS match_request_log (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS match_log_created_idx ON match_request_log (created_at DESC);
+
+-- 10. #1160 Round 6.1 — scenario_revisions (immutable audit log of every scenario / edge mutation)
+-- Every seed-helper write (upsert_scenario, add_applies_when, add_co_applies) records a revision.
+-- revision_kind ∈ {create, update, edge_add, edge_remove, deprecate, supersede}
+-- trigger_code  ∈ {T1..T10} (see handoff #1160 §11.2)
+CREATE TABLE IF NOT EXISTS scenario_revisions (
+  id              TEXT PRIMARY KEY,
+  scenario_id     TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
+  revision_kind   TEXT NOT NULL,
+  trigger_code    TEXT NOT NULL,
+  trigger_detail  TEXT,
+  before_state    JSONB,
+  after_state     JSONB NOT NULL,
+  edges_delta     JSONB,
+  changed_by      TEXT NOT NULL,
+  commit_sha      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS scenario_revisions_scenario_idx ON scenario_revisions (scenario_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS scenario_revisions_trigger_idx ON scenario_revisions (trigger_code);

@@ -48,16 +48,108 @@ def _sid(prefix: str, *parts: Any) -> str:
     return f"{prefix}:{hashlib.sha256(blob).hexdigest()[:16]}"
 
 
+# -----------------------------------------------------------------------------
+# #1160 Round 6.1 — scenario_revisions helpers
+# -----------------------------------------------------------------------------
+# Every mutation to a scenario or its edges must leave a trail in
+# scenario_revisions. These helpers read env vars so scripts can set them once
+# at the top (see Round 7 PowerShell block in the handoff §12):
+#
+#   $env:SCENARIO_CHANGE_TRIGGER = "T10"        # trigger code from §11.2
+#   $env:SCENARIO_CHANGE_ACTOR   = "seed-1160"  # human email or seed script tag
+#
+# Seeders running on dev without the env set default to T10/seed-local so local
+# runs still leave an audit trail (noisy but correct).
+
+def _trigger_defaults() -> tuple[str, str, str | None]:
+    return (
+        os.environ.get("SCENARIO_CHANGE_TRIGGER", "T10"),
+        os.environ.get("SCENARIO_CHANGE_ACTOR", "seed-local"),
+        os.environ.get("SCENARIO_CHANGE_DETAIL"),
+    )
+
+
+def _fetch_scenario_row(cur, scenario_id: str) -> dict | None:
+    cur.execute(
+        """SELECT id, title, description, industry, predicates, tags,
+                  source_ref, jurisdiction, review_count,
+                  created_at, updated_at
+           FROM scenarios WHERE id = %s""",
+        (scenario_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {
+        "id": row[0], "title": row[1], "description": row[2], "industry": row[3],
+        "predicates": row[4], "tags": row[5] or [],
+        "source_ref": row[6], "jurisdiction": row[7],
+        "review_count": row[8],
+        "created_at": row[9].isoformat() if row[9] else None,
+        "updated_at": row[10].isoformat() if row[10] else None,
+    }
+
+
+def record_revision(cur, scenario_id: str, *, revision_kind: str,
+                    before_state: dict | None, after_state: dict,
+                    edges_delta: dict | None = None,
+                    trigger_code: str | None = None,
+                    trigger_detail: str | None = None,
+                    changed_by: str | None = None,
+                    commit_sha: str | None = None) -> str:
+    """Append one scenario_revisions row. Idempotent via deterministic id.
+
+    Re-running the same seed script should not proliferate revisions: the id is
+    sha256(scenario_id|revision_kind|json(after_state)|trigger_code|changed_by)
+    so a no-op re-run collides on PK and gets skipped.
+    """
+    t_code, t_actor, t_detail = _trigger_defaults()
+    trigger_code = trigger_code or t_code
+    changed_by = changed_by or t_actor
+    trigger_detail = trigger_detail or t_detail
+    rev_id = _sid(
+        "rev",
+        scenario_id, revision_kind,
+        json.dumps(after_state, sort_keys=True, default=str),
+        trigger_code, changed_by,
+    )
+    cur.execute(
+        """
+        INSERT INTO scenario_revisions
+          (id, scenario_id, revision_kind, trigger_code, trigger_detail,
+           before_state, after_state, edges_delta, changed_by, commit_sha)
+        VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s)
+        ON CONFLICT (id) DO NOTHING
+        """,
+        (
+            rev_id, scenario_id, revision_kind, trigger_code, trigger_detail,
+            json.dumps(before_state, default=str) if before_state is not None else None,
+            json.dumps(after_state, default=str),
+            json.dumps(edges_delta, default=str) if edges_delta is not None else None,
+            changed_by, commit_sha,
+        ),
+    )
+    return rev_id
+
+
 def upsert_scenario(cur, scenario_id: str, title: str, description: str,
                     industry: str, predicates: dict, tags: list[str] | None = None,
                     *, source_ref: str | None = None,
-                    jurisdiction: str | None = None) -> str:
+                    jurisdiction: str | None = None,
+                    trigger_code: str | None = None,
+                    trigger_detail: str | None = None,
+                    changed_by: str | None = None) -> str:
     """Create-or-return scenario by stable id. Returns the id.
 
     source_ref + jurisdiction are #1160 Round 1 additions. They are upserted
     non-destructively: if the caller omits them but a row already has a
     value, the existing value is preserved (via COALESCE on the new column).
+
+    #1160 Round 6.1: also records a `scenario_revisions` row on create /
+    material update. No-op re-runs (same after_state) collide on the
+    revision PK and don't bloat the audit log.
     """
+    before_state = _fetch_scenario_row(cur, scenario_id)
     cur.execute(
         """
         INSERT INTO scenarios
@@ -76,6 +168,21 @@ def upsert_scenario(cur, scenario_id: str, title: str, description: str,
         (scenario_id, title, description, industry,
          json.dumps(predicates), tags or [], source_ref, jurisdiction),
     )
+    after_state = _fetch_scenario_row(cur, scenario_id) or {"id": scenario_id}
+    # Emit revision if the row is new OR the mutable fields changed.
+    if before_state is None:
+        record_revision(cur, scenario_id, revision_kind="create",
+                        before_state=None, after_state=after_state,
+                        trigger_code=trigger_code, trigger_detail=trigger_detail,
+                        changed_by=changed_by)
+    else:
+        material = ("title", "description", "industry", "predicates",
+                    "tags", "source_ref", "jurisdiction")
+        if any(before_state.get(k) != after_state.get(k) for k in material):
+            record_revision(cur, scenario_id, revision_kind="update",
+                            before_state=before_state, after_state=after_state,
+                            trigger_code=trigger_code, trigger_detail=trigger_detail,
+                            changed_by=changed_by)
     return scenario_id
 
 
@@ -126,8 +233,15 @@ def upsert_topic_stub(cur, *, title: str, tier: str = "institutional",
 
 def add_applies_when(cur, scenario_id: str, *, topic_id: str | None = None,
                      legislation_id: str | None = None,
-                     predicate: dict | None = None, note: str = "") -> bool:
-    """Insert a scenario_applies_when edge. Returns True if newly inserted."""
+                     predicate: dict | None = None, note: str = "",
+                     trigger_code: str | None = None,
+                     trigger_detail: str | None = None,
+                     changed_by: str | None = None) -> bool:
+    """Insert a scenario_applies_when edge. Returns True if newly inserted.
+
+    #1160 Round 6.1: on successful insert we emit an `edge_add` revision
+    on the parent scenario so the audit trail captures edge topology.
+    """
     if (topic_id is None) == (legislation_id is None):
         raise ValueError("Exactly one of topic_id / legislation_id must be set")
     edge_id = _sid("saw", scenario_id, topic_id or "-", legislation_id or "-")
@@ -141,7 +255,26 @@ def add_applies_when(cur, scenario_id: str, *, topic_id: str | None = None,
         (edge_id, scenario_id, topic_id, legislation_id,
          json.dumps(predicate or {}), note),
     )
-    return cur.rowcount == 1
+    inserted = cur.rowcount == 1
+    if inserted:
+        scn_after = _fetch_scenario_row(cur, scenario_id) or {"id": scenario_id}
+        record_revision(
+            cur, scenario_id, revision_kind="edge_add",
+            before_state=None, after_state=scn_after,
+            edges_delta={
+                "added": [{
+                    "edge_id": edge_id,
+                    "topic_id": topic_id,
+                    "legislation_id": legislation_id,
+                    "predicate": predicate or {},
+                    "note": note,
+                }],
+                "removed": [],
+            },
+            trigger_code=trigger_code, trigger_detail=trigger_detail,
+            changed_by=changed_by,
+        )
+    return inserted
 
 
 def add_co_applies(cur, *, scenario_ids: list[str], relationship: str,
@@ -149,7 +282,10 @@ def add_co_applies(cur, *, scenario_ids: list[str], relationship: str,
                    left_legislation_id: str | None = None,
                    right_topic_id: str | None = None,
                    right_legislation_id: str | None = None,
-                   note: str = "") -> bool:
+                   note: str = "",
+                   trigger_code: str | None = None,
+                   trigger_detail: str | None = None,
+                   changed_by: str | None = None) -> bool:
     """Insert a legislation_co_applies edge. Returns True if newly inserted."""
     if (left_topic_id is None) == (left_legislation_id is None):
         raise ValueError("Left side: exactly one of topic/legislation must be set")
@@ -176,7 +312,34 @@ def add_co_applies(cur, *, scenario_ids: list[str], relationship: str,
          right_topic_id, right_legislation_id,
          scenario_ids, relationship, note),
     )
-    return cur.rowcount == 1
+    inserted = cur.rowcount == 1
+    if inserted:
+        delta = {
+            "added": [{
+                "edge_id": edge_id,
+                "kind": "co_applies",
+                "relationship": relationship,
+                "left_topic_id": left_topic_id,
+                "left_legislation_id": left_legislation_id,
+                "right_topic_id": right_topic_id,
+                "right_legislation_id": right_legislation_id,
+                "note": note,
+            }],
+            "removed": [],
+        }
+        for scn_id in scenario_ids:
+            scn_after = _fetch_scenario_row(cur, scn_id)
+            if scn_after is None:
+                continue
+            record_revision(
+                cur, scn_id, revision_kind="edge_add",
+                before_state=None, after_state=scn_after,
+                edges_delta=delta,
+                trigger_code=trigger_code,
+                trigger_detail=trigger_detail,
+                changed_by=changed_by,
+            )
+    return inserted
 
 
 def summarise(label: str, created: int, total: int) -> None:

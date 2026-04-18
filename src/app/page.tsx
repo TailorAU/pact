@@ -39,17 +39,17 @@ stations = requests.get(
   },
   {
     label: "MCP",
-    code: `// .cursor/mcp.json
-{
-  "source": {
-    "command": "npx",
-    "args": ["@source-tailor/mcp"]
-  }
-}
+    code: `// Source MCP — coming soon
+// For now, use the REST API directly:
 
-// Then ask your agent:
-// "Find me the cheapest diesel in QLD"
-// "Search legislation for mine safety"`,
+// Legislation (free, no key)
+// GET https://source.tailor.au/api/axiom/legislation/search?q=mine+safety
+
+// Fuel prices (free, no key)
+// GET https://source.tailor.au/api/market/fuel/cheapest?fuelType=Diesel&state=QLD
+
+// Knowledge topics (free, no key)
+// GET https://source.tailor.au/api/pact/topics`,
   },
 ];
 
@@ -80,9 +80,10 @@ export default async function Home() {
           <span className="text-pact-cyan">Already structured.</span>
         </h1>
 
+        {/* #1152 Round 5b — agent-native positioning tagline */}
         <p className="text-lg md:text-xl text-pact-dim max-w-3xl mx-auto mb-2 leading-relaxed">
-          Source continuously polls official APIs, structures the data, and serves it
-          instantly — so your agent never has to scrape.
+          Source &mdash; agent-native legislation and verified facts, pulled from official APIs
+          and emitted as MCP, A2A, and PACT.
         </p>
 
         <p className="text-xs text-pact-dim/40 mb-6">

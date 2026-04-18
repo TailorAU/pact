@@ -4,6 +4,17 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 
 // ── Types ──────────────────────────────────────────────────────────
+// #1152 Round 5a — TreeTopic is now a discriminated union over three node
+// kinds. Legacy callers that treat every row as a topic still work because
+// `kind` defaults to "topic" in page.tsx, and the legislation / scenario
+// fields are all optional. We export `GraphNode` as an alias for
+// forward-looking callers (ConsensusGraph, Graph3DSection) without removing
+// the TreeTopic name, so imports outside this module don't break.
+export type NodeKind = "topic" | "legislation" | "scenario";
+
+/** Edge type relating a child row to its immediate parent row in the tree. */
+export type EdgeKind = "depends_on" | "cites" | "applies_when" | "co_applies";
+
 export type TreeTopic = {
   id: string;
   title: string;
@@ -14,7 +25,27 @@ export type TreeTopic = {
   buildsOn: string[];
   assumes: string[];
   childIds: string[];
+  /** #1152 Round 5a */
+  kind?: NodeKind;
+  /** The edge type this row forms with its parent; null for roots. */
+  edgeFromParent?: EdgeKind | null;
+  /** Legislation-only metadata. */
+  jurisdiction?: string | null;
+  docType?: string | null;
+  year?: number | null;
+  shortTitle?: string | null;
+  /** Scenario-only metadata. */
+  industry?: string | null;
 };
+
+/** Forward-looking alias — same shape as TreeTopic but named to reflect the
+ *  tri-entity model. */
+export type GraphNode = TreeTopic;
+
+/** Shape rendered for a given node kind in the git-graph SVG column. */
+function glyphFor(kind: NodeKind) {
+  return kind; // circle | rectangle | diamond — resolved inline in render
+}
 
 // ── Tier colors (hex for SVG, tailwind for text) ──────────────────
 const TIER_HEX: Record<string, string> = {
@@ -379,14 +410,25 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
           <div className="min-w-fit">
             {rows.map((row, idx) => {
               const { topic, lane, parentLane, hasChildren, childCount } = row;
-              const color = TIER_HEX[topic.tier] || "#666";
+              const nodeKind: NodeKind = topic.kind ?? "topic";
+              const edgeKind: EdgeKind = topic.edgeFromParent ?? "depends_on";
+              // Legislation uses a neutral slate palette (awaiting per-jurisdiction palette
+              // from Chief of Source); scenarios use orange; topics keep the tier palette.
+              const color =
+                nodeKind === "legislation" ? "#94a3b8" :
+                nodeKind === "scenario"    ? "#fb923c" :
+                (TIER_HEX[topic.tier] || "#666");
               const badge = STATUS_BADGE[topic.status] || { text: topic.status, cls: "text-pact-dim" };
               const statusIcon = STATUS_ICON[topic.status] || { char: "·", cls: "text-pact-dim" };
-              const tierColor = TIER_COLORS[topic.tier] || "text-pact-dim";
+              const tierColor =
+                nodeKind === "legislation" ? "text-slate-300" :
+                nodeKind === "scenario"    ? "text-pact-orange" :
+                (TIER_COLORS[topic.tier] || "text-pact-dim");
               const isExpanded = expanded.has(topic.id);
               const isSearchMatch = searchMatches?.matches.has(topic.id);
               const cx = GRAPH_PAD + lane * LANE_W + LANE_W / 2;
               const cy = ROW_H / 2;
+              void glyphFor(nodeKind); // suppress unused warning on helper
 
               return (
                 <div
@@ -431,26 +473,60 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
                         />
                       )}
 
-                      {/* Branch-off curve */}
-                      {lane !== parentLane && idx > 0 && (
-                        <path
-                          d={`M ${GRAPH_PAD + parentLane * LANE_W + LANE_W / 2} 0 C ${GRAPH_PAD + parentLane * LANE_W + LANE_W / 2} ${cy}, ${cx} 0, ${cx} ${cy - DOT_R}`}
-                          fill="none"
-                          stroke={color}
-                          strokeWidth={2}
-                          strokeOpacity={0.4}
-                        />
-                      )}
+                      {/* Branch-off curve — styled per edge kind. */}
+                      {lane !== parentLane && idx > 0 && (() => {
+                        const path = `M ${GRAPH_PAD + parentLane * LANE_W + LANE_W / 2} 0 C ${GRAPH_PAD + parentLane * LANE_W + LANE_W / 2} ${cy}, ${cx} 0, ${cx} ${cy - DOT_R}`;
+                        if (edgeKind === "cites") {
+                          return <path d={path} fill="none" stroke={color} strokeWidth={1} strokeOpacity={0.35} />;
+                        }
+                        if (edgeKind === "applies_when") {
+                          return <path d={path} fill="none" stroke={color} strokeWidth={2} strokeOpacity={0.5} strokeDasharray="4 3" />;
+                        }
+                        if (edgeKind === "co_applies") {
+                          return (
+                            <g>
+                              <path d={path} fill="none" stroke={color} strokeWidth={1} strokeOpacity={0.45} transform="translate(-1.5, 0)" />
+                              <path d={path} fill="none" stroke={color} strokeWidth={1} strokeOpacity={0.45} transform="translate(1.5, 0)" />
+                            </g>
+                          );
+                        }
+                        // Default: depends_on
+                        return <path d={path} fill="none" stroke={color} strokeWidth={2} strokeOpacity={0.4} />;
+                      })()}
 
-                      {/* Commit dot */}
-                      <circle
-                        cx={cx} cy={cy} r={DOT_R}
-                        fill={color} stroke={color}
-                        strokeWidth={hasChildren ? 2 : 0}
-                        fillOpacity={hasChildren ? 0.3 : 1}
-                      />
-                      {hasChildren && (
-                        <circle cx={cx} cy={cy} r={2.5} fill={color} />
+                      {/* Node glyph: circle (topic) / rectangle (legislation) / diamond (scenario). */}
+                      {nodeKind === "legislation" ? (
+                        <rect
+                          x={cx - DOT_R - 1}
+                          y={cy - DOT_R + 1}
+                          width={(DOT_R + 1) * 2}
+                          height={(DOT_R - 1) * 2}
+                          rx={1}
+                          fill={color}
+                          fillOpacity={hasChildren ? 0.3 : 1}
+                          stroke={color}
+                          strokeWidth={hasChildren ? 2 : 0}
+                        />
+                      ) : nodeKind === "scenario" ? (
+                        <polygon
+                          points={`${cx},${cy - DOT_R - 1} ${cx + DOT_R + 1},${cy} ${cx},${cy + DOT_R + 1} ${cx - DOT_R - 1},${cy}`}
+                          fill={color}
+                          fillOpacity={hasChildren ? 0.3 : 1}
+                          stroke={color}
+                          strokeWidth={hasChildren ? 2 : 0}
+                        />
+                      ) : (
+                        <>
+                          <circle
+                            cx={cx} cy={cy} r={DOT_R}
+                            fill={color} stroke={color}
+                            strokeWidth={hasChildren ? 2 : 0}
+                            fillOpacity={hasChildren ? 0.3 : 1}
+                          />
+                          {hasChildren && (
+                            <circle cx={cx} cy={cy} r={2.5} fill={color} />
+                          )}
+                        </>
                       )}
                     </svg>
                   </div>
@@ -473,14 +549,26 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
                     {/* Status icon */}
                     <span className={`shrink-0 text-xs w-4 text-center ${statusIcon.cls}`}>{statusIcon.char}</span>
 
-                    {/* Tier badge */}
+                    {/* Tier / jurisdiction / industry badge */}
                     <span className={`text-[9px] px-1.5 py-px rounded border border-current/20 uppercase font-bold shrink-0 ${tierColor}`}>
-                      {topic.tier.slice(0, 4)}
+                      {nodeKind === "legislation"
+                        ? ((topic.jurisdiction || "LEG").slice(0, 4))
+                        : nodeKind === "scenario"
+                          ? ((topic.industry || "SCN").slice(0, 4))
+                          : topic.tier.slice(0, 4)}
                     </span>
 
-                    {/* Title */}
+                    {/* Title — route per node kind. IDs arrive prefixed (leg: / scn:)
+                        when they originate from the tri-entity loader; strip those
+                        before constructing the real detail route. */}
                     <Link
-                      href={`/topics/${topic.id}`}
+                      href={
+                        nodeKind === "legislation"
+                          ? `/legislation/${encodeURIComponent(topic.id.replace(/^leg:/, ""))}`
+                          : nodeKind === "scenario"
+                            ? `/scenarios/${encodeURIComponent(topic.id.replace(/^scn:/, ""))}`
+                            : `/topics/${encodeURIComponent(topic.id)}`
+                      }
                       className="text-sm text-foreground/80 group-hover:text-foreground truncate transition-colors"
                     >
                       {isSearchMatch && search ? highlightMatch(topic.title, search) : topic.title}

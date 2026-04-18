@@ -15,10 +15,11 @@ export async function GET(req: NextRequest) {
   const tier = req.nextUrl.searchParams.get("tier") || undefined;
   const status = req.nextUrl.searchParams.get("status") || undefined;
   const jurisdiction = req.nextUrl.searchParams.get("jurisdiction") || undefined;
+  const q = req.nextUrl.searchParams.get("q") || undefined;
   const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") || "50"), 200);
   const offset = parseInt(req.nextUrl.searchParams.get("offset") || "0");
 
-  const topics = await getTopicsList({ tier, status, jurisdiction, limit, offset });
+  const topics = await getTopicsList({ tier, status, jurisdiction, q, limit, offset });
 
   // Add url field so agents can navigate directly to topic detail pages
   // Use the request's origin so it works in both dev and production
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest) {
   const enriched = (topics as Record<string, unknown>[]).map((t) => ({
     ...t,
     url: `${baseUrl}/topics/${t.id}`,
-    apiUrl: `${baseUrl}/api/pact/${t.id}`,
+    apiUrl: `${baseUrl}/api/pact/topics/${t.id}`,
   }));
 
   return NextResponse.json(enriched);

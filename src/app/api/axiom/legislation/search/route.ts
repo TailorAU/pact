@@ -1,10 +1,13 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { debitIfAuthenticated } from "@/lib/wallet-debit";
 
 // GET /api/axiom/legislation/search — Full-text search across all legislation
 //
 // Free, unauthenticated. Australian legislation is a public good.
+// When an agent supplies `x-source-agent-key`, we debit 1 credit per call
+// (reason `read.legislation`) — anonymous reads stay free.
 //
 // Query params:
 //   q             — Search query (required). Searches title, section content, section IDs.
@@ -15,6 +18,10 @@ import { getDb } from "@/lib/db";
 //
 // Example: GET /api/axiom/legislation/search?q=assault&jurisdiction=QLD
 export async function GET(req: NextRequest) {
+  const debit = await debitIfAuthenticated(req, 1, "read.legislation");
+  if (!debit.ok) {
+    return NextResponse.json(debit.body, { status: debit.status });
+  }
 
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("q");
@@ -147,14 +154,117 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // Sort by relevance score descending
-  results.sort((a, b) => b.relevanceScore - a.relevanceScore);
+  // ── Topics union (#1137) ────────────────────────────────────────────
+  // PACT topics carry canonical regulatory claims (institutional tier) that
+  // are not stored in legislation_sections. Surface them as a second result
+  // source so a single /search call covers both the machine-ingested
+  // legislation catalogue and the agent-verified topic graph.
+  //
+  // Contract: topic hits fill the same result shape as section hits with
+  //   docId        = `topic:{id}`
+  //   sectionId    = "claim"
+  //   docType      = "topic"
+  //   content      = topic.canonical_claim || topic.content (highlighted)
+  //   sourceRef    = topic.source_ref || topic.title
+  // Richer clients can branch on docType === "topic" and deep-link to
+  // `/topics/{id}` instead of `/legislation/{docId}/{sectionId}`.
+  const topicKeywordParts: string[] = [];
+  const topicArgs: unknown[] = [];
+  for (const kw of keywords) {
+    const p = `%${kw}%`;
+    topicKeywordParts.push(
+      "(LOWER(title) LIKE ? OR LOWER(COALESCE(canonical_claim, '')) LIKE ? OR LOWER(content) LIKE ? OR LOWER(COALESCE(source_ref, '')) LIKE ?)"
+    );
+    topicArgs.push(p, p, p, p);
+  }
+  const topicConds: string[] = [`(${topicKeywordParts.join(" OR ")})`];
+  if (jurisdiction) {
+    // Match "AU", "AU-QLD", "AU-*"; also allow INTERNATIONAL-scoped hits to
+    // appear on an unqualified query by only filtering when the caller asked.
+    topicConds.push("(jurisdiction = ? OR jurisdiction LIKE ? || '-%')");
+    topicArgs.push(jurisdiction.toUpperCase(), jurisdiction.toUpperCase());
+  }
+  // Skip topics entirely if the caller filters by a legislation-specific
+  // docType — topics are not legislation_docs.
+  const skipTopics = !!docType && docType.toLowerCase() !== "topic";
+
+  type TopicHit = {
+    docId: string;
+    docTitle: string;
+    jurisdiction: string | null;
+    docType: string;
+    year: null;
+    sectionId: string;
+    sectionTitle: string | null;
+    content: string;
+    depth: number;
+    status: string;
+    relevanceScore: number;
+    crossReferences: unknown[];
+    sourceRef: string;
+  };
+  let topicHits: TopicHit[] = [];
+  if (!skipTopics) {
+    const topicResult = await db.execute({
+      sql: `SELECT id, title, content, canonical_claim, tier, status, jurisdiction, authority, source_ref
+            FROM topics
+            WHERE ${topicConds.join(" AND ")}
+            ORDER BY
+              CASE status WHEN 'locked' THEN 0 WHEN 'consensus' THEN 1 WHEN 'open' THEN 2 ELSE 3 END,
+              created_at DESC
+            LIMIT ?`,
+      args: [...topicArgs, limit],
+    });
+
+    topicHits = topicResult.rows.map((row) => {
+      const claim = (row.canonical_claim as string | null) || (row.content as string);
+      const title = row.title as string;
+      const lowerClaim = claim.toLowerCase();
+      const lowerTitle = title.toLowerCase();
+      let score = 0;
+      for (const kw of keywords) {
+        if (lowerTitle.includes(kw)) score += 5;
+        let idx = -1;
+        while ((idx = lowerClaim.indexOf(kw, idx + 1)) !== -1) score += 1;
+      }
+      // Trim to ~600 chars before highlighting so the payload stays bounded.
+      let snippet = claim.length > 600 ? claim.slice(0, 600) + "…" : claim;
+      for (const kw of keywords) {
+        const regex = new RegExp(`(${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+        snippet = snippet.replace(regex, "**$1**");
+      }
+      return {
+        docId: `topic:${row.id as string}`,
+        docTitle: title,
+        jurisdiction: (row.jurisdiction as string | null) ?? null,
+        docType: "topic",
+        year: null,
+        sectionId: "claim",
+        sectionTitle: "Canonical claim",
+        content: snippet,
+        depth: 0,
+        status: (row.status as string) || "proposed",
+        relevanceScore: score,
+        crossReferences: [],
+        sourceRef: (row.source_ref as string | null) || title,
+      };
+    });
+  }
+
+  // Merge + dedupe-by-docId, keep the highest-scoring hit per doc (topics
+  // have docId `topic:{id}` so cannot collide with legislation docIds).
+  const merged = [...results, ...topicHits];
+  merged.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
   return NextResponse.json({
-    results,
+    results: merged,
     query,
     keywords,
-    total,
+    total: total + topicHits.length,
+    sources: {
+      legislation: results.length,
+      topics: topicHits.length,
+    },
     limit,
     offset,
     free: true,

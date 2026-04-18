@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { CodeTabs } from "@/components/CodeTabs";
+import SourceValueChain from "@/components/SourceValueChain";
 
 interface McpTool {
   name: string;
   description: string;
-  category: "hub" | "legislation" | "fuel" | "contribute";
+  category: "legislation" | "scenarios" | "hub" | "fuel" | "contribute";
   params: { name: string; type: string; required: boolean; description: string }[];
   example: string;
   response: string;
@@ -25,10 +26,11 @@ const TOOLS: McpTool[] = [
     category: "hub",
     params: [
       { name: "status", type: "string", required: false, description: "Filter: open, voting, merged, all" },
+      { name: "q", type: "string", required: false, description: "Keyword search (matches title and content)" },
       { name: "limit", type: "number", required: false, description: "Max results (default 50)" },
     ],
     example: "GET https://source.tailor.au/api/pact/topics?status=open&limit=10",
-    response: `{ "topics": [{ "id": "...", "title": "...", "status": "open", "proposalCount": 3 }] }`,
+    response: `[{ "id": "...", "title": "...", "status": "open", "tier": "axiom", "participantCount": 3, "proposalCount": 2, "url": "...", "apiUrl": "..." }]`,
   },
   {
     name: "source_get_topic",
@@ -37,8 +39,8 @@ const TOOLS: McpTool[] = [
     params: [
       { name: "topicId", type: "string", required: true, description: "Topic ID" },
     ],
-    example: "GET https://source.tailor.au/api/pact/topics/{topicId}",
-    response: `{ "id": "...", "title": "...", "content": "...", "proposals": [...], "votes": [...] }`,
+    example: "GET https://source.tailor.au/api/pact/{topicId}",
+    response: `{ "id": "...", "title": "...", "content": "...", "tier": "axiom", "status": "open", "participantCount": 3, "proposalCount": 2, "proposals": [...], "votes": [...] }`,
   },
   {
     name: "source_query_facts",
@@ -145,6 +147,26 @@ const TOOLS: McpTool[] = [
     response: `[{ "fuelType": "Diesel", "avgPriceCpl": "320.5", "minPriceCpl": "165.0", "maxPriceCpl": "347.0", "stationCount": 1000 }]`,
   },
   {
+    name: "source_match_scenario",
+    description: "Match caller predicates against the Source scenario library. Returns ranked scenarios + LLM fallback. Answers 'which laws apply to me?'",
+    category: "scenarios",
+    params: [
+      { name: "predicates", type: "object", required: true, description: "Key/value situation descriptors (e.g. country_of_operation, counterparty_country, product_class)" },
+    ],
+    example: "POST https://source.tailor.au/api/scenarios/match\n{ \"predicates\": { \"country_of_operation\": \"AU\", \"counterparty_country\": \"US\", \"product_class\": \"defence_dual_use\" } }",
+    response: `{ "matches": [{ "scenarioId": "scn.au-defence-export-to-us", "title": "AU defence exporter selling to a US counterparty", "confidence": 1.0, "matchedPredicates": ["country_of_operation","counterparty_country","product_class"], "missingPredicates": [], "conflictingPredicates": [] }], "fallback": null }`,
+  },
+  {
+    name: "source_list_applicable_law",
+    description: "Given a scenario id, return the full applicability subgraph (scenario + applies_when + co_applies + resolved legislation/topic metadata) for LLM prompt injection.",
+    category: "scenarios",
+    params: [
+      { name: "scenarioId", type: "string", required: true, description: "Scenario id (e.g. scn.au-defence-export-to-us)" },
+    ],
+    example: "GET https://source.tailor.au/api/scenarios/scn.au-defence-export-to-us/applicable",
+    response: `{ "scenario": { "id": "scn.au-defence-export-to-us", "title": "...", "predicates": {...} }, "appliesWhen": [...], "coApplies": [...], "topics": [...], "legislation": [...], "counts": { "appliesWhen": 9, "coApplies": 3, "topics": 7, "legislation": 2 } }`,
+  },
+  {
     name: "source_contribute_legislation",
     description: "Propose new legislation content for community verification.",
     category: "contribute",
@@ -159,24 +181,28 @@ const TOOLS: McpTool[] = [
 ];
 
 const CATEGORY_META: Record<string, { label: string; color: string; border: string }> = {
-  hub: { label: "Knowledge Hub", color: "text-pact-purple", border: "border-pact-purple/30" },
   legislation: { label: "Legislation", color: "text-pact-cyan", border: "border-pact-cyan/30" },
-  fuel: { label: "Fuel Prices", color: "text-green-600", border: "border-green-500/30" },
+  scenarios: { label: "Scenarios", color: "text-pact-orange", border: "border-pact-orange/30" },
+  hub: { label: "Consensus &amp; Hub", color: "text-pact-purple", border: "border-pact-purple/30" },
+  fuel: { label: "Market (Fuel Prices)", color: "text-green-600", border: "border-green-500/30" },
   contribute: { label: "Contribute", color: "text-pact-orange", border: "border-pact-orange/30" },
 };
 
 const MCP_SETUP_TABS = [
   {
     label: "Cursor / Claude Desktop",
-    code: `// .cursor/mcp.json or claude_desktop_config.json
-{
-  "mcpServers": {
-    "source": {
-      "command": "npx",
-      "args": ["-y", "@tailor-app/cli", "mcp", "serve"]
-    }
-  }
-}`,
+    code: `// Source-specific MCP server — coming soon.
+// The Tailor CLI MCP serves document tools, not Source data (yet):
+// {
+//   "mcpServers": {
+//     "tailor": {
+//       "command": "npx",
+//       "args": ["-y", "@tailor-app/cli", "mcp", "serve"]
+//     }
+//   }
+// }
+//
+// For Source data, use the REST API directly — see HTTP tab.`,
   },
   {
     label: "Python (LangChain)",
@@ -206,7 +232,9 @@ curl https://source.tailor.au/api/hub/stats`,
 ];
 
 export default function McpPage() {
-  const categories = ["hub", "legislation", "fuel", "contribute"] as const;
+  // #1152 Round 5b — lead with the agent-native pipeline:
+  // legislation → scenarios → consensus/hub → market → contribute.
+  const categories = ["legislation", "scenarios", "hub", "fuel", "contribute"] as const;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-10">
@@ -215,15 +243,21 @@ export default function McpPage() {
       </Link>
 
       <h1 className="text-3xl font-bold mb-2">
-        <span className="text-pact-cyan">Source</span> MCP Tools
+        <span className="text-pact-cyan">Source</span> &mdash; the agent-native substrate
       </h1>
-      <p className="text-pact-dim text-sm mb-2">
-        13 tools for AI agents. Legislation, fuel prices, verified facts, and more.
-        All free, no API key needed (except facts).
+      <p className="text-lg text-pact-dim max-w-3xl mb-4">
+        Agents no longer scrape the internet for legislation. Source pulls directly from the
+        official government APIs (CTH, QLD, NSW), structures every act into queryable sections,
+        and re-emits it in whatever format your agent consumes &mdash; MCP tools, A2A skills, PACT
+        topics, REST, OpenAPI, Python, Gemini. Consensus is the quality gate on top.
       </p>
-      <p className="text-xs text-pact-dim/60 mb-8">
-        1,500+ fuel stations &middot; 24+ legislation documents &middot; 169+ sections &middot; Real-time data
+      <p className="text-xs text-pact-dim/60 mb-6">
+        15 tools &middot; 24+ legislation documents &middot; 169+ sections &middot; 1,500+ fuel stations &middot; Real-time
       </p>
+
+      <div className="mb-10">
+        <SourceValueChain />
+      </div>
 
       <section className="mb-10">
         <h2 className="section-heading text-lg font-bold mb-4">Quick Setup</h2>

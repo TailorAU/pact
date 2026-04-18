@@ -64,13 +64,25 @@ async function fetchQld<T>(path: string, token: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function normalizeEncoding(text: string): string {
+  return text
+    .replace(/\u00e2\u0080\u0099/g, "\u2019") // '
+    .replace(/\u00e2\u0080\u009c/g, "\u201c") // "
+    .replace(/\u00e2\u0080\u009d/g, "\u201d") // "
+    .replace(/\u00e2\u0080\u0093/g, "\u2013") // –
+    .replace(/\u00e2\u0080\u0094/g, "\u2014") // —
+    .replace(/\u00c2\u00a7/g, "\u00a7")       // §
+    .replace(/[\u0080-\u009f]/g, "");          // strip remaining C1 control chars
+}
+
 async function fetchHtml(path: string, token: string): Promise<string> {
   const res = await fetch(`${QLD_API}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(60000),
   });
   if (!res.ok) throw new Error(`QLD HTML ${res.status}: ${path.slice(0, 100)}`);
-  return res.text();
+  const raw = await res.text();
+  return normalizeEncoding(raw);
 }
 
 async function getLatestVersion(actId: string, token: string): Promise<QldDocument | null> {

@@ -10,13 +10,19 @@ import { debitIfAuthenticated } from "@/lib/wallet-debit";
 // (reason `read.legislation`) — anonymous reads stay free.
 //
 // Query params:
-//   q             — Search query (required). Searches title, section content, section IDs.
-//   jurisdiction  — Optional filter: "QLD", "CTH", "NSW", etc.
-//   type          — Optional filter: "act", "regulation", "standard", "guidance"
-//   status        — Optional section status filter: "in_force", "repealed", "not_yet_commenced"
-//   limit/offset  — Pagination
+//   q                   — Search query (required). Searches title, section content, section IDs.
+//   jurisdiction        — Optional filter: "QLD", "CTH", "NSW", etc. (filters results to this jurisdiction)
+//   preferJurisdiction  — Optional ranking signal (#1250): "AU-QLD", "AU-NSW", "AU-CTH", "AU", etc.
+//                         Does NOT filter — boosts matching jurisdiction in relevance score.
+//                         When absent and no `jurisdiction` filter is set, AU-rooted results
+//                         get a mild default preference (+1) reflecting that this API's
+//                         canonical scope is Australian legislation (see AGENTS.md § Source).
+//   type                — Optional filter: "act", "regulation", "standard", "guidance"
+//   status              — Optional section status filter: "in_force", "repealed", "not_yet_commenced"
+//   limit/offset        — Pagination
 //
 // Example: GET /api/axiom/legislation/search?q=assault&jurisdiction=QLD
+// Example: GET /api/axiom/legislation/search?q=construction&preferJurisdiction=AU-QLD
 export async function GET(req: NextRequest) {
   const debit = await debitIfAuthenticated(req, 1, "read.legislation");
   if (!debit.ok) {
@@ -26,6 +32,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("q");
   const jurisdiction = searchParams.get("jurisdiction");
+  const preferJurisdictionRaw = searchParams.get("preferJurisdiction");
   const docType = searchParams.get("type");
   const sectionStatus = searchParams.get("status");
   const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 200);
@@ -49,6 +56,63 @@ export async function GET(req: NextRequest) {
       error: "Query too short. Please provide at least one word with 3+ characters.",
     }, { status: 400 });
   }
+
+  // ── #1250 — signal-driven ranking helpers ───────────────────────────
+  // Normalise the optional caller preference. The bare `AU` value acts as
+  // "any AU result is better than non-AU". `AU-QLD` etc. narrow further.
+  const preferJurisdiction = preferJurisdictionRaw
+    ? preferJurisdictionRaw.toUpperCase()
+    : null;
+
+  // Default AU-root bias applies ONLY when caller didn't filter AND didn't
+  // prefer a jurisdiction explicitly. Driven by the dataset's documented
+  // scope (AU legislation is a public good per AGENTS.md § Source), not by
+  // any particular vertical or tenant.
+  const applyDefaultAuBias = !jurisdiction && !preferJurisdiction;
+
+  // Whole-word keyword match for title/section_id boosts. Content scoring
+  // intentionally remains substring-based (high recall). This prevents
+  // `non-construction` from scoring as `construction` at the boost layer
+  // while still counting every substring hit in content.
+  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const wordBoundaryHit = (text: string, kw: string): boolean => {
+    if (!text) return false;
+    return new RegExp(`\\b${escapeRegex(kw)}\\b`, "i").test(text);
+  };
+  // Negation guard: `non-<kw>` or `non <kw>` immediately preceding the
+  // keyword disqualifies the title boost for THAT keyword. Deterministic,
+  // no NLP. Other keywords in the same title still score normally.
+  const negatedInText = (text: string, kw: string): boolean => {
+    if (!text) return false;
+    return new RegExp(`non[-\\s]${escapeRegex(kw)}\\b`, "i").test(text);
+  };
+
+  // Jurisdiction boost — caller preference trumps default AU bias.
+  // Returns an additive score adjustment (0, 1, or 2).
+  const jurisdictionBoost = (hitJurisdiction: string | null): number => {
+    if (!hitJurisdiction) return 0;
+    const hj = hitJurisdiction.toUpperCase();
+    if (preferJurisdiction) {
+      // Exact match or sub-jurisdiction match (e.g. prefer "AU" matches "AU-QLD")
+      if (hj === preferJurisdiction || hj.startsWith(`${preferJurisdiction}-`)) {
+        return 2;
+      }
+      // Parent-jurisdiction match (e.g. prefer "AU-QLD" still rewards "AU"
+      // over non-AU — softer boost because it's less specific).
+      if (preferJurisdiction.includes("-")) {
+        const parent = preferJurisdiction.split("-")[0];
+        if (hj === parent || hj.startsWith(`${parent}-`)) return 1;
+      }
+      return 0;
+    }
+    if (applyDefaultAuBias) {
+      // Mild bias toward AU-rooted results on a bare query. Reflects the
+      // dataset's canonical scope; callers who want other jurisdictions
+      // can set `jurisdiction=` or `preferJurisdiction=` explicitly.
+      if (hj === "AU" || hj.startsWith("AU-")) return 1;
+    }
+    return 0;
+  };
 
   const db = await getDb();
 
@@ -121,21 +185,33 @@ export async function GET(req: NextRequest) {
     let content = row.content as string;
     // Highlight keyword matches with ** markers
     for (const kw of keywords) {
-      const regex = new RegExp(`(${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+      const regex = new RegExp(`(${escapeRegex(kw)})`, "gi");
       content = content.replace(regex, "**$1**");
     }
 
-    // Simple relevance: count keyword hits
+    // #1250 relevance: whole-word boosts for title/section_id (negation-
+    // guarded); substring occurrences in content; jurisdiction signal.
     const lowerContent = (row.content as string).toLowerCase();
-    const lowerTitle = ((row.section_title as string) || "").toLowerCase();
+    const sectionTitle = (row.section_title as string) || "";
+    const docTitle = (row.doc_title as string) || "";
+    const sectionId = (row.section_id as string) || "";
+    const rowJurisdiction = (row.jurisdiction as string | null) || null;
+
     let score = 0;
     for (const kw of keywords) {
-      if (lowerTitle.includes(kw)) score += 3;
-      if ((row.section_id as string).toLowerCase().includes(kw)) score += 3;
-      // Count occurrences in content
+      // Title match — whole-word, negation-guarded. Check both the section
+      // title and the parent doc title (either counts as a title hit).
+      const titleHit =
+        (wordBoundaryHit(sectionTitle, kw) && !negatedInText(sectionTitle, kw)) ||
+        (wordBoundaryHit(docTitle, kw) && !negatedInText(docTitle, kw));
+      if (titleHit) score += 3;
+      // Section ID match — whole-word.
+      if (wordBoundaryHit(sectionId, kw)) score += 3;
+      // Count substring occurrences in content (high recall).
       let idx = -1;
       while ((idx = lowerContent.indexOf(kw, idx + 1)) !== -1) score += 1;
     }
+    score += jurisdictionBoost(rowJurisdiction);
 
     return {
       docId: row.doc_id,
@@ -220,30 +296,46 @@ export async function GET(req: NextRequest) {
       const claim = (row.canonical_claim as string | null) || (row.content as string);
       const title = row.title as string;
       const lowerClaim = claim.toLowerCase();
-      const lowerTitle = title.toLowerCase();
+      const rowTier = (row.tier as string | null) || null;
+      const rowStatus = (row.status as string | null) || null;
+      const rowJurisdiction = (row.jurisdiction as string | null) ?? null;
+
+      // #1250 — balanced title scoring. Topics used to get +5 per title
+      // keyword hit while legislation got +3; that lift was unjustified
+      // (it's an authority signal, not a relevance signal). Move it to a
+      // separate institutional-tier / locked-consensus bonus and score
+      // title matches at parity with legislation.
       let score = 0;
       for (const kw of keywords) {
-        if (lowerTitle.includes(kw)) score += 5;
+        const titleHit = wordBoundaryHit(title, kw) && !negatedInText(title, kw);
+        if (titleHit) score += 3;
+        // Count substring occurrences in the canonical claim (high recall).
         let idx = -1;
         while ((idx = lowerClaim.indexOf(kw, idx + 1)) !== -1) score += 1;
       }
+      // Authority bonus: institutional-tier topics that have reached
+      // locked consensus deserve a small surface lift, independent of
+      // keyword match quality.
+      if (rowTier === "institutional" && rowStatus === "locked") score += 1;
+      score += jurisdictionBoost(rowJurisdiction);
+
       // Trim to ~600 chars before highlighting so the payload stays bounded.
       let snippet = claim.length > 600 ? claim.slice(0, 600) + "…" : claim;
       for (const kw of keywords) {
-        const regex = new RegExp(`(${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+        const regex = new RegExp(`(${escapeRegex(kw)})`, "gi");
         snippet = snippet.replace(regex, "**$1**");
       }
       return {
         docId: `topic:${row.id as string}`,
         docTitle: title,
-        jurisdiction: (row.jurisdiction as string | null) ?? null,
+        jurisdiction: rowJurisdiction,
         docType: "topic",
         year: null,
         sectionId: "claim",
         sectionTitle: "Canonical claim",
         content: snippet,
         depth: 0,
-        status: (row.status as string) || "proposed",
+        status: rowStatus || "proposed",
         relevanceScore: score,
         crossReferences: [],
         sourceRef: (row.source_ref as string | null) || title,
@@ -268,6 +360,13 @@ export async function GET(req: NextRequest) {
     limit,
     offset,
     free: true,
+    ranking: {
+      // #1250 — surfaces which signals the ranker applied for this query.
+      // Purely informational; callers can ignore this block.
+      preferJurisdiction: preferJurisdiction,
+      defaultAuBias: applyDefaultAuBias,
+      titleMatch: "wholeWord+negationGuarded",
+    },
     _links: {
       self: `/api/axiom/legislation/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`,
       next: offset + limit < total

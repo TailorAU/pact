@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pact-spec.dev/schemas/v0.4/message-send-request.json",
+  "title": "PACT Mediated Message Request",
+  "description": "Request body for POST /api/pact/{documentId}/messages (mediated mode)",
+  "type": "object",
+  "required": ["content"],
+  "properties": {
+    "recipientId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Target agent registration ID. Omit for broadcast to all agents."
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Message content. Subject to mediator filtering before delivery."
+    },
+    "sectionId": {
+      "type": "string",
+      "maxLength": 256,
+      "description": "Optional section context for the message."
+    }
+  },
+  "additionalProperties": false
+}

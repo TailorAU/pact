@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/spec-v1.1-blue" alt="Spec Version" />
+  <img src="https://img.shields.io/badge/spec-v1.2--draft-orange" alt="Spec Version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT" />
   <img src="https://img.shields.io/github/stars/TailorAU/pact?style=social" alt="Stars" />
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" />
@@ -7,9 +7,9 @@
 
 # PACT — Protocol for Agent Consensus and Truth
 
-**The open protocol for multi-agent consensus — documents, transactions, knowledge, and beyond.**
+**The open standard for multi-agent consensus on any resource type — documents, facts, transactions.**
 
-[Specification](spec/v1.1/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
+[Specification (v1.1 stable)](spec/v1.1/SPECIFICATION.md) · [Specification (v1.2-draft)](spec/v1.2/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
 
 ---
 
@@ -228,9 +228,15 @@ These packages handle **coordination only**. Content operations (reading documen
 
 | Version | Status | Docs |
 |---------|--------|------|
-| **v1.1** | **Stable** | [Specification](spec/v1.1/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) |
+| v1.2-draft | **Draft, RFC open** | [Specification](spec/v1.2/SPECIFICATION.md) · [Getting Started](spec/v1.2/GETTING_STARTED.md) |
+| **v1.1** | **Current stable** | [Specification](spec/v1.1/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) |
 | v1.0 | Previous | [Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) |
 | v0.3 | Legacy | [Specification](spec/v0.3/SPECIFICATION.md) · [Getting Started](spec/v0.3/GETTING_STARTED.md) |
+
+## Open RFCs (v1.2-draft)
+
+- **[#3 — voice-biometric credential type](https://github.com/TailorAU/pact/issues/3)** — proposal from HMAN to add `voice-biometric` alongside `fido2-assertion` in Section 18. Accepted in principle; PR welcome on the `v1.2` branch.
+- **[#4 — HumanPrincipal 1-to-many cardinality](https://github.com/TailorAU/pact/issues/4)** — direction adopted: 1-to-many with optional cross-principal linkage. Spec text now in `spec/v1.2/SPECIFICATION.md` §17.8.
 
 ## Implementations
 

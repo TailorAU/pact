@@ -1218,6 +1218,7 @@ This section defines the standard attestation types that can appear in `authoriz
 | `vc-jwt` | W3C Verifiable Credentials | No | Medium (claims are portable) | Yes | W3C Recommendation |
 | `biometric-hash` | Proprietary | Yes (biometric sensor) | High (zero-knowledge hash) | Depends on implementation | Emerging |
 | `passphrase-signed` | HMAC-SHA256 / Ed25519 | No | Low (typed secret) | Yes | Established primitives |
+| `voice-biometric` | Voice-embedding similarity + utterance hash | Yes (microphone) | High (zero-knowledge embedding match) | Yes | RFC pending — see [#3](https://github.com/TailorAU/pact/issues/3) |
 
 ### 18.2 `fido2-assertion`
 
@@ -1259,7 +1260,37 @@ This section defines the standard attestation types that can appear in `authoriz
 
 **When to use:** Low-ceremony scenarios, bootstrapping trust before hardware authenticators are available, development/testing environments. Not recommended for high-security cross-organisation use cases due to the lower assurance level.
 
-### 18.6 Custom Attestation Types
+### 18.6 `voice-biometric` (RFC, pending PR — see [#3](https://github.com/TailorAU/pact/issues/3))
+
+> **Status:** RFC accepted in principle for v1.2-draft; canonical text and test vectors will land via the [#3 PR](https://github.com/TailorAU/pact/issues/3) from the HMAN team. The text below is a structural placeholder transcribing the design refinements from the [maintainer comment on #3](https://github.com/TailorAU/pact/issues/3) — not authoritative until the PR merges.
+
+**Based on:** Voice-embedding similarity (Resemblyzer-class) + utterance hash binding
+
+**Distinguishing property:** Captures *intent* (a specific spoken utterance) rather than just *presence* (a passkey tap). The difference between "the human is at their keyboard" and "the human said *send the message*."
+
+**Design refinements adopted for the PR:**
+
+1. **Replay protection.** `challenge_nonce` MUST be either (a) signed by the verifier's key, or (b) carry a `verifier_id` claim. Otherwise an assertion captured for verifier A can be replayed at verifier B.
+
+2. **Embedding versioning.** `embedding_alg_version` (or a version suffix in `embedding_alg`) is REQUIRED so model swaps and retrains do not silently invalidate enrolled references.
+
+3. **Match sub-object for forward compatibility.** `score` and `threshold` live inside a `match` object so future modalities (face, gait, keystroke dynamics) reuse the same field shape:
+
+   ```json
+   "match": {
+     "alg": "resemblyzer-v1",
+     "score": 0.91,
+     "threshold": 0.75
+   }
+   ```
+
+4. **Utterance binding.** `utterance_hash` is normative. Non-normative note: the *content* of the utterance matters at the application layer — a verifier requiring "approve transfer of $5000 to Bridget" MUST reject a valid voice match against the wrong utterance hash.
+
+**Reference implementation (non-normative):** HMAN's stack — Resemblyzer + Fernet (AES-128-CBC + HMAC-SHA256) + PBKDF2-SHA256 600k iterations + in-process-only decryption + per-session re-arm + hash-chained JSONL audit. Citation conditional on test vectors landing in the [#3 PR](https://github.com/TailorAU/pact/issues/3).
+
+**When to use:** Real-time intent-bearing authorization on voice channels (calls, dictation, multi-party negotiation) where presence-only credentials are insufficient.
+
+### 18.7 Custom Attestation Types
 
 Implementations MAY define custom attestation types using reverse-domain notation (e.g., `com.example.voice-print`, `au.gov.mygovid`). Custom types MUST:
 

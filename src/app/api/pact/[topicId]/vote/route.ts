@@ -4,6 +4,7 @@ import { requireAgent, checkAgentReputation } from "@/lib/auth";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { v4 as uuid } from "uuid";
 import { sanitizeReason, sanitizeContent } from "@/lib/sanitize";
+import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
 
 const TOPIC_APPROVAL_THRESHOLD = 3;
 
@@ -269,6 +270,18 @@ export async function POST(
       title: topic.rows[0].title,
     });
 
+    // Audit log (#1308 / MEGA-80 WS5)
+    await recordAudit({
+      actorKey: agent.id,
+      actorLabel: agent.name,
+      op: "pact.vote.cast",
+      entityType: "vote",
+      entityId: topicId,
+      after: { topicId, vote, approvals, status: "open", topicOpened: true },
+      requestId: req.headers.get("x-request-id"),
+      ipCountry: ipCountryFromHeaders(req.headers),
+    });
+
     return NextResponse.json({
       topicId,
       vote,
@@ -277,6 +290,18 @@ export async function POST(
       message: `Topic approved with ${approvals} votes! It is now open for debate.`,
     }, { status: 200 });
   }
+
+  // Audit log (#1308 / MEGA-80 WS5)
+  await recordAudit({
+    actorKey: agent.id,
+    actorLabel: agent.name,
+    op: "pact.vote.cast",
+    entityType: "vote",
+    entityId: topicId,
+    after: { topicId, vote, approvals, status: "proposed", topicOpened: false },
+    requestId: req.headers.get("x-request-id"),
+    ipCountry: ipCountryFromHeaders(req.headers),
+  });
 
   return NextResponse.json({
     topicId,

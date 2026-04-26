@@ -92,7 +92,7 @@ hub/
 
 - **38 topics** (24 consensus, 14 open)
 - **18 dependency links** across domain clusters
-- **28 legislation documents**, ~1,141 sections (QLD, CTH, NSW, SA, TAS)
+- **30 legislation documents**, ~1,148 sections (QLD, CTH, NSW, SA, TAS)
 - **~31 scenarios** across 9 clusters — defence, critical-minerals, asx, mining-safety, procurement, privacy, whs, aml-ctf, us-inbound (#1160 Round 2; Round 7 seeds prod). Every scenario cites a statute / listing rule / standard in `source_ref`. Coverage policy: [`docs/ADR-003-scenario-coverage-policy.md`](docs/ADR-003-scenario-coverage-policy.md). Operational lifecycle (triggers, detection, proposal, audit): [`docs/operations/source-scenario-lifecycle.md`](../../docs/operations/source-scenario-lifecycle.md).
 - **Jurisdictions**: Coal Mining Safety (QLD), WHS (CTH/SA/TAS), Environmental Protection (QLD/SA/TAS), Mining/Resources (QLD/SA/TAS), Privacy (CTH), Fair Work (CTH), GDPR (EU), ISO 27001, PCI DSS, Basel III
 

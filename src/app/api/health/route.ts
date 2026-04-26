@@ -10,11 +10,16 @@
 //   503 → { status: "degraded", checks: { ... }, errors: [...], ... }
 //
 // Cheap to call: no auth, no bodied params. Cap each probe at PROBE_TIMEOUT_MS
-// so a slow Neon (cold start) or hung Redis can't block the readiness loop.
+// so a slow Postgres (cold start) or hung Redis can't block the readiness loop.
+//
+// Migration: #1310 / MEGA-80 WS0b — Redis probe now talks to Azure Cache for
+// Redis (`australiaeast`) via node-redis v4. Sub-100ms latency expected when
+// the cache is in-region; ~600ms cross-region with the legacy Upstash
+// posture indicated the substrate gap.
 
 import { NextResponse } from "next/server";
-import { Redis } from "@upstash/redis";
 import { getDb } from "@/lib/db";
+import { getRedis } from "@/lib/redis-client";
 import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
@@ -54,20 +59,25 @@ async function probeDb(): Promise<CheckResult> {
 
 async function probeRedis(): Promise<CheckResult> {
   const start = Date.now();
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
 
   // No Redis configured → not a hard failure, but flag it so ops can see.
   // Source has an in-memory rate-limit fallback (see lib/rate-limit.ts), so
   // the app degrades gracefully rather than failing.
-  if (!url || !token) {
+  if (!process.env.AZURE_REDIS_HOSTNAME || !process.env.AZURE_REDIS_PASSWORD) {
     return { ok: true, latencyMs: 0, detail: "fallback-in-memory" };
   }
 
   try {
-    const redis = new Redis({ url, token });
+    const redis = await withTimeout(getRedis(), PROBE_TIMEOUT_MS, "redis-connect");
+    if (!redis) {
+      return { ok: true, latencyMs: Date.now() - start, detail: "fallback-in-memory" };
+    }
     const probeKey = `health:probe:${process.pid}`;
-    await withTimeout(redis.set(probeKey, "1", { ex: 5 }), PROBE_TIMEOUT_MS, "redis");
+    await withTimeout(
+      redis.set(probeKey, "1", { EX: 5 }),
+      PROBE_TIMEOUT_MS,
+      "redis"
+    );
     return { ok: true, latencyMs: Date.now() - start };
   } catch (err) {
     return {

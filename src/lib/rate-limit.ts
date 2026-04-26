@@ -1,7 +1,13 @@
-// Distributed sliding window rate limiter
-// Uses Upstash Redis when available (production), falls back to in-memory (local dev).
+// Distributed sliding window rate limiter.
+//
+// Uses Azure Cache for Redis when AZURE_REDIS_HOSTNAME / AZURE_REDIS_PASSWORD
+// env vars are present (production); falls back to in-memory for local dev or
+// when Redis is unavailable. The per-key sorted-set sliding-window semantics
+// are unchanged from the prior @upstash/redis implementation.
+//
+// Migration: #1310 / MEGA-80 WS0b — see lib/redis-client.ts header.
 
-import { Redis } from "@upstash/redis";
+import { getRedis, type SourceRedisClient } from "./redis-client";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -26,32 +32,10 @@ export interface RateLimitResult {
   resetIn: number;
 }
 
-// ── Redis client (lazy singleton) ───────────────────────────────────────────
-
-let _redis: Redis | null = null;
-let _redisFailed = false;
-
-function getRedis(): Redis | null {
-  if (_redisFailed) return null;
-  if (_redis) return _redis;
-
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) return null;
-
-  try {
-    _redis = new Redis({ url, token });
-    return _redis;
-  } catch {
-    _redisFailed = true;
-    return null;
-  }
-}
-
 // ── Distributed rate limit (Redis sorted-set sliding window) ────────────────
 
 async function redisRateLimit(
-  redis: Redis,
+  redis: SourceRedisClient,
   key: string,
   config: RateLimitConfig
 ): Promise<RateLimitResult> {
@@ -60,14 +44,16 @@ async function redisRateLimit(
   const windowStart = now - windowMs;
   const redisKey = `rl:${key}`;
 
-  // Use a pipeline: remove expired, add current, count, set expiry
-  const pipe = redis.pipeline();
-  pipe.zremrangebyscore(redisKey, 0, windowStart);
-  pipe.zadd(redisKey, { score: now, member: `${now}:${Math.random().toString(36).slice(2, 8)}` });
-  pipe.zcard(redisKey);
-  pipe.expire(redisKey, config.windowSeconds + 10); // TTL slightly longer than window
+  // node-redis v4 MULTI: same atomic pipeline semantics as the Upstash version,
+  // but using the RESP-native command names (camelCase per node-redis convention).
+  const multi = redis.multi();
+  multi.zRemRangeByScore(redisKey, 0, windowStart);
+  multi.zAdd(redisKey, { score: now, value: `${now}:${Math.random().toString(36).slice(2, 8)}` });
+  multi.zCard(redisKey);
+  multi.expire(redisKey, config.windowSeconds + 10); // TTL slightly longer than window
 
-  const results = await pipe.exec();
+  const results = await multi.exec();
+  // results[2] is the zCard reply (the post-add count).
   const count = (results[2] as number) ?? 0;
 
   return {
@@ -121,8 +107,9 @@ const isProduction = process.env.NODE_ENV === "production";
 let _redisWarned = false;
 
 /**
- * Rate-limit a key. Uses Redis in production, in-memory as fallback for local dev.
- * In production without Redis, applies very conservative in-memory limits (10% of normal).
+ * Rate-limit a key. Uses Azure Cache for Redis in production, in-memory as
+ * fallback for local dev. In production without Redis (env vars missing or
+ * connect failure), applies very conservative in-memory limits (10% of normal).
  */
 export async function rateLimit(
   key: string,
@@ -131,7 +118,7 @@ export async function rateLimit(
   const config = DEFAULTS[configName];
   const fullKey = `${configName}:${key}`;
 
-  const redis = getRedis();
+  const redis = await getRedis();
   if (redis) {
     try {
       return await redisRateLimit(redis, fullKey, config);
@@ -142,7 +129,7 @@ export async function rateLimit(
 
   if (isProduction && !_redisWarned) {
     _redisWarned = true;
-    console.error("[SECURITY] Redis rate limiting unavailable in production. Set KV_REST_API_URL and KV_REST_API_TOKEN.");
+    console.error("[SECURITY] Redis rate limiting unavailable in production. Set AZURE_REDIS_HOSTNAME and AZURE_REDIS_PASSWORD.");
   }
 
   if (isProduction) {

@@ -1,8 +1,9 @@
-# Source Tier-1 — Vision and Decision Space
+# Source Tier-1 — Vision and Decision Record
 
-> **Status:** Draft, decision-pending
-> **Date:** 2026-04-26
+> **Status:** Decisions locked in 2026-04-26 (#1282)
+> **Date:** 2026-04-26 (charter #1281) · amended 2026-04-26 (decision lock-in #1282)
 > **Charter:** [#1281](../../../docs/agents/handoffs/3-verification/1281-mega-80-source-tier1-charter.md) · MEGA-80
+> **Decision lock-in:** [#1282](../../../docs/agents/handoffs/3-verification/1282-mega-80-oq1-decision-lockin.md)
 > **Builds on:** [ADR-002](ADR-002-sovereign-decision-layer.md) · [ADR-003](ADR-003-scenario-coverage-policy.md)
 > **Audience:** Knox, future executor agents, regulators, pilot customers
 
@@ -10,7 +11,7 @@
 
 ## 1. Bottom line
 
-Source today is a strong Tier-2 product — a verified knowledge graph with a working PACT consensus engine, a 9-cluster scenario library, AU legislation ingest, an agent work economy, a 19-tool MCP surface, and a clean Container Apps deploy. The path to Tier-1 turns on **two open questions Knox must answer before any implementation handoff graduates**: whether private *non-scenario* data can live in Source at all (OQ1a — three options), and whether ADR-003 §6 should be amended to allow customer-scoped scenario *overlays* (OQ1b — binary). This document lays out the gap and the decision space without picking a winner.
+Source today is a strong Tier-2 product — a verified knowledge graph with a working PACT consensus engine, a 9-cluster scenario library, AU legislation ingest, an agent work economy, a 19-tool MCP surface, and a clean Container Apps deploy. **Decided 2026-04-26 (#1282 lock-in):** OQ1a = (a) **Source stays pure-public** — private tenant data lives in Tailor's data plane, never in Source. OQ1b = **no** — ADR-003 stands; customer-scoped scenario overlays remain a Tailor-side concern as ADR-003 §2 Decision A consequences and §6 already plan. Cross-corpus query (public Source + private Tailor) is solved at the API/MCP layer (`tailor_query_with_source`), not by colocating data. This document records the gap, the (now closed) decision space, and the trimmed 5-workstream Source-side scope. Four originally-proposed workstreams (WS1 / WS2 / WS4 / WS6) move to Tailor as separate handoffs.
 
 ---
 
@@ -72,68 +73,85 @@ The phrase "future concern for Tailor, not Source" reads as a **defer**, not a f
 
 ---
 
-## 5. Eight workstreams as conditional scenarios
+## 5. Five surviving Source workstreams (post-OQ1 lock-in)
 
-Knox's research brief identified eight workstreams. They make sense **only under OQ1a = (b) or (c)**. Under OQ1a = (a), four of them are Tailor work, not Source. The table below tags each by OQ1a-conditionality so the post-OQ1 ticket can graduate the right subset:
+**Decided 2026-04-26:** OQ1a = (a) pure-public Source. The four workstreams that required Source to become multi-tenant — WS1 tenant foundation, WS2 private-sources schema, WS4 multi-tenant query, WS6 admin + onboarding — move to Tailor as separate handoffs. Source's Tier-1 program is now five workstreams.
 
-| # | Workstream | Effort | OQ1a-conditional? | Notes |
+| # | Workstream | Effort | Status | Notes |
 |---|---|---|---|---|
-| WS1 | Tenant & auth foundation — `tenants` table, `tenant_id` FKs, JWT middleware, row-level filters | L (3–4 wk) | OQ1a ≠ (a) | Wrong-product under OQ1a = (a); becomes Tailor data-plane work |
-| WS2 | Private-sources schema + upload API — `/api/private/sources/*`, parser pipeline, versioning | L (3–4 wk) | OQ1a ≠ (a) | Wrong-product under OQ1a = (a); private docs live in Tailor |
-| WS3 | Observability — structured logging, `/health`, OpenTelemetry to existing collector, App Insights | M (1–2 wk) | All OQ1a outcomes | Already in scope regardless |
-| WS4 | Multi-tenant query layer — union public+private scenarios, private match endpoint | L (3–4 wk) | OQ1a ≠ (a) | Wrong-product under OQ1a = (a) |
-| WS5 | Audit log + compliance — mutation audit, 7-yr retention, residency config, Privacy Act mapping | M (1–2 wk) | All OQ1a outcomes | Public mutations also benefit from audit |
-| WS6 | Admin panel + onboarding — self-serve signup (reuse #1278 `aink.tailor.au/connect`), API key gen, usage dashboard | M (1–2 wk) | OQ1a ≠ (a) | Becomes Tailor admin work under OQ1a = (a) |
-| WS7 | Cross-org PACT + contribution attestation | XL post-MVP | All OQ1a outcomes | Defers to MEGA-74 Phase 2B/3 — do not pull forward |
-| WS8 | Performance + caching — CDN strategy, Redis warm cache, load test for 10k concurrent | M (1–2 wk) | All OQ1a outcomes | Independent of OQ1a |
+| WS0 | Azure foundation — already on ACA (max 3 replicas), Upstash sliding-window rate limit, Neon serverless | — | ✅ Settled | Source is already on ACA per `.github/workflows/cd-source.yml`. No migration to do. Listed for completeness so the program inventory is honest. |
+| WS3 | Observability — structured logging, `/health`, OpenTelemetry to existing collector, App Insights | M (1–2 wk) | 🟡 To do | Independent of OQ1a; fits naturally next to existing rate-limit + cron infra. |
+| WS5 | Audit log + compliance — mutation audit, 7-yr retention, residency config, Privacy Act mapping | M (1–2 wk) | 🟡 To do | Public mutations also benefit from audit (PACT votes, scenario proposals, legislation contributions). |
+| WS7 | Cross-org PACT + contribution attestation | XL post-MVP | ⏳ Deferred | Defers to MEGA-74 Phase 2B/3. Do NOT pull forward into Source ahead of MEGA-74. |
+| WS8 | Performance + caching — CDN strategy, Redis warm cache, load test for 10k concurrent | M (1–2 wk) | 🟡 To do | Independent of OQ1a. Likely the lowest-risk fast win. |
 
-Critical path under OQ1a = (b) or (c): WS1 → WS2 → WS4 → WS6 launch; WS3 / WS5 / WS8 parallel; WS7 deferred.
+**Critical path:** WS3 / WS5 / WS8 can run in parallel; WS7 is deferred; WS0 needs no action.
 
-Critical path under OQ1a = (a): WS3 / WS5 / WS8 only in Source; WS1 / WS2 / WS4 / WS6 graduate as Tailor data-plane handoffs (different tickets, different file_locks).
+### 5.1 Moved to Tailor — separate handoffs, not in MEGA-80
+
+Under OQ1a = (a), four workstreams from the original 8-WS draft are not Source's job. They land as Tailor handoffs with separate ticket numbers (none claimed in this charter — they spawn from Tailor's BACKLOG when scoped):
+
+| # | Original Source framing | Tailor-side reframe |
+|---|---|---|
+| WS1 | Tenant foundation in Source | **NOT NEEDED** — Tailor already has tenancy. The need was a misframe. |
+| WS2 | Private-sources schema in Source | Becomes `tailor_private_sources` — extension of Tailor's document model that tags Tailor docs as "sources" (searchable, citable, queryable from MCP). Tailor workstream. |
+| WS4 | Multi-tenant query layer in Source | Becomes a cross-product MCP tool — `tailor_query_with_source` — that federates Source's public answer + Tailor tenant context. Lives in Tailor's MCP, calls Source's public MCP under the hood. |
+| WS6 | Admin + onboarding in Source | **NOT NEEDED for private sources** — Tailor admin already covers tenant onboarding. Source's existing API-key issuance via `POST /api/pact/register` is sufficient for public-tier agent access. |
 
 ---
 
-## 6. The decision space
+## 6. Decisions recorded
 
 ### 6.1 OQ1a — Private non-scenario data in Source
 
-Can private documents, private topics, private facts live in Source today? ADR-003 says nothing about this; it governs only `scenarios`. **Three options for Knox.** All three are real; the charter does not pick a winner.
+**Decided 2026-04-26: (a) Source stays pure-public.**
 
-**(a) Source stays pure-public.** Private docs / topics / facts live in Tailor's tenant data plane and reach Source only via published, anonymised statistics. Simplest model; no schema delta in Source. Reads cleanly off ADR-003 + ADR-002 as currently shipped. Customer asks like #1168 (Locksley/Danny George) for "live graph + scenario applicability APIs" — public-tier asks — fit cleanly. Trade-off: tenant-context propagation across products becomes Tailor's problem, not Source's; cross-product SDK design is more work.
+Private documents, private topics, private facts live in Tailor's tenant data plane and reach Source only via published, anonymised statistics or via federated MCP query. ADR-003 + ADR-002 stand as currently shipped. No `tenant_id` columns in Source; no `/api/private/...` namespace; no JWT tenant claim added to Source auth.
 
-**(b) Admit private tier in Source.** Add `tenant_id` to non-scenario tables; new `/api/private/...` namespace; row-level filters; tenant claim in auth. Larger schema delta; reuses Source's existing PACT engine, rate-limit infra, and ACA deploy for private data; concentrates multi-tenant complexity in one product. Trade-off: Source becomes a tenant-boundary product, inheriting the audit, compliance, and isolation surface area that Tailor already carries.
+**Rationale (per Knox lock-in 2026-04-26):**
 
-**(c) Hybrid sibling app.** Source remains pure-public; spin a `sites/source-private/` (or sub-app) for the multi-tenant private layer with shared identity (e.g., shared API keys, shared rate-limit Redis, shared MCP entry point but separate routes). Splits the complexity at the cost of two deployment surfaces and an explicit sync contract between them. Trade-off: clean separation of concerns; double the operational load.
+| Factor | (a) Pure-public | (b) Multi-tenant Source | (c) Hybrid sibling |
+|---|---|---|---|
+| Time to "clients with private sources in prod" | ~6 wk (Tailor already has tenancy) | 4–6 mo (full tenant plumbing in Source) | 3–4 mo (new app to scaffold) |
+| Engineering cost | M (cross-product query layer in Tailor) | XL (schema, RLS, audit, billing, leakage tests) | L (duplicates schema + services) |
+| ADR-003 reversal | not needed | required (high-cost signal — 8-day-old ADR) | not needed |
+| Source brand "verified public good" | intact | muddied (gov / enterprise buyers may distrust private+public colocated) | intact for Source proper |
+| Foreclosure risk | none — can add (b) later if needed | high — locks in private+public coupling | medium — sibling app is hard to retire |
+| Cross-corpus query UX | API-federated (one MCP call, two backends) | unified DB query | API-federated |
+| Loom alignment (per MEGA-74 §2.3) | clean (Source stays Tier-0 substrate) | complicated (private tenant data crosses Loom boundary) | clean for public side |
 
-The customer-ask signal as of 2026-04-26 (#1168 Locksley DM) points toward **(a)** — the live ask is for public-graph quality + freshness, not private hosting. But Foxleigh, Nyrstar, QGov, Praxis-tier customers may ask for (b) or (c) once Source is a serious option for them. Knox decides based on portfolio strategy, not just current asks.
+**The reframe that unlocked the decision.** Knox's research brief originally framed this as "clients load private sources INTO Source." The actual user need is "private data interacts with Source's public knowledge." Those are different — the second is a cross-corpus query problem, solved at the API/MCP layer; the first requires tenancy in Source. Buyers (Foxleigh, Nyrstar, QGov) don't care which DB row sits where. They care that an AI agent can answer "what applies to me, given the public legislation graph + my org's policies?" Federated query at the MCP layer is invisible to that agent.
+
+**What we trade away under (a):**
+
+- **Pitch elegance.** "Buy Source, get private + public knowledge graph" is a cleaner sales line than "buy Tailor, which has private sources that federate to Source's public layer." Recoverable later if needed.
+- **Single-DB unified queries.** A query that joins private and public in one SQL statement is impossible under (a) — federation happens at the API layer. For analytics / reporting workloads this is friction; for agent-facing MCP queries it is invisible.
+
+(a) does **not** foreclose (b). If 18 months in we find genuine need for private knowledge IN Source, we can add it then. (b) and (c) are harder to walk back.
 
 ### 6.2 OQ1b — Amend ADR-003 §6 for scenario overlays
 
-ADR-003 §6 currently defers `tenant_scenarios` overlays to "a future Tailor ticket." Should ADR-003 be amended to allow customer-scoped scenario overlays *in Source*, referencing the public `scenarios` rows as their base?
+**Decided 2026-04-26: no — ADR-003 stands.**
 
-This is **narrower than OQ1a.** Even under OQ1a = (a), the answer to OQ1b can be "yes — amend ADR-003 §6, allow tenant overlays as a separate Source layer that *references but does not pollute* the public seed." A `tenant_scenario_overlays` table (with `base_scenario_id` FK to public `scenarios`) is structurally different from polluting the public seed with customer-tagged rows; the two-customer test in Decision A doesn't bind overlays.
+Customer-scoped scenarios remain tenant-side in Tailor as `tenant_scenarios` overlays referencing Source's public scenarios — exactly as ADR-003 §2 Decision A consequences and §6 already plan. ADR-003 is **not amended.** The tenant overlay table lives in Tailor's data plane, not in Source.
 
-Knox's options on OQ1b are binary: **amend** (loosen §6 to allow Source-side overlays as a distinct table) or **keep as is** (overlays remain a Tailor data-plane concern; Source's `scenarios` table stays pure).
+### 6.3 Decision matrix — closed cell
 
-The two questions interact, but they decouple cleanly. The matrix below is the decision space:
-
-| | OQ1b = keep | OQ1b = amend |
-|---|---|---|
-| **OQ1a = (a)** | Source stays fully public. Tenant overlays + private data both live in Tailor. Cleanest. | Source stays public for non-scenarios; gains tenant scenario overlays. |
-| **OQ1a = (b)** | Source is multi-tenant for non-scenario data; scenarios stay public-only. Awkward asymmetry. | Source is multi-tenant across the board. Most ambitious. |
-| **OQ1a = (c)** | Sibling private app handles all private data; Source scenarios stay public-only. | Sibling private app handles private data; Source scenarios gain Source-side overlays. Clearest separation. |
+| | OQ1b = keep (locked in) |
+|---|---|
+| **OQ1a = (a)** (locked in) | ✅ **Source stays fully public.** Tenant overlays + private data both live in Tailor. Cross-corpus query via federated MCP (`tailor_query_with_source`). Cleanest path to Tier-1, fastest delivery, brand integrity preserved. |
 
 ---
 
-## 7. MEGA-74 intersection
+## 7. MEGA-74 intersection (under OQ1a = (a) — locked in)
 
-Source is referenced in the MEGA-74 charter (`docs/agents/handoffs/1-pending/1184-mega-74-charter.md` §2.3) as the substrate every Fabric inherits from. Three direct intersections:
+Source is referenced in the MEGA-74 charter (`docs/agents/handoffs/1-pending/1184-mega-74-charter.md` §2.3) as the substrate every Fabric inherits from. With OQ1a = (a) locked in, the three intersections simplify:
 
-1. **MEGA-74 Chapter 1 (stitch projection)** is per-public-graph in Source's substrate today. Under OQ1a = (a), no Source schema change is needed — MEGA-74 Chapter 1's stitches enumerate over the public graph and stitches in tenant-private Fabric live in Tailor. Under OQ1a = (b) or (c), MEGA-74 Chapter 1 must be re-specified to consume tenant-aware Source stitches.
+1. **MEGA-74 Chapter 1 (stitch projection)** is per-public-graph in Source's substrate. **No Source schema change needed.** MEGA-74 Chapter 1's stitches enumerate over the public graph; tenant-private Fabric stitches live in Tailor and never reach Source's substrate. This is now the canonical path — the OQ1a=(b)/(c) re-specification branches are off the table.
 
-2. **MEGA-74 Chapter 9 (mediated negotiation + sanitization proxy)** = **WS7 cross-org PACT**. Defer to MEGA-74; do NOT build cross-org PACT inside Source ahead of MEGA-74 charter execution.
+2. **MEGA-74 Chapter 9 (mediated negotiation + sanitization proxy)** = **WS7 cross-org PACT**. Defers to MEGA-74; do NOT build cross-org PACT inside Source ahead of MEGA-74 charter execution.
 
-3. **MEGA-74 Chapter 4 (ZK attestations)** = **`agent_work_ledger` future-proofing.** When the post-OQ1 ticket eventually touches the relevant table, populate an `attestation_ref TEXT NULL` placeholder per MEGA-74 Chapter 1's discriminated-union spec. NULL-initial is fine. Free patent enablement; expensive retrofit.
+3. **MEGA-74 Chapter 4 (ZK attestations)** = **`agent_work_ledger` future-proofing.** When a future Source schema touch lands (most likely under WS5 audit log work), populate an `attestation_ref TEXT NULL` placeholder per MEGA-74 Chapter 1's discriminated-union spec. NULL-initial is fine. Free patent enablement; expensive retrofit.
 
 ---
 
@@ -161,19 +179,30 @@ Five bullets from the 30-minute grounding pass at execution time, 2026-04-26:
 
 ## 10. What we're not doing
 
-- Picking OQ1a or OQ1b. Both are Knox's calls, framed in §6.
-- Writing schema, migrations, or route code. This is a vision doc; the post-OQ1 ticket is the bridge to concrete work.
-- Committing to a launch date. Once OQ1a + OQ1b resolve, the post-OQ1 ticket can produce the program skeleton and a date-bracketed plan.
-- Editing ADR-003. OQ1b's amendment, if Knox accepts it, ships as a separate handoff with proper supersession.
+- Re-opening OQ1a or OQ1b. Both are decided 2026-04-26 (§6 + §12).
+- Writing schema, migrations, or route code in Source. The 5 surviving Source workstreams (WS3 / WS5 / WS7 / WS8) graduate as their own handoffs after this lock-in lands.
+- Committing to a launch date. Once WS3 / WS5 / WS8 are scoped (each is M, 1–2 wk), a date-bracketed plan can land.
+- Editing ADR-003. ADR-003 stands per OQ1b decision.
 
 ---
 
 ## 11. Out of scope / parking lot
 
-- **#946 (1-pending) — Source strategic refactor.** Likely stale (predates Source becoming its own Next.js app at `sites/source/`). Reconcile post-OQ1: either close as obsolete or fold the docs-pieces into the post-OQ1 ticket. Do not edit #946 in this charter.
-- **NSW legislation parser.** The cron route at `sites/source/src/app/api/cron/legislation-sync/route.ts:25` accepts a `NSW` param but ships no handler. NSW activation is a future ticket — likely a small follow-on under WS-data-curation. Out of scope here.
-- **Auto-generated OpenAPI.** Replacing the manually-maintained `sites/source/public/openapi.json` with route-handler-driven generation is a separate WS3 follow-on; out of scope here.
-- **Source typed SDK in Tailor.** A typed Source client in Tailor (`src/frontend/src/lib/source-sdk.ts` or backend equivalent) is a cross-product integration item that depends on OQ1a. Out of scope here.
+- **Tailor-side cross-product workstreams.** WS1 / WS2 / WS4 / WS6 from the original 8-WS draft moved to Tailor under OQ1a = (a). Tailor handoffs for `tailor_private_sources` (Tailor doc-model extension), `tailor_query_with_source` (federated MCP tool), and tenant-context propagation in the existing `SourceLegislationResolver` are scoped separately. This document does not specify them; the Source side of the seam is the existing public MCP (19 tools) and OpenAPI (44 paths). They land as Tailor BACKLOG entries, not MEGA-80 sub-tickets.
+- **#946 (1-pending) — Source strategic refactor.** Likely stale (predates Source becoming its own Next.js app at `sites/source/`). Reconcile when convenient: either close as obsolete or fold the docs-pieces into a future Source maintenance handoff. Do not edit #946 in this charter or in #1282.
+- **NSW legislation parser.** The cron route at `sites/source/src/app/api/cron/legislation-sync/route.ts:25` accepts a `NSW` param but ships no handler. NSW activation is a future ticket — a small follow-on under data-curation. Out of scope here.
+- **Auto-generated OpenAPI.** Replacing the manually-maintained `sites/source/public/openapi.json` with route-handler-driven generation is a low-cost WS3 add-on if it ships; out of scope as its own workstream.
+- **Source typed SDK in Tailor.** A typed Source client in Tailor (`src/frontend/src/lib/source-sdk.ts` or backend equivalent) is a cross-product integration item that lands on the Tailor side of the WS4 reframe (`tailor_query_with_source`).
+
+---
+
+## 12. Decision log
+
+| Date | Decision | Ticket | One-line rationale |
+|---|---|---|---|
+| 2026-04-26 | **OQ1a = (a)** Source stays pure-public; private tenant data lives in Tailor's data plane | #1282 | Fastest path to "private sources in prod" (~6 wk via Tailor extension vs 4–6 mo via Source tenant plumbing); honors freshly-accepted ADR-003; preserves Source's "verified public good" brand for gov / enterprise buyers; doesn't foreclose (b) later. Full rationale + trade-off table in §6.1. |
+| 2026-04-26 | **OQ1b = no** ADR-003 stands; customer-scoped scenario overlays remain a Tailor-side concern | #1282 | ADR-003 §2 Decision A consequences and §6 already plan tenant overlays as a Tailor data-plane concern. No reversal needed. |
+| 2026-04-26 | **MEGA-80 trimmed to 5 surviving Source workstreams** (WS0 settled, WS3/WS5/WS8 to do, WS7 deferred) | #1282 | OQ1a = (a) makes WS1/WS2/WS4/WS6 wrong-product; they move to Tailor as separate handoffs. See §5.1. |
 
 ---
 

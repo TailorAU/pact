@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://pact-spec.dev/schemas/v0.4/negotiation-response.json",
+  "$id": "https://pact-spec.dev/schemas/v1.2/negotiation-response.json",
   "title": "PACT Negotiation",
   "description": "Represents a structured multi-round negotiation facilitated by the mediator.",
   "type": "object",

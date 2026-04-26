@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://pact-spec.dev/schemas/v0.4/resolve-request.json",
+  "$id": "https://pact-spec.dev/schemas/v1.2/resolve-request.json",
   "title": "PACT Human Resolution Request",
   "description": "Request body for POST /api/pact/{documentId}/resolve — human resolves an escalation with a binding decision.",
   "type": "object",

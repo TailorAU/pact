@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://pact-spec.dev/schemas/v0.4/intent-request.json",
+  "$id": "https://pact-spec.dev/schemas/v1.0/intent-request.json",
   "title": "PACT Intent Declaration Request",
   "description": "Request body for POST /api/pact/{documentId}/intents",
   "type": "object",

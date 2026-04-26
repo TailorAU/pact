@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://pact-spec.dev/schemas/v0.4/query-respond-request.json",
+  "$id": "https://pact-spec.dev/schemas/v1.0/query-respond-request.json",
   "title": "PACT Mediated Query Response",
   "description": "Request body for POST /api/pact/{documentId}/queries/{queryId}/respond (mediated mode). Agent responds to a routed query.",
   "type": "object",

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://pact-spec.dev/schemas/v0.4/ask-human-request.json",
+  "$id": "https://pact-spec.dev/schemas/v1.1/ask-human-request.json",
   "title": "PACT Ask Human Request",
   "description": "Request body for POST /api/pact/{documentId}/ask-human",
   "type": "object",

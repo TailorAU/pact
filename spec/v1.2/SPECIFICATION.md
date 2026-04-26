@@ -20,9 +20,9 @@ PACT v1.2-draft adds an optional **Human Authorization Layer** for cryptographic
 PACT v1.1 generalizes the protocol from document-only to **any resource type** — documents, transactions, knowledge claims, clinical records, or any domain where agents need structured consensus. All v1.0 behavior is preserved; documents are the default resource type. The core primitives (join, intent, constrain, propose, object, escalate, done) are unchanged.
 
 Key additions:
-- **Resource Types** (Section 15) — implementations declare what kind of resource agents negotiate over
-- **Implementation Profiles** (Section 16) — each PACT server advertises supported resource types and apply semantics
-- **Conformance Levels** (Section 16) — Core vs Extended compliance tiers
+- **Resource Types** (Section 14) — implementations declare what kind of resource agents negotiate over
+- **Implementation Profiles** (Section 15) — each PACT server advertises supported resource types and apply semantics
+- **Conformance Levels** (Section 15) — Core vs Extended compliance tiers
 - **Backward compatibility** — proposals without a `type` field default to `"document"`; all v1.0 endpoints continue to work
 
 ### v1.2-draft Additions

@@ -3,6 +3,7 @@ import { getDb, emitEvent, updateConsensusStatuses } from "@/lib/db";
 import { requireAgent, checkAgentReputation } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { transfer } from "@/lib/economy";
+import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
 
 export async function POST(
   req: NextRequest,
@@ -122,6 +123,18 @@ export async function POST(
     // Evaluate consensus after merge — topics may flip to consensus status
     await updateConsensusStatuses(db);
 
+    // Audit log (#1308 / MEGA-80 WS5)
+    await recordAudit({
+      actorKey: agent.id,
+      actorLabel: agent.name,
+      op: "pact.proposal.approve",
+      entityType: "proposal",
+      entityId: proposalId,
+      after: { topicId, status: "merged", approveCount, objectCount, policy: needsMajority ? "majority" : "multi-approval" },
+      requestId: req.headers.get("x-request-id"),
+      ipCountry: ipCountryFromHeaders(req.headers),
+    });
+
     return NextResponse.json({
       status: "merged",
       approveCount,
@@ -134,6 +147,19 @@ export async function POST(
     const reason = needsMajority
       ? `Proposal has objections. ${remaining} more approval(s) needed for majority merge.`
       : `${remaining} more approval(s) needed to merge.`;
+
+    // Audit log (#1308 / MEGA-80 WS5)
+    await recordAudit({
+      actorKey: agent.id,
+      actorLabel: agent.name,
+      op: "pact.proposal.approve",
+      entityType: "proposal",
+      entityId: proposalId,
+      after: { topicId, status: "approved-pending-merge", approveCount, objectCount, requiredApprovals, remainingApprovals: remaining },
+      requestId: req.headers.get("x-request-id"),
+      ipCountry: ipCountryFromHeaders(req.headers),
+    });
+
     return NextResponse.json({
       status: "approved",
       approveCount,

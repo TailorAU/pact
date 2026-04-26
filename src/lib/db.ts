@@ -361,6 +361,26 @@ async function initSchema(db: DbClient) {
     `CREATE INDEX IF NOT EXISTS idx_legsec_topic ON legislation_sections(topic_id)`,
     `CREATE INDEX IF NOT EXISTS idx_legsec_section_id ON legislation_sections(section_id)`,
     `CREATE INDEX IF NOT EXISTS idx_legsec_status ON legislation_sections(status)`,
+
+    // ── Audit log (#1308 / MEGA-80 WS5) ─────────────────────────────────
+    // Immutable trail of business-relevant mutations. Privacy Act mapping +
+    // 7-year retention policy: see sites/source/docs/AUDIT.md.
+    `CREATE TABLE IF NOT EXISTS audit_log (
+      id BIGSERIAL PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      actor_key_hash TEXT,
+      actor_label TEXT,
+      op TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id TEXT,
+      before_json TEXT,
+      after_json TEXT,
+      request_id TEXT,
+      ip_country TEXT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_key_hash, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC)`,
   ];
 
   for (const stmt of statements) {

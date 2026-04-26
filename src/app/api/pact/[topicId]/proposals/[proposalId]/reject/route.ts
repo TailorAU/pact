@@ -3,6 +3,7 @@ import { getDb, emitEvent } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { sanitizeReason } from "@/lib/sanitize";
+import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
 
 export async function POST(
   req: NextRequest,
@@ -73,6 +74,24 @@ export async function POST(
     proposalId,
     reason: isConfidential ? (cleanPublicSummary || "[Sealed rejection]") : (cleanReason?.sanitized ?? null),
     ...(isConfidential ? { confidential: true } : {}),
+  });
+
+  // Audit log (#1308 / MEGA-80 WS5)
+  await recordAudit({
+    actorKey: agent.id,
+    actorLabel: agent.name,
+    op: "pact.proposal.reject",
+    entityType: "proposal",
+    entityId: proposalId,
+    after: {
+      topicId,
+      proposerId: proposal.agent_id,
+      sectionId: proposal.section_id,
+      status: "rejected",
+      confidential: !!isConfidential,
+    },
+    requestId: req.headers.get("x-request-id"),
+    ipCountry: ipCountryFromHeaders(req.headers),
   });
 
   return NextResponse.json({ status: "rejected", confidential: !!isConfidential });

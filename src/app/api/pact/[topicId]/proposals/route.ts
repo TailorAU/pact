@@ -5,6 +5,7 @@ import { v4 as uuid } from "uuid";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { sanitizeContent, sanitizeSummary, validateTTL } from "@/lib/sanitize";
 import { transfer, ensureWallet } from "@/lib/economy";
+import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
 
 export async function GET(
   req: NextRequest,
@@ -199,6 +200,25 @@ export async function POST(
     proposalId,
     summary: isConfidential ? (cleanPublicSummary || "[Confidential proposal]") : summaryResult.sanitized,
     ...(isConfidential ? { confidential: true } : {}),
+  });
+
+  // Audit log (#1308 / MEGA-80 WS5)
+  await recordAudit({
+    actorKey: agent.id,
+    actorLabel: agent.name,
+    op: "pact.proposal.create",
+    entityType: "proposal",
+    entityId: proposalId,
+    after: {
+      topicId,
+      sectionId: effectiveSectionId,
+      proposalType: cleanProposalType,
+      status: proposalStatus,
+      isLocked,
+      confidential: !!isConfidential,
+    },
+    requestId: req.headers.get("x-request-id"),
+    ipCountry: ipCountryFromHeaders(req.headers),
   });
 
   return NextResponse.json({

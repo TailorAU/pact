@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://pact-spec.dev/schemas/v0.4/classify-section-request.json",
+  "$id": "https://pact-spec.dev/schemas/v1.1/classify-section-request.json",
   "title": "PACT Classify Section Request",
   "description": "Request body for POST /api/pact/{documentId}/sections/{sectionId}/classify — assign a classification level to a section.",
   "type": "object",

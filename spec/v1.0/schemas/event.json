@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://pact-spec.dev/schemas/v0.4/event.json",
+  "$id": "https://pact-spec.dev/schemas/v1.0/event.json",
   "title": "PACT Event",
   "description": "Every PACT operation produces an event with this structure.",
   "type": "object",

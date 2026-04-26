@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://pact-spec.dev/schemas/v0.4/query-submit-request.json",
+  "$id": "https://pact-spec.dev/schemas/v1.1/query-submit-request.json",
   "title": "PACT Mediated Query Request",
   "description": "Request body for POST /api/pact/{documentId}/queries (mediated mode). Structured Q&A with graduated disclosure.",
   "type": "object",

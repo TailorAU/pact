@@ -424,6 +424,31 @@ Implementations MAY expose PACT operations as MCP (Model Context Protocol) tools
 }
 ```
 
+### 7.4 Implementation Alignment (informative)
+
+Several schemas in `spec/v1.2/schemas/` describe operations whose route shapes have diverged across implementations. The shapes below are informative — implementations MUST publish their actual route shapes in their Implementation Profile (§15.1). Active alignment work is tracked in [TailorAU/pact#9](https://github.com/TailorAU/pact/issues/9) and is targeted for resolution before v1.3.
+
+**Information barrier and invite endpoints** — schemas exist; canonical route shape pending alignment:
+
+| Operation | Schema | v0.4-lineage spec route | Reference-impl route (Tailor) |
+|-----------|--------|-------------------------|-------------------------------|
+| Create classification framework | `classification-framework-request.json` | `POST /{docId}/classification/framework` | `POST /classification-frameworks` (org-level, not document-scoped) |
+| Classify a section | `classify-section-request.json` | `POST /{docId}/sections/{sectionId}/classify` | `POST /{docId}/classifications` (`sectionId` in body, supports batch) |
+| Grant clearance | `clearance-request.json` | `POST /{docId}/clearance` | `POST /{docId}/clearances` (REST plural) |
+| Create invite token | `invite-create-request.json` | `POST /{docId}/invites` | `POST /{docId}/invites` (Tailor matches; see [PACT_REQUIREMENTS_FROM_TAILOR §5.4](https://github.com/TailorAU/tailor-app/blob/main/docs/PACT_REQUIREMENTS_FROM_TAILOR.md) for enum-casing alignment) |
+
+**Endpoints in §7.1 without a request schema in `spec/v1.2/schemas/`** — schema authorship deferred to v1.3:
+
+- `POST /api/pact/{documentId}/comments` (Add comment) — payload defined in §9.1
+- `POST /api/pact/{documentId}/escalate` (Escalate to human) — payload defined in §9.2
+- `POST /api/pact/{documentId}/pre-validate` (Preview resolution against constraints)
+- `POST /api/pact/{documentId}/cascade-validate` (Cascade validation result)
+- `POST /api/pact/{documentId}/messages/{messageId}/ack` (Acknowledge mediated receipt) — §13.5.1
+- `POST /api/pact/{documentId}/proposals/{id}/approve` and `/reject` (small payloads — schema-less by design)
+- `POST /api/pact/{documentId}/intents/{id}/object` and `/proposals/{id}/object` (object verb — payload `{ reason }`)
+
+Implementations of these endpoints SHOULD document their request payloads in their Implementation Profile until canonical schemas land in v1.3.
+
 ---
 
 ## 8. Multi-Format Document Support
@@ -1341,22 +1366,53 @@ Implementations MAY define additional error codes under custom namespaces (e.g.,
 
 ### A.2 Request/Response Schemas
 
-Full JSON Schema (draft-07) definitions for all API endpoints are available in the [schemas directory](https://github.com/TailorAU/pact/tree/main/spec/v1.1/schemas).
+Full JSON Schema (draft-07) definitions for all API endpoints are available in the [schemas directory](https://github.com/TailorAU/pact/tree/main/spec/v1.2/schemas). All 26 schemas listed below are validated by CI on every push.
+
+**Core protocol primitives:**
 
 | Schema | Endpoint | Description |
 |---|---|---|
 | `join-request.json` | `POST /join` | Agent registration request |
-| `join-response.json` | `POST /join` | Agent registration response |
+| `join-response.json` | `POST /join`, `POST /join-token` | Agent registration response |
+| `join-token-request.json` | `POST /join-token` | BYOK join flow with invite token |
 | `proposal-request.json` | `POST /proposals` | Edit proposal creation |
 | `proposal-response.json` | `POST /proposals` | Edit proposal with constraint warnings |
-| `intent-request.json` | `POST /intents` | Intent declaration |
+| `intent-request.json` | `POST /intents` | Intent declaration on a section |
 | `constraint-request.json` | `POST /constraints` | Constraint publication |
 | `salience-request.json` | `POST /salience` | Salience score assignment |
 | `lock-request.json` | `POST /sections/{id}/lock` | Section lock with TTL |
 | `done-request.json` | `POST /done` | Agent completion signal |
 | `ask-human-request.json` | `POST /ask-human` | Human escalation |
+| `resolve-request.json` | `POST /resolve` | Human resolution of an escalation |
 | `error-response.json` | All endpoints | Standard error envelope |
 | `event.json` | Events / polling | Event structure (Section 6) |
+
+**Information barriers (Extended conformance — see §7.4 for route alignment status):**
+
+| Schema | Endpoint | Description |
+|---|---|---|
+| `classification-framework-request.json` | (alignment pending — §7.4) | Classification framework definition |
+| `classify-section-request.json` | (alignment pending — §7.4) | Section classification assignment |
+| `clearance-request.json` | (alignment pending — §7.4) | Agent clearance grant |
+
+**Invite tokens (Extended conformance):**
+
+| Schema | Endpoint | Description |
+|---|---|---|
+| `invite-create-request.json` | `POST /{docId}/invites` | Invite token creation |
+| `invite-response.json` | `POST /{docId}/invites` | Invite response (secret token shown once) |
+
+**Mediated communication (Extended conformance — §13):**
+
+| Schema | Endpoint | Description |
+|---|---|---|
+| `message-send-request.json` | `POST /{docId}/messages` | Send a message via the mediator |
+| `message-response.json` | (delivered message) | Mediated message as delivered (may be summarised, redacted, or blocked) |
+| `query-submit-request.json` | `POST /{docId}/queries` | Submit a structured query (graduated disclosure) |
+| `query-respond-request.json` | `POST /{docId}/queries/{id}/respond` | Respond to a routed query |
+| `negotiation-position-request.json` | `POST /{docId}/negotiations/{id}/position` | Submit position in a structured negotiation round |
+| `negotiation-response.json` | (negotiation envelope) | Multi-round negotiation envelope |
+| `register-entry.json` | (Message Register entry) | Append-only mediator audit entry — human-custodian-only visibility |
 
 ### A.3 Pagination
 

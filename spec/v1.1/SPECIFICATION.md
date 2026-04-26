@@ -8,13 +8,14 @@
 
 ### What's New in v1.1
 
-PACT v1.1 generalizes the protocol from document-only to **any resource type**. All v1.0 behavior is preserved; documents are the default resource type.
+PACT v1.1 generalizes the protocol from document-only to **any resource type** — documents, transactions, knowledge claims, clinical records, or any domain where agents need structured consensus. All v1.0 behavior is preserved; documents are the default resource type. The core primitives (join, intent, constrain, propose, object, escalate, done) are unchanged.
 
 Key additions:
-- **Resource Types** (Section 15) — implementations declare what kind of resource agents negotiate over
-- **Implementation Profiles** (Section 16) — each PACT server advertises supported resource types and apply semantics
-- **Conformance Levels** (Section 16) — Core vs Extended compliance tiers
-- **Backward compatibility** — proposals without a `type` field default to `"document"`
+- **Resource Types** (Section 14) — implementations declare what kind of resource agents negotiate over
+- **Implementation Profiles** (Section 15) — each PACT server advertises supported resource types and apply semantics
+- **Conformance Levels** (Section 15) — Core vs Extended compliance tiers
+- **Backward compatibility** — proposals without a `type` field default to `"document"`; all v1.0 endpoints continue to work
+
 
 ---
 
@@ -45,34 +46,36 @@ POST /api/pact/{docId}/proposals
 
 ## 1. Problem Statement
 
-Document collaboration is moving from human-to-human to **agent-to-agent** at massive scale. Today, no standard protocol exists for agents to:
+Multi-agent collaboration is moving from human-to-human to **agent-to-agent** at massive scale — not only on documents, but on transactions, knowledge claims, clinical records, and any shared resource requiring structured agreement. Today, no standard protocol exists for agents to:
 
 | Capability | Human Layer | Agent Layer |
 |---|---|---|
-| Propose edits | Track changes | **No standard** |
-| Comment on content | Comment threads | **No standard** |
-| Approve/reject changes | Review workflows | **No standard** |
+| Propose changes | Track changes / approvals | **No standard** |
+| Declare constraints | Legal/compliance review | **No standard** |
+| Approve/reject proposals | Review workflows | **No standard** |
 | Real-time coordination | WebSocket / SSE | **No standard** |
 | Conflict resolution | Human decides | **No standard** |
-| Section-level addressing | Internal refs | **No standard** |
+| Field-level addressing | Internal refs | **No standard** |
 
-The platform that defines how agents coordinate on shared documents becomes the infrastructure layer for every multi-agent framework (LangChain, CrewAI, AutoGen, OpenAI Swarms, etc.).
+The protocol that defines how agents reach consensus on shared resources becomes the infrastructure layer for every multi-agent framework (LangChain, CrewAI, AutoGen, OpenAI Swarms, etc.).
 
 ---
 
 ## 2. Design Principles
 
-1. **Document is always valid Markdown.** At every point in time, the canonical document content is renderable, readable Markdown. Protocol metadata lives in the event layer, not in the document body.
+1. **Resource content format is defined by the resource type.** For documents, the canonical content is renderable Markdown. For transactions, it may be a structured JSON record. For knowledge claims, a fact with evidence. Protocol metadata always lives in the event layer, not in the resource body.
 
-2. **Two layers, one document.** The Agent Layer (structured operations at machine speed) and the Human Layer (rendered view with natural-language comments) are projections of the same underlying state.
+2. **Two layers, one resource.** The Agent Layer (structured operations at machine speed) and the Human Layer (rendered view with natural-language interaction) are projections of the same underlying state.
 
-3. **Agents submit operations, not raw edits.** Agents never directly mutate the document. They submit typed operations (propose, approve, reject, lock, merge) through the protocol. The server validates and applies them.
+3. **Agents submit operations, not raw edits.** Agents never directly mutate the resource. They submit typed operations (propose, approve, reject, lock, apply) through the protocol. The server validates and applies them.
 
 4. **Humans always win.** Any human can override any agent decision at any time. Agent autonomy is governed by trust levels, and human escalation is always available.
 
-5. **Event-sourced truth.** The operation log is the source of truth for collaboration state. The document content is a projection that can be rebuilt from events.
+5. **Event-sourced truth.** The operation log is the source of truth for collaboration state. The resource content is a projection that can be rebuilt from events.
 
-6. **Section-level granularity.** Operations target document sections (headings, paragraphs, list items), not character offsets. This keeps the protocol coarse enough for LLMs to reason about.
+6. **Field-level granularity.** Operations target addressable fields within a resource (document sections, transaction fields, claim attributes), not raw offsets. This keeps the protocol coarse enough for LLMs to reason about.
+
+> **v1.0 note:** In PACT v1.0, "resource" was called "document" and "field" was called "section". These terms are interchangeable for the `document` resource type. All v1.0 endpoints remain valid.
 
 ---
 
@@ -891,7 +894,138 @@ A document's mediation mode is set at creation time or by the human custodian.
 
 ---
 
-## 14. Open Questions
+## 14. Resource Types (v1.1)
+
+### 14.1 Overview
+
+PACT v1.1 introduces **resource types** — a registry of well-known resource categories that implementations can support. Each resource type defines:
+
+| Property | Description | Example (document) | Example (transaction) |
+|---|---|---|---|
+| **Type identifier** | Unique string | `"document"` | `"transaction"` |
+| **Field schema** | What addressable fields the resource has | Markdown sections (`sec:intro`) | Transaction fields (`txn:amount`, `txn:recipient`) |
+| **Proposal payload** | What a proposal contains | `{ newContent, summary }` | `{ amount, recipient, method, reference }` |
+| **Apply semantics** | What happens when consensus is reached | Text merged into section | Payment settled |
+| **Terminal state** | What "done" means | `Merged` | `Settled` |
+| **Content format** | How the resource body is represented | Markdown | JSON record |
+
+### 14.2 Built-in Resource Types
+
+| Type | Field Addressing | Proposal Payload | Terminal State | Content Format |
+|---|---|---|---|---|
+| `document` | `sec:{slug}` (heading-derived) | `{ sectionId, newContent, summary, reasoning }` | `Merged` | Markdown |
+| `transaction` | `txn:{field}` (structured) | `{ amount, recipient, method, reference }` | `Settled` | JSON |
+| `fact` | `claim:{id}` | `{ claim, evidence, tier, sources }` | `Verified` | JSON |
+| `record` | `rec:{field}` (structured) | `{ field, value, justification }` | `Finalized` | JSON |
+
+The `document` type is the default. Proposals without an explicit `type` field are treated as `document` proposals.
+
+### 14.3 Custom Resource Types
+
+Implementations MAY register custom resource types. A custom type MUST define:
+
+1. A unique string identifier (e.g., `"learning-story"`, `"insurance-claim"`)
+2. A field schema describing the addressable units within the resource
+3. Apply semantics — what the implementation does when consensus is reached
+4. One or more terminal state names
+
+Custom types SHOULD be registered in the PACT resource type registry at `github.com/TailorAU/pact`.
+
+### 14.4 Backward Compatibility
+
+All v1.0 behavior is preserved:
+
+- Proposals without a `type` field default to `"document"`
+- All existing API endpoints (`/api/pact/{documentId}/...`) continue to work for document resources
+- The `sectionId` field in proposals is an alias for `fieldId` when the resource type is `document`
+- Implementations that only support documents are fully v1.1 conformant (see Conformance Levels below)
+
+### 14.5 Protocol Primitives Across Resource Types
+
+The core primitives work identically regardless of resource type:
+
+| Primitive | Document | Transaction | Fact |
+|---|---|---|---|
+| `join` | Join a document | Join a transaction | Join a topic |
+| `intent` | "I want to add risk language" | "I want to authorize this payment" | "I want to verify this claim" |
+| `constraint` | "Liability cap ≤ $2M" | "Daily limit $10K" | "Must cite primary source" |
+| `propose` | New section content | Payment authorization | Evidence-backed claim |
+| `silence = consent` | Auto-merge after TTL | Auto-authorize after TTL | Auto-verify after TTL |
+| `object` | "Violates my constraint" | "Exceeds limit" | "Contradicts existing fact" |
+| `escalate` | Human reviews text | Human reviews payment | Human reviews evidence |
+
+---
+
+## 15. Implementation Profiles and Conformance (v1.1)
+
+### 15.1 Implementation Profile
+
+Each PACT server SHOULD publish an **Implementation Profile** describing its capabilities. The profile is a JSON document at `/.well-known/pact.json` (borrowing from A2A's Agent Card pattern):
+
+```json
+{
+  "name": "Tailor",
+  "version": "1.1.0",
+  "specVersion": "1.1",
+  "conformanceLevel": "extended",
+  "resourceTypes": [
+    {
+      "type": "document",
+      "fieldSchema": "sec:{slug}",
+      "contentFormat": "text/markdown",
+      "terminalStates": ["Merged"],
+      "applySemantics": "Text replacement within Markdown section"
+    }
+  ],
+  "capabilities": {
+    "mediatedCommunication": true,
+    "informationBarriers": true,
+    "structuredNegotiation": true,
+    "inviteTokens": true
+  },
+  "endpoints": {
+    "rest": "https://api.tailor.au/api/pact",
+    "realtime": "wss://api.tailor.au/hubs/pact"
+  }
+}
+```
+
+### 15.2 Conformance Levels
+
+| Level | Requirements | Target Audience |
+|---|---|---|
+| **Core** | `join`, `leave`, `intent`, `constrain`, `propose`, `object`, `escalate`, `done`, `poll`, event sourcing, silence-based auto-apply | Any PACT implementation |
+| **Extended** | Core + information barriers (classification, clearance, graduated disclosure), mediated communication, structured negotiation, invite tokens | Enterprise, regulated, multi-organisation |
+
+An implementation declares its conformance level in the Implementation Profile. Implementations MUST support all primitives in their declared level.
+
+### 15.3 Multi-Implementation Interoperability
+
+PACT is designed for independent implementations, not shared backend code. Multiple products can implement PACT for different resource types:
+
+```
+┌─────────────────────────────────────────────┐
+│            PACT Spec (v1.1)                 │
+│  Resource-agnostic consensus primitives     │
+├──────────────┬──────────────┬───────────────┤
+│  Tailor      │  Source      │  Baink        │
+│  (documents) │  (facts)     │  (transactions)│
+│  Own DB      │  Own DB      │  Own DB       │
+│  Own API     │  Own API     │  Own API      │
+│  Conformance:│  Conformance:│  Conformance: │
+│  Extended    │  Core        │  Core         │
+└──────────────┴──────────────┴───────────────┘
+```
+
+Each implementation:
+- Has its own database, API routes, and domain logic
+- Implements the PACT primitives natively for its resource type
+- Publishes a conformance profile
+- Does NOT share code with other implementations (federation, not monolith)
+
+---
+
+## 16. Open Questions
 
 1. **Should PACT documents coexist with DOCX documents, or should DOCX documents gain PACT capabilities too?** Initial recommendation: PACT is Markdown-only, DOCX keeps existing review workflows. Convergence later.
 
@@ -903,7 +1037,9 @@ A document's mediation mode is set at creation time or by the human custodian.
 
 5. **Should the protocol support sub-documents (includes/transclusion)?** A large report could be composed of many files managed as a single logical document.
 
-6. **Should Mediated mode be mandatory or optional?** Unmediated mode (Sections 4–10) is simpler and lower-latency for trusted, single-organisation deployments. Mediated mode (Section 13) is stronger for cross-organisation, multi-clearance scenarios. Should implementations be required to support both?
+6. **Should Mediated mode be mandatory or optional?** Unmediated mode (Sections 4–10) is simpler and lower-latency for trusted, single-organisation deployments. Mediated mode (Section 13) is stronger for cross-organisation, multi-clearance scenarios. Should implementations be required to support both? (The Conformance Levels in Section 15 answer this: Mediated Communication is Extended-level, not required for Core.)
+
+9. **Should the protocol define cross-implementation federation?** When Tailor (documents) and Baink (transactions) both implement PACT, should agents on Tailor be able to reference a Baink transaction as context for a document proposal? Or is each implementation fully independent?
 
 7. **Should the Mediator be LLM-powered?** A rules-based Mediator is deterministic and auditable. An LLM-powered Mediator can summarise and paraphrase across clearance boundaries, but introduces non-determinism and cost. Should the spec require deterministic mediation with LLM summarisation as an optional enhancement?
 
@@ -952,7 +1088,7 @@ Implementations MAY define additional error codes under custom namespaces (e.g.,
 
 ### A.2 Request/Response Schemas
 
-Full JSON Schema (draft-07) definitions for all API endpoints are available in the [schemas directory](https://github.com/TailorAU/pact/tree/main/spec/v0.3/schemas).
+Full JSON Schema (draft-07) definitions for all API endpoints are available in the [schemas directory](https://github.com/TailorAU/pact/tree/main/spec/v1.1/schemas).
 
 | Schema | Endpoint | Description |
 |---|---|---|

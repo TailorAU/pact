@@ -41,6 +41,19 @@ jobs:
           done
           echo "All v0.3 schemas valid."
 
+      - name: Validate v1.0, v1.1, v1.2 schemas
+        run: |
+          for version in v1.0 v1.1 v1.2; do
+            if [ -d "spec/$version/schemas" ]; then
+              echo "Validating $version JSON schemas..."
+              for schema in spec/$version/schemas/*.json; do
+                echo "  Checking $schema"
+                ajv compile -s "$schema" --spec=draft7 -c ajv-formats || exit 1
+              done
+              echo "All $version schemas valid."
+            fi
+          done
+
   check-links:
     name: Check Markdown Links
     runs-on: ubuntu-latest

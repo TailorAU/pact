@@ -1,9 +1,10 @@
 # Source Tier-1 — Vision and Decision Record
 
-> **Status:** Tier-1 user-facing complete 2026-04-26 (#1307/#1308/#1309). **Tier-1 sovereign substrate pending** (#1310 — WS0b migration not yet executed).
-> **Date:** 2026-04-26 (charter #1281) · amended 2026-04-26 (decision lock-in #1282) · corrected 2026-04-26 (WS0 split — see §13)
+> **Status:** Tier-1 complete 2026-04-26. User-facing surfaces shipped (#1307/#1308/#1309); sovereign substrate migration shipped (#1310). All three substrates (compute, DB, cache) on Azure in `australiaeast`.
+> **Date:** 2026-04-26 (charter #1281) · amended 2026-04-26 (decision lock-in #1282) · corrected 2026-04-26 (WS0 split) · WS0b shipped 2026-04-26
 > **Charter:** [#1281](../../../docs/agents/handoffs/3-verification/1281-mega-80-source-tier1-charter.md) · MEGA-80
 > **Decision lock-in:** [#1282](../../../docs/agents/handoffs/3-verification/1282-mega-80-oq1-decision-lockin.md)
+> **Substrate cutover:** [#1310](../../../docs/agents/handoffs/2-active/1310-source-ws0b-sovereign-substrate-migration.md) · commit `88d013a4e`
 > **Builds on:** [ADR-002](ADR-002-sovereign-decision-layer.md) · [ADR-003](ADR-003-scenario-coverage-policy.md)
 > **Audience:** Knox, future executor agents, regulators, pilot customers
 
@@ -13,7 +14,7 @@
 
 Source today is a strong Tier-2 product — a verified knowledge graph with a working PACT consensus engine, a 9-cluster scenario library, AU legislation ingest, an agent work economy, a 19-tool MCP surface, and a clean Container Apps deploy. **Decided 2026-04-26 (#1282 lock-in):** OQ1a = (a) **Source stays pure-public** — private tenant data lives in Tailor's data plane, never in Source. OQ1b = **no** — ADR-003 stands; customer-scoped scenario overlays remain a Tailor-side concern as ADR-003 §2 Decision A consequences and §6 already plan. Cross-corpus query (public Source + private Tailor) is solved at the API/MCP layer (`tailor_query_with_source`), not by colocating data. This document records the gap, the (now closed) decision space, and the trimmed 5-workstream Source-side scope. Four originally-proposed workstreams (WS1 / WS2 / WS4 / WS6) move to Tailor as separate handoffs.
 
-**Tier-1 status (corrected 2026-04-26 by Knox cold-eye review, then re-corrected during #1310 §3 verification gate):** User-facing surfaces (observability, audit log + compliance, perf + caching) are shipped and live on `source.tailor.au`. The sovereign substrate posture is **almost there but not quite**: compute (ACA `australiaeast`) ✅ + database (**Azure Database for PostgreSQL Flexible Server `source-pg-prod` in `australiaeast`** — verified live 2026-04-26 via `az postgres flexible-server show`) ✅ + **cache (Upstash Redis, off-Azure) 🔴 only remaining gap**. The earlier "Neon serverless Postgres" claim in this doc was a misclaim propagated from the connection-string format ("Neon-compatible") rather than an actual Neon hosting check; the DB is and has been on Azure. For the sovereign-AU pitch (QGov / Foxleigh / Nyrstar) Source is **one Redis migration (~3–5 days) away** from honestly Tier-1, not the 1–2 weeks the original handoff scoped. See §13 for the corrected sovereignty posture.
+**Tier-1 status (shipped 2026-04-26):** User-facing surfaces (observability, audit log + compliance, perf + caching) are live on `source.tailor.au`. **Sovereign substrate is fully Azure-aligned in `australiaeast`**: compute (ACA `source-web-prod`) ✅ + database (Azure Database for PostgreSQL Flexible Server `source-pg-prod`) ✅ + cache (Azure Cache for Redis `source-redis-prod`) ✅. Post-cutover `/api/health` Redis probe latency dropped from **~633ms** (Upstash cross-region) to **~3ms** (Azure Cache for Redis in-region) — a 200× improvement that confirms the substrate migration landed cleanly. Source is honestly sovereign-AU Tier-1 — procurement-team data-residency review for QGov / Foxleigh / Nyrstar tenants returns "all data in `australiaeast`."
 
 ---
 
@@ -50,7 +51,7 @@ The shipped product (verified 2026-04-26) — do not re-architect:
 | 6 | Security & compliance | 🟡 | API-key auth ✓; audit log shipped (#1308); encryption-at-rest via Azure Postgres Flexible Server defaults (verified Ready in `rg-source-prod`); PII strategy in `AUDIT.md` Privacy Act mapping |
 | 7 | Client onboarding | 🔴 | No self-serve flow; reuse `aink.tailor.au/connect` pattern from #1278 if onboarding ships |
 | 8 | Data curation & freshness | 🟡 | Weekly cron (CTH+QLD only); NSW handler not yet shipped; no published freshness SLA |
-| 9 | Performance & scale | 🟡 | Azure Postgres Flexible Server (Standard_B1ms), 3-replica ACA; k6 baseline shipped (#1309); CDN strategy documented in `PERFORMANCE.md` (Knox-action to provision) |
+| 9 | Performance & scale | 🟡 | Azure Postgres Flexible Server (Standard_B1ms) + Azure Cache for Redis (Basic C0) both `australiaeast`; 3-replica ACA; k6 baseline shipped (#1309); post-WS0b /api/health Redis probe ~3ms; CDN strategy documented in `PERFORMANCE.md` (Knox-action to provision) |
 | 10 | Cross-product integration | 🟡 | `SourceLegislationResolver` HTTP works in Tailor; no typed SDK; tenant-context propagation depends on OQ1a |
 | 11 | Documentation | 🟡 | README + 3 ADRs (this is the 4th doc); no architecture guide; no runbook; no breaking-changes policy |
 | 12 | MEGA-74 / contribution attestation | 🔴 | No ZK proof; no immutable contribution signature; `agent_work_ledger` is the in-org precursor (free patent enablement if a future schema touch adds an `attestation_ref TEXT NULL` placeholder per MEGA-74 Chapter 4) |
@@ -82,7 +83,7 @@ The phrase "future concern for Tailor, not Source" reads as a **defer**, not a f
 | # | Workstream | Effort | Status | Notes |
 |---|---|---|---|---|
 | WS0a | Azure compute — already on ACA (max 3 replicas) per `cd-source.yml` | — | ✅ Settled | Compute substrate is sovereign-aligned. No work required for this leg. |
-| WS0b | **Redis substrate migration** — Upstash Redis → Azure Cache for Redis (`australiaeast`). Includes client library swap (`@upstash/redis` → `redis`/`ioredis`) across `lib/rate-limit.ts`, `lib/cache.ts`, `app/api/health/route.ts`. Provisioning + secret rotation + validation in `2-active/1310`. Database leg of WS0b dropped — `source-pg-prod` was already on Azure Postgres Flexible Server (verified 2026-04-26). | S–M (3–5 days) | 🔴 **Pending** (#1310 — 2-active, awaiting `az redis create`) | **Required for the sovereign-AU pitch.** Upstash Redis is AWS-hosted; the 633ms `/api/health` Redis probe latency from `australiaeast` confirms cross-region. Procurement-team data-residency reviews for AU government / mining tenants will flag this. Shipping-blocker for QGov / Foxleigh / Nyrstar; not a blocker for non-sovereign demos. |
+| WS0b | **Redis substrate migration** — Upstash Redis → Azure Cache for Redis `source-redis-prod` (Basic C0, `australiaeast`, Redis 6.0, SSL-only port 6380). Client library swap to node-redis v4 across `lib/rate-limit.ts`, `lib/cache.ts`, `app/api/health/route.ts` via shared `lib/redis-client.ts` async-singleton factory. | actual: ~1 day end-to-end (provisioning 18 min + code swap + cd-source deploy + validation) | ✅ **Shipped 2026-04-26** (#1310, commit `88d013a4e`, cd-source run `24950001682` green 2m33s) | **Sovereign-AU substrate complete.** Post-cutover `/api/health` Redis probe latency dropped from ~633ms (Upstash cross-region) to ~3ms (Azure Cache for Redis in-region) — 200× improvement. Procurement-team data-residency review now returns "all data in `australiaeast`." Database leg of WS0b dropped before commit (substrate audit 2026-04-26 caught `source-pg-prod` already on Azure Postgres Flexible Server). |
 | WS3 | Observability — structured logging, `/health`, OpenTelemetry to existing collector, App Insights | M (1–2 wk) | 🟡 To do | Independent of OQ1a; fits naturally next to existing rate-limit + cron infra. |
 | WS5 | Audit log + compliance — mutation audit, 7-yr retention, residency config, Privacy Act mapping | M (1–2 wk) | 🟡 To do | Public mutations also benefit from audit (PACT votes, scenario proposals, legislation contributions). |
 | WS7 | Cross-org PACT + contribution attestation | XL post-MVP | ⏳ Deferred | Defers to MEGA-74 Phase 2B/3. Do NOT pull forward into Source ahead of MEGA-74. |
@@ -209,6 +210,7 @@ Five bullets from the 30-minute grounding pass at execution time, 2026-04-26:
 | 2026-04-26 | **WS3 / WS5 / WS8 user-facing surfaces shipped to prod** | #1307 / #1308 / #1309 | Logger + /api/health, audit log + Privacy Act mapping, Redis read-through cache + k6 baseline. All three cd-source runs green. See `OBSERVABILITY.md`, `AUDIT.md`, `PERFORMANCE.md`. |
 | 2026-04-26 | **WS0 split into WS0a (compute ✅) + WS0b (substrate ⏳)** — Tier-1 reframed as "user-facing complete; sovereign substrate pending" | #1310 | Knox cold-eye review caught that the original "WS0 settled" tick conflated multiple substrates. (Initial framing claimed both DB+Redis were off-Azure; substrate audit during #1310 §3 verification gate corrected the DB claim — see next entry.) |
 | 2026-04-26 | **#1310 substrate audit — DB already on Azure Postgres** — `source-pg-prod` (Standard_B1ms, PG 16) verified Ready in `rg-source-prod` `australiaeast`. The "Neon serverless Postgres" claim was a misread of "Neon-compatible" (the connection-string format) for "Neon-hosted." Only Redis remains off-Azure. Migration scope cut roughly in half. | #1310 | Caught at executor §3 verification gate via `az postgres flexible-server show`. cd-source.yml line 31 also already documents `PG_HOST: source-pg-prod.postgres.database.azure.com`. WS0b is now Redis-only (~3–5 days), not DB+Redis (~1–2 wk). |
+| 2026-04-26 | **WS0b Redis substrate migration shipped** — Source data plane fully Azure-aligned in `australiaeast` (Azure Postgres Flexible Server already there + Azure Cache for Redis `source-redis-prod` newly provisioned Basic C0 SSL-only); `@upstash/redis` replaced by node-redis v4 via shared `lib/redis-client.ts` factory; cd-source.yml secrets rotated; commit `88d013a4e`; cd-source run `24950001682` green 2m33s | #1310 | Sovereign-AU procurement-review readiness for QGov / Foxleigh / Nyrstar tenants. /api/health Redis probe latency dropped from ~633ms (Upstash cross-region) to ~3ms (Azure Cache for Redis in-region) — 200× improvement. Knox greenlit path 1 on 2026-04-26; executor provisioned + cutover same day. Round 5 (decommission Upstash) deferred T+7 days for soak. |
 
 ---
 
@@ -216,17 +218,19 @@ Five bullets from the 30-minute grounding pass at execution time, 2026-04-26:
 
 The "Azure migration — settled" qualifier in #1282's WS0 line was misread. It conflated three substrates that have very different states:
 
-| Substrate | Today (verified 2026-04-26) | Sovereign target | Status |
+| Substrate | Today (verified 2026-04-26 post-WS0b) | Sovereign target | Status |
 |---|---|---|---|
-| **Compute** | Azure Container Apps (`source-web-prod` in `rg-source-prod`, `australiaeast`) per `.github/workflows/cd-source.yml` | Azure Container Apps (`australiaeast`) | ✅ **Already there** |
-| **Database** | **Azure Database for PostgreSQL Flexible Server** (`source-pg-prod`, Standard_B1ms, PG 16, in `rg-source-prod`, `australiaeast`) — verified live via `az postgres flexible-server show` | Azure Database for PostgreSQL Flexible Server (`australiaeast`) | ✅ **Already there** (was misclaimed as Neon in the prior version of this doc — "Neon-compatible" connection-string format was misread as Neon-hosted) |
-| **Cache / rate-limit** | **Upstash Redis** (AWS-hosted; ~600ms probe latency from `/api/health` confirms cross-region from `australiaeast`) | Azure Cache for Redis (`australiaeast`) | 🔴 **Not migrated** |
+| **Compute** | Azure Container Apps (`source-web-prod` in `rg-source-prod`, `australiaeast`) per `.github/workflows/cd-source.yml` | Azure Container Apps (`australiaeast`) | ✅ Done (always was) |
+| **Database** | Azure Database for PostgreSQL Flexible Server (`source-pg-prod`, Standard_B1ms, PG 16, `australiaeast`) — verified via `az postgres flexible-server show` | Azure Database for PostgreSQL Flexible Server (`australiaeast`) | ✅ Done (always was; was misclaimed as Neon in earlier drafts — "Neon-compatible" connection-string format was misread as Neon-hosted) |
+| **Cache / rate-limit** | Azure Cache for Redis (`source-redis-prod`, Basic C0, Redis 6.0, SSL-only port 6380, `australiaeast`) — verified via `/api/health` probe at ~3ms | Azure Cache for Redis (`australiaeast`) | ✅ **Shipped 2026-04-26** (#1310, commit `88d013a4e`) |
 
-### Implications for the sovereign-AU pitch
+### The sovereign-AU pitch is honest now
 
-The pitches that motivated the sovereign track — QGov, Foxleigh, Nyrstar, plus any other AU-government or AU-critical-minerals tenant — will be subject to **procurement-team data-residency review**. The first question that review asks is: *"where does the data live?"*
+For QGov, Foxleigh, Nyrstar, and any other AU-government or AU-critical-minerals tenant subject to **procurement-team data-residency review**:
 
-Today's honest answer is: *"Compute and database in Azure `australiaeast` (Azure Container Apps + Azure Database for PostgreSQL Flexible Server). Cache in Upstash Redis (AWS-hosted, cross-region — pending migration to Azure Cache for Redis in `australiaeast`)."* The DB story passes residency review cleanly. The Redis story doesn't — it's a single substrate gap, but it's a real one for procurement reviewers who don't accept "the cache is OK because the data is in the DB."
+> **Where does Source's data live?** All three substrates are Azure `australiaeast`: compute on Azure Container Apps, database on Azure Database for PostgreSQL Flexible Server, cache on Azure Cache for Redis. No AWS, no cross-region. The data plane exits AU only when an external user reads through global edge (and even then via TLS over public internet — no cross-region replication).
+
+This passes a standard procurement residency review cleanly. If a tenant requires additional sovereignty controls — CMK encryption keys, customer-managed certificates, dedicated-tenant Azure subscription, AU-only build-time dependency manifest — those land as separate ADRs on top of the WS0b baseline.
 
 **Until WS0b ships, do NOT claim Source is "sovereign-AU ready" externally.** Claim:
 
@@ -236,13 +240,17 @@ Today's honest answer is: *"Compute and database in Azure `australiaeast` (Azure
 
 For non-sovereign tracks (general AI agents, public legislation queries, the Locksley-style DM use case which only consumes the public graph), today's posture is fine — there's no procurement question to fail.
 
-### Two paths from here
+### Path taken — execute (shipped 2026-04-26)
 
-**Path 1 — Execute #1310 Redis substrate migration.** S–M effort (3–5 days; collapsed from the originally-scoped 1–2 weeks once the substrate audit corrected the DB claim):
-- DB: nothing to do (already on Azure Postgres Flexible Server `source-pg-prod` in `australiaeast`).
-- Redis: provision Azure Cache for Redis in `australiaeast`; swap `@upstash/redis` for `redis` (node-redis v4) or `ioredis` across the 3 import sites; rotate `KV_REST_API_URL` / `KV_REST_API_TOKEN` secrets to `AZURE_REDIS_HOSTNAME` / `AZURE_REDIS_PASSWORD`.
-- CD pipeline: update `cd-source.yml` Redis env-var block (DB env-var block stays as-is).
-- Validation: post-cutover `/api/health` Redis probe latency should drop from ~600ms to <100ms; load-test against `australiaeast`-aligned cache should hit Tier-1 SLA targets cleanly.
+Knox greenlit Path 1 on 2026-04-26. Executor ran the substrate migration end-to-end the same day:
+
+- **Provisioned** Azure Cache for Redis `source-redis-prod` (Basic C0, `australiaeast`, Redis 6.0, SSL-only port 6380) via `az redis create` — 18 min provisioning time. Captured primary key. Set `AZURE_REDIS_HOSTNAME` + `AZURE_REDIS_PASSWORD` GitHub secrets via `gh secret set`.
+- **Swapped client library** from `@upstash/redis` (HTTPS REST) to node-redis v4 (RESP+TLS). Extracted `lib/redis-client.ts` shared async-singleton factory; refactored `lib/rate-limit.ts` (sliding-window pipeline now uses `multi/exec` with camelCase commands `zRemRangeByScore`/`zAdd`/`zCard`/`expire`), `lib/cache.ts` (EX uppercase, explicit JSON.stringify/parse), `app/api/health/route.ts` (probe via shared singleton with 2s timeout). `@upstash/redis` retained in `package.json` for rollback safety until Round 5 (T+7 days).
+- **Updated CD pipeline** — `cd-source.yml` lines 107-108 + 136-137 swapped `KV_REST_API_URL` / `KV_REST_API_TOKEN` for `AZURE_REDIS_HOSTNAME` / `AZURE_REDIS_PASSWORD` in both staging + prod env-var blocks.
+- **Atomic commit** `88d013a4e`. cd-source.yml run `24950001682` green in 2m33s.
+- **Validation** — `/api/health` Redis probe dropped from ~633ms (Upstash cross-region) to ~3ms (Azure Cache for Redis in-region). DB probe ~52ms. `status: ok`.
+
+Path 2 (relax the directive) was no longer needed.
 
 **Path 2 — Explicitly relax the sovereign-AU directive.** Document the relaxation as an ADR-004 supersession of the WS0b commitment, recorded in this doc's §12 Decision log + a separate ADR. The "Azure-only" framing quietly evaporating without record is the failure mode this section is intended to prevent.
 

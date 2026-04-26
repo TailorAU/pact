@@ -115,7 +115,7 @@ curl https://source.tailor.au/api/health
 | Dependency | Probe | Failure mode |
 |---|---|---|
 | Postgres (Neon) | `SELECT 1 AS ok` via `getDb()` | 503; root causes: Neon paused / connection limit / network partition |
-| Upstash Redis | `SET health:probe:<pid> "1" EX 5` | 503 if env vars present and write fails. If `KV_REST_API_URL`/`KV_REST_API_TOKEN` are absent, returns OK with `detail: "fallback-in-memory"` (Source's rate-limit has an in-memory fallback — see `src/lib/rate-limit.ts`) |
+| Azure Cache for Redis (`source-redis-prod`, `australiaeast`) | `SET health:probe:<pid> "1" EX 5` via shared `lib/redis-client.ts` singleton (node-redis v4, RESP+TLS port 6380) | 503 if env vars present and write fails. If `AZURE_REDIS_HOSTNAME`/`AZURE_REDIS_PASSWORD` are absent, returns OK with `detail: "fallback-in-memory"` (Source's rate-limit has an in-memory fallback — see `src/lib/rate-limit.ts`). Post-WS0b cutover: probe latency typically ~3ms in-region. |
 
 Each probe has a 2-second timeout. The endpoint itself has no auth — keep it cheap and ensure no PII / secrets leak in the response.
 

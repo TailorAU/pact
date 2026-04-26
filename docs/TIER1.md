@@ -1,7 +1,7 @@
 # Source Tier-1 — Vision and Decision Record
 
-> **Status:** Decisions locked in 2026-04-26 (#1282)
-> **Date:** 2026-04-26 (charter #1281) · amended 2026-04-26 (decision lock-in #1282)
+> **Status:** Tier-1 user-facing complete 2026-04-26 (#1307/#1308/#1309). **Tier-1 sovereign substrate pending** (#1310 — WS0b migration not yet executed).
+> **Date:** 2026-04-26 (charter #1281) · amended 2026-04-26 (decision lock-in #1282) · corrected 2026-04-26 (WS0 split — see §13)
 > **Charter:** [#1281](../../../docs/agents/handoffs/3-verification/1281-mega-80-source-tier1-charter.md) · MEGA-80
 > **Decision lock-in:** [#1282](../../../docs/agents/handoffs/3-verification/1282-mega-80-oq1-decision-lockin.md)
 > **Builds on:** [ADR-002](ADR-002-sovereign-decision-layer.md) · [ADR-003](ADR-003-scenario-coverage-policy.md)
@@ -12,6 +12,8 @@
 ## 1. Bottom line
 
 Source today is a strong Tier-2 product — a verified knowledge graph with a working PACT consensus engine, a 9-cluster scenario library, AU legislation ingest, an agent work economy, a 19-tool MCP surface, and a clean Container Apps deploy. **Decided 2026-04-26 (#1282 lock-in):** OQ1a = (a) **Source stays pure-public** — private tenant data lives in Tailor's data plane, never in Source. OQ1b = **no** — ADR-003 stands; customer-scoped scenario overlays remain a Tailor-side concern as ADR-003 §2 Decision A consequences and §6 already plan. Cross-corpus query (public Source + private Tailor) is solved at the API/MCP layer (`tailor_query_with_source`), not by colocating data. This document records the gap, the (now closed) decision space, and the trimmed 5-workstream Source-side scope. Four originally-proposed workstreams (WS1 / WS2 / WS4 / WS6) move to Tailor as separate handoffs.
+
+**Tier-1 status (corrected 2026-04-26 by Knox cold-eye review):** User-facing surfaces (observability, audit log + compliance, perf + caching) are shipped and live on `source.tailor.au`. **The sovereign substrate commitment from "Azure migration" in #1282 is NOT met** — only compute is on Azure (ACA). Database (Neon, Databricks-owned, AWS-hosted) and cache (Upstash Redis, AWS-hosted) remain off-Azure. WS0 has been split into WS0a (compute, ✅ already done) and WS0b (sovereign substrate migration, ⏳ #1310 pending). For the sovereign-AU pitch (QGov / Foxleigh / Nyrstar) Source is **not yet honestly Tier-1**. For non-sovereign demo / general agent use, the user-facing surface IS Tier-1 ready. See §13 for the full sovereignty posture.
 
 ---
 
@@ -79,7 +81,8 @@ The phrase "future concern for Tailor, not Source" reads as a **defer**, not a f
 
 | # | Workstream | Effort | Status | Notes |
 |---|---|---|---|---|
-| WS0 | Azure foundation — already on ACA (max 3 replicas), Upstash sliding-window rate limit, Neon serverless | — | ✅ Settled | Source is already on ACA per `.github/workflows/cd-source.yml`. No migration to do. Listed for completeness so the program inventory is honest. |
+| WS0a | Azure compute — already on ACA (max 3 replicas) per `cd-source.yml` | — | ✅ Settled | Compute substrate is sovereign-aligned. No work required for this leg. |
+| WS0b | **Sovereign substrate migration** — Neon Postgres → Azure Database for PostgreSQL Flexible Server (`australiaeast`); Upstash Redis → Azure Cache for Redis (`australiaeast`). Includes client library swap (`@upstash/redis` → `redis`/`ioredis`) across `lib/rate-limit.ts`, `lib/cache.ts`, `app/api/health/route.ts`. Provisioning, secret rotation, data migration, and rollback plan in `1-pending/1310`. | M (1–2 wk) | 🔴 **Pending** (#1310) | **Required for the sovereign-AU pitch.** Today's data plane is AWS-hosted (Neon = Databricks-owned; Upstash = AWS). Procurement-team data-residency reviews for AU government / mining tenants will fail this on inspection. Shipping-blocker for QGov / Foxleigh / Nyrstar; not a blocker for non-sovereign demos. |
 | WS3 | Observability — structured logging, `/health`, OpenTelemetry to existing collector, App Insights | M (1–2 wk) | 🟡 To do | Independent of OQ1a; fits naturally next to existing rate-limit + cron infra. |
 | WS5 | Audit log + compliance — mutation audit, 7-yr retention, residency config, Privacy Act mapping | M (1–2 wk) | 🟡 To do | Public mutations also benefit from audit (PACT votes, scenario proposals, legislation contributions). |
 | WS7 | Cross-org PACT + contribution attestation | XL post-MVP | ⏳ Deferred | Defers to MEGA-74 Phase 2B/3. Do NOT pull forward into Source ahead of MEGA-74. |
@@ -203,6 +206,54 @@ Five bullets from the 30-minute grounding pass at execution time, 2026-04-26:
 | 2026-04-26 | **OQ1a = (a)** Source stays pure-public; private tenant data lives in Tailor's data plane | #1282 | Fastest path to "private sources in prod" (~6 wk via Tailor extension vs 4–6 mo via Source tenant plumbing); honors freshly-accepted ADR-003; preserves Source's "verified public good" brand for gov / enterprise buyers; doesn't foreclose (b) later. Full rationale + trade-off table in §6.1. |
 | 2026-04-26 | **OQ1b = no** ADR-003 stands; customer-scoped scenario overlays remain a Tailor-side concern | #1282 | ADR-003 §2 Decision A consequences and §6 already plan tenant overlays as a Tailor data-plane concern. No reversal needed. |
 | 2026-04-26 | **MEGA-80 trimmed to 5 surviving Source workstreams** (WS0 settled, WS3/WS5/WS8 to do, WS7 deferred) | #1282 | OQ1a = (a) makes WS1/WS2/WS4/WS6 wrong-product; they move to Tailor as separate handoffs. See §5.1. |
+| 2026-04-26 | **WS3 / WS5 / WS8 user-facing surfaces shipped to prod** | #1307 / #1308 / #1309 | Logger + /api/health, audit log + Privacy Act mapping, Redis read-through cache + k6 baseline. All three cd-source runs green. See `OBSERVABILITY.md`, `AUDIT.md`, `PERFORMANCE.md`. |
+| 2026-04-26 | **WS0 split into WS0a (compute ✅) + WS0b (substrate ⏳)** — Tier-1 reframed as "user-facing complete; sovereign substrate pending" | #1310 (this correction) | Knox cold-eye review caught that the original "WS0 settled" tick conflated three substrates (compute ✓ + database ✗ + cache ✗). Today's data plane is AWS-hosted (Neon = Databricks-owned; Upstash). Sovereign-AU pitches (QGov / Foxleigh / Nyrstar) need the substrate migration before procurement-team data-residency review. See §13. |
+
+---
+
+## 13. Sovereignty posture (corrected 2026-04-26)
+
+The "Azure migration — settled" qualifier in #1282's WS0 line was misread. It conflated three substrates that have very different states:
+
+| Substrate | Today | Sovereign target | Status |
+|---|---|---|---|
+| **Compute** | Azure Container Apps (`australiaeast`) per `.github/workflows/cd-source.yml` | Azure Container Apps (`australiaeast`) | ✅ **Already there** |
+| **Database** | **Neon serverless Postgres** (Databricks-owned, AWS-hosted; region presumed US/EU based on default Neon project provisioning) | Azure Database for PostgreSQL Flexible Server (`australiaeast`) | 🔴 **Not migrated** |
+| **Cache / rate-limit** | **Upstash Redis** (AWS-hosted; region unverified — but the ~600ms probe latency from `/api/health` strongly suggests cross-region from `australiaeast`) | Azure Cache for Redis (`australiaeast`) | 🔴 **Not migrated** |
+
+### Implications for the sovereign-AU pitch
+
+The pitches that motivated the sovereign track — QGov, Foxleigh, Nyrstar, plus any other AU-government or AU-critical-minerals tenant — will be subject to **procurement-team data-residency review**. The first question that review asks is: *"where does the data live?"*
+
+Today's honest answer is: *"Neon serverless Postgres (Databricks, US-headquartered, AWS-hosted) plus Upstash Redis (AWS-hosted, unverified region)."* That answer fails the residency check for an AU government tenant. It probably fails it for Foxleigh and Nyrstar too once their compliance teams review the data-plane diagram.
+
+**Until WS0b ships, do NOT claim Source is "sovereign-AU ready" externally.** Claim:
+
+- ✅ "Source's user-facing surface is Tier-1 (observability, audit log + Privacy Act mapping, perf baselines)."
+- ❌ NOT "Source's data plane is sovereign-AU."
+- 🟡 "Source's data plane is Azure-aligned for compute today; database and cache substrate migration is in flight (#1310)."
+
+For non-sovereign tracks (general AI agents, public legislation queries, the Locksley-style DM use case which only consumes the public graph), today's posture is fine — there's no procurement question to fail.
+
+### Two paths from here
+
+**Path 1 — Execute #1310 substrate migration.** M effort (1–2 weeks):
+- DB: provision Azure Database for PostgreSQL Flexible Server in `australiaeast`; `pg_dump` → `pg_restore`; swap `DATABASE_URL` secret in `cd-source.yml`. The pg client (`pg ^8.13.1`) works against both Neon and Azure Postgres unchanged — same wire protocol.
+- Redis: provision Azure Cache for Redis in `australiaeast`; swap `@upstash/redis` for `redis` (node-redis v4) or `ioredis` across the 3 import sites; rotate `KV_REST_API_URL` / `KV_REST_API_TOKEN` secrets to `AZURE_REDIS_HOSTNAME` / `AZURE_REDIS_PASSWORD`.
+- CD pipeline: update `cd-source.yml` env-var blocks for both staging and prod.
+- Validation: post-cutover `/api/health` Redis probe latency should drop from ~600ms to <100ms; load-test against `australiaeast`-aligned cache should hit Tier-1 SLA targets cleanly.
+
+**Path 2 — Explicitly relax the sovereign-AU directive.** Document the relaxation as an ADR-004 supersession of the WS0b commitment, recorded in this doc's §12 Decision log + a separate ADR. The "Azure-only" framing quietly evaporating without record is the failure mode this section is intended to prevent.
+
+Knox decides. Until then, this doc carries the corrected posture so internal references don't propagate the original misclaim.
+
+### What WS0b does NOT cover
+
+- LLM provider sovereignty (Source uses `AZURE_OPENAI_KEY` per `cd-source.yml:108` — that's already Azure-aligned).
+- CDN sovereignty (no CDN in front of Source today; recommended Cloudflare config in `PERFORMANCE.md` is global edge, not AU-only).
+- Tailor-side substrates (Tailor has its own sovereign track via `cd-sovereign.yml`; Source's WS0b is independent).
+
+These are outside Source's WS0b scope. If they become procurement requirements, they're separate handoffs.
 
 ---
 

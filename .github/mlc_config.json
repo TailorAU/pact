@@ -8,6 +8,24 @@
     },
     {
       "pattern": "^http://localhost"
+    },
+    {
+      "pattern": "^https://github\\.com/TailorAU/tailor-app"
+    },
+    {
+      "pattern": "^https://github\\.com/Tailor-AUS/Human-Managed-Access-Network"
+    },
+    {
+      "pattern": "^\\./PACT_SPECIFICATION\\.md$"
+    },
+    {
+      "pattern": "^\\./PACT_GETTING_STARTED\\.md$"
+    },
+    {
+      "pattern": "^\\./PACT_TAILOR_IMPLEMENTATION\\.md$"
+    },
+    {
+      "pattern": "^\\.\\./\\.\\./tools/tailor-cli/README\\.md$"
     }
   ],
   "timeout": "10s",

@@ -40,17 +40,28 @@ export async function GET(req: NextRequest) {
     acceptHeader.includes("text/html") &&
     !acceptHeader.includes("application/json");
   if (wantsHtml) {
-    // Build the redirect target from req.nextUrl (respects X-Forwarded-Host /
-    // X-Forwarded-Proto from ACA's reverse proxy) rather than `new URL("/search",
-    // req.url)`. `req.url` surfaces the internal `0.0.0.0:3000` pod URL when
-    // running behind ACA — that would emit Location:
-    // https://0.0.0.0:3000/search, which a user's browser cannot resolve.
-    // req.nextUrl.clone() inherits the public scheme + host the client
-    // actually used, plus all of the original searchParams (q, jurisdiction,
-    // type, status, preferJurisdiction, offset) — only `pathname` changes.
-    const redirectTo = req.nextUrl.clone();
-    redirectTo.pathname = "/search";
-    return NextResponse.redirect(redirectTo, 303);
+    // Use a RELATIVE Location header. Both `new URL("/search", req.url)` and
+    // `req.nextUrl.clone()` resolve against the internal ACA pod URL
+    // (`0.0.0.0:3000`) because the platform's reverse proxy doesn't expose
+    // X-Forwarded-Host in a way that NextURL absorbs; an absolute redirect
+    // would emit Location: https://0.0.0.0:3000/search which a user's
+    // browser can't reach. Per RFC 7231 §7.1.2, a relative Location is
+    // resolved by the user-agent against the request's effective URI —
+    // which IS the public-facing URL the user typed. Manual `Response` (no
+    // `NextResponse.redirect` URL serialisation) preserves the relative
+    // form. All searchParams flow through (q, jurisdiction, type, status,
+    // preferJurisdiction, offset).
+    const params = new URLSearchParams();
+    searchParams.forEach((value, key) => {
+      params.set(key, value);
+    });
+    const qs = params.toString();
+    return new Response(null, {
+      status: 303,
+      headers: {
+        Location: qs ? `/search?${qs}` : "/search",
+      },
+    });
   }
 
   const debit = await debitIfAuthenticated(req, 1, "read.legislation");

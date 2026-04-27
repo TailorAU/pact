@@ -40,10 +40,16 @@ export async function GET(req: NextRequest) {
     acceptHeader.includes("text/html") &&
     !acceptHeader.includes("application/json");
   if (wantsHtml) {
-    const redirectTo = new URL("/search", req.url);
-    searchParams.forEach((value, key) => {
-      redirectTo.searchParams.set(key, value);
-    });
+    // Build the redirect target from req.nextUrl (respects X-Forwarded-Host /
+    // X-Forwarded-Proto from ACA's reverse proxy) rather than `new URL("/search",
+    // req.url)`. `req.url` surfaces the internal `0.0.0.0:3000` pod URL when
+    // running behind ACA — that would emit Location:
+    // https://0.0.0.0:3000/search, which a user's browser cannot resolve.
+    // req.nextUrl.clone() inherits the public scheme + host the client
+    // actually used, plus all of the original searchParams (q, jurisdiction,
+    // type, status, preferJurisdiction, offset) — only `pathname` changes.
+    const redirectTo = req.nextUrl.clone();
+    redirectTo.pathname = "/search";
     return NextResponse.redirect(redirectTo, 303);
   }
 

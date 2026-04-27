@@ -28,7 +28,7 @@ These targets match the OQ8 default Knox set in TIER1.md §6 OQ matrix and align
 
 ### Cache layer — `src/lib/cache.ts`
 
-Read-through Redis cache reusing the existing Upstash client + fallback pattern from `src/lib/rate-limit.ts`.
+Read-through Redis cache via the shared `src/lib/redis-client.ts` async-singleton factory (node-redis v4, RESP+TLS to Azure Cache for Redis `source-redis-prod` in `australiaeast`). Reuses the same fallback pattern as `src/lib/rate-limit.ts` — when Redis is unavailable, the cache helper falls through to direct fetch.
 
 - `cache.getOrSet(key, ttlSec, fetchFn)` — main API. Returns cached if present, else calls fetchFn, stores, and returns.
 - `cache.del(key)` — best-effort invalidation. Used by mutation routes that write through.
@@ -56,7 +56,7 @@ Read-through Redis cache reusing the existing Upstash client + fallback pattern 
 
 ### CDN strategy (Knox-action — deferred)
 
-Source today is direct-to-ACA — no CDN in front. Tier-1 is achievable without one (ACA + Neon + Upstash are all low-latency in `australiaeast`), but a CDN unlocks:
+Source today is direct-to-ACA — no CDN in front. Tier-1 is achievable without one (ACA + Azure Postgres Flexible Server + Azure Cache for Redis are all low-latency in `australiaeast`; verified 3ms Redis probe + 52ms DB probe via `/api/health`), but a CDN unlocks:
 
 - Global edge caching of public reads (legislation read endpoints are unauthenticated; ideal for edge caching).
 - DDoS absorption layer.
@@ -101,9 +101,10 @@ These are estimates — confirm via `k6-baseline.js` runs against dev or a stagi
 - Connection limit: default Neon project quota; should be re-verified if connection-pool exhaustion shows up in errors.
 - PITR (point-in-time recovery): Neon-managed, in-region, RPO matches the SLA target of 15 min.
 
-## Redis — Upstash
+## Redis — Azure Cache for Redis
 
-- Region: Australia East-aligned (Upstash US-only or AU?). **Knox-action to verify.** If cross-region, latency on cache fetches adds 30–100 ms — still net-positive vs. uncached but worth measuring.
+- Region: `australiaeast` (verified). Instance: `source-redis-prod`, Basic C0 (250MB), Redis 6.0, SSL-only port 6380. Provisioned 2026-04-26 as part of #1310 / MEGA-80 WS0b migration; Upstash retired pending T+7 day soak.
+- Post-cutover `/api/health` Redis probe latency: **~3 ms** (was ~633ms with Upstash cross-region).
 - Used for: rate-limit (sliding window), cache layer (read-through), health-check probe.
 - Failure mode: in-memory fallback for rate-limit, no-op fallback for cache. Health endpoint reports `detail: "fallback-in-memory"` when env vars absent.
 
@@ -115,7 +116,7 @@ When latency regresses or load tests fail:
 2. Look at logs (per `OBSERVABILITY.md`) — search for `latencyMs` fields above SLA targets.
 3. Check ACA replica count — `az containerapp revision list` — is autoscale lagging demand?
 4. Check Neon dashboard — connection-pool exhaustion? Slow query log?
-5. Check Upstash dashboard — request rate? Error rate?
+5. Check Azure Cache for Redis metrics in Azure Portal — `source-redis-prod` → Monitoring → Metrics; cache misses, used memory, server load, connected clients.
 6. Run `k6-baseline.js` against the affected environment to characterise the regression.
 7. File a regression handoff with the failing thresholds + a hypothesis.
 

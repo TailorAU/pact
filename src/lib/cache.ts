@@ -1,15 +1,14 @@
 // Read-through cache for hot Source reads.
 //
-// Uses the same Upstash Redis singleton pattern as src/lib/rate-limit.ts.
-// When Redis is unavailable (env vars absent or transient failure), the
-// helper degrades to "always miss" — every call re-fetches from the
-// underlying source. The app stays correct; only the cache benefit goes
-// away. This matches rate-limit's degradation philosophy.
+// Uses the shared Azure Cache for Redis client (lib/redis-client.ts). When
+// Redis is unavailable (env vars absent or transient failure), the helper
+// degrades to "always miss" — every call re-fetches from the underlying
+// source. The app stays correct; only the cache benefit goes away.
 //
 // Usage:
 //   const stats = await cache.getOrSet("hub:stats:v1", 30, () => fetchStats());
 //
-// The cached value is JSON-serialized; the helper handles encode/decode.
+// The cached value is JSON-serialised; the helper handles encode/decode.
 //
 // Cache invalidation: TTL-based only. We do NOT support explicit invalidation
 // here — for that, callers should bump the version suffix in the key
@@ -17,32 +16,13 @@
 // are forced through. Mutation routes that need write-through invalidation
 // should use cache.del() (best-effort, never throws).
 //
+// Migration: #1310 / MEGA-80 WS0b — moved from @upstash/redis (HTTPS REST) to
+// node-redis v4 (RESP+TLS) against Azure Cache for Redis in `australiaeast`.
 // Performance + SLA targets, CDN strategy, load-test plan: see
 // sites/source/docs/PERFORMANCE.md.
 
-import { Redis } from "@upstash/redis";
+import { getRedis } from "./redis-client";
 import { log } from "./logger";
-
-let _redis: Redis | null = null;
-let _redisFailed = false;
-
-function getRedis(): Redis | null {
-  if (_redisFailed) return null;
-  if (_redis) return _redis;
-
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) return null;
-
-  try {
-    _redis = new Redis({ url, token });
-    return _redis;
-  } catch (err) {
-    log.warn({ err, op: "cache.redis.init.failed" }, "cache redis init failed; falling back to no-op");
-    _redisFailed = true;
-    return null;
-  }
-}
 
 const KEY_PREFIX = "src:cache:";
 
@@ -60,24 +40,19 @@ export async function getOrSet<T>(
   fetchFn: () => Promise<T>
 ): Promise<T> {
   const fullKey = KEY_PREFIX + key;
-  const redis = getRedis();
+  const redis = await getRedis();
 
   if (redis) {
     try {
-      const cached = await redis.get<string>(fullKey);
-      if (cached) {
-        // Upstash returns the value as already-deserialized JSON when stored
-        // via .set with a stringified payload. Both string and object shapes
-        // can occur depending on driver version — handle both.
-        if (typeof cached === "string") {
-          try {
-            return JSON.parse(cached) as T;
-          } catch {
-            // Cached as a plain string, return as-is via cast.
-            return cached as unknown as T;
-          }
+      const cached = await redis.get(fullKey);
+      if (cached !== null) {
+        try {
+          return JSON.parse(cached) as T;
+        } catch {
+          // Cached as a non-JSON string — return as-is via cast (defensive;
+          // shouldn't happen because we always JSON.stringify on set).
+          return cached as unknown as T;
         }
-        return cached as unknown as T;
       }
     } catch (err) {
       log.warn({ err, key, op: "cache.get.failed" }, "cache get failed; falling through");
@@ -88,7 +63,7 @@ export async function getOrSet<T>(
 
   if (redis) {
     try {
-      await redis.set(fullKey, JSON.stringify(fresh), { ex: ttlSeconds });
+      await redis.set(fullKey, JSON.stringify(fresh), { EX: ttlSeconds });
     } catch (err) {
       log.warn({ err, key, op: "cache.set.failed" }, "cache set failed; not blocking response");
     }
@@ -103,7 +78,7 @@ export async function getOrSet<T>(
  */
 export async function del(key: string): Promise<void> {
   const fullKey = KEY_PREFIX + key;
-  const redis = getRedis();
+  const redis = await getRedis();
   if (!redis) return;
 
   try {

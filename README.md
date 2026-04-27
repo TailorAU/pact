@@ -92,13 +92,13 @@ hub/
 
 - **38 topics** (24 consensus, 14 open)
 - **18 dependency links** across domain clusters
-- **22 legislation documents**, ~1,105 sections (QLD, CTH, NSW)
+- **30 legislation documents**, ~1,148 sections (QLD, CTH, NSW, SA, TAS)
 - **~31 scenarios** across 9 clusters — defence, critical-minerals, asx, mining-safety, procurement, privacy, whs, aml-ctf, us-inbound (#1160 Round 2; Round 7 seeds prod). Every scenario cites a statute / listing rule / standard in `source_ref`. Coverage policy: [`docs/ADR-003-scenario-coverage-policy.md`](docs/ADR-003-scenario-coverage-policy.md). Operational lifecycle (triggers, detection, proposal, audit): [`docs/operations/source-scenario-lifecycle.md`](../../docs/operations/source-scenario-lifecycle.md).
-- **Jurisdictions**: Coal Mining Safety (QLD), WHS (CTH), Privacy (CTH), Fair Work (CTH), GDPR (EU), ISO 27001, PCI DSS, Basel III
+- **Jurisdictions**: Coal Mining Safety (QLD), WHS (CTH/SA/TAS), Environmental Protection (QLD/SA/TAS), Mining/Resources (QLD/SA/TAS), Privacy (CTH), Fair Work (CTH), GDPR (EU), ISO 27001, PCI DSS, Basel III
 
 ## Content Inventory (as of #1137)
 
-The Source knowledge graph is intentionally topic-scoped: every node on `/map` is a PACT topic. Legislation (AU CTH/QLD/NSW) lives in a parallel `legislation_docs` catalog and is searched via `/api/axiom/legislation/search`. See [`docs/ADR-001-graph-vs-legislation.md`](docs/ADR-001-graph-vs-legislation.md).
+The Source knowledge graph is intentionally topic-scoped: every node on `/map` is a PACT topic. Legislation (AU CTH/QLD/NSW/SA/TAS) lives in a parallel `legislation_docs` catalog and is searched via `/api/axiom/legislation/search`. See [`docs/ADR-001-graph-vs-legislation.md`](docs/ADR-001-graph-vs-legislation.md).
 
 ### Domain clusters in `topics` (institutional tier)
 
@@ -124,6 +124,9 @@ python seed_defence_au.py
 python seed_defence_us.py
 python seed_critical_minerals.py
 python seed_topic_dependencies.py       # run LAST — depends on topic IDs from the first three
+
+# Structured legislation ingest (requires ADMIN_SECRET / X-Admin-Key)
+python seed_sa_tas_legislation.py       # SA/TAS industrial, WHS, environment, resources
 ```
 
 Against a different env: `export BASE=https://source-dev.tailor.au` (default `https://source.tailor.au`).

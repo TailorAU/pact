@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 
 const JURISDICTIONS = ["All", "QLD", "NSW", "CTH"] as const;
 type Jurisdiction = (typeof JURISDICTIONS)[number];
@@ -30,13 +31,50 @@ interface LegislationDoc {
   sections?: LegislationSection[];
 }
 
-export default function LegislationPage() {
-  const [jurisdiction, setJurisdiction] = useState<Jurisdiction>("All");
-  const [search, setSearch] = useState("");
+function LegislationPageInner() {
+  // URL is the source of truth for `q` and `jurisdiction` — deep-links from
+  // agents, audit trails, and the federated /search page must pre-populate
+  // the page on first paint, and browser back/forward must reflect filter
+  // history. (#1360)
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const urlJurisdiction = (() => {
+    const raw = searchParams.get("jurisdiction") ?? "All";
+    return (JURISDICTIONS as readonly string[]).includes(raw)
+      ? (raw as Jurisdiction)
+      : "All";
+  })();
+  const urlQuery = searchParams.get("q") ?? "";
+
+  const [jurisdiction, setJurisdiction] = useState<Jurisdiction>(urlJurisdiction);
+  const [search, setSearch] = useState(urlQuery);
   const [docs, setDocs] = useState<LegislationDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+
+  // Re-sync local state on browser back/forward. The URL drives state, not
+  // the other way around — we mirror it back down through the components.
+  useEffect(() => {
+    setJurisdiction(urlJurisdiction);
+  }, [urlJurisdiction]);
+  useEffect(() => {
+    setSearch(urlQuery);
+  }, [urlQuery]);
+
+  // Push state changes back into the URL (debounced via the existing
+  // 300ms search debounce in the loadDocs effect).
+  const pushUrl = useCallback(
+    (j: Jurisdiction, q: string) => {
+      const next = new URLSearchParams();
+      if (j !== "All") next.set("jurisdiction", j);
+      if (q.trim()) next.set("q", q.trim());
+      const qs = next.toString();
+      router.replace(qs ? `/legislation?${qs}` : "/legislation", { scroll: false });
+    },
+    [router]
+  );
 
   const loadDocs = useCallback(async (j: Jurisdiction, q: string) => {
     setLoading(true);
@@ -57,9 +95,12 @@ export default function LegislationPage() {
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => loadDocs(jurisdiction, search), 300);
+    const timer = setTimeout(() => {
+      loadDocs(jurisdiction, search);
+      pushUrl(jurisdiction, search);
+    }, 300);
     return () => clearTimeout(timer);
-  }, [jurisdiction, search, loadDocs]);
+  }, [jurisdiction, search, loadDocs, pushUrl]);
 
   const toggleDoc = (id: string) => {
     setExpandedDoc(expandedDoc === id ? null : id);
@@ -215,5 +256,14 @@ export default function LegislationPage() {
         </Link>
       </div>
     </div>
+  );
+}
+
+export default function LegislationPage() {
+  // Suspense wrapper required for useSearchParams() in Next.js App Router.
+  return (
+    <Suspense fallback={<div className="max-w-4xl mx-auto px-4 py-10 text-pact-dim text-sm">Loading legislation…</div>}>
+      <LegislationPageInner />
+    </Suspense>
   );
 }

@@ -23,13 +23,34 @@ import { debitIfAuthenticated } from "@/lib/wallet-debit";
 //
 // Example: GET /api/axiom/legislation/search?q=assault&jurisdiction=QLD
 // Example: GET /api/axiom/legislation/search?q=construction&preferJurisdiction=AU-QLD
+//
+// Content negotiation (#1360): when a browser hits this URL with
+// `Accept: text/html` (and not specifically asking for JSON), redirect to
+// the human-facing /search UI instead of returning JSON. This bounces
+// users who land on the API URL via a clicked link or address-bar paste
+// into the proper search experience. Programmatic callers (Accept: */*,
+// application/json, missing header, MCP/agent SDKs) keep getting JSON.
+// Important: redirect runs BEFORE debitIfAuthenticated so browser users
+// don't accidentally consume agent credits.
 export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+
+  const acceptHeader = req.headers.get("accept") ?? "";
+  const wantsHtml =
+    acceptHeader.includes("text/html") &&
+    !acceptHeader.includes("application/json");
+  if (wantsHtml) {
+    const redirectTo = new URL("/search", req.url);
+    searchParams.forEach((value, key) => {
+      redirectTo.searchParams.set(key, value);
+    });
+    return NextResponse.redirect(redirectTo, 303);
+  }
+
   const debit = await debitIfAuthenticated(req, 1, "read.legislation");
   if (!debit.ok) {
     return NextResponse.json(debit.body, { status: debit.status });
   }
-
-  const { searchParams } = new URL(req.url);
   const query = searchParams.get("q");
   const jurisdiction = searchParams.get("jurisdiction");
   const preferJurisdictionRaw = searchParams.get("preferJurisdiction");
@@ -372,6 +393,19 @@ export async function GET(req: NextRequest) {
       next: offset + limit < total
         ? `/api/axiom/legislation/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset + limit}`
         : null,
+      // #1360 — human-facing surface for the same query. Agents can surface
+      // this in their UI / share buttons / audit trails to give users a
+      // browsable URL alongside the API response.
+      html: `/search?${(() => {
+        const p = new URLSearchParams();
+        p.set("q", query);
+        if (jurisdiction) p.set("jurisdiction", jurisdiction);
+        if (docType) p.set("type", docType);
+        if (sectionStatus) p.set("status", sectionStatus);
+        if (preferJurisdiction) p.set("preferJurisdiction", preferJurisdiction);
+        if (offset > 0) p.set("offset", String(offset));
+        return p.toString();
+      })()}`,
     },
   });
 }

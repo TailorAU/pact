@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pact-spec.dev/schemas/v1.2/register-entry.json",
+  "title": "PACT Message Register Entry",
+  "description": "An entry in the append-only Message Register. Only visible to human custodians. Records the original and delivered content of all mediated communications.",
+  "type": "object",
+  "required": ["messageId", "epochMs", "senderId", "originalContent", "deliveredContent", "mediationAction"],
+  "properties": {
+    "messageId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique message identifier."
+    },
+    "epochMs": {
+      "type": "integer",
+      "description": "Unix timestamp in milliseconds."
+    },
+    "senderId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Sending agent registration ID."
+    },
+    "recipientId": {
+      "type": ["string", "null"],
+      "format": "uuid",
+      "description": "Target agent, or null for broadcast."
+    },
+    "originalContent": {
+      "type": "string",
+      "description": "Content as submitted by the sender (before mediation)."
+    },
+    "deliveredContent": {
+      "type": ["string", "null"],
+      "description": "Content as delivered to the recipient (after mediation). Null when mediationAction is 'blocked'."
+    },
+    "mediationAction": {
+      "type": "string",
+      "enum": ["forwarded", "summarised", "redacted", "blocked", "held"],
+      "description": "What the mediator did."
+    },
+    "mediationReason": {
+      "type": ["string", "null"],
+      "description": "Why the mediator applied this action."
+    },
+    "disclosureLevel": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 4,
+      "description": "Graduated disclosure level applied (1=metadata only, 2=category, 3=full content, 4=human-only)."
+    },
+    "classificationLevel": {
+      "type": ["string", "null"],
+      "description": "Classification of the original content (e.g., 'official', 'protected', 'secret')."
+    },
+    "sectionId": {
+      "type": ["string", "null"],
+      "description": "Section context."
+    }
+  },
+  "additionalProperties": false
+}

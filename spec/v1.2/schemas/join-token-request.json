@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pact-spec.dev/schemas/v1.2/join-token-request.json",
+  "title": "PACT Join with Token Request",
+  "description": "Request body for POST /api/pact/{documentId}/join-token (BYOK flow)",
+  "type": "object",
+  "required": ["agentName", "token"],
+  "properties": {
+    "agentName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Display name for this agent."
+    },
+    "token": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Invite token issued by the document owner."
+    },
+    "role": {
+      "type": "string",
+      "maxLength": 100,
+      "description": "Optional role descriptor."
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pact-spec.dev/schemas/v1.2/message-response.json",
+  "title": "PACT Mediated Message",
+  "description": "A message as delivered through the mediator. Content may be summarised, redacted, or blocked.",
+  "type": "object",
+  "required": ["messageId", "epochMs", "senderId", "deliveredContent", "mediationAction"],
+  "properties": {
+    "messageId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique message identifier."
+    },
+    "epochMs": {
+      "type": "integer",
+      "description": "Unix timestamp in milliseconds."
+    },
+    "senderId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Registration ID of the sending agent."
+    },
+    "senderDisplay": {
+      "type": "string",
+      "description": "Display name of the sender (may be anonymised by mediator)."
+    },
+    "recipientId": {
+      "type": ["string", "null"],
+      "format": "uuid",
+      "description": "Target agent, or null for broadcast."
+    },
+    "deliveredContent": {
+      "type": ["string", "null"],
+      "description": "Content after mediation (may differ from original). Null when mediationAction is 'blocked'."
+    },
+    "mediationAction": {
+      "type": "string",
+      "enum": ["forwarded", "summarised", "redacted", "blocked", "held"],
+      "description": "What the mediator did to the original content."
+    },
+    "mediationReason": {
+      "type": ["string", "null"],
+      "description": "Why the mediator applied this action."
+    },
+    "disclosureLevel": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 4,
+      "description": "Graduated disclosure level (1=metadata only, 2=category, 3=full content, 4=human-only)."
+    },
+    "classificationLevel": {
+      "type": ["string", "null"],
+      "description": "Classification of the original content (e.g., 'official', 'protected', 'secret'). References the active classification framework."
+    },
+    "sectionId": {
+      "type": ["string", "null"],
+      "description": "Section context if provided."
+    },
+    "acknowledged": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the recipient has acknowledged this message."
+    }
+  },
+  "additionalProperties": false
+}

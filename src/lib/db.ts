@@ -381,6 +381,71 @@ async function initSchema(db: DbClient) {
     `CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_key_hash, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id)`,
     `CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC)`,
+
+    // ── GTFS / Transit Tables (#875) ─────────────────────────────────────
+    // Translink SEQ GTFS static feed — weekly refresh via /api/cron/gtfs-sync.
+    // Full stops + train routes. stop_times scoped to rail trips through the
+    // 7 SEQ stations relevant to QIC v1 to keep storage bounded.
+    `CREATE TABLE IF NOT EXISTS transit_stops (
+      stop_id TEXT PRIMARY KEY,
+      stop_name TEXT NOT NULL,
+      stop_lat DOUBLE PRECISION NOT NULL,
+      stop_lon DOUBLE PRECISION NOT NULL,
+      stop_timezone TEXT,
+      retrieved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      effective_date TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS transit_routes (
+      route_id TEXT PRIMARY KEY,
+      route_short_name TEXT NOT NULL,
+      route_long_name TEXT NOT NULL,
+      route_type INTEGER NOT NULL,
+      retrieved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS transit_trips (
+      trip_id TEXT PRIMARY KEY,
+      route_id TEXT NOT NULL,
+      service_id TEXT NOT NULL,
+      trip_headsign TEXT,
+      retrieved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS transit_stop_times (
+      trip_id TEXT NOT NULL,
+      stop_id TEXT NOT NULL,
+      arrival_time TEXT NOT NULL,
+      departure_time TEXT NOT NULL,
+      stop_sequence INTEGER NOT NULL,
+      PRIMARY KEY (trip_id, stop_sequence)
+    )`,
+    `CREATE TABLE IF NOT EXISTS gtfs_sync_log (
+      id TEXT PRIMARY KEY,
+      feed_url TEXT NOT NULL,
+      stops_ingested INTEGER NOT NULL DEFAULT 0,
+      routes_ingested INTEGER NOT NULL DEFAULT 0,
+      trips_ingested INTEGER NOT NULL DEFAULT 0,
+      stop_times_ingested INTEGER NOT NULL DEFAULT 0,
+      errors TEXT,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_transit_stops_name ON transit_stops(stop_name)`,
+    `CREATE INDEX IF NOT EXISTS idx_transit_routes_type ON transit_routes(route_type)`,
+    `CREATE INDEX IF NOT EXISTS idx_transit_trips_route ON transit_trips(route_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_transit_st_stop ON transit_stop_times(stop_id)`,
+
+    // ── QLD Cadastre Cache (#875) ─────────────────────────────────────────
+    // ETag-cached proxy over QLD Spatial Cadastre ArcGIS REST.
+    // lot_plan → GeoJSON polygon. expires_at defaults 7 days; revalidated
+    // on expiry using the upstream ETag before a full re-fetch.
+    `CREATE TABLE IF NOT EXISTS cadastre_cache (
+      lot_plan TEXT PRIMARY KEY,
+      geometry_json TEXT NOT NULL,
+      object_id TEXT,
+      etag TEXT,
+      retrieved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_cadastre_expires ON cadastre_cache(expires_at)`,
   ];
 
   for (const stmt of statements) {

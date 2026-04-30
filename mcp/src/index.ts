@@ -54,7 +54,7 @@ async function sourceGet(path: string, axiomAuth = false): Promise<unknown> {
 function createServer(): McpServer {
   const server = new McpServer({
     name: "Source — Verified Knowledge Graph",
-    version: "0.4.0",
+    version: "0.5.0",
   });
 
   server.tool(
@@ -438,6 +438,99 @@ function createServer(): McpServer {
           },
         });
         return jsonResult({ assignmentId, ...((submit as object) ?? {}) });
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  // ── Evidence Pack Tools (#876) ─────────────────────────────────
+
+  server.tool(
+    "source_get_evidence_pack",
+    "Assemble a complete, traceable evidence pack for a Queensland property development assessment. Composes statute citations, spatial derived facts (flood/zoning/heritage), TOD catchment membership, and cadastre geometry into a single verified response. Provide lotPlan (e.g. '123RP456789') and/or lat+lon.",
+    {
+      lotPlan: z.string().optional().describe("QLD lot-plan reference (e.g. '123RP456789') — fetches cadastre polygon"),
+      lat: z.number().optional().describe("Parcel centroid latitude (decimal degrees)"),
+      lon: z.number().optional().describe("Parcel centroid longitude (decimal degrees)"),
+      domain: z.string().optional().describe("Evidence domain (default: 'property_development')"),
+      legislationQuery: z.string().optional().describe("Search term for statute citations (default: 'planning development')"),
+    },
+    async ({ lotPlan, lat, lon, domain, legislationQuery }) => {
+      try {
+        if (!lotPlan && (lat == null || lon == null)) {
+          return errorResult("Provide lotPlan or both lat and lon");
+        }
+        const body: Record<string, unknown> = {};
+        if (lotPlan) body.lotPlan = lotPlan;
+        if (lat != null) body.lat = lat;
+        if (lon != null) body.lon = lon;
+        if (domain) body.domain = domain;
+        if (legislationQuery) body.legislationQuery = legislationQuery;
+        const res = await fetch(`${BASE_URL}/api/source/evidence-pack`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          throw new Error(`${res.status} ${res.statusText}: ${txt.slice(0, 200)}`);
+        }
+        return jsonResult(await res.json());
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_verify_claim",
+    "Check a factual claim against the Source knowledge graph — searches legislation sections and institutional topics for supporting or contradicting evidence. Returns ranked evidence with confidence levels and traceability.",
+    {
+      claim: z.string().describe("The factual claim to verify (e.g. 'Development within 400m of a train station requires TOD assessment')"),
+      jurisdiction: z.string().optional().describe("Filter: QLD, CTH, NSW"),
+      domain: z.string().optional().describe("Scope to a domain (e.g. 'property_development')"),
+      limit: z.number().optional().describe("Max evidence items returned (default: 5)"),
+    },
+    async ({ claim, jurisdiction, domain, limit }) => {
+      try {
+        const params = new URLSearchParams({ q: claim });
+        if (jurisdiction) params.set("jurisdiction", jurisdiction);
+        if (limit) params.set("limit", String(limit));
+        const legResults = await sourceGet(`/api/axiom/legislation/search?${params}`);
+        const topicParams = new URLSearchParams({ q: claim });
+        if (jurisdiction) topicParams.set("jurisdiction", jurisdiction);
+        if (domain) topicParams.set("domain", domain);
+        topicParams.set("limit", String(limit ?? 5));
+        let topicResults: unknown = null;
+        try {
+          topicResults = await sourceGet(`/api/pact/topics?${topicParams}`);
+        } catch { /* topics search is best-effort */ }
+        return jsonResult({
+          claim,
+          searchedAt: new Date().toISOString(),
+          legislation: legResults,
+          topics: topicResults,
+          note: "Evidence is ranked by full-text relevance. Review each item's derivedFrom and limitations before citing.",
+        });
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_get_source_graph",
+    "Get the dependency graph for a Source topic — resolves builds_on, assumes, and co_applies edges recursively to show the full evidential chain supporting a knowledge claim.",
+    {
+      topicId: z.string().describe("Topic UUID or scenario id"),
+      depth: z.number().optional().describe("Dependency resolution depth (1=direct, 2=transitive, default: 2)"),
+    },
+    async ({ topicId, depth }) => {
+      try {
+        const encoded = encodeURIComponent(topicId);
+        const depthParam = depth != null ? `?depth=${depth}` : "";
+        let graph: unknown = null;
+        try {
+          graph = await sourceGet(`/api/pact/${encoded}/dependencies${depthParam}`);
+        } catch {
+          graph = await sourceGet(`/api/pact/${encoded}/content?resolve=true`);
+        }
+        return jsonResult({ topicId, graph });
       } catch (e) { return errorResult(e); }
     }
   );

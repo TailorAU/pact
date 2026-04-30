@@ -446,11 +446,58 @@ async function initSchema(db: DbClient) {
       expires_at TIMESTAMPTZ NOT NULL
     )`,
     `CREATE INDEX IF NOT EXISTS idx_cadastre_expires ON cadastre_cache(expires_at)`,
+
+    // ── Domains registry (#876) ────────────────────────────────────────────
+    // Domain = a vertical use-case that groups legislation collections,
+    // spatial layers, and scenario clusters into a named evidence domain.
+    // First domain: property_development (QIC Fabric engine).
+    `CREATE TABLE IF NOT EXISTS domains (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      legislation_collection TEXT,
+      spatial_layers TEXT,
+      scenario_clusters TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_domains_name ON domains(name)`,
+
+    // ── Fact-model delta fields (#876) ─────────────────────────────────────
+    // Added to existing tables as safe ALTER TABLE ... ADD COLUMN IF NOT EXISTS.
+    // domain: which evidence domain this fact belongs to
+    // derived_from: JSON array of source references (traceability)
+    // limitations: JSON array of epistemic caveats
+    // spatial_basis: spatial computation basis (for spatial-derived facts)
+    `ALTER TABLE topics ADD COLUMN IF NOT EXISTS domain TEXT`,
+    `ALTER TABLE topics ADD COLUMN IF NOT EXISTS derived_from TEXT`,
+    `ALTER TABLE topics ADD COLUMN IF NOT EXISTS limitations TEXT`,
+    `ALTER TABLE topics ADD COLUMN IF NOT EXISTS spatial_basis TEXT`,
+    `ALTER TABLE legislation_docs ADD COLUMN IF NOT EXISTS domain TEXT`,
+    `ALTER TABLE legislation_docs ADD COLUMN IF NOT EXISTS derived_from TEXT`,
+    `ALTER TABLE legislation_docs ADD COLUMN IF NOT EXISTS limitations TEXT`,
+    `ALTER TABLE legislation_sections ADD COLUMN IF NOT EXISTS domain TEXT`,
+    `ALTER TABLE legislation_sections ADD COLUMN IF NOT EXISTS spatial_basis TEXT`,
+    `CREATE INDEX IF NOT EXISTS idx_topics_domain ON topics(domain)`,
+    `CREATE INDEX IF NOT EXISTS idx_legdoc_domain ON legislation_docs(domain)`,
+    `CREATE INDEX IF NOT EXISTS idx_legsec_domain ON legislation_sections(domain)`,
   ];
 
   for (const stmt of statements) {
     await db.execute(stmt);
   }
+
+  // Seed property_development domain
+  try {
+    await db.execute(
+      `INSERT INTO domains (id, name, description, legislation_collection, spatial_layers, scenario_clusters)
+       VALUES ('property_development', 'Property Development',
+         'Queensland property development — planning, zoning, TOD policy, infrastructure',
+         '["QLD"]',
+         '["flood_overlay","zoning","heritage","infrastructure_contributions"]',
+         '["scn.au-qld-property"]')
+       ON CONFLICT (id) DO NOTHING`
+    );
+  } catch { /* Already exists */ }
 
   // Ensure the Hub Protocol system agent and wallet exist
   try {

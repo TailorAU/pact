@@ -616,42 +616,92 @@ class QldApiClient:
         return {"Authorization": f"Bearer {self._token}", "Accept": accept}
 
     def latest_version(self, qld_id: str) -> dict[str, Any] | None:
-        # Match the qld-parser.ts behaviour: list all reprints, pick the one
-        # with the highest first_valid_date.
+        """Find the most recent in-force version of an act / regulation.
+
+        The QLD Legislation API segregates documents by `print_type`. Acts
+        usually live under `act-reprint`, but newer reprints sometimes only
+        appear under `as-made` or `act-as-made`, and subordinate legislation
+        (SL-xxxx) tends to live under `regulation-reprint` or no print_type
+        filter at all. Try the most-likely candidates in order, then fall
+        back to a no-print-type search before giving up.
+        """
+        # Order candidates from most to least specific. The QLD API rejects
+        # unknown values (some endpoints 400, others just return zero rows),
+        # so any candidate that errors is silently skipped.
+        candidates: list[str | None] = (
+            [
+                "act-reprint",
+                "act-as-made",
+                "act-as-passed",
+                "as-made",
+                "as-passed",
+                "consolidated",
+                "published",
+                None,
+            ]
+            if qld_id.startswith("Act-")
+            else [
+                "regulation-reprint",
+                "regulation-as-made",
+                "as-made",
+                "consolidated",
+                None,
+            ]
+        )
+        last_status = None
+        for print_type in candidates:
+            params = {"page": 1, "limit": 50, "id": qld_id}
+            if print_type:
+                params["print_type"] = print_type
+            resp = self._session.get(
+                f"{QLD_API}/v1/documents",
+                params=params,
+                headers=self._headers(),
+                timeout=30,
+            )
+            last_status = resp.status_code
+            if not resp.ok:
+                continue
+            data = resp.json()
+            docs = data.get("documents") or []
+            if not docs:
+                continue
+            best = max(docs, key=lambda d: d.get("first_valid_date") or "0000-00-00")
+            best["_print_type_used"] = print_type or "(none)"
+            return best
+        # Final fallback: bare search with no filters at all.
         resp = self._session.get(
             f"{QLD_API}/v1/documents",
-            params={
-                "page": 1,
-                "limit": 50,
-                "print_type": "act-reprint",
-                "id": qld_id,
-            },
+            params={"page": 1, "limit": 50, "id": qld_id},
             headers=self._headers(),
             timeout=30,
         )
         if not resp.ok:
-            # Some IDs (e.g. SL- subordinate legislation) only respond to
-            # different print_type values. Fall back to a no-print-type search.
-            resp = self._session.get(
-                f"{QLD_API}/v1/documents",
-                params={"page": 1, "limit": 50, "id": qld_id},
-                headers=self._headers(),
-                timeout=30,
-            )
-            if not resp.ok:
-                return None
+            print(f"    no candidates found for {qld_id} (last status {last_status})")
+            return None
         data = resp.json()
         docs = data.get("documents") or []
         if not docs:
+            print(f"    no documents returned for {qld_id} (last status {last_status})")
             return None
-        return max(docs, key=lambda d: d.get("first_valid_date") or "0000-00-00")
+        best = max(docs, key=lambda d: d.get("first_valid_date") or "0000-00-00")
+        best["_print_type_used"] = "(bare-search)"
+        return best
 
-    def fetch_html(self, qld_id: str, point_in_time: str | None = None) -> str:
+    def fetch_html(
+        self,
+        qld_id: str,
+        point_in_time: str | None = None,
+        print_type: str | None = None,
+    ) -> str:
+        """Fetch the HTML rendition. `print_type` should be the value that
+        actually returned a hit in `latest_version()` — the rendition endpoint
+        only accepts the same set the search endpoint indexes."""
         path = f"/v1/renditions/html/{urlquote(qld_id)}"
         params: dict[str, str] = {}
-        # The act-reprint print type matches what the existing qld-parser
-        # uses — leave the regulation default open (the API will choose).
-        if qld_id.startswith("Act-"):
+        if print_type and print_type not in ("(none)", "(bare-search)"):
+            params["print_type"] = print_type
+        elif qld_id.startswith("Act-"):
             params["print_type"] = "act-reprint"
         if point_in_time:
             params["point_in_time"] = point_in_time
@@ -783,28 +833,37 @@ def parse_qld_html(html: str) -> list[dict[str, Any]]:
 def seed_legislation(base_url: str, admin_key: str) -> dict[str, Any]:
     print(f"[phase 1] Fetching {len(SEQ_STATUTES)} SEQ statutes from {QLD_API}")
     client = QldApiClient()
+    print(f"[phase 1] Authenticated; iterating statutes")
 
     docs_to_ingest: list[dict[str, Any]] = []
     fetch_errors: list[str] = []
 
     for entry in SEQ_STATUTES:
         qld_id = entry["qld_id"]
+        print(f"  -> {qld_id} ({entry['title']})")
         try:
             doc = client.latest_version(qld_id)
             if not doc:
-                fetch_errors.append(f"{qld_id}: no versions found")
+                msg = f"{qld_id}: no versions found"
+                print(f"    SKIP {msg}")
+                fetch_errors.append(msg)
                 continue
             if str(doc.get("repealed", "")).upper() == "Y":
-                fetch_errors.append(f"{qld_id}: repealed")
+                msg = f"{qld_id}: repealed"
+                print(f"    SKIP {msg}")
+                fetch_errors.append(msg)
                 continue
 
             point_in_time = doc.get("first_valid_date") or None
-            html = client.fetch_html(qld_id, point_in_time=point_in_time)
+            print_type_used = doc.get("_print_type_used")
+            html = client.fetch_html(
+                qld_id, point_in_time=point_in_time, print_type=print_type_used
+            )
             sections = parse_qld_html(html)
             if not sections:
-                fetch_errors.append(
-                    f"{qld_id}: no sections parsed (html {len(html)} chars)"
-                )
+                msg = f"{qld_id}: no sections parsed (html {len(html)} chars, print_type={print_type_used})"
+                print(f"    SKIP {msg}")
+                fetch_errors.append(msg)
                 continue
 
             in_force = doc.get("first_valid_date") or None
@@ -839,12 +898,14 @@ def seed_legislation(base_url: str, admin_key: str) -> dict[str, Any]:
 
             docs_to_ingest.append(doc_payload)
             print(
-                f"  fetched {qld_id} -> {len(sections)} sections "
-                f"(in_force={in_force}, version={version_id})"
+                f"    OK {qld_id} -> {len(sections)} sections "
+                f"(in_force={in_force}, version={version_id}, print_type={print_type_used})"
             )
             time.sleep(2.0)  # be a polite caller — same throttle as qld-parser.ts
         except Exception as exc:
-            fetch_errors.append(f"{qld_id}: {exc}")
+            msg = f"{qld_id}: {exc}"
+            print(f"    ERROR {msg}")
+            fetch_errors.append(msg)
 
     if not docs_to_ingest:
         return {
@@ -913,8 +974,15 @@ def seed_topics() -> dict[str, Any]:
     print(f"[phase 2] Upserting {len(ALL_TOPICS)} topics directly into Postgres")
     created = 0
     updated = 0
-    with psycopg2.connect(db_url) as conn:  # type: ignore[arg-type]
-        with conn:
+    # NOTE: psycopg2 connections are themselves context managers that wrap a
+    # transaction (commit on success, rollback on exception). Nesting `with
+    # conn:` inside a top-level connection-as-transaction context manager
+    # raises `the connection cannot be re-entered recursively`. Use the
+    # connection directly as the transaction scope and explicitly close it
+    # in `finally`.
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn:  # transaction scope
             with conn.cursor() as cur:
                 for topic in ALL_TOPICS:
                     # Embed retrievedAt + documentVersionId in the body so the
@@ -965,6 +1033,8 @@ def seed_topics() -> dict[str, Any]:
                     else:
                         created += 1
                         print(f"  created {topic['id']}")
+    finally:
+        conn.close()
     return {"phase": "topics", "created": created, "updated": updated, "total": len(ALL_TOPICS)}
 
 
@@ -1097,13 +1167,23 @@ def main() -> int:
     base = args.base_url.rstrip("/")
     summary: dict[str, Any] = {"retrievedAt": RETRIEVED_AT, "phases": []}
 
+    legislation_ok = True
+
     if args.phase in ("all", "legislation"):
         if not args.admin_key:
             print("ERROR: phase 1 needs --admin-key or ADMIN_SECRET env var")
             return 1
         try:
-            summary["phases"].append(seed_legislation(base, args.admin_key))
+            phase1 = seed_legislation(base, args.admin_key)
+            summary["phases"].append(phase1)
+            if phase1.get("ingested", 0) == 0:
+                legislation_ok = False
+                print(
+                    "ERROR: phase 1 ingested zero documents — skipping phases 2 and 3 "
+                    "to avoid creating dangling scenario edges. See errors above."
+                )
         except Exception as exc:
+            legislation_ok = False
             print(f"ERROR: phase 1 crashed: {exc}")
             summary["phases"].append({
                 "phase": "legislation",
@@ -1112,25 +1192,39 @@ def main() -> int:
                 "errors": [f"crashed: {exc}"],
             })
 
-    if args.phase in ("all", "topics-and-scenarios", "topics"):
-        summary["phases"].append(seed_topics())
+    # Phase 2 + 3 only run if phase 1 succeeded — otherwise the scenarios
+    # would carry edges to topics/legislation that don't exist yet.
+    if legislation_ok and args.phase in ("all", "topics-and-scenarios", "topics"):
+        try:
+            summary["phases"].append(seed_topics())
+        except Exception as exc:
+            print(f"ERROR: phase 2 (topics) crashed: {exc}")
+            summary["phases"].append({"phase": "topics", "errors": [f"crashed: {exc}"]})
 
-    if args.phase in ("all", "topics-and-scenarios", "scenarios"):
-        summary["phases"].append(seed_scenarios())
+    if legislation_ok and args.phase in ("all", "topics-and-scenarios", "scenarios"):
+        try:
+            summary["phases"].append(seed_scenarios())
+        except Exception as exc:
+            print(f"ERROR: phase 3 (scenarios) crashed: {exc}")
+            summary["phases"].append({"phase": "scenarios", "errors": [f"crashed: {exc}"]})
 
     print()
     print("=== Summary ===")
     print(json.dumps(summary, indent=2, default=str))
 
-    # Surface any phase-1 fetch errors in the exit code so CI flags them.
+    if not legislation_ok:
+        return 1
+
+    # Soft warnings for partial phase-1 errors.
     for p in summary["phases"]:
-        if p.get("phase") == "legislation":
-            if p.get("ingested", 0) == 0:
-                print("WARN: phase 1 ingested zero documents — see errors above")
-                return 1
-            if p.get("errors"):
-                # Soft-fail: docs landed but some statutes were skipped.
-                print(f"WARN: phase 1 had {len(p['errors'])} fetch error(s)")
+        if p.get("phase") == "legislation" and p.get("errors"):
+            print(f"WARN: phase 1 had {len(p['errors'])} fetch error(s)")
+
+    # Hard-fail if any non-legislation phase reported a crash.
+    for p in summary["phases"]:
+        if p.get("phase") in ("topics", "scenarios") and p.get("errors"):
+            return 1
+
     return 0
 
 

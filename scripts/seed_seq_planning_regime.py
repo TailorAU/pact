@@ -694,25 +694,60 @@ class QldApiClient:
         point_in_time: str | None = None,
         print_type: str | None = None,
     ) -> str:
-        """Fetch the HTML rendition. `print_type` should be the value that
-        actually returned a hit in `latest_version()` — the rendition endpoint
-        only accepts the same set the search endpoint indexes."""
+        """Fetch the HTML rendition.
+
+        Mirrors `qld-parser.ts` which leaves the `Accept` header unset (the
+        QLD rendition endpoint returns 406 when we explicitly demand
+        `text/html`). Also tries multiple print_type candidates and drops
+        the optional `point_in_time` after the first attempt — the QLD API
+        rejects valid date / print_type pairs from the search endpoint when
+        the rendition endpoint hasn't indexed that exact pair.
+        """
         path = f"/v1/renditions/html/{urlquote(qld_id)}"
-        params: dict[str, str] = {}
+        # Carry the candidate that worked for search first, then try the
+        # other plausible values for rendition.
+        primary_candidates: list[str | None] = []
         if print_type and print_type not in ("(none)", "(bare-search)"):
-            params["print_type"] = print_type
-        elif qld_id.startswith("Act-"):
-            params["print_type"] = "act-reprint"
-        if point_in_time:
-            params["point_in_time"] = point_in_time
-        resp = self._session.get(
-            f"{QLD_API}{path}",
-            params=params,
-            headers=self._headers(accept="text/html"),
-            timeout=60,
+            primary_candidates.append(print_type)
+        primary_candidates.extend(
+            ["act-reprint", "act-as-made", "act-as-passed", "as-made", None]
+            if qld_id.startswith("Act-")
+            else ["regulation-reprint", "regulation-as-made", "as-made", None]
         )
-        resp.raise_for_status()
-        return _normalize_encoding(resp.text)
+        # De-duplicate while preserving order.
+        seen: set[str | None] = set()
+        ordered: list[str | None] = []
+        for c in primary_candidates:
+            if c not in seen:
+                seen.add(c)
+                ordered.append(c)
+
+        last_status: int | None = None
+        last_url: str | None = None
+        for attempt_idx, candidate in enumerate(ordered):
+            params: dict[str, str] = {}
+            if candidate:
+                params["print_type"] = candidate
+            # First attempt: pin to first_valid_date. Later attempts: drop
+            # it — point_in_time / print_type combos are not always valid.
+            if attempt_idx == 0 and point_in_time:
+                params["point_in_time"] = point_in_time
+            # Important: NO Accept header — qld-parser.ts leaves it unset
+            # and the QLD endpoint 406s if we explicitly demand text/html.
+            resp = self._session.get(
+                f"{QLD_API}{path}",
+                params=params,
+                headers={"Authorization": f"Bearer {self._token}"},
+                timeout=60,
+            )
+            last_status = resp.status_code
+            last_url = resp.url
+            if resp.ok:
+                return _normalize_encoding(resp.text)
+        raise RuntimeError(
+            f"rendition failed for {qld_id} "
+            f"(last status {last_status}, last url {last_url})"
+        )
 
 
 def _normalize_encoding(text: str) -> str:

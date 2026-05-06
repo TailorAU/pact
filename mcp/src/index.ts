@@ -535,6 +535,26 @@ function createServer(): McpServer {
     }
   );
 
+  // ── Market: Quote Rates (#1192) ─────────────────────────────────
+
+  server.tool(
+    "source_quote_rates",
+    "Get canonical retail rates for material item-keys across linked AU retailers. Returns cheapest per key plus all observations for comparison. Used by Traide for live quote pricing (replaces hardcoded TRADE_TEMPLATES rates). Public, unauthenticated. Item-key examples: wall-tile-porcelain, grout-floor, paint-primer, treated-pine-90x45, colorbond-roof-sheet.",
+    {
+      items: z
+        .array(z.string())
+        .min(1)
+        .max(64)
+        .describe("Item keys, e.g. ['wall-tile-porcelain','waterproofing-membrane','grout-floor']"),
+    },
+    async ({ items }) => {
+      try {
+        const qs = new URLSearchParams({ items: items.join(",") }).toString();
+        return jsonResult(await sourceGet(`/api/market/quote-rates?${qs}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
   // ── Contribution Tools ──────────────────────────────────────────
 
   server.tool(

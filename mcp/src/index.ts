@@ -555,6 +555,99 @@ function createServer(): McpServer {
     }
   );
 
+  // ── Market: Price Observation Mining (#1216) ────────────────────
+
+  server.tool(
+    "source_claim_price_assignment",
+    "Claim an open price_observation_mining assignment for a (item_key, retailer) pair. Daily cron opens assignments for stale (>24h) pairs across the 5 hardware retailers (bunnings, mitre-10, reece, beaumont-tiles, tradelink). Use this then call source_submit_price_observation with the same assignmentId. Requires SOURCE_AGENT_KEY.",
+    {
+      itemKey: z
+        .string()
+        .optional()
+        .describe(
+          "Optional — preferred item key (e.g. 'wall-tile-porcelain'). If omitted, the next stale assignment is claimed.",
+        ),
+      retailerSlug: z
+        .string()
+        .optional()
+        .describe("Optional — preferred retailer slug. Combine with itemKey for a specific pair."),
+      expiresInMinutes: z
+        .number()
+        .optional()
+        .describe("Assignment TTL in minutes (default 60, max 1440)."),
+    },
+    async ({ itemKey, retailerSlug, expiresInMinutes }) => {
+      try {
+        const payload: Record<string, unknown> = {};
+        if (itemKey) payload.itemKey = itemKey;
+        if (retailerSlug) payload.retailerSlug = retailerSlug;
+        return jsonResult(
+          await postAgent("/api/work/claim", {
+            workType: "price_observation_mining",
+            payload,
+            expiresInMinutes,
+          }),
+        );
+      } catch (e) {
+        return errorResult(e);
+      }
+    },
+  );
+
+  server.tool(
+    "source_submit_price_observation",
+    "Submit a mined retail price for a price_observation_mining assignment. Two-stage validator: (1) deterministic checks (URL HEAD 200, retailer-domain match, sanity range, unit match); (2) consensus (±10% of running median for same item_key+retailer over last 14 days). Accepted observations earn 2 credits. Outliers / cold-start / range violations land in market.price_observation_defects for curator review. Requires SOURCE_AGENT_KEY.",
+    {
+      assignmentId: z.string().describe("ID of the assignment claimed via source_claim_price_assignment"),
+      itemKey: z.string().describe("Item key (e.g. 'wall-tile-porcelain')"),
+      retailerSlug: z.string().describe("Retailer slug (e.g. 'bunnings')"),
+      productName: z.string().describe("Product name as listed by the retailer (5-250 chars)"),
+      productUrl: z.string().describe("Public product page URL on the retailer's site"),
+      ean: z.string().optional().describe("EAN/GTIN if available — improves product de-duplication"),
+      priceCents: z.number().describe("Total product price in cents AUD (incl. GST)"),
+      unitPriceCents: z
+        .number()
+        .describe("Per-unit price in cents (e.g. cents per m², cents per L) — must match item_key.unit"),
+      unitPriceUnit: z
+        .string()
+        .describe("Unit string matching item_key.unit (e.g. 'm²', 'lm', 'L', 'item', 'kg')"),
+      inStock: z.boolean().optional().describe("Stock availability (default true)"),
+    },
+    async ({
+      assignmentId,
+      itemKey,
+      retailerSlug,
+      productName,
+      productUrl,
+      ean,
+      priceCents,
+      unitPriceCents,
+      unitPriceUnit,
+      inStock,
+    }) => {
+      try {
+        return jsonResult(
+          await postAgent("/api/work/submit", {
+            assignmentId,
+            submission: {
+              itemKey,
+              retailerSlug,
+              productName,
+              productUrl,
+              ean,
+              priceCents,
+              unitPriceCents,
+              unitPriceUnit,
+              inStock,
+            },
+          }),
+        );
+      } catch (e) {
+        return errorResult(e);
+      }
+    },
+  );
+
   // ── Contribution Tools ──────────────────────────────────────────
 
   server.tool(

@@ -21,13 +21,15 @@ export type WorkType =
   | "scrape"
   | "qa_spot_check"
   | "dependency_proposal"
-  | "applicability_spotcheck";
+  | "applicability_spotcheck"
+  | "price_observation_mining";
 
 export const WORK_REWARDS: Record<WorkType, number> = {
   scrape: 5,
   qa_spot_check: 2,
   dependency_proposal: 10,
   applicability_spotcheck: 3,
+  price_observation_mining: 2,
 };
 
 /** Max credits payable for a single review_existing submission (per handoff §8.1). */
@@ -40,6 +42,10 @@ export interface ValidationResult {
   notes: string;
   /** #1160 — defect rows to persist after acceptance (review_existing mode only). */
   defects?: ApplicabilityDefectDraft[];
+  /** #1216 — observation row to persist (when accepted OR when cold-start defer). */
+  priceObservation?: PriceObservationDraft;
+  /** #1216 — defect row to persist (cold-start, outlier, sanity-range, unit-mismatch). */
+  priceDefect?: PriceObservationDefectDraft;
 }
 
 /** A defect the caller can persist after a successful review_existing. */
@@ -49,6 +55,37 @@ export interface ApplicabilityDefectDraft {
   targetKind: "topic" | "legislation" | null;
   targetId: string | null;
   reason: string;
+  potentialCredits: number;
+}
+
+/** #1216 — observation hint passed back to the submit handler for find-or-create + insert. */
+export interface PriceObservationDraft {
+  itemKey: string;
+  retailerSlug: string;
+  retailerId: string;
+  productName: string;
+  productEan: string | null;
+  productUrl: string;
+  priceCents: number;
+  unitPriceCents: number;
+  unitPriceUnit: string;
+  inStock: boolean;
+}
+
+/** #1216 — defect hint for outlier / cold-start / sanity-range / unit-mismatch / url-invalid. */
+export interface PriceObservationDefectDraft {
+  itemKey: string;
+  retailerId: string;
+  findingKind:
+    | "outlier_price"
+    | "sanity_range"
+    | "unit_mismatch"
+    | "url_invalid"
+    | "cold_start";
+  reason: string;
+  submittedPriceCents: number | null;
+  submittedUnit: string | null;
+  productUrl: string | null;
   potentialCredits: number;
 }
 
@@ -365,7 +402,7 @@ function coerceJson(v: unknown): Record<string, unknown> {
 export async function validate(
   workType: string,
   submission: Record<string, unknown>,
-  ctx?: ApplicabilityContext,
+  ctx?: ApplicabilityContext & PriceObservationContextExtras,
 ): Promise<ValidationResult> {
   switch (workType) {
     case "scrape":
@@ -379,11 +416,285 @@ export async function validate(
         return reject("applicability_spotcheck requires a validator context (server-side only)");
       }
       return validateApplicabilitySpotCheck(submission, ctx);
+    case "price_observation_mining":
+      if (!ctx) {
+        return reject("price_observation_mining requires a validator context (server-side only)");
+      }
+      return validatePriceObservationMining(submission, ctx);
     default:
       return reject(
-        `unknown work_type '${workType}'; expected one of: scrape, qa_spot_check, dependency_proposal, applicability_spotcheck`,
+        `unknown work_type '${workType}'; expected one of: scrape, qa_spot_check, dependency_proposal, applicability_spotcheck, price_observation_mining`,
       );
   }
+}
+
+// -----------------------------------------------------------------------------
+// #1216 — price_observation_mining (async — needs DB + URL HEAD checks)
+// -----------------------------------------------------------------------------
+
+/** Optional fetcher injection for tests; defaults to native fetch with HEAD + 5s timeout. */
+export interface PriceObservationContextExtras {
+  fetchHead?: (url: string) => Promise<{ ok: boolean; status: number }>;
+}
+
+const PRICE_OBS_CLUSTER_DAYS = 14;
+const PRICE_OBS_CLUSTER_LIMIT = 20;
+const PRICE_OBS_TOLERANCE = 0.1; // ±10% of running median
+
+export async function validatePriceObservationMining(
+  submission: Record<string, unknown>,
+  ctx: ApplicabilityContext & PriceObservationContextExtras,
+): Promise<ValidationResult> {
+  // ── Stage 1 (deterministic) ──────────────────────────────────────
+  const itemKey = asString(submission.itemKey);
+  const retailerSlug = asString(submission.retailerSlug);
+  const productName = asString(submission.productName);
+  const productUrl = asString(submission.productUrl);
+  const ean = asString(submission.ean) || null;
+  const priceCents = asInt(submission.priceCents);
+  const unitPriceCents = asInt(submission.unitPriceCents);
+  const unitPriceUnit = asString(submission.unitPriceUnit);
+  const inStock = submission.inStock !== false;
+
+  if (!itemKey || !retailerSlug || !productName || !productUrl || !unitPriceUnit) {
+    return reject(
+      "price_observation_mining requires itemKey, retailerSlug, productName, productUrl, unitPriceUnit",
+    );
+  }
+  if (priceCents == null || priceCents <= 0 || unitPriceCents == null || unitPriceCents <= 0) {
+    return reject("priceCents and unitPriceCents must be positive integers (in cents)");
+  }
+  if (productName.length < 5 || productName.length > 250) {
+    return reject("productName must be 5-250 chars");
+  }
+
+  // Lookup item key (must exist + not deprecated)
+  const itemRow = await ctx.db.execute({
+    sql: `SELECT unit, sanity_min_cents, sanity_max_cents
+          FROM market.item_key_mapping
+          WHERE item_key = ? AND deprecated_at IS NULL`,
+    args: [itemKey],
+  });
+  if (itemRow.rows.length === 0) {
+    return reject(`unknown or deprecated item_key '${itemKey}'`);
+  }
+  const expectedUnit = String(itemRow.rows[0].unit);
+  const sanityMin =
+    itemRow.rows[0].sanity_min_cents == null ? null : Number(itemRow.rows[0].sanity_min_cents);
+  const sanityMax =
+    itemRow.rows[0].sanity_max_cents == null ? null : Number(itemRow.rows[0].sanity_max_cents);
+
+  // Lookup retailer
+  const retailerRow = await ctx.db.execute({
+    sql: "SELECT id, base_url FROM market.retailers WHERE slug = ? AND active = true",
+    args: [retailerSlug],
+  });
+  if (retailerRow.rows.length === 0) {
+    return reject(`unknown or inactive retailer slug '${retailerSlug}'`);
+  }
+  const retailerId = String(retailerRow.rows[0].id);
+  const retailerHost = parseHost(String(retailerRow.rows[0].base_url));
+  const submittedHost = parseHost(productUrl);
+
+  // Stage 1 — defect: unit mismatch
+  if (unitPriceUnit !== expectedUnit) {
+    return rejectAsDefect({
+      itemKey,
+      retailerId,
+      findingKind: "unit_mismatch",
+      reason: `unit_price_unit '${unitPriceUnit}' does not match item_key.unit '${expectedUnit}'`,
+      submittedPriceCents: unitPriceCents,
+      submittedUnit: unitPriceUnit,
+      productUrl,
+      potentialCredits: 0,
+    });
+  }
+
+  // Stage 1 — defect: hostname mismatch
+  if (
+    !submittedHost ||
+    !retailerHost ||
+    !(submittedHost === retailerHost || submittedHost.endsWith("." + retailerHost))
+  ) {
+    return rejectAsDefect({
+      itemKey,
+      retailerId,
+      findingKind: "url_invalid",
+      reason: `product_url host '${submittedHost ?? "?"}' does not match retailer '${retailerSlug}' (${retailerHost ?? "?"})`,
+      submittedPriceCents: unitPriceCents,
+      submittedUnit: unitPriceUnit,
+      productUrl,
+      potentialCredits: 0,
+    });
+  }
+
+  // Stage 1 — defect: sanity range
+  if (sanityMin != null && unitPriceCents < sanityMin) {
+    return rejectAsDefect({
+      itemKey,
+      retailerId,
+      findingKind: "sanity_range",
+      reason: `unit_price ${unitPriceCents}c below sanity floor ${sanityMin}c for ${itemKey}`,
+      submittedPriceCents: unitPriceCents,
+      submittedUnit: unitPriceUnit,
+      productUrl,
+      potentialCredits: 0,
+    });
+  }
+  if (sanityMax != null && unitPriceCents > sanityMax) {
+    return rejectAsDefect({
+      itemKey,
+      retailerId,
+      findingKind: "sanity_range",
+      reason: `unit_price ${unitPriceCents}c above sanity ceiling ${sanityMax}c for ${itemKey}`,
+      submittedPriceCents: unitPriceCents,
+      submittedUnit: unitPriceUnit,
+      productUrl,
+      potentialCredits: 0,
+    });
+  }
+
+  // Stage 1 — URL HEAD check (last because it's the slowest)
+  const head = await (ctx.fetchHead ?? defaultFetchHead)(productUrl);
+  if (!head.ok) {
+    return rejectAsDefect({
+      itemKey,
+      retailerId,
+      findingKind: "url_invalid",
+      reason: `product_url HEAD returned HTTP ${head.status}`,
+      submittedPriceCents: unitPriceCents,
+      submittedUnit: unitPriceUnit,
+      productUrl,
+      potentialCredits: 0,
+    });
+  }
+
+  const draftObs: PriceObservationDraft = {
+    itemKey,
+    retailerSlug,
+    retailerId,
+    productName,
+    productEan: ean,
+    productUrl,
+    priceCents,
+    unitPriceCents,
+    unitPriceUnit,
+    inStock,
+  };
+
+  // ── Stage 2 (consensus) ──────────────────────────────────────────
+  const recent = await ctx.db.execute({
+    sql: `SELECT po.unit_price_cents
+          FROM market.price_observations po
+          JOIN market.item_key_product_links l
+            ON l.product_id = po.product_id
+           AND l.retailer_id = po.retailer_id
+           AND l.deprecated_at IS NULL
+          WHERE l.item_key = ?
+            AND l.retailer_id = ?
+            AND po.observed_at >= now() - INTERVAL '${PRICE_OBS_CLUSTER_DAYS} days'
+            AND po.unit_price_cents IS NOT NULL
+          ORDER BY po.observed_at DESC
+          LIMIT ${PRICE_OBS_CLUSTER_LIMIT}`,
+    args: [itemKey, retailerId],
+  });
+
+  if (recent.rows.length === 0) {
+    // Cold start — defer for curator review, but persist the observation
+    // so subsequent submissions have a cluster to validate against.
+    return {
+      accept: true,
+      defer: true,
+      credits: 0,
+      notes: `cold_start: first observation for (${itemKey}, ${retailerSlug}); deferred for curator review`,
+      priceObservation: draftObs,
+      priceDefect: {
+        itemKey,
+        retailerId,
+        findingKind: "cold_start",
+        reason: `first observation for (${itemKey}, ${retailerSlug}); curator confirm before subsequent observations earn full credit`,
+        submittedPriceCents: unitPriceCents,
+        submittedUnit: unitPriceUnit,
+        productUrl,
+        potentialCredits: WORK_REWARDS.price_observation_mining,
+      },
+    };
+  }
+
+  const prices = recent.rows
+    .map((r) => Number(r.unit_price_cents))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b);
+  const median = prices[Math.floor(prices.length / 2)];
+  const lower = median * (1 - PRICE_OBS_TOLERANCE);
+  const upper = median * (1 + PRICE_OBS_TOLERANCE);
+
+  if (unitPriceCents < lower || unitPriceCents > upper) {
+    return {
+      accept: false,
+      defer: false,
+      credits: 0,
+      notes: `outlier: ${unitPriceCents}c outside ±${PRICE_OBS_TOLERANCE * 100}% of median ${median}c (n=${prices.length} over ${PRICE_OBS_CLUSTER_DAYS}d)`,
+      priceDefect: {
+        itemKey,
+        retailerId,
+        findingKind: "outlier_price",
+        reason: `submitted ${unitPriceCents}c/${unitPriceUnit} outside ±${PRICE_OBS_TOLERANCE * 100}% of running median ${median}c (n=${prices.length} over ${PRICE_OBS_CLUSTER_DAYS}d)`,
+        submittedPriceCents: unitPriceCents,
+        submittedUnit: unitPriceUnit,
+        productUrl,
+        potentialCredits: 0,
+      },
+    };
+  }
+
+  return {
+    accept: true,
+    defer: false,
+    credits: WORK_REWARDS.price_observation_mining,
+    notes: `consensus accepted: ${unitPriceCents}c/${unitPriceUnit} within ±${PRICE_OBS_TOLERANCE * 100}% of median ${median}c (n=${prices.length})`,
+    priceObservation: draftObs,
+  };
+}
+
+function rejectAsDefect(defect: PriceObservationDefectDraft): ValidationResult {
+  return {
+    accept: false,
+    defer: false,
+    credits: 0,
+    notes: defect.reason,
+    priceDefect: defect,
+  };
+}
+
+function parseHost(u: string): string | null {
+  try {
+    return new URL(u).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+async function defaultFetchHead(url: string): Promise<{ ok: boolean; status: number }> {
+  try {
+    const r = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+      signal: AbortSignal.timeout(5000),
+    });
+    return { ok: r.ok, status: r.status };
+  } catch {
+    return { ok: false, status: 0 };
+  }
+}
+
+function asInt(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.trunc(n) : null;
+  }
+  return null;
 }
 
 function asString(v: unknown): string {

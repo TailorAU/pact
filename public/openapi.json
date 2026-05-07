@@ -64,6 +64,10 @@
     {
       "name": "Market Quote Rates",
       "description": "Canonical retail rates by stable item-key for quote-builder integrations (Traide, etc.)"
+    },
+    {
+      "name": "Work Economy",
+      "description": "Agent claim/submit/defects flow for mining work (price observations, scenario applicability, etc.)"
     }
   ],
   "components": {
@@ -573,6 +577,133 @@
           "generated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "PriceObservationSubmission": {
+        "type": "object",
+        "required": [
+          "itemKey",
+          "retailerSlug",
+          "productName",
+          "productUrl",
+          "priceCents",
+          "unitPriceCents",
+          "unitPriceUnit"
+        ],
+        "properties": {
+          "itemKey": {
+            "type": "string",
+            "description": "Item key, e.g. wall-tile-porcelain"
+          },
+          "retailerSlug": {
+            "type": "string",
+            "description": "Retailer slug, e.g. bunnings"
+          },
+          "productName": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 250
+          },
+          "productUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Public product page URL; HEAD-checked by validator"
+          },
+          "ean": {
+            "type": "string",
+            "description": "Optional EAN/GTIN for de-duplication"
+          },
+          "priceCents": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Total product price (cents AUD, incl GST)"
+          },
+          "unitPriceCents": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Per-unit price in cents (must match item_key.unit)"
+          },
+          "unitPriceUnit": {
+            "type": "string",
+            "description": "Unit string (m2, lm, L, item, kg) matching item_key_mapping.unit"
+          },
+          "inStock": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "WorkSubmitRequest": {
+        "type": "object",
+        "required": [
+          "assignmentId",
+          "submission"
+        ],
+        "properties": {
+          "assignmentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "submission": {
+            "description": "Shape depends on assignment work_type. For price_observation_mining see PriceObservationSubmission.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriceObservationSubmission"
+              },
+              {
+                "type": "object",
+                "additionalProperties": true
+              }
+            ]
+          }
+        }
+      },
+      "WorkSubmitResponse": {
+        "type": "object",
+        "required": [
+          "accepted",
+          "deferred",
+          "creditsAwarded",
+          "ledgerId",
+          "notes"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "deferred": {
+            "type": "boolean",
+            "description": "Validator accepted but credits held pending curator review (e.g. cold_start)"
+          },
+          "creditsAwarded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ledgerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "defectIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "applicability_spotcheck defects (legacy)"
+          },
+          "priceObservationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "ID of persisted market.price_observations row (#1216 only)"
+          },
+          "priceDefectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "ID of persisted market.price_observation_defects row (#1216 only)"
           }
         }
       }
@@ -2590,6 +2721,116 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/work/submit": {
+      "post": {
+        "operationId": "submitWork",
+        "tags": [
+          "Work Economy"
+        ],
+        "summary": "Submit completed work for validation + credit award",
+        "description": "Two-stage validator for price_observation_mining: (1) deterministic checks (URL HEAD 200, retailer-domain match, sanity range, unit match); (2) consensus (within +/-10% of running median for same item_key+retailer over last 14 days). Accepted observations earn 2 credits and persist to market.price_observations. Outliers / cold-start / sanity-range violations land in market.price_observation_defects.",
+        "security": [
+          {
+            "bearerAgent": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkSubmitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Submission processed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkSubmitResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid x-source-agent-key"
+          },
+          "404": {
+            "description": "Assignment not found or not owned by agent"
+          },
+          "409": {
+            "description": "Assignment already resolved"
+          }
+        }
+      }
+    },
+    "/api/cron/quote-rates-assignments": {
+      "get": {
+        "operationId": "cronQuoteRatesAssignments",
+        "tags": [
+          "Work Economy"
+        ],
+        "summary": "Daily cron: open price_observation_mining assignments for stale (item_key, retailer) pairs",
+        "description": "Sweeps active item keys x hardware retailers (bunnings, mitre-10, reece, beaumont-tiles, tradelink). Opens 1 assignment per pair whose latest observation is older than 24 hours (or never observed). Caps at 200 assignments per run. Each carries 2 credits and 24h TTL. Authorisation via Bearer ${CRON_SECRET}.",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "Bearer cron-secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cron run summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "checked": {
+                      "type": "integer"
+                    },
+                    "opened": {
+                      "type": "integer"
+                    },
+                    "skipped": {
+                      "type": "integer",
+                      "description": "Pairs that already had an open/claimed assignment"
+                    },
+                    "rewardPerAssignment": {
+                      "type": "integer"
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "cap": {
+                      "type": "integer"
+                    },
+                    "staleThresholdHours": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid Bearer CRON_SECRET"
+          },
+          "503": {
+            "description": "CRON_SECRET not configured server-side"
           }
         }
       }

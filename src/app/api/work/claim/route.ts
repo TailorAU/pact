@@ -25,11 +25,13 @@ export const dynamic = "force-dynamic";
 
 const DEFAULT_EXPIRES_MINUTES = 60;
 // #1160 Round 3 — applicability_spotcheck joins the roster of claimable work types.
+// #1216 — price_observation_mining (Bunnings/Mitre 10/Reece/Beaumont Tiles retail rates).
 const VALID_TYPES = new Set<WorkType>([
   "scrape",
   "qa_spot_check",
   "dependency_proposal",
   "applicability_spotcheck",
+  "price_observation_mining",
 ]);
 
 export async function POST(req: Request) {
@@ -53,7 +55,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          "workType must be one of: scrape, qa_spot_check, dependency_proposal, applicability_spotcheck",
+          "workType must be one of: scrape, qa_spot_check, dependency_proposal, applicability_spotcheck, price_observation_mining",
       },
       { status: 400 },
     );

@@ -166,6 +166,115 @@ export async function POST(req: Request) {
     }
   }
 
+  // #1216 — price_observation_mining post-validation hook
+  // (a) Find-or-create the market.products row
+  // (b) Find-or-create the market.item_key_product_links row (first-agent-wins canonical)
+  // (c) Insert market.price_observations row
+  // (d) Insert market.price_observation_defects row if validator flagged one
+  // Reads run before the batch since market.products id is generated server-side
+  // and we need it for downstream FKs.
+  let priceObservationId: string | null = null;
+  let priceDefectId: string | null = null;
+  if (workType === "price_observation_mining") {
+    const obs = validation.priceObservation;
+    const defect = validation.priceDefect;
+
+    if (obs) {
+      // Find-or-create product. Prefer EAN match; fall back to (name, retailer) URL exact match.
+      let productId: string | null = null;
+      if (obs.productEan) {
+        const found = await db.execute({
+          sql: "SELECT id FROM market.products WHERE ean = ? LIMIT 1",
+          args: [obs.productEan],
+        });
+        if (found.rows.length > 0) productId = String(found.rows[0].id);
+      }
+      if (!productId) {
+        // Match by exact product_url across observations of the same retailer
+        // (URL is the strongest natural key when EAN is absent).
+        const found = await db.execute({
+          sql: `SELECT po.product_id
+                FROM market.price_observations po
+                WHERE po.retailer_id = ? AND po.product_url = ?
+                ORDER BY po.observed_at DESC
+                LIMIT 1`,
+          args: [obs.retailerId, obs.productUrl],
+        });
+        if (found.rows.length > 0) productId = String(found.rows[0].product_id);
+      }
+      if (!productId) {
+        productId = randomUUID();
+        stmts.push({
+          sql: `INSERT INTO market.products (id, name, ean, category)
+                VALUES (?, ?, ?, 'hardware-quote-rates')`,
+          args: [productId, obs.productName, obs.productEan],
+        });
+      }
+
+      // Find-or-create canonical item_key_product_links row.
+      const linkExists = await db.execute({
+        sql: `SELECT 1 AS one FROM market.item_key_product_links
+              WHERE item_key = ? AND retailer_id = ? AND product_id = ?
+              AND deprecated_at IS NULL
+              LIMIT 1`,
+        args: [obs.itemKey, obs.retailerId, productId],
+      });
+      if (linkExists.rows.length === 0) {
+        stmts.push({
+          sql: `INSERT INTO market.item_key_product_links
+                  (item_key, retailer_id, product_id, tier, is_canonical, curator_notes)
+                VALUES (?, ?, ?, 'standard', true,
+                        'first-agent-wins via price_observation_mining; curator may swap')
+                ON CONFLICT (item_key, retailer_id, product_id, tier) DO NOTHING`,
+          args: [obs.itemKey, obs.retailerId, productId],
+        });
+      }
+
+      // Insert observation
+      priceObservationId = randomUUID();
+      stmts.push({
+        sql: `INSERT INTO market.price_observations
+                (id, product_id, retailer_id, price_cents, unit_price_cents,
+                 unit_price_unit, in_stock, product_url)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          priceObservationId,
+          productId,
+          obs.retailerId,
+          obs.priceCents,
+          obs.unitPriceCents,
+          obs.unitPriceUnit,
+          obs.inStock,
+          obs.productUrl,
+        ],
+      });
+    }
+
+    if (defect) {
+      priceDefectId = randomUUID();
+      stmts.push({
+        sql: `INSERT INTO market.price_observation_defects
+                (id, item_key, retailer_id, submitted_by, assignment_id,
+                 finding_kind, submitted_price_cents, submitted_unit, product_url,
+                 reason, status, potential_credits)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+        args: [
+          priceDefectId,
+          defect.itemKey,
+          defect.retailerId,
+          agent.id,
+          assignmentId,
+          defect.findingKind,
+          defect.submittedPriceCents,
+          defect.submittedUnit,
+          defect.productUrl,
+          defect.reason,
+          defect.potentialCredits,
+        ],
+      });
+    }
+  }
+
   await db.batch(stmts);
 
   return NextResponse.json({
@@ -175,5 +284,7 @@ export async function POST(req: Request) {
     ledgerId,
     notes: validation.notes,
     defectIds: defectIds.length > 0 ? defectIds : undefined,
+    priceObservationId: priceObservationId ?? undefined,
+    priceDefectId: priceDefectId ?? undefined,
   });
 }

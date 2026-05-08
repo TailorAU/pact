@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { randomUUID } from "crypto";
+import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
 
 // POST /api/axiom/legislation/ingest — Bulk-ingest legislation documents with sections
 //
@@ -137,9 +138,28 @@ export async function POST(req: NextRequest) {
     results.push({ id: docId, title: doc.title, sectionsInserted });
   }
 
+  const totalSections = results.reduce((sum, r) => sum + r.sectionsInserted, 0);
+
+  // Audit log — WS2 mutation backfill (one entry for the whole batch)
+  await recordAudit({
+    actorKey: null,
+    actorLabel: "admin",
+    op: "axiom.legislation.ingest",
+    entityType: "legislation_batch",
+    entityId: results[0]?.id ?? null,
+    before: null,
+    after: {
+      documentCount: results.length,
+      totalSections,
+      documentIds: results.map((r) => r.id),
+    },
+    requestId: req.headers.get("x-request-id"),
+    ipCountry: ipCountryFromHeaders(req.headers),
+  });
+
   return NextResponse.json({
     ingested: results.length,
     documents: results,
-    message: `Successfully ingested ${results.length} legislation document(s) with ${results.reduce((sum, r) => sum + r.sectionsInserted, 0)} total sections.`,
+    message: `Successfully ingested ${results.length} legislation document(s) with ${totalSections} total sections.`,
   });
 }

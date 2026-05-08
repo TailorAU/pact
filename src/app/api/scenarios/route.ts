@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { listScenarios } from "@/lib/scenarios/queries";
+import { recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,13 @@ export async function POST(req: Request) {
   }
 
   const db = await getDb();
+  // Read pre-state for audit before/after diff
+  const prior = await db.execute({
+    sql: `SELECT id, title, description FROM scenarios WHERE id = ?`,
+    args: [id],
+  });
+  const beforeSnapshot = prior.rows[0] ?? null;
+
   await db.execute({
     sql: `INSERT INTO scenarios (id, title, description, industry, predicates, tags, source_ref, jurisdiction)
           VALUES (?, ?, ?, ?, ?::jsonb, ?, ?, ?)
@@ -75,5 +83,19 @@ export async function POST(req: Request) {
             updated_at = now()`,
     args: [id, title, description, industry, JSON.stringify(predicates), tags, sourceRef, jurisdiction],
   });
+
+  // Audit log — WS2 mutation backfill
+  // actorKey is null here: admin endpoints use a shared secret, not a per-agent key.
+  await recordAudit({
+    actorKey: null,
+    actorLabel: "admin",
+    op: "scenarios.scenario.create",
+    entityType: "scenario",
+    entityId: id,
+    before: beforeSnapshot ?? null,
+    after: { id, title, description, industry, jurisdiction, tagCount: tags.length },
+    requestId: req.headers.get("x-request-id"),
+  });
+
   return NextResponse.json({ id, status: "upserted" }, { status: 200 });
 }

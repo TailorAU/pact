@@ -8,6 +8,7 @@ import { v4 as uuid } from "uuid";
 import { sanitizeContent } from "@/lib/sanitize";
 import { wouldCreateCycle, VALID_RELATIONSHIPS } from "@/lib/db";
 import { transfer } from "@/lib/economy";
+import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
 
 // List all topics — filterable by tier and status, with pagination.
 // No auth required. Anyone can browse.
@@ -317,6 +318,27 @@ export async function POST(req: NextRequest) {
     tier: topicTier,
     dependencyCount: deps.length,
     assumptionCount: assumptionTopics.length,
+  });
+
+  // Audit log — WS2 mutation backfill
+  await recordAudit({
+    actorKey: agent.id,
+    actorLabel: agent.name,
+    op: "pact.topic.create",
+    entityType: "topic",
+    entityId: topicId,
+    before: null,
+    after: {
+      topicId,
+      title: cleanTitle,
+      tier: topicTier,
+      status: "proposed",
+      jurisdiction: cleanJurisdiction,
+      dependencyCount: deps.length,
+      assumptionCount: assumptionTopics.length,
+    },
+    requestId: req.headers.get("x-request-id"),
+    ipCountry: ipCountryFromHeaders(req.headers),
   });
 
   return NextResponse.json({

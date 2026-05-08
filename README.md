@@ -147,4 +147,6 @@ adds:
 - [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md) — Privacy Act mapping, IRAP-equivalent control mapping, "what we are not certified to" list, QGov procurement summary.
 - [`docs/SLA.md`](docs/SLA.md) — uptime targets, latency targets per surface, maintenance window, service-credit posture.
 - [`docs/SOVEREIGNTY.md`](docs/SOVEREIGNTY.md) — substrate residency table, Cloudflare edge footnote, Azure OpenAI region disclosure, cross-border egress audit.
+- [`docs/DISASTER_RECOVERY.md`](docs/DISASTER_RECOVERY.md) — RTO/RPO targets (1h/15min), Postgres PITR restore procedure, ACA revision rollback, full cold-rebuild, region-level outage posture, quarterly restore-test cadence.
+- [`docs/RUNBOOK_ROLLBACK.md`](docs/RUNBOOK_ROLLBACK.md) — deploy rollback decision tree (5xx spike threshold, health degraded duration, manual override), ACA revision activation, post-rollback actions.
 - [`CHANGELOG.md`](CHANGELOG.md) — Keep-a-Changelog format release notes.

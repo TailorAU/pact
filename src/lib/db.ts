@@ -1,5 +1,18 @@
+import fs from "fs";
+import path from "path";
 import pg from "pg";
 import { v4 as uuid } from "uuid";
+
+// Load legislation DDL from sql/legislation-schema.sql (WS8 extraction).
+// Splits on ";\n" to recover individual statement strings that initSchema
+// passes to db.execute(), matching the inline pattern they replace.
+// Empty strings from the split (e.g. trailing newline) are filtered out.
+const _legislationSqlPath = path.join(process.cwd(), "sql", "legislation-schema.sql");
+const _legislationStatements: string[] = fs
+  .readFileSync(_legislationSqlPath, "utf8")
+  .split(/;\s*\n/)
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0 && !s.startsWith("--"));
 
 // Return TIMESTAMP / TIMESTAMPTZ as ISO strings (not JS Date objects)
 // so existing code that casts date columns to string keeps working.
@@ -277,58 +290,10 @@ async function initSchema(db: DbClient) {
       UNIQUE(topic_id, agent_id, assumption_topic_id)
     )`,
 
-    // ── Legislation Tables ──────────────────────────────────────────
-    `CREATE TABLE IF NOT EXISTS legislation_docs (
-      id TEXT PRIMARY KEY,
-      jurisdiction TEXT NOT NULL,
-      doc_type TEXT NOT NULL DEFAULT 'act',
-      title TEXT NOT NULL,
-      short_title TEXT,
-      year INTEGER,
-      number TEXT,
-      in_force_date TEXT,
-      last_amended_date TEXT,
-      repealed_date TEXT,
-      administered_by TEXT,
-      legislation_url TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`,
-    `CREATE TABLE IF NOT EXISTS legislation_sections (
-      id TEXT PRIMARY KEY,
-      doc_id TEXT NOT NULL REFERENCES legislation_docs(id),
-      topic_id TEXT REFERENCES topics(id),
-      section_id TEXT NOT NULL,
-      title TEXT,
-      content TEXT NOT NULL,
-      depth INTEGER NOT NULL DEFAULT 2,
-      parent_section TEXT,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'in_force',
-      amended_by TEXT,
-      cross_references TEXT,
-      notes TEXT
-    )`,
-    `CREATE TABLE IF NOT EXISTS legislation_relations (
-      id TEXT PRIMARY KEY,
-      from_doc_id TEXT NOT NULL REFERENCES legislation_docs(id),
-      to_doc_id TEXT NOT NULL REFERENCES legislation_docs(id),
-      relation_type TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE(from_doc_id, to_doc_id, relation_type)
-    )`,
-
-    // ── Legislation Sync Log ───────────────────────────────────────
-    `CREATE TABLE IF NOT EXISTS legislation_sync_log (
-      id TEXT PRIMARY KEY,
-      jurisdiction TEXT NOT NULL,
-      sync_type TEXT NOT NULL DEFAULT 'scheduled',
-      docs_checked INTEGER NOT NULL DEFAULT 0,
-      docs_updated INTEGER NOT NULL DEFAULT 0,
-      sections_total INTEGER NOT NULL DEFAULT 0,
-      errors TEXT,
-      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      completed_at TIMESTAMPTZ
-    )`,
+    // ── Legislation Tables + Sync Log + Indexes ──────────────────────
+    // DDL extracted to sites/source/sql/legislation-schema.sql (WS8).
+    // Loaded at module init via readFileSync; see top of file.
+    ..._legislationStatements,
 
     // ── Indexes ─────────────────────────────────────────────────────
     `CREATE INDEX IF NOT EXISTS idx_proposals_topic_status ON proposals(topic_id, status)`,
@@ -355,12 +320,7 @@ async function initSchema(db: DbClient) {
     `CREATE INDEX IF NOT EXISTS idx_usage_created ON axiom_usage_logs(created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_assumption_decl_topic ON assumption_declarations(topic_id)`,
     `CREATE INDEX IF NOT EXISTS idx_assumption_decl_agent ON assumption_declarations(agent_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_legdoc_jurisdiction ON legislation_docs(jurisdiction)`,
-    `CREATE INDEX IF NOT EXISTS idx_legdoc_type ON legislation_docs(doc_type)`,
-    `CREATE INDEX IF NOT EXISTS idx_legsec_doc ON legislation_sections(doc_id, sort_order)`,
-    `CREATE INDEX IF NOT EXISTS idx_legsec_topic ON legislation_sections(topic_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_legsec_section_id ON legislation_sections(section_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_legsec_status ON legislation_sections(status)`,
+    // idx_legdoc_* and idx_legsec_* indexes are now in sql/legislation-schema.sql (WS8)
 
     // ── Audit log (#1308 / MEGA-80 WS5) ─────────────────────────────────
     // Immutable trail of business-relevant mutations. Privacy Act mapping +

@@ -36,6 +36,8 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# sql/ dir required at runtime: initSchema() reads legislation-schema.sql via fs.readFileSync (WS8)
+COPY --from=builder --chown=nextjs:nodejs /app/sql ./sql
 
 USER nextjs
 EXPOSE 3000

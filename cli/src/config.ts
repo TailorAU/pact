@@ -15,6 +15,12 @@ const config = new Conf<PactConfig>({
   },
 });
 
+let agentOverride: string | null = null;
+
+export function setAgentOverride(apiKey: string | null): void {
+  agentOverride = apiKey;
+}
+
 export function getBaseUrl(): string {
   const url = process.env.PACT_BASE_URL ?? config.get('baseUrl');
   if (!url) {
@@ -26,6 +32,8 @@ export function getBaseUrl(): string {
 }
 
 export function getAuthHeader(): { key: string; value: string } | null {
+  if (agentOverride) return { key: 'X-Api-Key', value: agentOverride };
+
   const apiKey = process.env.PACT_API_KEY ?? config.get('apiKey');
   if (apiKey) return { key: 'X-Api-Key', value: apiKey };
 

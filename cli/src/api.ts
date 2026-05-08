@@ -265,3 +265,27 @@ export async function askHuman(
     }),
   });
 }
+
+// ── Structured Negotiation ───────────────────────────────────────
+
+export async function listNegotiations(docId: string): Promise<unknown[]> {
+  return request(`/api/pact/${docId}/negotiations`);
+}
+
+export async function submitNegotiationPosition(
+  docId: string,
+  negotiationId: string,
+  content: string,
+): Promise<unknown> {
+  return request(`/api/pact/${docId}/negotiations/${negotiationId}/position`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function getNegotiationSynthesis(
+  docId: string,
+  negotiationId: string,
+): Promise<unknown> {
+  return request(`/api/pact/${docId}/negotiations/${negotiationId}/synthesis`);
+}

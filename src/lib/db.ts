@@ -7,12 +7,26 @@ import { v4 as uuid } from "uuid";
 // Splits on ";\n" to recover individual statement strings that initSchema
 // passes to db.execute(), matching the inline pattern they replace.
 // Empty strings from the split (e.g. trailing newline) are filtered out.
-const _legislationSqlPath = path.join(process.cwd(), "sql", "legislation-schema.sql");
-const _legislationStatements: string[] = fs
-  .readFileSync(_legislationSqlPath, "utf8")
-  .split(/;\s*\n/)
-  .map((s) => s.trim())
-  .filter((s) => s.length > 0 && !s.startsWith("--"));
+// Lines starting with `--` are SQL comments and are dropped at the statement
+// level; comments mid-statement are preserved by `pgify` / pg's parser.
+function _loadSqlStatements(filename: string): string[] {
+  const sqlPath = path.join(process.cwd(), "sql", filename);
+  return fs
+    .readFileSync(sqlPath, "utf8")
+    .split(/;\s*\n/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && !s.startsWith("--"));
+}
+
+const _legislationStatements: string[] = _loadSqlStatements("legislation-schema.sql");
+
+// WS9 — sync-log augment columns (silent_zero_flag, parser_version,
+// parser_crash_count, parser_anomaly_count). Idempotent ALTERs; safe to apply
+// after the base legislation schema. Both files must agree on the column shape
+// — see sql/legislation-sync-log-augment.sql header comment.
+const _legislationSyncLogAugmentStatements: string[] = _loadSqlStatements(
+  "legislation-sync-log-augment.sql"
+);
 
 // Return TIMESTAMP / TIMESTAMPTZ as ISO strings (not JS Date objects)
 // so existing code that casts date columns to string keeps working.
@@ -294,6 +308,12 @@ async function initSchema(db: DbClient) {
     // DDL extracted to sites/source/sql/legislation-schema.sql (WS8).
     // Loaded at module init via readFileSync; see top of file.
     ..._legislationStatements,
+
+    // ── Legislation sync-log WS9 augment ──────────────────────────────
+    // Adds silent_zero_flag, parser_version, parser_crash_count,
+    // parser_anomaly_count to legislation_sync_log. Idempotent ALTERs —
+    // see sql/legislation-sync-log-augment.sql.
+    ..._legislationSyncLogAugmentStatements,
 
     // ── Indexes ─────────────────────────────────────────────────────
     `CREATE INDEX IF NOT EXISTS idx_proposals_topic_status ON proposals(topic_id, status)`,

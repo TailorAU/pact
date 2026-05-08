@@ -7,6 +7,14 @@ const CTH_WEB = "https://www.legislation.gov.au";
 const BATCH_SIZE = 10;
 const MAX_ACTS = 50;
 
+/**
+ * Parser version stamp written into legislation_sync_log.parser_version.
+ * Bump when parsing semantics change (regex shape, anomaly detection rules,
+ * fallback paths) so downstream regressions can be tied back to a specific
+ * parser revision. WS9 introduces 2.0.0 alongside the silent-zero alarm.
+ */
+const CTH_PARSER_VERSION = "cth-parser@2.0.0";
+
 interface CthTitle {
   id: string;
   name: string;
@@ -150,7 +158,16 @@ function cthSourceId(year: number, number: number): string {
 }
 
 export async function syncCth(db: DbClient): Promise<SyncResult> {
-  const result: SyncResult = { jurisdiction: "CTH", docsChecked: 0, docsUpdated: 0, sectionsTotal: 0, errors: [] };
+  const result: SyncResult = {
+    jurisdiction: "CTH",
+    docsChecked: 0,
+    docsUpdated: 0,
+    sectionsTotal: 0,
+    errors: [],
+    parserVersion: CTH_PARSER_VERSION,
+    parserAnomalyCount: 0,
+    parserCrashCount: 0,
+  };
   const docsToIngest: LegislationDoc[] = [];
   let skip = 0;
 
@@ -159,6 +176,8 @@ export async function syncCth(db: DbClient): Promise<SyncResult> {
     try {
       titles = await fetchInForceActs(skip, BATCH_SIZE);
     } catch (e) {
+      // Top-of-loop fetch failure — record and stop. Doesn't count as a
+      // per-doc crash (no doc was being parsed yet).
       result.errors.push(`Titles fetch at skip=${skip}: ${e instanceof Error ? e.message : String(e)}`);
       break;
     }
@@ -169,19 +188,29 @@ export async function syncCth(db: DbClient): Promise<SyncResult> {
       try {
         const version = await getLatestVersion(title.id);
         if (!version) {
+          // Anomaly: title lookup succeeded but version metadata is missing.
+          // Pre-WS9 this was silently dropped via `errors.push + continue`;
+          // now we also bump parserAnomalyCount so a run where every doc has
+          // this issue surfaces as silent_zero rather than "ran cleanly".
           result.errors.push(`No latest version for ${title.name}`);
+          result.parserAnomalyCount++;
           continue;
         }
 
         const html = await fetchLegislationHtml(title.id, version);
         if (!html) {
+          // Anomaly: version exists but the EPUB HTML fetch returned null.
           result.errors.push(`No HTML for ${title.name}`);
+          result.parserAnomalyCount++;
           continue;
         }
 
         const sections = parseActHtml(html);
         if (sections.length === 0) {
+          // Anomaly: HTML returned but the section regex matched nothing.
+          // This is the canonical "parser drift" case the audit found.
           result.errors.push(`No sections parsed for ${title.name} (html ${html.length} chars)`);
+          result.parserAnomalyCount++;
           continue;
         }
 
@@ -201,7 +230,11 @@ export async function syncCth(db: DbClient): Promise<SyncResult> {
 
         await new Promise(r => setTimeout(r, 2000));
       } catch (e) {
+        // Per-doc exception (network, timeout, JSON parse). Counts as a
+        // crash, distinct from anomaly (anomaly = parsed cleanly but found
+        // nothing useful; crash = code threw mid-parse).
         result.errors.push(`${title.name}: ${e instanceof Error ? e.message : String(e)}`);
+        result.parserCrashCount++;
       }
     }
 
@@ -212,7 +245,10 @@ export async function syncCth(db: DbClient): Promise<SyncResult> {
         result.docsUpdated += batch.length;
         result.sectionsTotal += sectionsTotal;
       } catch (e) {
+        // Ingest batch failure — counts as a crash because the parser had
+        // already produced output that's now lost.
         result.errors.push(`Ingest batch failed: ${e instanceof Error ? e.message : String(e)}`);
+        result.parserCrashCount++;
       }
     }
 
@@ -226,6 +262,7 @@ export async function syncCth(db: DbClient): Promise<SyncResult> {
       result.sectionsTotal += sectionsTotal;
     } catch (e) {
       result.errors.push(`Final ingest batch failed: ${e instanceof Error ? e.message : String(e)}`);
+      result.parserCrashCount++;
     }
   }
 

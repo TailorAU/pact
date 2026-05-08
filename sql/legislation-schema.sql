@@ -56,7 +56,16 @@ CREATE TABLE IF NOT EXISTS legislation_sync_log (
   sections_total INTEGER NOT NULL DEFAULT 0,
   errors TEXT,
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  completed_at TIMESTAMPTZ
+  completed_at TIMESTAMPTZ,
+  -- WS9 fields (also augmented via legislation-sync-log-augment.sql; both files
+  -- must agree). silent_zero_flag distinguishes "ran but parsed nothing" from
+  -- "ran cleanly, no new amendments". parser_version stamps the parser semver
+  -- per row. parser_crash_count + parser_anomaly_count are cheap numeric
+  -- counters for downstream alarms vs the free-form `errors` JSON.
+  silent_zero_flag BOOLEAN,
+  parser_version TEXT,
+  parser_crash_count INTEGER NOT NULL DEFAULT 0,
+  parser_anomaly_count INTEGER NOT NULL DEFAULT 0
 );
 
 -- ── Indexes ─────────────────────────────────────────────────────────────────

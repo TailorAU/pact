@@ -5,6 +5,14 @@ import { ingestDocuments } from "../legislation-sync";
 const QLD_API = "https://api.legislation.qld.gov.au";
 const MAX_ACTS = 100;
 
+/**
+ * Parser version stamp written into legislation_sync_log.parser_version.
+ * Bump when parsing semantics change (regex shape, anomaly detection rules,
+ * fallback paths) so downstream regressions can be tied back to a specific
+ * parser revision. WS9 introduces 1.5.0 alongside the silent-zero alarm.
+ */
+const QLD_PARSER_VERSION = "qld-parser@1.5.0";
+
 interface QldAuthResponse {
   auth_type: string;
   access_token: string;
@@ -112,7 +120,24 @@ const KEY_ACTS = [
   "Act-2007-016",  // Transport Operations (Road Use Management) Act 1995
 ];
 
-function parseQldHtml(html: string): LegislationSection[] {
+/**
+ * Result of parsing a single QLD act's HTML.
+ *
+ * `usedFallbackChunker` is the signal that the structured-section regex
+ * matched nothing and the parser fell through to slicing raw text into
+ * 3-line chunks. The fallback exists so we can still index the document at
+ * all, but it indicates the QLD HTML format has drifted out from under our
+ * `section-heading|provision-title|ActHead5` selector. When this fires for
+ * many acts in one run the run is silent-zero (acts "ingested" but with
+ * synthetic chunk- section IDs that future code paths can't navigate by
+ * `s 12(2)(a)` style references).
+ */
+interface QldParseOutput {
+  sections: LegislationSection[];
+  usedFallbackChunker: boolean;
+}
+
+function parseQldHtml(html: string): QldParseOutput {
   const sections: LegislationSection[] = [];
   let currentPart = "";
   let order = 0;
@@ -161,7 +186,9 @@ function parseQldHtml(html: string): LegislationSection[] {
     });
   }
 
+  let usedFallbackChunker = false;
   if (sections.length === 0) {
+    usedFallbackChunker = true;
     const stripped = text.replace(/<[^>]+>/g, "\n").replace(/\s+/g, " ").trim();
     const lines = stripped.split(/\n+/).filter(l => l.trim().length > 30);
     for (let i = 0; i < Math.min(lines.length, 80); i += 3) {
@@ -179,15 +206,26 @@ function parseQldHtml(html: string): LegislationSection[] {
     }
   }
 
-  return sections;
+  return { sections, usedFallbackChunker };
 }
 
 export async function syncQld(db: DbClient): Promise<SyncResult> {
-  const result: SyncResult = { jurisdiction: "QLD", docsChecked: 0, docsUpdated: 0, sectionsTotal: 0, errors: [] };
+  const result: SyncResult = {
+    jurisdiction: "QLD",
+    docsChecked: 0,
+    docsUpdated: 0,
+    sectionsTotal: 0,
+    errors: [],
+    parserVersion: QLD_PARSER_VERSION,
+    parserAnomalyCount: 0,
+    parserCrashCount: 0,
+  };
 
   const username = process.env.QLD_LEGISLATION_USERNAME;
   const password = process.env.QLD_LEGISLATION_PASSWORD;
   if (!username || !password) {
+    // Configuration miss — record as error but not as a parser crash. The
+    // run never reached the parser so neither anomaly nor crash applies.
     result.errors.push("QLD_LEGISLATION_USERNAME and QLD_LEGISLATION_PASSWORD not configured");
     return result;
   }
@@ -207,18 +245,44 @@ export async function syncQld(db: DbClient): Promise<SyncResult> {
     try {
       const doc = await getLatestVersion(actId, token);
       if (!doc) {
+        // Anomaly: act ID is in KEY_ACTS but the QLD API returned no
+        // versions. Bumps anomaly count so a run where every key act
+        // misses surfaces as silent_zero.
         result.errors.push(`No versions found for ${actId}`);
+        result.parserAnomalyCount++;
         continue;
       }
-      if (doc.repealed === "Y") continue;
+      if (doc.repealed === "Y") {
+        // Legitimate skip — repealed acts are intentionally not re-ingested.
+        // NOT an anomaly. Falls through to the next act silently, which is
+        // correct behaviour.
+        continue;
+      }
 
       const htmlPath = `/v1/renditions/html/${encodeURIComponent(actId)}?print_type=act-reprint&point_in_time=${doc.first_valid_date}`;
       const html = await fetchHtml(htmlPath, token);
 
-      const sections = parseQldHtml(html);
+      const { sections, usedFallbackChunker } = parseQldHtml(html);
       if (sections.length === 0) {
+        // Anomaly: HTML returned but neither the structured regex nor the
+        // fallback chunker produced any sections. This is the "QLD HTML
+        // format changed entirely" case.
         result.errors.push(`No sections parsed for ${doc.title} (html ${html.length} chars)`);
+        result.parserAnomalyCount++;
         continue;
+      }
+      if (usedFallbackChunker) {
+        // Soft anomaly: we DID get sections, but the structured selectors
+        // missed and we fell through to chunked text. The doc is still
+        // ingested (so docsUpdated will reflect it), but the run is flagged
+        // because chunk- section IDs cannot be navigated by `s 12(2)(a)`
+        // style references downstream.
+        result.errors.push(
+          `Fallback chunker invoked for ${doc.title} — structured selectors matched nothing`
+        );
+        result.parserAnomalyCount++;
+        // DO NOT continue — we still want the chunked sections ingested so
+        // the doc is at least searchable.
       }
 
       const sourceId = `qld/act-${doc.year}-${String(doc.no).padStart(3, "0")}`;
@@ -239,7 +303,10 @@ export async function syncQld(db: DbClient): Promise<SyncResult> {
 
       await new Promise(r => setTimeout(r, 2000));
     } catch (e) {
+      // Per-act exception (network, timeout, JSON parse, auth refresh).
+      // Counts as a crash, distinct from anomaly.
       result.errors.push(`${actId}: ${e instanceof Error ? e.message : String(e)}`);
+      result.parserCrashCount++;
     }
   }
 
@@ -249,7 +316,10 @@ export async function syncQld(db: DbClient): Promise<SyncResult> {
       result.docsUpdated = docsToIngest.length;
       result.sectionsTotal = sectionsTotal;
     } catch (e) {
+      // Ingest batch failure — counts as a crash because the parser had
+      // already produced output that's now lost.
       result.errors.push(`Ingest failed: ${e instanceof Error ? e.message : String(e)}`);
+      result.parserCrashCount++;
     }
   }
 

@@ -134,3 +134,17 @@ Against a different env: `export BASE=https://source-dev.tailor.au` (default `ht
 ### Top-up cadence
 
 **Rule: never pitch an empty graph.** Every new vertical pitch triggers a content audit. If the prospect's regulatory regime is not already in `topics`, it gets seeded before the first meeting. See `.cursor/rules/chief-source.mdc`.
+
+## Documentation
+
+Operational and procurement-grade docs live in [`docs/`](docs/). The
+Tier-1 baseline (`OBSERVABILITY.md`, `AUDIT.md`, `PERFORMANCE.md`,
+`TIER1.md`, ADR 1/2/3) is unchanged. The procurement-readiness sprint
+adds:
+
+- [`docs/SECURITY.md`](docs/SECURITY.md) — vulnerability disclosure address, supported versions, threat model, fix SLAs.
+- [`docs/INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md) — severity definitions, response SLAs, paging path, retrospective + customer-comms templates.
+- [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md) — Privacy Act mapping, IRAP-equivalent control mapping, "what we are not certified to" list, QGov procurement summary.
+- [`docs/SLA.md`](docs/SLA.md) — uptime targets, latency targets per surface, maintenance window, service-credit posture.
+- [`docs/SOVEREIGNTY.md`](docs/SOVEREIGNTY.md) — substrate residency table, Cloudflare edge footnote, Azure OpenAI region disclosure, cross-border egress audit.
+- [`CHANGELOG.md`](CHANGELOG.md) — Keep-a-Changelog format release notes.

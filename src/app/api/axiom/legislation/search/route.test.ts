@@ -16,6 +16,11 @@
  *      non-AU topic on an AU legislation API.
  *   4. `preferJurisdiction=AU-QLD` lifts QLD-rooted hits above other
  *      AU-rooted hits in the relevance ordering.
+ *
+ * WS11 federation hardening tested:
+ *   5. limit > 200 → 400 { error: "limit_too_high" }
+ *   6. topic query timeout → base results + topicsFederated: false
+ *   7. happy path (no timeout) → topicsFederated: true
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { DbClient, DbResult } from "@/lib/db";
@@ -41,6 +46,27 @@ vi.mock("@/lib/db", () => ({
 // via wallet. Bypass the debit so tests focus on ranking.
 vi.mock("@/lib/wallet-debit", () => ({
   debitIfAuthenticated: async () => ({ ok: true }),
+}));
+
+// Silence logger output in tests; capture warn calls for timeout assertions.
+const mockLogWarn = vi.fn();
+vi.mock("@/lib/logger", () => ({
+  log: {
+    trace: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: (...args: unknown[]) => mockLogWarn(...args),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    child: () => ({
+      trace: vi.fn(),
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: (...args: unknown[]) => mockLogWarn(...args),
+      error: vi.fn(),
+      fatal: vi.fn(),
+    }),
+  },
 }));
 
 import { GET } from "./route";
@@ -116,6 +142,7 @@ function prime(countTotal: number, legRows: ReturnType<typeof legislationRow>[],
 
 beforeEach(() => {
   mockDb.execute.mockReset();
+  mockLogWarn.mockReset();
 });
 
 describe("GET /api/axiom/legislation/search — #1250 ranking regression", () => {
@@ -287,5 +314,92 @@ describe("GET /api/axiom/legislation/search — #1250 ranking regression", () =>
     expect(body).toHaveProperty("sources");
     expect(body).toHaveProperty("_links");
     expect(body).toHaveProperty("free", true);
+  });
+});
+
+// ── WS11 — federation hardening tests ───────────────────────────────────────
+describe("GET /api/axiom/legislation/search — WS11 federation hardening", () => {
+  it("limit > 200 returns 400 with error: limit_too_high", async () => {
+    // No DB mock needed — the limit check happens before any DB call.
+    const res = await callGet("q=building&limit=201");
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toBe("limit_too_high");
+  });
+
+  it("topic query timeout returns base legislation results with topicsFederated: false", async () => {
+    // Prime: legislation COUNT + rows succeed immediately; topics query
+    // is replaced by a Promise that never resolves within the route's
+    // 5s timeout. We achieve this by making the third mockDb.execute call
+    // return a promise that resolves only after 10s — well past the 5s
+    // race deadline baked into the route.
+    const legRow = legislationRow({
+      doc_id: "qld-wa",
+      doc_title: "Work Health and Safety Act 2011",
+      jurisdiction: "AU-QLD",
+      content: "safety duties apply to all workers.",
+    });
+    mockDb.execute
+      // Call 1: COUNT(*)
+      .mockResolvedValueOnce({ rows: [{ total: 1 }] as never[] } as DbResult)
+      // Call 2: legislation_sections rows
+      .mockResolvedValueOnce({ rows: [legRow] as never[] } as DbResult)
+      // Call 3: topics — deliberately slow (10s > 5s route timeout)
+      .mockImplementationOnce(
+        () => new Promise((resolve) => setTimeout(() => resolve({ rows: [] as never[] } as DbResult), 10_000))
+      );
+
+    const res = await callGet("q=safety");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      results: unknown[];
+      topicsFederated: boolean;
+      sources: { legislation: number; topics: number };
+    };
+
+    // Base legislation result must be present
+    expect(body.results.length).toBeGreaterThan(0);
+    // topicsFederated must be false to signal the timeout
+    expect(body.topicsFederated).toBe(false);
+    // topics count must be zero
+    expect(body.sources.topics).toBe(0);
+    // warn log must have fired
+    expect(mockLogWarn).toHaveBeenCalledOnce();
+    const warnArg = mockLogWarn.mock.calls[0][0] as Record<string, unknown>;
+    expect(warnArg.op).toBe("axiom.legislation.search.federation_timeout");
+    expect(typeof warnArg.elapsedMs).toBe("number");
+  }, 10_000); // vitest timeout: 10s to allow the slow mock to settle
+
+  it("happy path returns topicsFederated: true when topics query completes in time", async () => {
+    const legRow = legislationRow({
+      doc_id: "qld-pa",
+      doc_title: "Planning Act 2016",
+      jurisdiction: "AU-QLD",
+      content: "planning approval required.",
+    });
+    const tRow = topicRow({
+      id: "planning-topic",
+      title: "Planning policy",
+      canonical_claim: "planning approval is required for development.",
+      jurisdiction: "AU-QLD",
+      tier: "institutional",
+      status: "locked",
+    });
+    prime(1, [legRow], [tRow]);
+
+    const res = await callGet("q=planning");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      results: unknown[];
+      topicsFederated: boolean;
+      sources: { legislation: number; topics: number };
+    };
+
+    expect(body.topicsFederated).toBe(true);
+    expect(body.sources.topics).toBe(1);
+    expect(body.sources.legislation).toBe(1);
+    expect(body.results.length).toBe(2);
+    // warn must NOT have fired
+    expect(mockLogWarn).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { debitIfAuthenticated } from "@/lib/wallet-debit";
+import { log } from "@/lib/logger";
 
 // GET /api/axiom/legislation/search — Full-text search across all legislation
 //
@@ -19,7 +20,7 @@ import { debitIfAuthenticated } from "@/lib/wallet-debit";
 //                         canonical scope is Australian legislation (see AGENTS.md § Source).
 //   type                — Optional filter: "act", "regulation", "standard", "guidance"
 //   status              — Optional section status filter: "in_force", "repealed", "not_yet_commenced"
-//   limit/offset        — Pagination
+//   limit/offset        — Pagination. limit is capped at 200; requests with limit > 200 return 400.
 //
 // Example: GET /api/axiom/legislation/search?q=assault&jurisdiction=QLD
 // Example: GET /api/axiom/legislation/search?q=construction&preferJurisdiction=AU-QLD
@@ -73,7 +74,18 @@ export async function GET(req: NextRequest) {
   const preferJurisdictionRaw = searchParams.get("preferJurisdiction");
   const docType = searchParams.get("type");
   const sectionStatus = searchParams.get("status");
-  const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 200);
+
+  // WS11 — enforce LIMIT cap. Callers supplying limit > 200 get a 400 so
+  // they know their parameter was rejected (vs silently clamped, which
+  // masks misuse). Default 50, max 200.
+  const rawLimit = parseInt(searchParams.get("limit") || "50");
+  if (rawLimit > 200) {
+    return NextResponse.json(
+      { error: "limit_too_high", message: "limit must be ≤ 200", maxLimit: 200 },
+      { status: 400 }
+    );
+  }
+  const limit = rawLimit;
   const offset = parseInt(searchParams.get("offset") || "0");
 
   if (!query) {
@@ -282,6 +294,12 @@ export async function GET(req: NextRequest) {
   //   sourceRef    = topic.source_ref || topic.title
   // Richer clients can branch on docType === "topic" and deep-link to
   // `/topics/{id}` instead of `/legislation/{docId}/{sectionId}`.
+  //
+  // WS11 — the topic DB query runs inside a 5-second Promise.race. If the
+  // topics table is slow (large graph, lock contention, cold replica), we
+  // return the base legislation results immediately with topicsFederated:
+  // false rather than timing out the whole request. A warn log records the
+  // elapsed time so ops can diagnose patterns.
   const topicKeywordParts: string[] = [];
   const topicArgs: unknown[] = [];
   for (const kw of keywords) {
@@ -317,9 +335,17 @@ export async function GET(req: NextRequest) {
     crossReferences: unknown[];
     sourceRef: string;
   };
+
+  // WS11 — 5 s timeout for the topic-federation half. topicsFederated
+  // signals to callers whether the response includes topic results.
   let topicHits: TopicHit[] = [];
+  let topicsFederated = false;
+
   if (!skipTopics) {
-    const topicResult = await db.execute({
+    const TOPIC_TIMEOUT_MS = 5000;
+    const federationStart = Date.now();
+
+    const topicQueryPromise = db.execute({
       sql: `SELECT id, title, content, canonical_claim, tier, status, jurisdiction, authority, source_ref
             FROM topics
             WHERE ${topicConds.join(" AND ")}
@@ -330,55 +356,73 @@ export async function GET(req: NextRequest) {
       args: [...topicArgs, limit],
     });
 
-    topicHits = topicResult.rows.map((row) => {
-      const claim = (row.canonical_claim as string | null) || (row.content as string);
-      const title = row.title as string;
-      const lowerClaim = claim.toLowerCase();
-      const rowTier = (row.tier as string | null) || null;
-      const rowStatus = (row.status as string | null) || null;
-      const rowJurisdiction = (row.jurisdiction as string | null) ?? null;
+    const timeoutPromise = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), TOPIC_TIMEOUT_MS)
+    );
 
-      // #1250 — balanced title scoring. Topics used to get +5 per title
-      // keyword hit while legislation got +3; that lift was unjustified
-      // (it's an authority signal, not a relevance signal). Move it to a
-      // separate institutional-tier / locked-consensus bonus and score
-      // title matches at parity with legislation.
-      let score = 0;
-      for (const kw of keywords) {
-        const titleHit = wordBoundaryHit(title, kw) && !negatedInText(title, kw);
-        if (titleHit) score += 3;
-        // Count substring occurrences in the canonical claim (high recall).
-        let idx = -1;
-        while ((idx = lowerClaim.indexOf(kw, idx + 1)) !== -1) score += 1;
-      }
-      // Authority bonus: institutional-tier topics that have reached
-      // locked consensus deserve a small surface lift, independent of
-      // keyword match quality.
-      if (rowTier === "institutional" && rowStatus === "locked") score += 1;
-      score += jurisdictionBoost(rowJurisdiction);
+    const topicRace = await Promise.race([topicQueryPromise, timeoutPromise]);
 
-      // Trim to ~600 chars before highlighting so the payload stays bounded.
-      let snippet = claim.length > 600 ? claim.slice(0, 600) + "…" : claim;
-      for (const kw of keywords) {
-        const regex = new RegExp(`(${escapeRegex(kw)})`, "gi");
-        snippet = snippet.replace(regex, "**$1**");
-      }
-      return {
-        docId: `topic:${row.id as string}`,
-        docTitle: title,
-        jurisdiction: rowJurisdiction,
-        docType: "topic",
-        year: null,
-        sectionId: "claim",
-        sectionTitle: "Canonical claim",
-        content: snippet,
-        depth: 0,
-        status: rowStatus || "proposed",
-        relevanceScore: score,
-        crossReferences: [],
-        sourceRef: (row.source_ref as string | null) || title,
-      };
-    });
+    if (topicRace === null) {
+      // Timeout — return base legislation results without topics
+      const elapsedMs = Date.now() - federationStart;
+      log.warn(
+        { op: "axiom.legislation.search.federation_timeout", elapsedMs, q: query },
+        "topic federation timed out; returning base legislation results"
+      );
+      topicsFederated = false;
+    } else {
+      // Success — map topic rows to the unified hit shape
+      topicsFederated = true;
+      topicHits = topicRace.rows.map((row) => {
+        const claim = (row.canonical_claim as string | null) || (row.content as string);
+        const title = row.title as string;
+        const lowerClaim = claim.toLowerCase();
+        const rowTier = (row.tier as string | null) || null;
+        const rowStatus = (row.status as string | null) || null;
+        const rowJurisdiction = (row.jurisdiction as string | null) ?? null;
+
+        // #1250 — balanced title scoring. Topics used to get +5 per title
+        // keyword hit while legislation got +3; that lift was unjustified
+        // (it's an authority signal, not a relevance signal). Move it to a
+        // separate institutional-tier / locked-consensus bonus and score
+        // title matches at parity with legislation.
+        let score = 0;
+        for (const kw of keywords) {
+          const titleHit = wordBoundaryHit(title, kw) && !negatedInText(title, kw);
+          if (titleHit) score += 3;
+          // Count substring occurrences in the canonical claim (high recall).
+          let idx = -1;
+          while ((idx = lowerClaim.indexOf(kw, idx + 1)) !== -1) score += 1;
+        }
+        // Authority bonus: institutional-tier topics that have reached
+        // locked consensus deserve a small surface lift, independent of
+        // keyword match quality.
+        if (rowTier === "institutional" && rowStatus === "locked") score += 1;
+        score += jurisdictionBoost(rowJurisdiction);
+
+        // Trim to ~600 chars before highlighting so the payload stays bounded.
+        let snippet = claim.length > 600 ? claim.slice(0, 600) + "…" : claim;
+        for (const kw of keywords) {
+          const regex = new RegExp(`(${escapeRegex(kw)})`, "gi");
+          snippet = snippet.replace(regex, "**$1**");
+        }
+        return {
+          docId: `topic:${row.id as string}`,
+          docTitle: title,
+          jurisdiction: rowJurisdiction,
+          docType: "topic",
+          year: null,
+          sectionId: "claim",
+          sectionTitle: "Canonical claim",
+          content: snippet,
+          depth: 0,
+          status: rowStatus || "proposed",
+          relevanceScore: score,
+          crossReferences: [],
+          sourceRef: (row.source_ref as string | null) || title,
+        };
+      });
+    }
   }
 
   // Merge + dedupe-by-docId, keep the highest-scoring hit per doc (topics
@@ -395,6 +439,11 @@ export async function GET(req: NextRequest) {
       legislation: results.length,
       topics: topicHits.length,
     },
+    // WS11 — topicsFederated: true means topic results are included in this
+    // response. false means the topic DB query timed out (>5s) and only
+    // legislation_sections results are returned. Callers can use this flag
+    // to decide whether to retry or surface a partial-results notice.
+    topicsFederated,
     limit,
     offset,
     free: true,

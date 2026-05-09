@@ -156,5 +156,6 @@ has the substantive picture in under 30 minutes.
 - [`SOVEREIGNTY.md`](SOVEREIGNTY.md) — substrate residency, cross-border egress audit
 - [`INCIDENT_RESPONSE.md`](INCIDENT_RESPONSE.md) — severity definitions, response SLAs
 - [`SLA.md`](SLA.md) — uptime, latency, maintenance window
+- [`SECRET_ROTATION.md`](SECRET_ROTATION.md) — rotation cadences and procedures for all 9+ secrets
 - [`TIER1.md`](TIER1.md) — Tier-1 charter, OQ decisions, what is in vs out of scope
 - [`ADR-003`](ADR-003-scenario-coverage-policy.md) — public-only scenario decision

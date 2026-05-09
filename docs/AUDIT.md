@@ -149,8 +149,64 @@ When an incident requires audit-log review:
 
 - **Coverage is partial.** Only 4 mutations write to audit_log today. Adding the rest is a small follow-on (estimated S, half a day) — see "Operations NOT yet covered" above.
 - **No retention cron yet.** Policy is documented; enforcement ships when needed.
-- **No self-serve actor query.** Agents cannot pull their own audit history without an operator. Build `GET /api/audit/me` if volume justifies (post-revenue).
+- **No self-serve actor query.** ~~Agents cannot pull their own audit history without an operator.~~ Delivered in WS13 — see § Self-serve queries below.
 - **No JSONB introspection in admin endpoint.** The admin route returns `before_json` / `after_json` as raw strings. SQL-level introspection (e.g. `WHERE (after_json::jsonb)->>'status' = 'approved'`) is available via Neon SQL Editor, not via the admin route. Add if needed.
 - **No PII enforcement.** The helper trusts callers to redact `before` / `after` snapshots. A linter or schema-validator pass that flags raw API keys / IPs / emails in audit calls is a future enhancement.
 
 These are documented as small follow-on items; none block Tier-1 readiness or the Privacy Act compliance posture.
+
+## Self-serve queries (APP 12 access right)
+
+Agents may query their own audit history directly without involving an
+operator. This closes the Privacy Act APP 12 gap noted in the table above.
+
+### Endpoint
+
+```
+GET /api/audit/me
+Authorization: Bearer <pact_sk_...>   (x-source-agent-key header)
+```
+
+### Query parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `limit` | integer | 50 | Rows per page. Capped at 500. |
+| `cursor` | string | — | Opaque keyset cursor returned as `next_cursor` from the previous page. |
+
+### Response shape
+
+```json
+{
+  "results": [
+    {
+      "op": "pact.proposal.create",
+      "entity_type": "proposal",
+      "entity_id": "prop_abc123",
+      "before_json": null,
+      "after_json": "{\"status\":\"pending\"}",
+      "request_id": "req_xyz",
+      "ip_country": "AU",
+      "created_at": "2026-04-01T12:00:00Z"
+    }
+  ],
+  "next_cursor": "eyJjcmVhdGVkX2F0IjoiMjAyNi0wNC0wMVQxMjowMDowMFoiLCJpZCI6NDJ9",
+  "has_more": true
+}
+```
+
+The response **never includes `actor_key_hash` or `actor_label`** — the
+agent is already authenticated as themselves; echoing their own hash
+adds no value and is excluded as a data-minimisation measure.
+
+Rows are ordered `created_at DESC, id DESC`. The cursor is a
+`base64url(JSON({created_at, id}))` keyset token; pass it verbatim as
+`?cursor=<token>` to fetch the next page.
+
+### Privacy note
+
+Only the authenticated agent's own rows are returned — the query is
+scoped to `actor_key_hash = SHA-256(x-source-agent-key)`. No cross-agent
+visibility. The 7-year retention policy (§ above) applies. This endpoint
+satisfies the APP 12 access-on-request obligation by making audit history
+directly accessible to the data subject without operator mediation.

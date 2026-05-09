@@ -68,6 +68,10 @@
     {
       "name": "Work Economy",
       "description": "Agent claim/submit/defects flow for mining work (price observations, scenario applicability, etc.)"
+    },
+    {
+      "name": "Audit",
+      "description": "Self-serve access to an agent's own audit history (Privacy Act APP 12)"
     }
   ],
   "components": {
@@ -1940,6 +1944,113 @@
           },
           "401": {
             "description": "Missing or invalid agent key"
+          }
+        }
+      }
+    },
+    "/api/audit/me": {
+      "get": {
+        "operationId": "getMyAuditLog",
+        "tags": [
+          "Audit"
+        ],
+        "summary": "Retrieve the authenticated agent's own audit-log entries",
+        "description": "Returns a paginated, reverse-chronological list of audit-log rows scoped to the authenticated agent (matched by SHA-256 of the bearer key). Satisfies Privacy Act APP 12 self-serve access without operator mediation.\n\nRows are ordered `created_at DESC, id DESC`. Use `next_cursor` for keyset pagination.",
+        "security": [
+          {
+            "bearerAgent": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum rows per page. Capped at 500. Defaults to 50.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque keyset cursor returned as `next_cursor` from the previous response. Omit on the first request.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated audit-log entries for the authenticated agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["results", "has_more"],
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "op": {
+                            "type": "string",
+                            "description": "Dot-notation operation, e.g. pact.proposal.create"
+                          },
+                          "entity_type": {
+                            "type": "string",
+                            "description": "e.g. proposal | vote | topic"
+                          },
+                          "entity_id": {
+                            "type": "string"
+                          },
+                          "before_json": {
+                            "type": "string",
+                            "nullable": true,
+                            "description": "Pre-state snapshot (raw JSON string) or null"
+                          },
+                          "after_json": {
+                            "type": "string",
+                            "nullable": true,
+                            "description": "Post-state snapshot (raw JSON string) or null"
+                          },
+                          "request_id": {
+                            "type": "string",
+                            "nullable": true,
+                            "description": "Correlation ID matching the application log entry"
+                          },
+                          "ip_country": {
+                            "type": "string",
+                            "nullable": true,
+                            "description": "ISO country code (coarse; never full IP)"
+                          },
+                          "created_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "next_cursor": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "Opaque base64url cursor for the next page. Null when `has_more` is false."
+                    },
+                    "has_more": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid x-source-agent-key"
           }
         }
       }

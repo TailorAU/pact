@@ -46,6 +46,34 @@ type AppliesWhenRow = {
   legislation_id: string | null;
 };
 
+type RecentLegislationRow = {
+  id: string;
+  jurisdiction: string;
+  short_title: string | null;
+  title: string;
+  last_amended_date: string | null;
+};
+
+/**
+ * Top N legislation rows by lastAmendedDate DESC.
+ * Best-effort — returns [] if the schema isn't applied yet.
+ */
+async function getRecentlyAmended(limit = 4): Promise<RecentLegislationRow[]> {
+  try {
+    const db = await getDb();
+    const r = await db.execute(`
+      SELECT id, jurisdiction, short_title, title, last_amended_date
+      FROM legislation_docs
+      WHERE last_amended_date IS NOT NULL
+      ORDER BY last_amended_date DESC NULLS LAST
+      LIMIT ${Math.max(1, Math.min(20, limit))}
+    `);
+    return r.rows as unknown as RecentLegislationRow[];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Build the graph tree — same shape as /map/page.tsx, kept inline here so the
  * landing page can render the full knowledge graph without redirecting.
@@ -224,6 +252,7 @@ export default async function Home() {
   } catch {
     // graceful degradation — render shell with empty graph
   }
+  const recentlyAmended = await getRecentlyAmended(4);
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-6">
@@ -241,33 +270,97 @@ export default async function Home() {
 
         <LiveCounters />
 
+        {/* Search form — primary action */}
+        <form
+          action="/search"
+          method="get"
+          className="flex justify-center mb-3 mt-1 max-w-xl mx-auto"
+          role="search"
+          aria-label="Search Source"
+        >
+          <div className="flex w-full">
+            <input
+              type="search"
+              name="q"
+              placeholder="Search legislation, topics, scenarios&hellip;"
+              aria-label="Search query"
+              className="flex-1 min-w-0 px-4 py-2.5 text-sm bg-card-bg border border-card-border rounded-l-lg outline-none focus:border-pact-cyan focus:ring-1 focus:ring-pact-cyan/40 placeholder:text-pact-dim/50"
+            />
+            <button
+              type="submit"
+              className="px-5 py-2.5 bg-pact-cyan text-background font-bold rounded-r-lg hover:bg-pact-cyan/80 transition-colors text-sm shadow-lg shadow-pact-cyan/20"
+            >
+              Search
+            </button>
+          </div>
+        </form>
+
         <div className="flex flex-wrap justify-center gap-2 mt-2">
           <Link
             href="/legislation"
-            className="px-5 py-2 bg-pact-cyan text-background font-bold rounded-lg hover:bg-pact-cyan/80 transition-all text-xs shadow-lg shadow-pact-cyan/20"
+            className="px-4 py-1.5 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
           >
             Browse Legislation
           </Link>
           <Link
             href="/get-started"
-            className="px-5 py-2 bg-pact-purple text-background font-bold rounded-lg hover:bg-pact-purple/80 transition-all text-xs shadow-lg shadow-pact-purple/20"
+            className="px-4 py-1.5 bg-pact-purple text-background font-bold rounded-lg hover:bg-pact-purple/80 transition-colors text-xs"
           >
             Get Started
           </Link>
           <Link
             href="/mcp"
-            className="px-5 py-2 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
+            className="px-4 py-1.5 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
           >
             MCP Tools
           </Link>
           <Link
             href="/spec"
-            className="px-5 py-2 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
+            className="px-4 py-1.5 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
           >
             OpenAPI
           </Link>
         </div>
       </section>
+
+      {/* Recently amended — proof of life */}
+      {recentlyAmended.length > 0 && (
+        <section className="mb-8 max-w-5xl mx-auto" aria-label="Recently amended legislation">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xs font-bold text-pact-dim uppercase tracking-wider">
+              Recently amended
+            </h2>
+            <Link
+              href="/legislation"
+              className="text-xs text-pact-cyan/70 hover:text-pact-cyan transition-colors"
+            >
+              All legislation &rarr;
+            </Link>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {recentlyAmended.map((row) => (
+              <Link
+                key={row.id}
+                href={`/legislation/${encodeURIComponent(row.id)}`}
+                className="flex items-center gap-2 px-3 py-1.5 bg-card-bg border border-card-border rounded-lg hover:border-pact-cyan/40 hover:bg-hover-bg transition-colors text-xs group"
+                title={row.title}
+              >
+                <span className="text-pact-cyan font-mono text-[10px] uppercase">
+                  {row.jurisdiction}
+                </span>
+                <span className="text-foreground/80 group-hover:text-foreground truncate max-w-[280px]">
+                  {row.short_title || row.title}
+                </span>
+                {row.last_amended_date && (
+                  <span className="text-pact-dim/60 font-mono text-[10px]">
+                    {row.last_amended_date.slice(0, 10)}
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* The graph */}
       <section className="mb-12">

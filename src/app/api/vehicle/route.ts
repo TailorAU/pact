@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { AzureOpenAI } from "openai";
+import { log } from "@/lib/logger";
 
 let _client: AzureOpenAI | null = null;
 function getClient(): AzureOpenAI {
@@ -65,8 +66,7 @@ export async function POST(req: Request) {
       headers: { "Cache-Control": "public, max-age=86400" },
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[vehicle] LLM error:", message);
+    log.error({ op: "vehicle.lookup.post.error", err }, "[vehicle] LLM error");
     return NextResponse.json({ error: "Failed to identify vehicle" }, { status: 500 });
   }
 }

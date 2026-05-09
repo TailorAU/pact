@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getLatestPrices, searchProducts } from "@/lib/market/queries";
 import { solveCart } from "@/lib/market/cart-solver";
 import type { CartItem, PriceCandidate } from "@/lib/market/types";
+import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -98,7 +99,7 @@ export async function POST(request: NextRequest) {
     const solution = solveCart(cartItems, pricesByProduct, undefined, Boolean(preferPickup));
     return NextResponse.json(solution);
   } catch (err) {
-    console.error(err);
+    log.error({ op: "market.cart.optimise.post.error", err }, "cart optimisation failed");
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

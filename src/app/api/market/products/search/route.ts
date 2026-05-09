@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchProductsWithPrices } from "@/lib/market/queries";
+import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(data);
   } catch (err) {
-    console.error(err);
+    log.error({ op: "market.products.search.get.error", err }, "product search query failed");
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { distributeAxiomYield } from "@/lib/yield";
+import { log } from "@/lib/logger";
 
 /**
  * Cron job: runs weekly on Sundays at 4am UTC (triggered by GitHub Actions).
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
       ...result,
     });
   } catch (error) {
-    console.error("Axiom Yield distribution failed:", error);
+    log.error({ op: "cron.yield.distribute.error", err: error }, "Axiom Yield distribution failed");
     return NextResponse.json({
       error: "Yield distribution failed",
       message: error instanceof Error ? error.message : "Unknown error",

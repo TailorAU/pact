@@ -13,6 +13,16 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  // Enforce structured logging — no raw console.* calls in API routes.
+  // All logging must go through @/lib/logger so every call carries
+  // a structured `op` field and auto-correlates with the request-ID
+  // from AsyncLocalStorage (WS1).
+  {
+    files: ["src/app/api/**/*.ts"],
+    rules: {
+      "no-console": "error",
+    },
+  },
 ]);
 
 export default eslintConfig;

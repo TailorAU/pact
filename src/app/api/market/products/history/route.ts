@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPriceHistory } from "@/lib/market/queries";
+import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
     const data = await getPriceHistory(productId, days);
     return NextResponse.json(data);
   } catch (err) {
-    console.error(err);
+    log.error({ op: "market.products.history.get.error", err }, "product price history query failed");
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

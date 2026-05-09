@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getMarketPool } from "@/lib/market/db";
+import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -134,7 +135,7 @@ export async function GET(request: Request) {
     resp.headers.set("Cache-Control", `public, s-maxage=${CACHE_SEC}, stale-while-revalidate=${CACHE_SEC * 2}`);
     return resp;
   } catch (err) {
-    console.error("[fuel-api]", err);
+    log.error({ op: "market.fuel.map.error", err }, "[fuel-api] query failed");
     return NextResponse.json(
       { error: "Service temporarily unavailable", stations: [], stats: { min: 0, max: 0, avg: 0, count: 0 } },
       { status: 503 }

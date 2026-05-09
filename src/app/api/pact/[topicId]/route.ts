@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb, autoMergeExpired } from "@/lib/db";
+import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export async function GET(
   const { topicId } = await params;
   const db = await getDb();
 
-  try { await autoMergeExpired(db); } catch (e) { console.error("autoMergeExpired failed (non-fatal on read path):", e); }
+  try { await autoMergeExpired(db); } catch (e) { log.warn({ op: "pact.topic.get.autoMerge.warn", err: e }, "autoMergeExpired failed (non-fatal on read path)"); }
 
   const topicResult = await db.execute({
     sql: `SELECT t.id, t.title, t.content, t.tier, t.status, t.created_at,
@@ -52,7 +53,7 @@ export async function GET(
     });
     proposals = proposalsResult.rows;
   } catch (e) {
-    console.error(`proposals sub-query failed for topic ${topicId} (non-fatal):`, e);
+    log.warn({ op: "pact.topic.proposals.warn", topicId, err: e }, "proposals sub-query failed (non-fatal)");
   }
 
   let votes: unknown[] = [];
@@ -67,7 +68,7 @@ export async function GET(
     });
     votes = votesResult.rows;
   } catch (e) {
-    console.error(`topic_votes sub-query failed for topic ${topicId} (non-fatal):`, e);
+    log.warn({ op: "pact.topic.votes.warn", topicId, err: e }, "topic_votes sub-query failed (non-fatal)");
   }
 
   return NextResponse.json({

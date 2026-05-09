@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, autoMergeExpired } from "@/lib/db";
+import { log } from "@/lib/logger";
 
 const TIER_ORDER: Record<string, number> = { axiom: 0, convention: 1, practice: 2, policy: 3, frontier: 4 };
 
@@ -11,7 +12,7 @@ export async function GET(
   const resolve = req.nextUrl.searchParams.get("resolve") === "true";
   const db = await getDb();
 
-  try { await autoMergeExpired(db); } catch (e) { console.error("autoMergeExpired failed (non-fatal on read path):", e); }
+  try { await autoMergeExpired(db); } catch (e) { log.warn({ op: "pact.topic.content.autoMerge.warn", err: e }, "autoMergeExpired failed (non-fatal on read path)"); }
 
   const topicResult = await db.execute({
     sql: "SELECT id, title, tier, status, content FROM topics WHERE id = ?",

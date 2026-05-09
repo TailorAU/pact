@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStationPrices } from "@/lib/market/fuel-queries";
+import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export async function GET(
     const data = await getStationPrices(id);
     return NextResponse.json(data);
   } catch (err) {
-    console.error(err);
+    log.error({ op: "market.fuel.stations.get.error", err }, "fuel station prices query failed");
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

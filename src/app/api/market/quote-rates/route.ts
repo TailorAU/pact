@@ -12,6 +12,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getQuoteRates } from "@/lib/market/quote-rates";
+import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("[quote-rates]", err);
+    log.error({ op: "market.quote-rates.get.error", err }, "[quote-rates] query failed");
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

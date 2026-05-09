@@ -3,6 +3,7 @@ import { getLatestPrices } from "@/lib/market/queries";
 import { rankByTotalCost } from "@/lib/market/ranking";
 import { tagRankedResults } from "@/lib/market/affiliate";
 import type { PriceCandidate } from "@/lib/market/types";
+import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(tagged);
   } catch (err) {
-    console.error(err);
+    log.error({ op: "market.products.compare.get.error", err }, "product price comparison failed");
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

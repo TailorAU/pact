@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { LiveCounters } from "@/components/LiveCounters";
 import { getDb } from "@/lib/db";
+import { listScenarios } from "@/lib/scenarios/queries";
+import type { Scenario } from "@/lib/scenarios/types";
 import GraphLegend from "./map/GraphLegend";
 import Graph3DSection from "./map/Graph3DSection";
 import InteractiveTree, { type TreeTopic } from "./map/InteractiveTree";
@@ -53,6 +55,21 @@ type RecentLegislationRow = {
   title: string;
   last_amended_date: string | null;
 };
+
+/**
+ * A handful of scenarios for the landing-page chip strip.
+ * Best-effort — returns [] if the scenarios schema isn't applied yet.
+ * Picks the first N (industry then alpha order, per listScenarios()) so
+ * the chip set stays stable between renders.
+ */
+async function getFeaturedScenarios(limit = 6): Promise<Scenario[]> {
+  try {
+    const all = await listScenarios();
+    return all.slice(0, Math.max(1, Math.min(20, limit)));
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Top N legislation rows by lastAmendedDate DESC.
@@ -253,6 +270,7 @@ export default async function Home() {
     // graceful degradation — render shell with empty graph
   }
   const recentlyAmended = await getRecentlyAmended(4);
+  const featuredScenarios = await getFeaturedScenarios(6);
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-6">
@@ -315,6 +333,12 @@ export default async function Home() {
             MCP Tools
           </Link>
           <Link
+            href="/scenarios"
+            className="px-4 py-1.5 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
+          >
+            Scenarios
+          </Link>
+          <Link
             href="/spec"
             className="px-4 py-1.5 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
           >
@@ -322,6 +346,43 @@ export default async function Home() {
           </Link>
         </div>
       </section>
+
+      {/* Predicate scenarios — entry point to the applicability matcher */}
+      {featuredScenarios.length > 0 && (
+        <section className="mb-6 max-w-5xl mx-auto" aria-label="Predicate scenarios">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xs font-bold text-pact-dim uppercase tracking-wider">
+              Predicate scenarios
+            </h2>
+            <Link
+              href="/scenarios"
+              className="text-xs text-pact-purple/70 hover:text-pact-purple transition-colors"
+            >
+              All scenarios &rarr;
+            </Link>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {featuredScenarios.map((s) => (
+              <Link
+                key={s.id}
+                href={`/scenarios/${encodeURIComponent(s.id)}`}
+                className="flex items-center gap-2 px-3 py-1.5 bg-card-bg border border-card-border rounded-lg hover:border-pact-purple/40 hover:bg-hover-bg transition-colors text-xs group max-w-[280px]"
+                title={s.description || s.title}
+              >
+                <span className="text-pact-purple/80 text-[12px] shrink-0">&#9670;</span>
+                <span className="text-foreground/80 group-hover:text-foreground truncate">
+                  {s.title}
+                </span>
+                {s.industry && (
+                  <span className="text-pact-dim/60 font-mono text-[10px] uppercase shrink-0">
+                    {s.industry}
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Recently amended — proof of life */}
       {recentlyAmended.length > 0 && (

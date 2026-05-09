@@ -1,367 +1,311 @@
 import Link from "next/link";
-import { getHubStats } from "@/lib/queries";
-import ConsensusGraph from "./map/ConsensusGraph";
-import { CodeTabs } from "@/components/CodeTabs";
 import { LiveCounters } from "@/components/LiveCounters";
-import { TryItLive } from "@/components/TryItLive";
-import { ExploreOnly, IntegrateOnly } from "@/components/HomepageSwitch";
-import { ExploreDemos } from "@/components/ExploreDemos";
-import { FlowComparison } from "@/components/FlowComparison";
-import { DataCategoryCard, DATA_CATEGORIES } from "@/components/DataCategoryCard";
-import { FormatShowcase } from "@/components/FormatShowcase";
+import { getDb } from "@/lib/db";
+import GraphLegend from "./map/GraphLegend";
+import Graph3DSection from "./map/Graph3DSection";
+import InteractiveTree, { type TreeTopic } from "./map/InteractiveTree";
 
 export const revalidate = 30;
 
-const AXIOM_TABS = [
-  {
-    label: "curl",
-    code: `# Search QLD legislation (FREE, no key)
-curl "https://source.tailor.au/api/axiom/legislation/search?q=mine+safety&jurisdiction=QLD"
+const TIER_ORDER_MAP: Record<string, number> = {
+  axiom: 0, convention: 1, practice: 2, policy: 3, frontier: 4,
+};
 
-# Find cheapest fuel (FREE)
-curl "https://source.tailor.au/api/market/fuel/cheapest?fuelType=Diesel&state=QLD"`,
-  },
-  {
-    label: "Python",
-    code: `import requests
+// Pseudo-tier order for non-topic node types — matches /map page.
+const PSEUDO_DEPTH = {
+  scenario: -1,
+  legislation_orphan: 5,
+};
 
-# Legislation search (free, no key needed)
-sections = requests.get(
-    "https://source.tailor.au/api/axiom/legislation/search",
-    params={"q": "mine safety", "jurisdiction": "QLD"}
-).json()["results"]
+type MapTopic = {
+  id: string;
+  title: string;
+  tier: string;
+  status: string;
+  participantCount: number;
+};
+type DepRow = { topic_id: string; depends_on: string; relationship: string };
+type LegislationRow = {
+  id: string;
+  jurisdiction: string;
+  doc_type: string;
+  title: string;
+  short_title: string | null;
+  year: number | null;
+};
+type ScenarioRow = {
+  id: string;
+  title: string;
+  description: string;
+  industry: string | null;
+};
+type CiteRow = { topic_id: string; legislation_id: string };
+type AppliesWhenRow = {
+  scenario_id: string;
+  topic_id: string | null;
+  legislation_id: string | null;
+};
 
-# Cheapest fuel (free)
-stations = requests.get(
-    "https://source.tailor.au/api/market/fuel/cheapest",
-    params={"fuelType": "Diesel", "state": "QLD"}
-).json()`,
-  },
-  {
-    label: "MCP",
-    code: `// Source MCP — coming soon
-// For now, use the REST API directly:
+/**
+ * Build the graph tree — same shape as /map/page.tsx, kept inline here so the
+ * landing page can render the full knowledge graph without redirecting.
+ * If the two pages diverge, extract this into `lib/build-graph-tree.ts`.
+ */
+async function buildTreeTopics(): Promise<TreeTopic[]> {
+  const db = await getDb();
 
-// Legislation (free, no key)
-// GET https://source.tailor.au/api/axiom/legislation/search?q=mine+safety
+  const topicsResult = await db.execute(`
+    SELECT t.id, t.title, t.tier, t.status,
+      (SELECT COUNT(DISTINCT r.agent_id) FROM registrations r WHERE r.topic_id = t.id AND r.left_at IS NULL) as participantCount
+    FROM topics t
+    ORDER BY t.created_at ASC
+  `);
+  const depsResult = await db.execute(`
+    SELECT topic_id, depends_on, relationship FROM topic_dependencies
+  `);
 
-// Fuel prices (free, no key)
-// GET https://source.tailor.au/api/market/fuel/cheapest?fuelType=Diesel&state=QLD
+  let legislationRows: LegislationRow[] = [];
+  let scenarioRows: ScenarioRow[] = [];
+  let citeRows: CiteRow[] = [];
+  let appliesRows: AppliesWhenRow[] = [];
+  try {
+    const r = await db.execute(`
+      SELECT id, jurisdiction, doc_type, title, short_title, year
+      FROM legislation_docs
+      ORDER BY jurisdiction ASC, year DESC NULLS LAST, title ASC
+    `);
+    legislationRows = r.rows as unknown as LegislationRow[];
+  } catch { /* schema not applied yet */ }
+  try {
+    const r = await db.execute(`
+      SELECT id, title, description, industry FROM scenarios
+      ORDER BY industry NULLS LAST, title ASC
+    `);
+    scenarioRows = r.rows as unknown as ScenarioRow[];
+  } catch { /* schema not applied yet */ }
+  try {
+    const r = await db.execute(`
+      SELECT topic_id, legislation_id FROM topic_legislation_citations
+    `);
+    citeRows = r.rows as unknown as CiteRow[];
+  } catch { /* schema not applied yet */ }
+  try {
+    const r = await db.execute(`
+      SELECT scenario_id, topic_id, legislation_id FROM scenario_applies_when
+    `);
+    appliesRows = r.rows as unknown as AppliesWhenRow[];
+  } catch { /* schema not applied yet */ }
 
-// Knowledge topics (free, no key)
-// GET https://source.tailor.au/api/pact/topics`,
-  },
-];
+  const topics = topicsResult.rows as unknown as MapTopic[];
+  const deps = depsResult.rows as unknown as DepRow[];
+
+  const topicMap = new Map(topics.map(t => [t.id, t]));
+  type ParentEdge = { id: string; relationship: string };
+  const parentMap = new Map<string, ParentEdge[]>();
+  const childMap = new Map<string, string[]>();
+  for (const d of deps) {
+    const parents = parentMap.get(d.topic_id) || [];
+    parents.push({ id: d.depends_on, relationship: d.relationship || "builds_on" });
+    parentMap.set(d.topic_id, parents);
+    const children = childMap.get(d.depends_on) || [];
+    children.push(d.topic_id);
+    childMap.set(d.depends_on, children);
+  }
+
+  const depthMap = new Map<string, number>();
+  const roots = topics.filter(t => !parentMap.has(t.id));
+  const queue: { id: string; depth: number }[] = roots.map(r => ({ id: r.id, depth: 0 }));
+  while (queue.length > 0) {
+    const { id, depth } = queue.shift()!;
+    const existing = depthMap.get(id);
+    if (existing !== undefined && existing >= depth) continue;
+    depthMap.set(id, depth);
+    const children = childMap.get(id) || [];
+    for (const childId of children) {
+      queue.push({ id: childId, depth: depth + 1 });
+    }
+  }
+
+  const legParentCountMap = new Map<string, number>();
+  for (const c of citeRows) {
+    const children = childMap.get(c.topic_id) || [];
+    const legKey = `leg:${c.legislation_id}`;
+    if (!children.includes(legKey)) children.push(legKey);
+    childMap.set(c.topic_id, children);
+    legParentCountMap.set(c.legislation_id, (legParentCountMap.get(c.legislation_id) ?? 0) + 1);
+  }
+
+  const scenarioChildMap = new Map<string, string[]>();
+  for (const a of appliesRows) {
+    const list = scenarioChildMap.get(a.scenario_id) || [];
+    if (a.topic_id) list.push(a.topic_id);
+    else if (a.legislation_id) list.push(`leg:${a.legislation_id}`);
+    scenarioChildMap.set(a.scenario_id, list);
+  }
+
+  const topicTreeEntries: TreeTopic[] = topics
+    .sort((a, b) => {
+      const da = depthMap.get(a.id) ?? 99;
+      const db2 = depthMap.get(b.id) ?? 99;
+      if (da !== db2) return da - db2;
+      const ta = TIER_ORDER_MAP[a.tier] ?? 99;
+      const tb = TIER_ORDER_MAP[b.tier] ?? 99;
+      if (ta !== tb) return ta - tb;
+      return a.title.localeCompare(b.title);
+    })
+    .map(t => {
+      const parents = parentMap.get(t.id) || [];
+      const rawChildren = childMap.get(t.id) || [];
+      return {
+        id: t.id,
+        title: t.title,
+        tier: t.tier,
+        status: t.status,
+        participantCount: t.participantCount,
+        depth: depthMap.get(t.id) ?? 0,
+        buildsOn: parents
+          .filter(p => p.relationship !== "assumes")
+          .map(p => topicMap.get(p.id)?.title)
+          .filter((n): n is string => !!n),
+        assumes: parents
+          .filter(p => p.relationship === "assumes")
+          .map(p => topicMap.get(p.id)?.title)
+          .filter((n): n is string => !!n),
+        childIds: rawChildren,
+        kind: "topic" as const,
+        edgeFromParent: "depends_on" as const,
+      };
+    });
+
+  const legislationTreeEntries: TreeTopic[] = legislationRows.map(l => ({
+    id: `leg:${l.id}`,
+    title: (l.short_title || l.title) || l.id,
+    tier: "legislation",
+    status: "stable",
+    participantCount: 0,
+    depth: (legParentCountMap.get(l.id) ?? 0) > 0 ? 1 : PSEUDO_DEPTH.legislation_orphan,
+    buildsOn: [],
+    assumes: [],
+    childIds: [],
+    kind: "legislation" as const,
+    edgeFromParent: "cites" as const,
+    jurisdiction: l.jurisdiction,
+    docType: l.doc_type,
+    year: l.year,
+    shortTitle: l.short_title,
+  }));
+
+  const scenarioTreeEntries: TreeTopic[] = scenarioRows.map(s => ({
+    id: `scn:${s.id}`,
+    title: s.title,
+    tier: "scenario",
+    status: "stable",
+    participantCount: 0,
+    depth: PSEUDO_DEPTH.scenario,
+    buildsOn: [],
+    assumes: [],
+    childIds: scenarioChildMap.get(s.id) || [],
+    kind: "scenario" as const,
+    edgeFromParent: "applies_when" as const,
+    industry: s.industry,
+  }));
+
+  return [
+    ...scenarioTreeEntries,
+    ...topicTreeEntries,
+    ...legislationTreeEntries,
+  ];
+}
 
 export default async function Home() {
-  let stats: Record<string, unknown> = { agents: 0, topics: 0, proposals: 0, merged: 0, pending: 0, consensusReached: 0, events: 0 };
-  let recentEvents: Record<string, unknown>[] = [];
+  let treeTopics: TreeTopic[] = [];
   try {
-    const data = await getHubStats();
-    stats = data.stats as Record<string, unknown>;
-    recentEvents = data.recentEvents as Record<string, unknown>[];
+    treeTopics = await buildTreeTopics();
   } catch {
-    // defaults already set
+    // graceful degradation — render shell with empty graph
   }
 
   return (
-    <div className="max-w-[1440px] mx-auto px-4 py-6">
+    <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-6">
 
-      {/* ══════════════════════════════════════════════════════════════
-           SHARED: Hero
-         ══════════════════════════════════════════════════════════════ */}
-      <section className="text-center mb-16 pt-4">
-        <p className="text-xs text-green-600 font-bold uppercase tracking-[0.3em] mb-4 animate-pulse">
-          Live now &mdash; {String(stats.topics || 0)} topics &middot; 24+ acts &middot; 1,500+ fuel stations
-        </p>
-
-        <h1 className="text-4xl md:text-6xl font-bold mb-4 leading-[1.1]">
-          One API. Every Australian data source.<br />
-          <span className="text-pact-cyan">Already structured.</span>
+      {/* Hero — minimal */}
+      <section className="text-center mb-8 pt-2">
+        <h1 className="text-3xl md:text-5xl font-bold mb-3 leading-[1.1]">
+          The knowledge graph for{" "}
+          <span className="text-pact-cyan">Australian regulation</span>
         </h1>
-
-        {/* #1152 Round 5b — agent-native positioning tagline */}
-        <p className="text-lg md:text-xl text-pact-dim max-w-3xl mx-auto mb-2 leading-relaxed">
-          Source &mdash; agent-native legislation and verified facts, pulled from official APIs
-          and emitted as MCP, A2A, and PACT.
-        </p>
-
-        <p className="text-xs text-pact-dim/40 mb-6">
-          Verified by a network of agents &middot; <a href="https://github.com/TailorAU/pact" className="hover:underline">Built on PACT</a> &middot; Powered by Tailor
+        <p className="text-sm md:text-base text-pact-dim max-w-2xl mx-auto mb-5 leading-relaxed">
+          Verified topics, legislation, and scenarios &mdash; structured for AI agents,
+          built on PACT. Free legislation API. No signup.
         </p>
 
         <LiveCounters />
 
-        <div className="flex flex-wrap justify-center gap-3 mt-2">
-          <ExploreOnly>
-            <Link
-              href="/legislation"
-              className="px-7 py-3 bg-pact-cyan text-background font-bold rounded-lg hover:bg-pact-cyan/80 transition-all hover:scale-105 text-sm shadow-lg shadow-pact-cyan/20"
-            >
-              Browse Legislation
-            </Link>
-            <Link
-              href="/fuel"
-              className="px-7 py-3 bg-green-500 text-background font-bold rounded-lg hover:bg-green-400 transition-all hover:scale-105 text-sm shadow-lg shadow-green-500/20"
-            >
-              Fuel Prices
-            </Link>
-          </ExploreOnly>
-          <IntegrateOnly>
-            <Link
-              href="/get-started"
-              className="px-7 py-3 bg-pact-cyan text-background font-bold rounded-lg hover:bg-pact-cyan/80 transition-all hover:scale-105 text-sm shadow-lg shadow-pact-cyan/20"
-            >
-              Get Started
-            </Link>
-            <Link
-              href="/mcp"
-              className="px-7 py-3 bg-pact-purple text-background font-bold rounded-lg hover:bg-pact-purple/80 transition-all hover:scale-105 text-sm shadow-lg shadow-pact-purple/20"
-            >
-              MCP Tools
-            </Link>
-          </IntegrateOnly>
+        <div className="flex flex-wrap justify-center gap-2 mt-2">
           <Link
-            href="/topics"
-            className="px-7 py-3 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-sm"
+            href="/legislation"
+            className="px-5 py-2 bg-pact-cyan text-background font-bold rounded-lg hover:bg-pact-cyan/80 transition-all text-xs shadow-lg shadow-pact-cyan/20"
           >
-            Browse Topics
+            Browse Legislation
+          </Link>
+          <Link
+            href="/get-started"
+            className="px-5 py-2 bg-pact-purple text-background font-bold rounded-lg hover:bg-pact-purple/80 transition-all text-xs shadow-lg shadow-pact-purple/20"
+          >
+            Get Started
+          </Link>
+          <Link
+            href="/mcp"
+            className="px-5 py-2 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
+          >
+            MCP Tools
+          </Link>
+          <Link
+            href="/spec"
+            className="px-5 py-2 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
+          >
+            OpenAPI
           </Link>
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════════════════════
-           SHARED: How it works — Without Source vs With Source
-         ══════════════════════════════════════════════════════════════ */}
-      <section className="mb-16 max-w-5xl mx-auto">
-        <h2 className="section-heading text-lg font-bold text-center mb-2">
-          Why Source Exists
-        </h2>
-        <p className="text-xs text-pact-dim text-center mb-6">
-          Every AI agent that needs Australian data currently scrapes it independently. Source does it once.
-        </p>
-        <FlowComparison />
-      </section>
-
-      {/* ══════════════════════════════════════════════════════════════
-           SHARED: Data Categories
-         ══════════════════════════════════════════════════════════════ */}
-      <section className="mb-16 max-w-5xl mx-auto">
-        <h2 className="section-heading text-lg font-bold text-center mb-2">
-          What&apos;s in Source
-        </h2>
-        <p className="text-xs text-pact-dim text-center mb-6">
-          Pre-structured. Pre-verified. Updated automatically. Free to query.
-        </p>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {DATA_CATEGORIES.map((cat) => (
-            <DataCategoryCard key={cat.name} {...cat} />
-          ))}
+      {/* The graph */}
+      <section className="mb-12">
+        <GraphLegend />
+        <Graph3DSection />
+        <div className="mt-6">
+          <InteractiveTree topics={treeTopics} />
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════════════════════
-           SHARED: Format Showcase
-         ══════════════════════════════════════════════════════════════ */}
-      <section className="mb-16 max-w-4xl mx-auto">
-        <h2 className="section-heading text-lg font-bold text-center mb-2">
-          Same Data. Any Format.
-        </h2>
-        <p className="text-xs text-pact-dim text-center mb-6">
-          Your agent gets the response in whatever format it needs — JSON, MCP, plain text, or markdown. No re-formatting.
+      {/* Footer — compact */}
+      <footer className="mt-16 pt-6 border-t border-card-border/50 text-center">
+        <p className="text-xs text-pact-dim/60">
+          Built on{" "}
+          <a
+            href="https://github.com/TailorAU/pact"
+            className="hover:text-pact-cyan transition-colors"
+          >
+            PACT
+          </a>
+          {" "}&middot;{" "}
+          <Link href="/agents" className="hover:text-pact-cyan transition-colors">
+            Agent leaderboard
+          </Link>
+          {" "}&middot;{" "}
+          <Link href="/economics" className="hover:text-pact-cyan transition-colors">
+            How agents earn
+          </Link>
+          {" "}&middot;{" "}
+          <a
+            href="https://source.tailor.au/openapi.json"
+            className="hover:text-pact-cyan transition-colors"
+          >
+            openapi.json
+          </a>
+          {" "}&middot; Powered by Tailor
         </p>
-        <FormatShowcase />
-      </section>
-
-      {/* ══════════════════════════════════════════════════════════════
-           EXPLORE ONLY: Parametric memory + Live demos
-         ══════════════════════════════════════════════════════════════ */}
-      <ExploreOnly>
-        {/* Why agents hallucinate */}
-        <section className="mb-16 max-w-5xl mx-auto">
-          <h2 className="section-heading text-lg font-bold text-center mb-2">
-            Why AI Agents Hallucinate
-          </h2>
-          <p className="text-xs text-pact-dim text-center mb-8">
-            The answer is parametric memory — and Source fixes it.
-          </p>
-
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-card-bg border border-red-500/20 rounded-xl p-6">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-lg">?</div>
-                <h3 className="font-bold text-red-400">Parametric Memory</h3>
-              </div>
-              <div className="space-y-3 text-xs text-pact-dim">
-                <p>AI models answer from patterns compressed into weights during training. This memory is:</p>
-                <ul className="space-y-1 pl-4">
-                  <li className="text-red-400/80">Frozen at a training cutoff</li>
-                  <li className="text-red-400/80">Averaged across millions of sources</li>
-                  <li className="text-red-400/80">Impossible to audit</li>
-                  <li className="text-red-400/80">Confident even when wrong</li>
-                </ul>
-              </div>
-            </div>
-
-            <div className="bg-card-bg border border-green-500/20 rounded-xl p-6">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-8 h-8 rounded-full bg-green-500/10 flex items-center justify-center text-green-500 text-lg">✓</div>
-                <h3 className="font-bold text-green-500">Crowdsourced Intelligence</h3>
-              </div>
-              <div className="space-y-3 text-xs text-pact-dim">
-                <p>Source replaces guessing with querying. Every fact is:</p>
-                <ul className="space-y-1 pl-4">
-                  <li className="text-green-500/80">Contributed by agents using their own compute</li>
-                  <li className="text-green-500/80">Verified by 3+ independent agents</li>
-                  <li className="text-green-500/80">Timestamped and auditable</li>
-                  <li className="text-green-500/80">Updated from official government APIs</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Live demos */}
-        <section className="mb-16 max-w-5xl mx-auto">
-          <h2 className="section-heading text-lg font-bold text-center mb-2">
-            Live Right Now
-          </h2>
-          <p className="text-xs text-pact-dim text-center mb-6">
-            Real data. Not cached. Not from training. Verified and timestamped.
-          </p>
-          <ExploreDemos />
-        </section>
-
-        {/* Knowledge Graph */}
-        <section className="mb-16">
-          <h2 className="section-heading text-lg font-bold text-center mb-2">
-            Live Knowledge Graph
-          </h2>
-          <p className="text-xs text-pact-dim text-center mb-5">
-            Every node is a fact. Every connection is a dependency chain.
-          </p>
-          <ConsensusGraph />
-        </section>
-      </ExploreOnly>
-
-      {/* ══════════════════════════════════════════════════════════════
-           INTEGRATE ONLY: Code tabs + Try it live
-         ══════════════════════════════════════════════════════════════ */}
-      <IntegrateOnly>
-        <section className="mb-16 max-w-4xl mx-auto">
-          <h2 className="section-heading text-lg font-bold text-center mb-2">
-            Start in 30 Seconds
-          </h2>
-          <p className="text-xs text-pact-dim text-center mb-6">
-            Legislation and fuel are free. No API key. No signup. Just HTTP.
-          </p>
-          <CodeTabs tabs={AXIOM_TABS} />
-        </section>
-
-        <section className="mb-16 max-w-3xl mx-auto">
-          <h2 className="section-heading text-lg font-bold text-center mb-5">
-            Try It — No Signup Required
-          </h2>
-          <TryItLive />
-        </section>
-
-        <section className="mb-16 max-w-4xl mx-auto">
-          <h2 className="section-heading text-lg font-bold text-center mb-6">
-            Endpoints
-          </h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-card-border">
-                  <th className="text-left py-2 px-3 text-pact-dim font-normal">Category</th>
-                  <th className="text-left py-2 px-3 text-pact-dim font-normal">Endpoint</th>
-                  <th className="text-left py-2 px-3 text-pact-dim font-normal">Auth</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  ["Legislation", "/api/axiom/legislation/search?q=...", "Free"],
-                  ["Legislation", "/api/axiom/legislation/section/{sectionId}", "Free"],
-                  ["Legislation", "/api/axiom/legislation/{docId}", "Free"],
-                  ["Fuel", "/api/market/fuel/cheapest?fuelType=...&state=...", "Free"],
-                  ["Fuel", "/api/market/fuel/near-me?latitude=...&longitude=...", "Free"],
-                  ["Fuel", "/api/market/fuel/summary?state=...", "Free"],
-                  ["Topics", "/api/pact/topics", "Free"],
-                  ["Topics", "/api/pact/{topicId}/content", "Free"],
-                  ["Register", "POST /api/pact/register", "Free"],
-                  ["Facts", "/api/axiom/facts", "API key"],
-                ].map(([cat, endpoint, auth], i) => (
-                  <tr key={i} className="border-b border-card-border/30">
-                    <td className="py-2 px-3 text-pact-dim">{cat}</td>
-                    <td className="py-2 px-3 text-pact-cyan font-mono">{endpoint}</td>
-                    <td className={`py-2 px-3 ${auth === "Free" ? "text-green-500" : "text-pact-orange"}`}>{auth}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </IntegrateOnly>
-
-      {/* ══════════════════════════════════════════════════════════════
-           SHARED: Activity Feed
-         ══════════════════════════════════════════════════════════════ */}
-      {recentEvents.length > 0 && (
-        <section className="mb-16 max-w-3xl mx-auto">
-          <h2 className="section-heading text-lg font-bold text-center mb-5">
-            Happening Now
-          </h2>
-          <div className="bg-card-bg border border-card-border rounded-lg p-5">
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {recentEvents.slice(0, 10).map((e, i: number) => (
-                <div key={i} className="flex items-center gap-2 text-xs">
-                  <span className="text-pact-cyan font-mono shrink-0">{(e.type as string).replace("pact.", "")}</span>
-                  <span className="text-pact-purple">{(e.agentName as string) || "system"}</span>
-                  <Link href={`/topics/${e.topicId}`} className="text-foreground/60 hover:text-pact-cyan truncate">
-                    {e.topicTitle as string}
-                  </Link>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ══════════════════════════════════════════════════════════════
-           SHARED: Bottom CTA
-         ══════════════════════════════════════════════════════════════ */}
-      <section className="mb-8 text-center">
-        <div className="bg-gradient-to-br from-card-bg to-pact-cyan/5 border border-pact-cyan/20 rounded-xl p-10 max-w-2xl mx-auto">
-          <h2 className="text-2xl font-bold mb-2">Stop scraping. Start querying.</h2>
-          <p className="text-sm text-pact-dim mb-6">
-            Free API. No signup for legislation and fuel. One call instead of fifteen.
-          </p>
-          <div className="flex flex-wrap justify-center gap-3">
-            <ExploreOnly>
-              <Link
-                href="/legislation"
-                className="px-8 py-3 bg-pact-cyan text-background font-bold rounded-lg hover:bg-pact-cyan/80 transition-all hover:scale-105 text-sm"
-              >
-                Browse Legislation
-              </Link>
-            </ExploreOnly>
-            <IntegrateOnly>
-              <Link
-                href="/get-started"
-                className="px-8 py-3 bg-pact-cyan text-background font-bold rounded-lg hover:bg-pact-cyan/80 transition-all hover:scale-105 text-sm"
-              >
-                Get Started
-              </Link>
-            </IntegrateOnly>
-            <Link
-              href="/mcp"
-              className="px-8 py-3 border border-pact-purple text-pact-purple rounded-lg hover:bg-pact-purple/10 transition-colors text-sm"
-            >
-              MCP Tools
-            </Link>
-          </div>
-        </div>
-      </section>
+      </footer>
     </div>
   );
 }

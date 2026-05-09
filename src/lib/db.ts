@@ -3,19 +3,40 @@ import path from "path";
 import pg from "pg";
 import { v4 as uuid } from "uuid";
 
-// Load legislation DDL from sql/legislation-schema.sql (WS8 extraction).
-// Splits on ";\n" to recover individual statement strings that initSchema
-// passes to db.execute(), matching the inline pattern they replace.
-// Empty strings from the split (e.g. trailing newline) are filtered out.
-// Lines starting with `--` are SQL comments and are dropped at the statement
-// level; comments mid-statement are preserved by `pgify` / pg's parser.
+// Load DDL from sql/<filename>. Splits on ";\n" to recover individual
+// statement strings that initSchema passes to db.execute(), matching the
+// inline pattern they replace.
+//
+// Each split segment may carry leading `--` line comments (a header block
+// above the first statement, or per-statement banners between statements).
+// We strip those header lines before checking emptiness so a statement
+// preceded by an explanatory comment block still ships. The previous
+// implementation filtered any segment whose first character was `-`, which
+// silently dropped any commented-statement.
+//
+// Mid-statement / inline comments are preserved by `pgify` / pg's parser.
 function _loadSqlStatements(filename: string): string[] {
   const sqlPath = path.join(process.cwd(), "sql", filename);
   return fs
     .readFileSync(sqlPath, "utf8")
     .split(/;\s*\n/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith("--"));
+    .map((s) => {
+      // Strip leading `--` comment lines + blank lines; keep mid-statement
+      // comments intact for the SQL parser. A segment that becomes empty
+      // (was comments-only) gets dropped by the next filter step.
+      const lines = s.split("\n");
+      let i = 0;
+      while (i < lines.length) {
+        const t = lines[i].trim();
+        if (t.length === 0 || t.startsWith("--")) {
+          i++;
+        } else {
+          break;
+        }
+      }
+      return lines.slice(i).join("\n").trim();
+    })
+    .filter((s) => s.length > 0);
 }
 
 const _legislationStatements: string[] = _loadSqlStatements("legislation-schema.sql");
@@ -27,6 +48,11 @@ const _legislationStatements: string[] = _loadSqlStatements("legislation-schema.
 const _legislationSyncLogAugmentStatements: string[] = _loadSqlStatements(
   "legislation-sync-log-augment.sql"
 );
+
+// WS12 — per-agent spending_cap_daily column on agents. Idempotent ALTER; safe
+// to apply after the base agents table is created in initSchema. NULL = no cap;
+// see sql/spending-cap.sql header for the cap-enforcement contract.
+const _spendingCapStatements: string[] = _loadSqlStatements("spending-cap.sql");
 
 // Return TIMESTAMP / TIMESTAMPTZ as ISO strings (not JS Date objects)
 // so existing code that casts date columns to string keeps working.
@@ -314,6 +340,12 @@ async function initSchema(db: DbClient) {
     // parser_anomaly_count to legislation_sync_log. Idempotent ALTERs —
     // see sql/legislation-sync-log-augment.sql.
     ..._legislationSyncLogAugmentStatements,
+
+    // ── Spending-cap WS12 augment ────────────────────────────────────
+    // Adds spending_cap_daily INTEGER (NULL = unlimited) to agents. The
+    // cap is enforced in lib/wallet-debit.ts before the balance check.
+    // See sql/spending-cap.sql header for the contract.
+    ..._spendingCapStatements,
 
     // ── Indexes ─────────────────────────────────────────────────────
     `CREATE INDEX IF NOT EXISTS idx_proposals_topic_status ON proposals(topic_id, status)`,

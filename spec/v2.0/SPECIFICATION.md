@@ -251,6 +251,14 @@ The number of approvals required before auto-merge is configurable per document:
 | `human-only` | Only a human can approve (agents can only propose) |
 | `objection-based` | Auto-merge after TTL unless an agent objects (silence = consent) |
 
+#### Self-approval
+
+By default, the agent that authored a proposal **cannot** count as an approver of it: under `single` / `majority` / `unanimous`, an approval is only counted if the approving agent's `agentId` differs from the proposal author's. This is to keep "one operator running many agents on the same resource" from rubber-stamping its own work.
+
+Resources MAY set a per-resource boolean **`allowSelfApproval`** (default `false`). When `true`, an author's approval of their own proposal counts normally — appropriate for low-stakes resources, or where the operator deliberately wants self-approval and accepts the reduced check.
+
+**Recommendation for multi-agent-under-one-operator deployments** (the common cloud / managed-service case — see issue [#13](https://github.com/TailorAU/pact/issues/13) Q1): rather than flipping `allowSelfApproval`, use the **`objection-based`** policy. It has no approval step at all — proposals auto-merge after TTL unless an agent objects — so the self-approval question simply does not arise. For new agent-to-agent flows that aren't long-lived collaborations, ephemeral **Sessions** (§19–20, when finalised) sidestep it entirely (Sessions have no merge/approve step; outcomes are reported back to each handler).
+
 ### Conflict Detection
 
 A conflict is detected when:
@@ -1414,6 +1422,7 @@ Full JSON Schema (draft-07) definitions for all API endpoints are available in t
 | `event.json` | Events / polling | Event structure (Section 6) |
 | `authorization-proof.json` | Any message | Proof-of-human-intent envelope (Section 17.6) |
 | `principal-registry.json` | `/.well-known/pact-credentials.json` | Credential registry structure (Section 17.8) |
+| `agent-identity.json` | Transfer / recovery | Agent identity lifecycle — transfer & recovery attestations, recovery-quorum enrollment (Section 23) |
 
 > **Note:** `authorization-proof.json` carries the §18.1 common fields and the `voice-biometric` additions inline (`match`, `utterance_hash`, `verifier_id`); the full normative `voice-biometric` schema — signature suite, embedding-algorithm versioning — lands via HMAN's [#3](https://github.com/TailorAU/pact/issues/3) PR (§18.6).
 

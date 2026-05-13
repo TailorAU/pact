@@ -1,0 +1,68 @@
+# Conformance test vector — Core: agent joins a resource via invite token.
+# Conforms to ../test-vector-format.yaml. Until the real runner lands (T9),
+# CI just parses this file; the assertions below describe the expected
+# behaviour an implementation MUST satisfy.
+
+metadata:
+  id: core/join/basic
+  description: An agent joins a document with a valid invite token (anonymous BYOK flow).
+  spec_section: "§4.1, §7.1"
+  conformance_level: core
+  track: T0   # carried from v1.1; foundational
+
+preconditions:
+  server_state:
+    resource_id: doc_abc123
+    registered_agents: []          # no agents on the document yet
+  request_context:
+    auth: none                     # join-token is anonymous — no API key
+
+request:
+  method: POST
+  path: /api/pact/doc_abc123/join-token
+  headers:
+    Content-Type: application/json
+  body:
+    agentName: test-bot
+    token: invite_xyz
+
+expected_response:
+  status: 200
+  body_match:
+    mode: subset
+    value:
+      agentName: test-bot
+      contextMode: scoped
+  body_ignore_fields:
+    - registrationId               # server-assigned
+    - apiKey                       # scoped key, server-assigned
+    - allowedSections              # optional, scoping-dependent
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.agent.joined
+      match:
+        mode: subset
+        value:
+          actorDisplay: test-bot
+          actorKind: AiAgent
+          entityType: pact-document
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - actorId
+
+postconditions:
+  server_state:
+    events_added: 1
+    resource_modified: false
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Implementation does not support the invite-token (BYOK) flow
+    - No pact.agent.joined event emitted on join
+    - actorKind set to something other than AiAgent
+    - Scoped apiKey not returned in the response

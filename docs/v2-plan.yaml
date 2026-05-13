@@ -224,16 +224,14 @@ tracks:
       for legacy cases, and recommends objection-based policy as the default
       for multi-agent-under-one-principal scenarios.
     canonical_for: legacy long-lived resource collaborations only
+    status: DONE 2026-05-13 — spec/v2.0/SPECIFICATION.md §5 has the new "Self-approval" subsection. Mirror sync (tailor-app) folded into PR #1616.
     inputs:
       - issue #13 Q1
       - v1.1 §5 Approval Policy
     deliverables:
-      - spec/v2.0/SPECIFICATION.md §5 updated — self-approval rule explicitly described
-      - Per-resource config flag `allowSelfApproval` (default false)
-      - Recommendation: ObjectionBased policy when one principal operates multiple agents
-      - Cross-reference to T3: "For new agent-to-agent flows, prefer Sessions"
+      - "[DONE] spec/v2.0/SPECIFICATION.md §5 — new 'Self-approval' subsection: by default an author's approval of their own proposal doesn't count (single/majority/unanimous); per-resource `allowSelfApproval` flag (default false); recommends `objection-based` for multi-agent-under-one-operator deployments; cross-references Sessions (§19-20) for new agent-to-agent flows"
     conformance_impact:
-      core: behaviour unchanged; only prose tightens
+      core: behaviour unchanged; only prose tightens (the self-approval default is what implementations already do)
       extended: SHOULD expose allowSelfApproval via config API
 
   - id: T7
@@ -254,7 +252,7 @@ tracks:
       - federation_constraints (this document)
     deliverables:
       - "[DONE] spec/v2.0/SPECIFICATION.md §23 Agent Identity Lifecycle — 23.1 what an agentId is (server-side, persistent, federation-portable URN), 23.2 the agent↔operator binding, 23.3 cooperative operator transfer, 23.4 hostile/non-cooperative recovery (M-of-N + abandoned-agent reset, time-locked dispute window), 23.5 event types, 23.6 conformance, 23.7 open questions"
-      - schemas/agent-identity.json — STILL TODO (schema for the transfer/recovery attestations + the agentId form)
+      - "[DONE] spec/v2.0/schemas/agent-identity.json — agentId form (urn:pact:agent: or DID), transfer attestation, recovery-quorum enrollment, recovery attestation, abandonment; listed in Appendix A.2"
       - "[DONE] Cooperative operator-transfer flow: outgoing signs → incoming countersigns → server rotates binding without changing agentId (§23.3)"
       - "[DONE] Hostile transfer (AloomU sovereignty case): M-of-N recovery quorum + abandoned-agent reset; time-locked dispute window (default 72h); §23.4"
       - "[DONE] Event types: pact.agent.transferred, .identity-rotated, .recovery-initiated, .recovered, .abandoned (§23.5)"
@@ -316,7 +314,7 @@ tracks:
       - "[DONE] v2.0 schemas use $id paths matching their version dir (/v2.0/) — fixed in the collapse commit"
       - "[DONE] v1.1 errata — promoted to spec/v1.1/ERRATA.md (E1 phantom §15/§16 refs, E2 stale schema $id paths); README v1.1 row links it; issue #15 closed"
       - "[DONE] Conformance scaffold: spec/v2.0/conformance/ directory + README + test-vector-format.yaml; .github/workflows/conformance.yml CI hook (scaffold checks + YAML-parse gate on every spec/ PR); validate.yml updated to validate v2.0 schemas (was v1.2)"
-      - Smoke test per phase-0 track (T1, T2, T7) under spec/v2.0/conformance/{core,extended}/ — STILL TODO
+      - "[PARTIAL] spec/v2.0/conformance/core/join.yaml — first real test vector (Core: invite-token join + pact.agent.joined event). T1/T2/T7-specific smoke tests (authorization_proof verification, agent transfer) STILL TODO"
       - Real conformance runner (HTTP record/replay + event-sequence assertions) replacing the parse-only CI step — STILL TODO (T9 expands this)
       - Resource-type registry section (formalise v1.1 §14.3) — STILL TODO
       - JSON Schema bumped to 2020-12 (currently draft-07) — STILL TODO

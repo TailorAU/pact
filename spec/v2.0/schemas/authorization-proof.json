@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pact-spec.dev/schemas/v2.0/authorization-proof.json",
+  "title": "PACT Authorization Proof",
+  "description": "Proof-of-human-intent envelope (PACT Specification §17.6) that MAY accompany any PACT message. Carries a cryptographic attestation that a specific HumanPrincipal authorized the action. Attestation-type-specific fields (e.g. `match`, `utterance_hash`, `verifier_id` for `voice-biometric`) are additive — see §18.",
+  "type": "object",
+  "required": ["type", "principal_id", "credential_id", "challenge_nonce", "asserted_at", "signature", "alg", "alg_version"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "description": "Attestation type. v2.0 first-class types are `fido2-assertion` and `voice-biometric`; custom types use reverse-domain notation (§18.5).",
+      "anyOf": [
+        { "enum": ["fido2-assertion", "voice-biometric"] },
+        { "pattern": "^[a-z0-9]+(\\.[a-z0-9-]+)+$" }
+      ]
+    },
+    "principal_id": {
+      "type": "string",
+      "description": "The HumanPrincipal that authorized the action — a W3C DID. Verifiers MUST support `did:web` and `did:key`.",
+      "pattern": "^did:[a-z0-9]+:.+"
+    },
+    "credential_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Identifier of the enrolled credential that produced the signature."
+    },
+    "challenge_nonce": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Verifier-issued challenge. MUST be either signed by the verifier's key or accompanied by a matching `verifier_id` — otherwise a proof captured for verifier A can be replayed at verifier B (§17.6)."
+    },
+    "verifier_id": {
+      "type": "string",
+      "description": "Identifier (typically a DID) of the verifier the challenge was issued for. REQUIRED when `challenge_nonce` is not itself verifier-signed.",
+      "pattern": "^did:[a-z0-9]+:.+"
+    },
+    "asserted_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the human authorization was captured (ISO 8601). MUST be within the verifier's allowed clock skew (default ±5 minutes)."
+    },
+    "signature": {
+      "type": "string",
+      "description": "Base64url-encoded signature over the message payload + `challenge_nonce` + `asserted_at`, per the `type`'s signature suite."
+    },
+    "alg": {
+      "type": "string",
+      "description": "Algorithm identifier for this attestation's signature / match (e.g. `webauthn-es256`, `resemblyzer-v1`)."
+    },
+    "alg_version": {
+      "type": "string",
+      "description": "Version of `alg`. REQUIRED so model swaps / retrains do not silently invalidate enrolled references."
+    },
+    "attestation_chain": {
+      "type": "array",
+      "description": "Ordered intermediate attestations for delegated authorization (§17.11). Maximum length 3 (direct + 2 sub-delegations) at v2.0. Empty or absent = direct.",
+      "maxItems": 3,
+      "items": { "type": "object" }
+    },
+    "match": {
+      "type": "object",
+      "description": "Speaker-verification result. Present for `voice-biometric` and reused by future biometric modalities (§18.3). Full normative shape lands via HMAN's #3 PR.",
+      "required": ["alg", "alg_version", "score", "threshold"],
+      "properties": {
+        "alg": { "type": "string" },
+        "alg_version": { "type": "string" },
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "threshold": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "utterance_hash": {
+      "type": "string",
+      "description": "Base64url hash of the spoken utterance, binding a `voice-biometric` assertion to what was said (§18.3, normative)."
+    }
+  },
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "voice-biometric" } } },
+      "then": { "required": ["match", "utterance_hash"] }
+    }
+  ]
+}

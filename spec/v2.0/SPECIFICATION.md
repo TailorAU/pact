@@ -1292,6 +1292,69 @@ Whether custom types additionally require pre-registration in a central registry
 
 ---
 
+> **Sections 19–22 (reserved).** §19–20 — ephemeral negotiation Sessions + the Mandate primitive (RFC [#14](https://github.com/TailorAU/pact/issues/14)); §21 — push delivery (signed event webhooks); §22 — service-account authentication. These land via reviewed PRs; design records are in `docs/v2-plan.yaml` (tracks T3, T4, T5).
+
+## 23. Agent Identity Lifecycle (v2.0)
+
+> **Status:** v2.0 normative. Resolves issue [#13](https://github.com/TailorAU/pact/issues/13) Q7 (agent identity persistence + operator transfer).
+
+### 23.1 What an `agentId` is
+
+When an agent joins a resource (`agent.join`, §4.1) it is assigned an `agentId` — a **server-side principal** that persists across sessions, machines, and CLI invocations. The `agentId` is distinct from the **HumanPrincipal** (§17.4) that operates the agent: the HumanPrincipal answers "which human authorized this," the `agentId` answers "which agent identity is doing the work."
+
+`agentId` is a URN of the form `urn:pact:agent:{opaque}` (or a DID, where the server supports it). The format is **portable** — designed so a future PACT federation (v2.1+) can resolve an `agentId` across servers — even though a v2.0 server treats it as server-local. Implementations MUST NOT mint an `agentId` that is only meaningful within a single document or session.
+
+### 23.2 The agent ↔ operator binding
+
+Every `agentId` has an **operator-of-record**: the HumanPrincipal currently responsible for the agent. The binding is recorded in the event log (`pact.agent.joined` carries it; `pact.agent.transferred` / `pact.agent.recovered` update it) and is independent of the agent's `agentId` — i.e., the operator can change without the `agentId` changing. This is the property AloomU's sovereignty posture requires: "operator-of-record can change without losing agent identity continuity."
+
+### 23.3 Cooperative operator transfer
+
+When an operator hands an agent over voluntarily (succession, role rotation, off-boarding):
+
+1. The **outgoing operator** signs a transfer attestation: `{ agentId, from: <outgoing principal_id>, to: <incoming principal_id>, effective_at, reason }`, signed with the outgoing principal's key (§17.6 envelope semantics).
+2. The **incoming operator** countersigns the same attestation.
+3. The server validates both signatures, rotates the binding, and emits `pact.agent.transferred` (and, if the agent's own signing key rotates, `pact.agent.identity-rotated`). The `agentId` is unchanged.
+
+A transfer with only one valid signature MUST be rejected.
+
+### 23.4 Hostile / non-cooperative transfer (recovery)
+
+When the outgoing operator cannot or will not co-sign (fired, deceased, unreachable, adversarial), one of two recovery paths applies. An implementation that runs sovereignty-posture deployments SHOULD support at least one; both are OPTIONAL at every conformance tier.
+
+- **M-of-N recovery.** The `agentId` was enrolled with a recovery quorum — a governance group of N principals, M of whom must co-sign a recovery attestation `{ agentId, to: <incoming principal_id>, effective_at, reason }`. On a valid M-of-N signature set the server rotates the binding and emits `pact.agent.recovered`. The `agentId` is unchanged. Quorum size (M, N) is implementation-defined; the spec sets no minimum but RECOMMENDS M ≥ 2.
+- **Abandoned-agent reset.** Where no recovery quorum was enrolled, an administrator MAY mint a **new** `agentId` for a successor agent and emit `pact.agent.abandoned` against the old one, carrying an attestation of why (the old operator is unreachable / off-boarded / etc.). The old `agentId`'s history is preserved and remains citable; it is simply marked abandoned and accepts no further operations.
+
+Both recovery paths take effect only after a **time-locked dispute window** (implementation-configurable; default 72 hours) during which the current operator-of-record, if reachable, can veto. The window is announced via `pact.agent.recovery-initiated` (carrying `effective_at`).
+
+### 23.5 Event types
+
+```
+pact.agent.transferred         // Cooperative operator transfer completed (binding rotated, agentId unchanged)
+pact.agent.identity-rotated     // Agent's own signing key rotated (may accompany a transfer)
+pact.agent.recovery-initiated   // M-of-N recovery or abandoned-agent reset started; dispute window open
+pact.agent.recovered            // M-of-N recovery completed (binding rotated, agentId unchanged)
+pact.agent.abandoned            // Abandoned-agent reset completed (old agentId frozen; successor has a new agentId)
+```
+
+### 23.6 Conformance
+
+| Level | Requirement |
+|---|---|
+| **Core** | `agentId` MUST persist across sessions and be server-portable in form (§23.1). Cooperative transfer (§23.3) is OPTIONAL. |
+| **Extended** | SHOULD support cooperative operator transfer (§23.3). |
+| **Authorization-Required** | The transfer / recovery attestations are themselves `authorization_proof`-bearing (§17.6); a recovery quorum's signatures MUST each verify as valid HumanPrincipal proofs. |
+
+M-of-N recovery and abandoned-agent reset (§23.4) are OPTIONAL at every tier but RECOMMENDED for deployments that commit to operator-independent identity continuity.
+
+### 23.7 Open Questions (deferred to a reviewed PR)
+
+1. **Cross-server portability** — `agentId` is portable in *form*; the *resolution protocol* (how server B resolves an `agentId` minted on server A) is v2.1 federation work.
+2. **Trust decay for transferred identities** — does an agent's reputation / trust level carry across a hostile recovery, or reset?
+3. **Recovery quorum minimum** — spec-fixed minimum M, or implementation-defined? (Current: implementation-defined, RECOMMEND M ≥ 2.)
+
+---
+
 ## Appendix A: API Schemas (Unmediated + Mediated)
 
 ### A.1 Error Response Format
@@ -1349,6 +1412,10 @@ Full JSON Schema (draft-07) definitions for all API endpoints are available in t
 | `ask-human-request.json` | `POST /ask-human` | Human escalation |
 | `error-response.json` | All endpoints | Standard error envelope |
 | `event.json` | Events / polling | Event structure (Section 6) |
+| `authorization-proof.json` | Any message | Proof-of-human-intent envelope (Section 17.6) |
+| `principal-registry.json` | `/.well-known/pact-credentials.json` | Credential registry structure (Section 17.8) |
+
+> **Note:** `authorization-proof.json` carries the §18.1 common fields and the `voice-biometric` additions inline (`match`, `utterance_hash`, `verifier_id`); the full normative `voice-biometric` schema — signature suite, embedding-algorithm versioning — lands via HMAN's [#3](https://github.com/TailorAU/pact/issues/3) PR (§18.6).
 
 ### A.3 Pagination
 

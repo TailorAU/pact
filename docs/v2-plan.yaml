@@ -61,9 +61,9 @@ tracks:
     status: NORMATIVE TEXT LANDED 2026-05-13 — spec/v2.0/SPECIFICATION.md §17 (Human Authorization Layer, §17.1-17.12) is no longer a stub; synced from the canonical mirror via coordination PR TailorAU/tailor-app#1616. Re-sync if that PR's review changes anything.
     deliverables:
       - "[DONE] spec/v2.0/SPECIFICATION.md §17 — full normative text: 17.1 problem, 17.2 trust chain, 17.3 two-layer arch, 17.4 HumanPrincipal strictly-1:1 + DID identity, 17.5 the persona claim (above PACT layer), 17.6 the authorization_proof envelope, 17.7 verification flow, 17.8 credential registry + tombstone/erasure, 17.9 conformance incl. the defined Authorization-Required tier, 17.10 GDPR/RTBF position, 17.11 delegation (3-hop cap), 17.12 open questions"
-      - schemas/authorization-proof.json   # still TODO — schema for the §17.6 envelope
-      - schemas/principal-registry.json   # still TODO — formalises /.well-known/pact-credentials.json
-      - example test vectors for the verification flow (→ spec/v2.0/conformance/)
+      - "[DONE] spec/v2.0/schemas/authorization-proof.json — the §17.6 envelope + §18.1 common fields + inline voice-biometric additions; listed in Appendix A.2"
+      - "[DONE] spec/v2.0/schemas/principal-registry.json — formalises /.well-known/pact-credentials.json (§17.8), incl. tombstone; listed in Appendix A.2"
+      - example test vectors for the verification flow (→ spec/v2.0/conformance/) — STILL TODO
       - "[DONE] HumanPrincipal STRICTLY 1:1 (§17.4) — normative; the `persona` claim documented as above-PACT-layer advisory metadata (§17.5); HMAN multi-entity model demoted to a non-normative downstream reference"
       - Personal-data position for principal registry — cryptographic erasure via key destruction, tombstone semantics, or protocol-integrity exemption (rev2: GDPR/RTBF)
     conformance_impact:
@@ -248,22 +248,17 @@ tracks:
       design must not preclude v2.1 federation even though federation itself
       is a v2 non-goal.
     promoted_to_phase: 0
+    status: NORMATIVE TEXT LANDED 2026-05-13 — spec/v2.0/SPECIFICATION.md §23 Agent Identity Lifecycle. Mirror sync (tailor-app PACT_SPECIFICATION.md) pending — folded into PR #1616.
     inputs:
       - issue #13 Q7
       - federation_constraints (this document)
     deliverables:
-      - spec/v2.0/SPECIFICATION.md §23 Agent Identity Lifecycle
-      - schemas/agent-identity.json
-      - Cooperative operator-transfer flow:
-        - outgoing operator signs transfer attestation
-        - incoming operator countersigns
-        - server rotates binding without changing agentId
-      - Hostile / non-cooperative transfer (rev2 — AloomU sovereignty case):
-        - M-of-N recovery primitive (steering committee multi-sig)
-        - Abandoned-agent reset minting new agentId with attestation of why
-        - Time-locked dispute window before reset takes effect
-      - Event types: pact.agent.transferred, pact.agent.identity-rotated, pact.agent.recovered, pact.agent.abandoned
-      - Agent-identity URN format compatible with v2.1 federation
+      - "[DONE] spec/v2.0/SPECIFICATION.md §23 Agent Identity Lifecycle — 23.1 what an agentId is (server-side, persistent, federation-portable URN), 23.2 the agent↔operator binding, 23.3 cooperative operator transfer, 23.4 hostile/non-cooperative recovery (M-of-N + abandoned-agent reset, time-locked dispute window), 23.5 event types, 23.6 conformance, 23.7 open questions"
+      - schemas/agent-identity.json — STILL TODO (schema for the transfer/recovery attestations + the agentId form)
+      - "[DONE] Cooperative operator-transfer flow: outgoing signs → incoming countersigns → server rotates binding without changing agentId (§23.3)"
+      - "[DONE] Hostile transfer (AloomU sovereignty case): M-of-N recovery quorum + abandoned-agent reset; time-locked dispute window (default 72h); §23.4"
+      - "[DONE] Event types: pact.agent.transferred, .identity-rotated, .recovery-initiated, .recovered, .abandoned (§23.5)"
+      - "[DONE] agentId URN format (urn:pact:agent:{opaque} or DID) — portable in form, server-local in v2.0; federation resolution protocol deferred to v2.1 (§23.1, §23.7)"
     open_questions:
       - Agent identity portable across PACT servers? (Yes per federation_constraints, but transfer protocol TBD)
       - Trust-decay rules for transferred identities

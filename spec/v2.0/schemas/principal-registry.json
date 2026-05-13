@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pact-spec.dev/schemas/v2.0/principal-registry.json",
+  "title": "PACT Credential Registry",
+  "description": "Structure of the credential registry a PACT server MAY publish at /.well-known/pact-credentials.json (PACT Specification §17.8). An implementation MAY instead, or also, support DID-document resolution for the public keys.",
+  "type": "object",
+  "required": ["version", "principals"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Registry format version.",
+      "const": "1.0"
+    },
+    "supported_types": {
+      "type": "array",
+      "description": "Attestation types this server accepts, including any custom types in reverse-domain notation (§18.5). If absent, the v2.0 first-class types (`fido2-assertion`, `voice-biometric`) are assumed.",
+      "items": { "type": "string" }
+    },
+    "principals": {
+      "type": "array",
+      "description": "Registered HumanPrincipals. Each is strictly 1:1 with a single human (§17.4).",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The principal's W3C DID.",
+            "pattern": "^did:[a-z0-9]+:.+"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable name. Optional; MAY be omitted or pseudonymous."
+          },
+          "credentials": {
+            "type": "array",
+            "description": "Active and revoked credentials enrolled for this principal. Implementations SHOULD support rotation (multiple active credentials).",
+            "items": {
+              "type": "object",
+              "required": ["id", "type", "public_key", "enrolled_at", "revoked"],
+              "properties": {
+                "id": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Credential identifier, referenced by `authorization_proof.credential_id`." },
+                "type": {
+                  "type": "string",
+                  "description": "Attestation type this credential is used for.",
+                  "anyOf": [
+                    { "enum": ["fido2-assertion", "voice-biometric"] },
+                    { "pattern": "^[a-z0-9]+(\\.[a-z0-9-]+)+$" }
+                  ]
+                },
+                "public_key": { "type": "string", "description": "Base64url-encoded public key (or, for some types, a reference resolvable to one)." },
+                "enrolled_at": { "type": "string", "format": "date-time" },
+                "revoked": { "type": "boolean", "description": "When true, verification against this credential MUST fail (§17.8)." },
+                "revoked_at": { "type": "string", "format": "date-time", "description": "When the credential was revoked. Present when `revoked` is true." }
+              },
+              "additionalProperties": false
+            }
+          },
+          "tombstoned_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Set when the human invokes erasure (§17.10): the credential keys are destroyed and `credentials` is emptied, but the principal entry remains so prior proofs are checkable as having-been-valid-then-revoked. A tombstoned principal MUST have an empty `credentials` array."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

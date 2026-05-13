@@ -356,6 +356,36 @@ server.tool(
   },
 );
 
+// ── Implementation profile (§15) ─────────────────────────────────
+
+server.tool(
+  'pact_profile',
+  'Fetch a PACT server\'s implementation profile from /.well-known/pact.json (§15). Returns name, version, specVersion, conformanceLevel, resourceTypes, capabilities, retentionPolicy, endpoints. Optionally checks that conformanceLevel meets a minimum.',
+  {
+    serverUrl: z.string().describe('Base URL of the PACT server (e.g. https://tailor.au)'),
+    minimumLevel: z.enum(['core', 'extended', 'authorization-required']).optional().describe('Optional minimum conformance level to assert'),
+  },
+  async ({ serverUrl, minimumLevel }) => {
+    try {
+      const base = serverUrl.replace(/\/+$/, '');
+      const url = `${base}/.well-known/pact.json`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      if (!res.ok) {
+        return errorResult(new Error(`HTTP ${res.status} fetching ${url}`));
+      }
+      const profile = await res.json() as Record<string, unknown>;
+      if (minimumLevel) {
+        const rank: Record<string, number> = { core: 0, extended: 1, 'authorization-required': 2 };
+        const got = typeof profile.conformanceLevel === 'string' ? rank[profile.conformanceLevel.toLowerCase()] : undefined;
+        const need = rank[minimumLevel];
+        const meets = got !== undefined && need !== undefined && got >= need;
+        return jsonResult({ profile, meetsMinimum: meets, requestedMinimum: minimumLevel });
+      }
+      return jsonResult(profile);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
 // ── Start ────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {

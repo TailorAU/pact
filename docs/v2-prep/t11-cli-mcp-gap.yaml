@@ -64,9 +64,8 @@ v2_0_additions_needed:
   - id: G6
     title: implementation profile read
     why: §14-15 (v2.0) — servers publish /.well-known/pact.json (conformance level, resource types, capabilities)
-    cli: "pact profile <server-url> — fetch and pretty-print the profile; pact profile --check <server-url> — assert a minimum conformance level"
-    mcp: "pact_profile"
-    priority: medium   # nice-to-have for the conformance story (#13 Q8)
+    status: "[DONE] 2026-05-13 — CLI: pact profile <serverUrl> [--check <level>] [--json] pretty-prints name/version/specVersion/conformanceLevel/resourceTypes/capabilities/retentionPolicy/endpoints; --check asserts a minimum (exit 1 if not met). MCP: pact_profile tool with optional minimumLevel arg. Both clean."
+    priority: medium
     blocked_by: []
 
   - id: G7

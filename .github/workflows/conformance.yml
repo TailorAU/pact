@@ -46,21 +46,13 @@ jobs:
         run: |
           node -e "require('js-yaml').load(require('fs').readFileSync('spec/v2.0/conformance/test-vector-format.yaml','utf8')); console.log('test-vector-format.yaml OK');"
 
-      - name: All conformance test vectors parse as YAML
+      - name: Build & run the conformance runner (verification vectors)
+        # Runs spec/v2.0/conformance/runner against all vectors under
+        # spec/v2.0/conformance/. kind:verification vectors execute fully;
+        # kind:http vectors SKIP without --server (CI doesn't run a PACT server).
+        # See spec/v2.0/conformance/runner/README.md for what's covered vs TODO.
+        working-directory: spec/v2.0/conformance/runner
         run: |
-          shopt -s nullglob globstar
-          vectors=(spec/v2.0/conformance/{core,extended,authorization-required,sessions,push-delivery,service-account,identity,backward-compat}/**/*.yaml)
-          if [ ${#vectors[@]} -eq 0 ]; then
-            echo "No test vectors yet — scaffold-only. (T9/T10 expand this as normative tracks land.)"
-            exit 0
-          fi
-          for v in "${vectors[@]}"; do
-            echo "  Parsing $v"
-            node -e "require('js-yaml').load(require('fs').readFileSync('$v','utf8'));" || { echo "FAILED: $v"; exit 1; }
-          done
-          echo "All ${#vectors[@]} test vectors parsed."
-
-      # TODO (T9): replace the parse-only check above with the real conformance
-      # runner once spec/v2.0/conformance/runner/ exists — HTTP record/replay,
-      # expected-event-sequence assertions, postcondition checks. See
-      # spec/v2.0/conformance/README.md "How tests run".
+          npm ci || npm install
+          npm run build
+          node dist/index.js run --vectors ..

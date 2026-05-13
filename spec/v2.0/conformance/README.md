@@ -63,7 +63,7 @@ Each test is a single YAML file conforming to [`test-vector-format.yaml`](test-v
 - **`kind: http`** (default) — an HTTP request/response recording plus an expected event sequence. An implementation **passes** if, given the recorded request: (1) it returns the recorded response (modulo `body_ignore_fields` — UUIDs, timestamps); (2) it emits the expected events in the recorded order (or any order if `ordered: false`); (3) server state matches `postconditions`.
 - **`kind: verification`** — exercises the §17.7 `authorization_proof` verification flow (client-side logic, no HTTP). Given the `proof`, the `registry` / `did_documents` to resolve against, the `verifier_clock`, and the `issued_nonces`, an implementation **passes** if its verification outcome matches `expected.result` (`verified` / `rejected` / `unverifiable`) and, on rejection, the `expected.failing_step` (1–6 from §17.7).
 
-Reference runner: TBD. Likely Node.js + `ts-node`, callable from GitHub Actions, with an HTTP-record-and-replay harness.
+**Reference runner:** [`./runner/`](./runner/) — `@pact-protocol/conformance-runner` (Node.js + TypeScript, v0.1.0-dev). Loads YAML vectors recursively, dispatches by `kind`, reports pass/fail. `kind: verification` runs unconditionally; `kind: http` SKIPs without `--server <url>`. See [`./runner/README.md`](./runner/README.md) for what's covered vs TODO (schema-mode body matching, `expected_events` subscription, type-specific signature crypto).
 
 ## Self-certification
 
@@ -82,9 +82,10 @@ Before the v2.0 normative tracks (T1, T2, T7) merge, the scaffold must include:
 
 - [x] This README
 - [x] `test-vector-format.yaml` defining the test vector schema
-- [x] A CI hook (`.github/workflows/conformance.yml`) that, on every `spec/` PR, checks the scaffold is present, parses `test-vector-format.yaml`, and parses any test vectors that exist
-- [ ] At least one smoke test per phase-0 track (T1, T2, T7) under `core/` / `extended/`
-- [ ] The real conformance runner (HTTP record/replay + event-sequence assertions) replacing the parse-only CI step
+- [x] A CI hook (`.github/workflows/conformance.yml`) that, on every `spec/` PR, builds + runs the conformance runner against all vectors
+- [x] First test vectors per phase-0 track — `core/join/basic` (T0/T10), `extended/attestation/verify-{fido2-valid,replayed-nonce,revoked-credential}` (T1 verification). More T2/T7 vectors TODO
+- [x] First-pass conformance runner (`./runner/`) — runs `kind: verification` vectors locally and (with `--server`) `kind: http` vectors against a target server
+- [ ] Full runner coverage: `body_match.mode: schema`, `expected_events` subscription, attestation-type-specific signature crypto
 
 Phase-0 smoke tests are intentionally minimal — they prove the scaffold works, not that every behaviour is covered. T9 expands to full coverage before v2.0 freeze.
 

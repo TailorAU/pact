@@ -1,0 +1,122 @@
+# Test vector format for PACT v2 conformance suite.
+# Each test vector is a single YAML file describing one black-box test.
+# This is the schema; concrete test vectors conform to it.
+
+test_vector_schema:
+  version: "1"
+
+  required:
+    - metadata
+    - request
+    - expected_response
+
+  metadata:
+    id: string                          # unique within suite, e.g. "core/join/basic"
+    description: string                  # human-readable summary
+    spec_section: string                 # e.g. "§4.1, §7.1"
+    conformance_level: enum              # core | extended | authorization-required
+    track: string                        # e.g. "T1", "T3"
+
+  preconditions:                         # optional; state assumed before the test runs
+    server_state:
+      resource_id: string?               # if test runs against an existing resource
+      registered_agents: array?          # list of agents already joined
+      events_since: int?                 # event sequence number baseline
+    request_context:
+      auth: enum                         # apiKey | bearer | service-account | none
+      principal_id: string?              # for authorization_proof scenarios
+
+  request:
+    method: enum                         # GET | POST | PUT | DELETE
+    path: string                         # endpoint path (e.g. "/api/pact/{docId}/join")
+    headers: object?
+    body: object?                        # JSON request body
+
+  expected_response:
+    status: int                          # HTTP status code
+    headers: object?                     # required headers (subset match)
+    body_match:
+      mode: enum                         # exact | subset | schema
+      value: object                      # expected body, subset, or JSON Schema
+    body_ignore_fields: array?           # non-deterministic fields to skip (e.g. timestamps, UUIDs)
+
+  expected_events:                       # optional; some tests are pure HTTP
+    ordered: bool                        # MUST events be in this order, or any order?
+    sequence:
+      - event_type: string               # e.g. "pact.agent.joined"
+        match:
+          mode: enum                     # exact | subset
+          value: object
+        body_ignore_fields: array?
+
+  postconditions:                        # optional; state expected after the test
+    server_state:
+      events_added: int?
+      resource_modified: bool?
+
+  failure_classification:                # how to report a failure
+    severity: enum                       # blocker | warning
+    common_causes:                       # human-readable diagnostic hints
+      - string
+
+# ─── Example test vector (informative) ───────────────────────────────────
+
+example_basic_join:
+  metadata:
+    id: core/join/basic
+    description: An agent joins a document with a valid invite token
+    spec_section: "§4.1, §7.1"
+    conformance_level: core
+    track: T0 (carried from v1.1)
+
+  preconditions:
+    server_state:
+      resource_id: doc_abc123
+      registered_agents: []
+    request_context:
+      auth: none                         # join-token flow is anonymous
+
+  request:
+    method: POST
+    path: /api/pact/doc_abc123/join-token
+    headers:
+      Content-Type: application/json
+    body:
+      agentName: test-bot
+      token: invite_xyz
+
+  expected_response:
+    status: 200
+    body_match:
+      mode: subset
+      value:
+        agentName: test-bot
+        contextMode: scoped
+    body_ignore_fields:
+      - registrationId
+      - apiKey
+
+  expected_events:
+    ordered: true
+    sequence:
+      - event_type: pact.agent.joined
+        match:
+          mode: subset
+          value:
+            actorDisplay: test-bot
+            actorKind: AiAgent
+        body_ignore_fields:
+          - id
+          - epochMs
+          - sequenceNumber
+
+  postconditions:
+    server_state:
+      events_added: 1
+
+  failure_classification:
+    severity: blocker
+    common_causes:
+      - Implementation does not support invite-token flow
+      - Event not emitted on join
+      - actorKind defaults to wrong value

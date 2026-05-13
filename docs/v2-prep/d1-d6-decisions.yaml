@@ -1,0 +1,192 @@
+# D1–D6 — pending decisions for PACT v2 phase-0 start
+# These six decisions gate every other v2 track. Knox to resolve.
+# Drafted: 2026-05-12. AI recommendations included; Knox decides.
+
+decisions:
+
+  - id: D1
+    title: v1.2-draft → v2 collapse?
+    question: Does v1.2-draft promote to v1.2-stable first, or collapse directly into v2-stable?
+    blocks: [T1, T2, all phase-0 work]
+    phase_gate: 0
+    options:
+      - id: A
+        name: Skip v1.2-stable; v1.2 branch becomes v2 working branch
+        pro:
+          - Single normative jump v1.1 → v2; cleaner version history
+          - Avoids "v1.2 was stable for 6 weeks" tombstone state
+          - v2 starts with all v1.2 work already mirrored
+        con:
+          - v1.2 spec readers must wait for v2 to ground their work
+          - HMAN PR #3 normative landing pushed back to v2 release
+      - id: B
+        name: v1.2 ships stable first; v2 follows
+        pro:
+          - Faster public signal that Human Authorization Layer is real
+          - Lets HMAN PR #3 land in a stable spec sooner
+          - Two smaller releases easier to validate than one big one
+        con:
+          - Two migration cycles for implementers (v1.1→v1.2→v2)
+          - v1.2 stable is a short-lived state if v2 work is already in flight
+          - More maintainer-bandwidth cost (R5)
+    ai_recommendation: A (collapse). Sole-maintainer bandwidth is the binding constraint per R5; one big migration with comprehensive conformance suite is cheaper than two small ones. Caveat: only if v2 timeline is < 6 months. If v2 stretches longer, B becomes attractive.
+    knox_decision: pending
+
+  - id: D2
+    title: T8 attached-resource model — v2 core or Tailor extension?
+    question: Is the weight/type/attached-document model a PACT core concept or a Tailor-specific extension?
+    blocks: [T8]
+    phase_gate: 2
+    options:
+      - id: A
+        name: In v2 core
+        pro:
+          - Resolves #13 Q3-Q5 once for all implementations
+          - Other resource types (transactions, facts) might need composition too
+          - Avoids fragmentation across implementations
+        con:
+          - Expands v2 core surface; more for non-Tailor implementations to support
+          - "Weight" semantics are document-specific (Mandatory liability clause makes sense; Mandatory transaction field is the same as Required)
+      - id: B
+        name: Tailor extension (separate spec)
+        pro:
+          - v2 core stays focused on consensus primitives
+          - Tailor can iterate on attached-doc semantics independently
+          - Resource composition can be domain-specific
+        con:
+          - "#13 Q3-Q5 only resolved for Tailor users; AloomU + future impls reinvent"
+          - Risk of incompatible extension forks if multiple impls need composition
+    ai_recommendation: B (Tailor extension). Document composition is more domain-specific than the cold-eye review acknowledged. Spec lean wins. If transaction/fact resources later need composition primitives, design then.
+    knox_decision: pending
+
+  - id: D3
+    title: Mandate primitive — normative in v2 or v2.1?
+    question: Does the Mandate primitive (T3 Sessions) land in v2-stable, or ship as v2.1 addendum?
+    blocks: [T3]
+    phase_gate: 1
+    options:
+      - id: A
+        name: Mandate normative in v2
+        pro:
+          - Sessions solve real production problem (#13 Q1, escalation routing)
+          - Aligns with v2's "new primitives" narrative
+          - Knox's conversation 2026-05-12 direction
+        con:
+          - T3 is the highest-design-risk track (R3)
+          - Mandate is a charter-shape primitive; mistakes are expensive to undo
+      - id: B
+        name: Mandate ships in v2.1 addendum after v2-stable
+        pro:
+          - v2 ships sooner with lower-risk content
+          - Mandate gets a full design + RFC cycle without v2 timeline pressure
+          - More implementations validate v2 core before adding Sessions
+        con:
+          - "#13 Q1/Q6/Q7 partially unresolved in v2 (only T4/T6/T7 cover them)"
+          - Two release cycles for adopters who need Sessions
+    ai_recommendation: A (in v2), conditional on D5 resolving cleanly. If D5 is contested, demote to B. Sessions are too useful to defer if the design converges; too dangerous to ship if it doesn't.
+    knox_decision: pending
+
+  - id: D4
+    title: Authorization-Required tier — v2 or v2.1?
+    question: Define the Authorization-Required conformance tier in v2 normative spec, or list it as v2.1 forecast?
+    blocks: [T1]
+    phase_gate: 0
+    options:
+      - id: A
+        name: Define in v2
+        pro:
+          - Cross-org / federal-customer prospects get a clear standards claim today
+          - Forces the registry, revocation, and verification flow to be fully spec'd
+          - Closes #13 Q8 stronger
+        con:
+          - No implementation will hit Authorization-Required at v2 launch; spec text without proof-of-implementation
+          - Risk of spec'ing requirements that turn out impractical
+      - id: B
+        name: Forecast in v2; define normatively in v2.1
+        pro:
+          - v2 only commits to what at least one impl will validate
+          - Leaves room for production feedback to shape the tier
+        con:
+          - Loses a strong open-standards positioning lever
+          - Authorization-Required adopters must wait for v2.1
+    ai_recommendation: A (define in v2). Even unimplemented, the tier shapes the protocol's trajectory and signals seriousness about cross-org trust. Implementations follow specs; specs don't always wait for implementations.
+    knox_decision: pending
+
+  - id: D5
+    title: Sessions topology — peer-to-peer with optional facilitator, OR always-mediated MediatedSession?
+    question: Do Sessions assume a trusted third-party arbiter, or run peer-to-peer with optional facilitator role?
+    blocks: [T3]
+    phase_gate: 0
+    load_bearing: true
+    options:
+      - id: A
+        name: Peer-to-peer with opt-in facilitator
+        pro:
+          - Minimal primitive; easier to spec and implement
+          - Bilateral phone-call shape (Knox's original framing)
+          - Facilitator-mandatory case ships later as separate resource type if needed
+        con:
+          - Cross-org case may require mediator from day one
+          - Dispute resolution harder without trusted third party
+      - id: B
+        name: Always-mediated MediatedSession resource type
+        pro:
+          - Stronger isolation; matches §13 Mediated Communication shape
+          - Trusted intermediary handles classification / clearance / disputes
+          - Familiar shape for regulated cross-org deployments
+        con:
+          - Higher complexity floor; bilateral case forced through a mediator it doesn't need
+          - Single point of failure
+          - Operator-of-record problem (who runs the mediator?)
+      - id: C
+        name: Both — Sessions (peer-to-peer) and MediatedSession (always-mediated) as two resource types
+        pro:
+          - Best of both; implementers pick what they need
+          - Conformance tiers can require one or both
+        con:
+          - Doubles the primitive surface area for v2
+          - Risk of design divergence between the two
+    ai_recommendation: A (peer-to-peer with opt-in facilitator). MediatedSession is a v2.1 candidate IF demand materialises. Spec lean wins; cross-org dispute resolution can use the existing §13 Mediator on a long-lived resource for cases Sessions don't fit.
+    knox_decision: pending
+
+  - id: D6
+    title: W3C DID adoption as principal identity layer?
+    question: Adopt W3C Decentralized Identifiers as the principal identity layer, or use a simpler PACT-native URI scheme?
+    blocks: [T1, T7]
+    phase_gate: 0
+    charter_level: true
+    options:
+      - id: A
+        name: Adopt W3C DIDs (recommend did:web + did:key as required methods)
+        pro:
+          - Cross-server resolution for free (federation_constraints satisfied automatically)
+          - Open-standards alignment (signal to grant assessors, federal customers)
+          - Existing DID method ecosystem (did:web, did:key, did:ion) to reuse
+          - HumanPrincipal 1:N maps naturally to DID controller / subject distinction
+        con:
+          - Charter commitment to W3C DID method ecosystem maturity
+          - Implementation surface grows (DID resolver, method support)
+          - Some DID methods are immature; PACT must pick or document supported methods
+      - id: B
+        name: PACT-native URI scheme (urn:pact:principal:{id})
+        pro:
+          - Minimal external dependency; PACT owns its identity model
+          - Easier to implement; no DID resolver needed
+          - Can map to DIDs later if v2.1 federation requires
+        con:
+          - Federation primitives must be hand-rolled in v2.1
+          - Loses the open-standards positioning lever
+          - Risk of inventing parallel identity model that diverges from DID
+    ai_recommendation: A (adopt DIDs), with did:web and did:key as the two required methods at v2. did:web gives existing-infrastructure on-ramp; did:key gives offline / hardware-bound identities. Both are mature. Other methods (did:ion, did:ethr, etc.) become optional.
+    knox_decision: pending
+
+resolution_order:
+  # Decisions are not independent. Resolve in this order to avoid rework.
+  phase_0_blockers: [D1, D4, D5, D6]   # must resolve before phase 0 opens
+  phase_1_blockers: [D3]                # must resolve before T3 normative text
+  phase_2_blockers: [D2]                # must resolve before T8 starts
+
+next_step: |
+  Knox to read this brief, call each decision (set knox_decision: A | B | C),
+  and either reply inline or commit a revision with calls filled in.
+  Once D1, D4, D5, D6 resolve, phase 0 unblocks. D2 and D3 can wait.

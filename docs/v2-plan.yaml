@@ -1,0 +1,513 @@
+# PACT v2 — planning handoff
+# Machine-readable working plan. Not normative; not spec text.
+# Edit inline; promote sections to spec/v2/SPECIFICATION.md when they converge.
+#
+# Revision 2 (2026-05-12): incorporates cold-eye review feedback.
+# Changes: T3/T6 disambiguated; T7 promoted to phase 0; conformance scaffold
+# moved to phase 0 via T10; mediator-presence elevated to D5; DID adoption
+# elevated to D6; hostile-operator-transfer added to T7; T11 added for
+# reference CLI/MCP; GDPR/RTBF and event-log retention added; federation
+# constraints made explicit.
+
+plan:
+  spec: PACT
+  version: "2.0"
+  status: draft-planning
+  revision: 2
+  predecessor:
+    stable: v1.1
+    draft: v1.2-draft (on `v1.2` branch — see decision D1)
+  drafted: 2026-05-12
+  author: Knox Hart + AI   # final spec-of-record requires per-section human attribution (cutover criterion)
+  source_threads:
+    - conversation 2026-05-12 (Knox + AI design discussion)
+    - conversation 2026-05-12 (cold-eye review pass)
+    - https://github.com/TailorAU/pact/issues/3   # voice-biometric RFC
+    - https://github.com/TailorAU/pact/issues/4   # HumanPrincipal 1:N
+    - https://github.com/TailorAU/pact/issues/13  # AloomU production feedback
+
+goals:
+  - Promote v1.2-draft additions (Human Authorization Layer, attestation formats, HumanPrincipal 1:N) to normative
+  - Land the voice-biometric attestation type (RFC #3) as a first-class format
+  - Introduce ephemeral negotiation Sessions with handler-signed Mandates as a new mode
+  - Resolve production gaps surfaced by AloomU deployment (issue #13)
+  - Tighten conformance tiering and publish a conformance test suite
+
+non_goals:
+  - Cross-implementation federation across Tailor/Source/Baink — deferred to v2.1+ (see federation_constraints)
+  - Backwards-incompatible changes to the v1.1 resource model — additive only
+  - New built-in resource types beyond v1.1 (document, transaction, fact, record)
+
+federation_constraints:
+  # Federation is a v2.1+ non-goal, but v2 primitives MUST NOT preclude it.
+  rule_1: Agent identities SHOULD be portable URN-style globally unique IDs, even if v2 servers treat them as server-local
+  rule_2: Principal registry format (T1) SHOULD support cross-server resolution via DID or analogous URI scheme
+  rule_3: Session outcome transcripts SHOULD be portable (canonical JSON, no server-internal references)
+  owned_by: T7 enforces these constraints across the spec
+
+tracks:
+
+  - id: T1
+    name: Human Authorization Layer (normative)
+    rationale: |
+      Promote v1.2 §17 from draft to normative. v1.1 has no proof-of-human-intent
+      primitive; v2 makes it the standard envelope for cross-org messages.
+    inputs:
+      - spec/v1.2/SPECIFICATION.md §17
+      - issue #4 (HumanPrincipal 1:N — resolution adopted in §17.8)
+    deliverables:
+      - spec/v2/SPECIFICATION.md §17 promoted; "draft" caveats removed
+      - schemas/authorization-proof.json
+      - schemas/principal-registry.json   # formalises /.well-known/pact-credentials.json
+      - Verification flow §17.5 expanded with example test vectors
+      - HumanPrincipal 1:N cardinality (§17.8) promoted to normative MUST/SHOULD
+      - Personal-data position for principal registry — cryptographic erasure via key destruction, tombstone semantics, or protocol-integrity exemption (rev2: GDPR/RTBF)
+    conformance_impact:
+      core: authorization_proof remains OPTIONAL — implementations MAY ignore
+      extended: SHOULD support ≥1 attestation type and SHOULD verify when present
+      new_tier:
+        name: Authorization-Required
+        requirement: MUST require authorization_proof on all cross-organisation messages
+    migration_from_v1_1:
+      - Implementations may add authorization_proof support incrementally — no breaking changes
+      - v1.1 clients that ignore authorization_proof continue to interop at Core level
+    resolves:
+      - §17.9 Q1 credential enrollment → principal-registry.json (+ optional DID resolution pending D6)
+      - §17.9 Q2 revocation propagation → eventually-consistent registry + max-age cache hint
+    carries_forward:
+      - §17.9 Q3 delegation depth — starting point 3 hops pending v2.1 implementation feedback (threat model: longer chains amplify revocation lag and reduce auditability)
+      - §17.9 Q5 privacy / selective disclosure
+      - §17.9 Q6 cross-principal linkage trust decay
+      - Personal-data treatment of authorization_proof in the event log (rev2)
+
+  - id: T2
+    name: Attestation Format Reference (normative + voice-biometric merge)
+    rationale: Promote §18 to normative. Merge voice-biometric RFC #3 as a first-class type once HMAN PR lands.
+    depends_on: [T1]
+    inputs:
+      - spec/v1.2/SPECIFICATION.md §18
+      - issue #3 (voice-biometric, RFC accepted in principle, awaiting HMAN PR)
+    deliverables:
+      - spec/v2/SPECIFICATION.md §18 (fido2-assertion, vc-jwt, biometric-hash, passphrase-signed, voice-biometric)
+      - spec/v2/test-vectors/ per attestation type
+      - schemas/attestation/{fido2,vc-jwt,biometric-hash,passphrase-signed,voice-biometric}.json
+    blocking_dependencies:
+      - HMAN PR #3 must land before §18.6 normative text is finalised
+    open_questions:
+      - Custom attestation types — pre-registration required, or just reverse-domain naming?
+
+  - id: T3
+    name: Ephemeral Negotiation Sessions + Mandate primitive (new)
+    rationale: |
+      New mode complementing the long-lived resource model. Two or more agents
+      enter a sandboxed, time-bounded session with handler-signed Mandates
+      defining their negotiating envelope. Matches the "phone call between
+      agents" shape users actually want.
+
+      Rev2: T3 is the canonical answer for NEW agent-to-agent ephemeral flows.
+      Sidesteps self-approval (#13 Q1) by having no approval step at all.
+      T6 (allowSelfApproval) is the fallback for legacy long-lived resource
+      collaborations where Sessions don't fit.
+    canonical_for: new agent-to-agent ephemeral negotiation
+    depends_on: [T7]   # rev2: identity semantics must settle before Sessions design
+    inputs:
+      - conversation 2026-05-12 (Knox + AI design discussion)
+      - issue #13 Q1, Q6, Q7
+      - v1.2 §17 authorization_proof (Mandate generalises this)
+    deliverables:
+      - spec/v2/SPECIFICATION.md §19 PACT Sessions
+      - spec/v2/SPECIFICATION.md §20 Mandate primitive
+      - schemas/session-create-request.json
+      - schemas/session-accept-request.json
+      - schemas/mandate.json
+      - schemas/session-outcome.json
+      - REST endpoints:
+        - POST /api/pact/sessions
+        - POST /api/pact/sessions/{id}/accept
+        - GET  /api/pact/sessions/{id}/state
+        - POST /api/pact/sessions/{id}/close
+        - GET  /api/pact/sessions/{id}/outcome
+        - GET  /api/pact/sessions/{id}/transcript
+      - Event types: pact.session.opened, pact.session.joined, pact.session.mandate-violation, pact.session.closed
+      - Mandate enforcement reference algorithm
+      - Facilitator role definition (see D5; opt-in third-party arbiter, not required for Sessions to function)
+    primitive_shape:
+      mandate:
+        identity_claim: this agent represents handler X on topic Y
+        constraint_envelope:
+          may_publish: list of constraint categories the agent is permitted to assert
+          must_respect: list of pre-loaded constraints the agent must observe
+        commitment_authority: max binding decisions the agent may make alone
+        disclosure_ceiling: max graduated-disclosure level (1–4) the agent may reveal
+        escalation_hook: URI to notify when mandate is insufficient
+        signature: handler signature over mandate body + session nonce
+    conformance_impact:
+      core: Sessions are OPTIONAL — Core implementations may run resource-only
+      extended: SHOULD support Sessions; MUST enforce mandate envelopes if advertised
+    open_questions:
+      - Mandate revocation mid-session — immediate hang-up or finish-current-round?
+      - Mandate intersection — refuse to open, or open with explicit deadlock outcome?
+      - Outcome binding — advisory by default, opt-in "commitment" flag?
+      - Carry-forward — sessions strictly islanded, or may reference predecessor?
+      - Clock skew — session TTL is bounded by whose clock? (rev2)
+      # Resolved-in-rev2: Mediator presence → see D5
+
+  - id: T4
+    name: Push-side delivery (webhooks + per-principal endpoints)
+    rationale: |
+      Closes #13 Q6 (AloomU production need: PagerDuty / Slack alerts) AND
+      the local session-routing gap (escalations back to originating Claude
+      Code session). Same primitive serves both: a registered endpoint per
+      principal/registration receives a signed event push when matching
+      events fire.
+    depends_on: [T7]   # rev2: per-principal endpoints require stable principal IDs
+    inputs:
+      - issue #13 Q6
+      - conversation 2026-05-12 (escalation routing back to originating session)
+    deliverables:
+      - spec/v2/SPECIFICATION.md §21 Push Delivery
+      - schemas/subscription-create-request.json
+      - schemas/event-delivery.json   # signed event envelope
+      - REST endpoints:
+        - POST   /api/pact/{resourceId}/subscriptions
+        - GET    /api/pact/{resourceId}/subscriptions
+        - DELETE /api/pact/{resourceId}/subscriptions/{id}
+    delivery_semantics:
+      guarantee: at-least-once
+      signing: signed with sender's principal key (T1)
+      idempotency: idempotency key per event
+      retry: exponential backoff with jitter, max 24h then dead-letter
+    conformance_impact:
+      core: OPTIONAL
+      extended: SHOULD support push delivery
+
+  - id: T5
+    name: Service-account auth (formalise BYOK scoped-key model)
+    rationale: |
+      Closes #13 Q2. v1.1's invite-token flow already returns a scoped apiKey
+      suitable for daemons — but it's not documented as a first-class auth
+      mode. v2 promotes it from "side effect of join-token" to a named
+      pattern with clear lifecycle.
+    inputs:
+      - issue #13 Q2
+      - v1.1 join-token flow
+    deliverables:
+      - spec/v2/SPECIFICATION.md §22 Service-Account Authentication
+      - schemas/service-account-create-request.json
+      - Lifecycle: create / rotate / revoke / scope-narrow
+      - Scoping: per-resource, per-section, per-operation, per-mandate
+      - REST endpoints:
+        - POST   /api/pact/service-accounts
+        - POST   /api/pact/service-accounts/{id}/rotate
+        - DELETE /api/pact/service-accounts/{id}
+    conformance_impact:
+      core: OPTIONAL — implementations may continue with bearer/cookie auth
+      extended: SHOULD support service-account auth for daemon agents
+
+  - id: T6
+    name: Approval policy & self-approval rule (legacy resource model fallback)
+    rationale: |
+      Rev2: T6 is the fallback for LEGACY long-lived resource collaborations
+      where T3 Sessions don't fit. NEW agent-to-agent flows use T3 (no
+      approval step). T6 documents the v1.1 invariant, makes it configurable
+      for legacy cases, and recommends objection-based policy as the default
+      for multi-agent-under-one-principal scenarios.
+    canonical_for: legacy long-lived resource collaborations only
+    inputs:
+      - issue #13 Q1
+      - v1.1 §5 Approval Policy
+    deliverables:
+      - spec/v2/SPECIFICATION.md §5 updated — self-approval rule explicitly described
+      - Per-resource config flag `allowSelfApproval` (default false)
+      - Recommendation: ObjectionBased policy when one principal operates multiple agents
+      - Cross-reference to T3: "For new agent-to-agent flows, prefer Sessions"
+    conformance_impact:
+      core: behaviour unchanged; only prose tightens
+      extended: SHOULD expose allowSelfApproval via config API
+
+  - id: T7
+    name: Agent identity persistence & operator transfer (phase-0 foundation)
+    rationale: |
+      Rev2: Promoted to phase 0. Sessions (T3) negotiate between identities;
+      push delivery (T4) targets per-principal endpoints. Identity semantics
+      MUST be settled before either lands or they'll bake assumptions that
+      conflict with the final identity model.
+
+      Closes #13 Q7. Also owns the federation_constraints contract — identity
+      design must not preclude v2.1 federation even though federation itself
+      is a v2 non-goal.
+    promoted_to_phase: 0
+    inputs:
+      - issue #13 Q7
+      - federation_constraints (this document)
+    deliverables:
+      - spec/v2/SPECIFICATION.md §23 Agent Identity Lifecycle
+      - schemas/agent-identity.json
+      - Cooperative operator-transfer flow:
+        - outgoing operator signs transfer attestation
+        - incoming operator countersigns
+        - server rotates binding without changing agentId
+      - Hostile / non-cooperative transfer (rev2 — AloomU sovereignty case):
+        - M-of-N recovery primitive (steering committee multi-sig)
+        - Abandoned-agent reset minting new agentId with attestation of why
+        - Time-locked dispute window before reset takes effect
+      - Event types: pact.agent.transferred, pact.agent.identity-rotated, pact.agent.recovered, pact.agent.abandoned
+      - Agent-identity URN format compatible with v2.1 federation
+    open_questions:
+      - Agent identity portable across PACT servers? (Yes per federation_constraints, but transfer protocol TBD)
+      - Trust-decay rules for transferred identities
+      - M-of-N quorum size — implementation-defined or spec-fixed minimum?
+
+  - id: T8
+    name: Weight & type semantic contract (attached resources)
+    rationale: Closes #13 Q5, Q3, Q4. Documents what `--weight` and `--type` do at protocol layer vs documentary metadata.
+    inputs:
+      - issue #13 Q3, Q4, Q5
+    deliverables:
+      - spec/v2/SPECIFICATION.md §24 Resource Composition (attached resources, weight, type)
+      - Decision: weight/type protocol-enforced (e.g. Mandatory blocks merge until satisfied) OR purely documentary
+      - Share-link visibility rules for attached resources
+      - Whether `--section` can target attached resources or only root
+    notes: |
+      Currently Tailor-specific; may move to a separate Tailor extension spec
+      if Knox prefers a smaller v2 core. Decision deferred to phase 2 gate.
+
+  - id: T9
+    name: Conformance test suite (full coverage) + IMPLEMENTERS.md
+    rationale: |
+      Closes #13 Q8. Public conformance suite + canonical implementers guide
+      so prospects can verify "PACT is actually an open standard."
+
+      Rev2: The conformance SCAFFOLD (test-vector format, CI hook, directory
+      structure) ships in phase 0 under T10. T9 in phase 3 expands the
+      scaffold to full coverage across every track's deliverables.
+    inputs:
+      - issue #13 Q8
+      - AloomU charter offer to PR docs/IMPLEMENTERS.md
+      - T10 conformance scaffold (phase 0)
+    deliverables:
+      - docs/IMPLEMENTERS.md (registry of known impls, conformance level claimed, contact)
+      - spec/v2/conformance/ — full black-box test suite per track
+      - Self-certification badge in implementer profiles
+      - Backward-compat tests: v1.1-client-against-v2-server forward-compat suite (rev2)
+    conformance_impact:
+      core: implementations claiming Core MUST pass Core conformance suite
+      extended: implementations claiming Extended MUST pass Core + Extended suite
+
+  - id: T10
+    name: Schema hygiene, cross-reference cleanup & conformance scaffold
+    rationale: |
+      Spec hygiene + phase-0 conformance foundation. Tests should ship WITH
+      normative text (T1, T2), not be retrofitted in phase 3. T10 lays the
+      scaffold; T9 expands to full coverage later.
+    inputs:
+      - conversation 2026-05-12 (defects spotted + cold-eye review)
+    deliverables:
+      - All v2 schemas use $id paths matching their version dir (no v0.4 leftovers)
+      - Resource-type registry section (formalise v1.1 §14.3)
+      - JSON Schema bumped to 2020-12 (currently draft-07)
+      - Errata note in spec/v1.1/README.md pointing readers at spec/v2/§14 and §15 (rev2 — v1.1 stays frozen per AGENTS.md, do not back-fill)
+      - Conformance scaffold (rev2):
+        - spec/v2/conformance/ directory structure
+        - Test-vector format defined (JSON, deterministic, version-pinned)
+        - CI hook running on every spec/ PR
+        - Smoke test per track in phase 0 (T1, T2, T7) before normative text merges
+      - Event-log retention policy (rev2) — minimum retention OR explicit "implementation-defined with audit-trail warning"
+    conformance_impact: none for protocol behaviour; T10 scaffold is the gate for every other track's normative text
+
+  - id: T11
+    name: Reference CLI/MCP coverage (rev2 — new track)
+    rationale: |
+      @pact-protocol/cli and @pact-protocol/mcp are reference clients — the
+      thing people install to actually use PACT. They're a first-class
+      deliverable, not an implementers-guide footnote. Every new endpoint
+      added by T3/T4/T5 needs CLI + MCP coverage before v2 ships.
+    inputs:
+      - cli/ and mcp/ packages (currently v1.1.0, not published — issue #5)
+      - All track endpoints (T1, T3, T4, T5)
+    deliverables:
+      - @pact-protocol/cli updated to cover all v2 endpoints
+      - @pact-protocol/mcp updated likewise (same primitives as MCP tools)
+      - Version bump to v2.0.0
+      - npm publish unblocked (closes issue #5 dependency)
+      - CLI surface contract test in T9 suite
+    conformance_impact:
+      core: reference CLI demonstrates Core compliance for client-side
+      extended: reference CLI supports Extended primitives optionally
+
+phases:
+  # Rev2 reordering. T7 promoted to phase 0; T10 expanded with conformance
+  # scaffold; T11 added in phase 2.
+
+  - phase: 0
+    name: Foundation (identity, authorization, attestation, hygiene + conformance scaffold)
+    parallel: [T1, T2, T7, T10]
+    gate: |
+      - T1 normative text approved by Knox
+      - T7 identity model settled (Sessions and push-delivery depend on it)
+      - T10 conformance scaffold operational; smoke tests run on every PR
+      - T2 voice-biometric blocked on HMAN PR #3 (carved out if it slips — R2)
+      - D1 (v1.2→v2 collapse), D5 (mediator presence), D6 (DID adoption) RESOLVED before phase 1 opens
+
+  - phase: 1
+    name: New primitives (Sessions, push, service accounts)
+    parallel: [T3, T4, T5]
+    gate: |
+      - T3 Mandate primitive RFC opened, design converged before normative text
+      - T3, T4 normative text passes conformance smoke tests from T10 scaffold
+
+  - phase: 2
+    name: Operational gaps + reference clients
+    parallel: [T6, T8, T11]
+    gate: T8 decision — v2 core or Tailor extension? D2 resolved.
+
+  - phase: 3
+    name: Compliance & launch
+    parallel: [T9]
+    gate: at least 2 implementations (Tailor + AloomU) pass full Core conformance suite
+
+conformance_levels_v2:
+  core:
+    must:
+      - All v1.1 Core primitives (join, leave, intent, constrain, propose, object, escalate, done, poll)
+      - Event sourcing
+      - Objection-based / silence-as-consent merge
+      - At least one resource type (document by default)
+    may:
+      - authorization_proof (ignore if unsupported)
+      - Sessions
+      - Push delivery
+      - Service-account auth
+  extended:
+    must:
+      - All Core requirements
+      - Information barriers + graduated disclosure
+      - Mediated communication
+      - At least one attestation type from §18
+      - authorization_proof verification when present
+    should:
+      - Sessions support
+      - Push delivery
+      - Service-account auth
+  authorization_required:
+    must:
+      - All Extended requirements
+      - Reject cross-organisation messages lacking valid authorization_proof
+      - HumanPrincipal 1:N support
+      - Credential registry + revocation propagation
+
+deprecations:
+  - target: spec/v0.3, spec/v0.4
+    action: Legacy, no further updates, retained for citation stability
+  - target: schemas with $id paths pointing to /v0.4/
+    action: Fixed forward in v2; v1.1 schemas remain frozen per AGENTS.md
+  - target: spec/v1.1 §15/§16 phantom references in preamble
+    action: Errata note in spec/v1.1/README.md (do not back-fill — AGENTS.md frozen-versions rule)
+  - target: tailor tap CLI overlap (issue #6)
+    action: Resolved by T5 service-account auth + T11 @pact-protocol/cli npm publish (#5)
+
+migration_v1_1_to_v2:
+  breaking_changes: []
+  additive_changes:
+    - authorization_proof envelope on all messages (OPTIONAL at Core)
+    - Sessions mode (alternative to resource mode; both supported)
+    - Push delivery (additive endpoint set)
+    - Service-account auth (additive endpoint set)
+    - Conformance tier "Authorization-Required" (new, opt-in)
+  client_compat: v1.1 clients work against v2 servers at Core level without modification
+  server_compat: v2 servers accept v1.1 request shapes; respond with v2 fields v1.1 agents may ignore
+  test_coverage: T9 includes a v1.1-client-against-v2-server forward-compat suite (rev2)
+
+risks:
+  - id: R1
+    risk: v1.2-draft and v2 diverge if v1.2 is promoted to stable separately
+    mitigation: Skip v1.2-stable; jump v1.1-stable → v2-stable; v1.2 branch becomes v2 working branch
+    decision_needed: D1
+  - id: R2
+    risk: HMAN PR #3 (voice-biometric) slips, blocking T2 normative text
+    mitigation: Ship voice-biometric as Extended-tier optional; not on Core critical path
+  - id: R3
+    risk: T3 Sessions design grows into a 6-month track and delays the rest
+    mitigation: If Sessions can't converge in 8 weeks, split to spec/v2.1 addendum
+  - id: R4
+    risk: Conformance suite (T9) requires CI infra Knox doesn't want to host
+    mitigation: GitHub Actions only; no external CI; community-runnable locally
+  - id: R5
+    risk: Multiple parallel tracks overwhelm sole-maintainer review bandwidth
+    mitigation: Phase gates serialise high-context work; T1/T2/T10 in phase 0 are mechanical promotions
+  - id: R6
+    risk: GDPR / right-to-be-forgotten position unsettled at v2 release; forced reactive change post-v2 (rev2)
+    mitigation: T1 must ship a personal-data position even if it's "events are protocol-integrity records, retention required" — make the call explicitly, don't leave undefined
+  - id: R7
+    risk: Hostile-operator-transfer (T7) recovery primitive unbuilt; AloomU sovereignty posture cannot be honoured under stress (rev2)
+    mitigation: M-of-N recovery is phase-0 deliverable, not phase-2 polish
+
+cutover_criteria:
+  - All phase 0–3 tracks complete or explicitly deferred
+  - At least 2 independent implementations pass full Core conformance
+  - Tailor reference impl passes Extended conformance
+  - AloomU validation (rev2 — concrete criteria):
+    - passes Core conformance suite
+    - 30 consecutive days without P0 spec-disagreement issues filed by either party
+    - AloomU's onboarding playbook annotated against final v2 spec sections
+  - HMAN voice-biometric PR landed (or §18.6 explicitly carved out)
+  - Migration guide published (docs/MIGRATING_v1_1_v2.md)
+  - npm packages @pact-protocol/cli + @pact-protocol/mcp at v2.0.0 on registry (closes #5)
+  - spec/v2/SPECIFICATION.md sections signed by attributed humans (rev2 — replace "Knox Hart + AI" with concrete per-section attribution for grant assessors / federal-customer trust posture)
+
+open_decisions:
+  - id: D1
+    question: v1.2-draft → v2 collapse, or v1.2 ships as its own stable first?
+    owner: Knox
+    blocks: [T1, T2]
+    phase: 0
+  - id: D2
+    question: T8 attached-resource model — in v2 core, or split to Tailor extension?
+    owner: Knox
+    blocks: [T8]
+    phase: 2
+  - id: D3
+    question: Sessions (T3) — is the Mandate primitive normative in v2, or ship in v2.1 as an addendum?
+    owner: Knox
+    blocks: [T3]
+    phase: 1
+    note: Sharpened in rev2. Feature opt-in vs Extended is settled (opt-in at Core, SHOULD at Extended). Real decision is whether Mandate ships at all in v2.
+  - id: D4
+    question: Authorization-Required tier — define in v2 or defer to v2.1?
+    owner: Knox
+    blocks: [T1]
+    phase: 0
+  - id: D5
+    question: Sessions — peer-to-peer with opt-in facilitator role, OR always-mediated (separate MediatedSession resource type)? (rev2 — promoted from T3 open_questions; load-bearing)
+    owner: Knox
+    blocks: [T3]
+    phase: 0
+    recommendation: opt-in facilitator. Keeps Mandate primitive minimal. If mediator-mandatory case is needed later, ship MediatedSession in v2.1 as a separate resource type.
+  - id: D6
+    question: Adopt W3C DIDs as principal identity layer, OR stay with simpler principal URI scheme? (rev2 — charter-level external-standards commitment)
+    owner: Knox
+    blocks: [T1, T7]
+    phase: 0
+    note: Both paths viable. DIDs give cross-server resolution for free (good for v2.1 federation) but commit PACT to W3C DID method ecosystem (adoption surface, dependency on external standard maturity). Simpler URI scheme is lighter but requires hand-rolling federation primitives in v2.1.
+
+next_actions:
+  - id: N1
+    action: Knox decides D1–D6
+    owner: Knox
+    sequence: 1
+  - id: N2
+    action: Open RFC issue for T3 Sessions primitive (link to this plan; explicitly note D5 pre-resolved)
+    owner: AI (draft for Knox approval)
+    sequence: 2
+  - id: N3
+    action: Comment on #13 pointing at this plan as consolidated response
+    owner: AI (draft for Knox approval)
+    sequence: 2
+  - id: N4
+    action: Stand up T10 conformance scaffold (directory, test-vector format, CI hook) — phase 0 foundation
+    owner: deferred until D1 resolved
+    sequence: 3
+  - id: N5
+    action: Forward-port schema $id fixes (T10) into a v2 working dir
+    owner: deferred until D1 resolved
+    sequence: 3

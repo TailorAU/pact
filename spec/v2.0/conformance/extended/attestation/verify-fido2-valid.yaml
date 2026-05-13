@@ -1,0 +1,48 @@
+# Conformance test vector — Extended: a valid fido2-assertion proof verifies.
+# kind: verification — exercises the §17.7 verification flow.
+
+kind: verification
+
+metadata:
+  id: extended/attestation/verify-fido2-valid
+  description: A well-formed fido2-assertion authorization_proof, fresh nonce, enrolled non-revoked credential — verifies.
+  spec_section: "§17.6, §17.7, §18.2"
+  conformance_level: extended
+  track: T1
+
+verification:
+  proof:
+    type: fido2-assertion
+    principal_id: did:web:knox.example
+    credential_id: cred_abc123
+    challenge_nonce: nonce-001-fresh
+    asserted_at: "2026-05-13T10:30:00Z"
+    signature: "<valid-webauthn-signature-over-payload+nonce+asserted_at>"
+    alg: webauthn-es256
+    alg_version: "2"
+    attestation_chain: []
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:knox.example
+        display_name: Knox Hart
+        credentials:
+          - id: cred_abc123
+            type: fido2-assertion
+            public_key: "<es256-public-key-matching-the-signature>"
+            enrolled_at: "2026-01-01T00:00:00Z"
+            revoked: false
+  verifier_clock: "2026-05-13T10:30:30Z"   # 30s after asserted_at — within ±5min skew
+  issued_nonces:
+    - nonce-001-fresh                       # the verifier issued this and hasn't retired it
+  operation_requires_uv: false
+  expected:
+    result: verified
+    emits_trust_violation: false
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Verifier doesn't resolve did:web principals
+    - Signature check fails for a valid WebAuthn assertion (RP ID / flags mishandled)
+    - Verifier rejects a fresh nonce it actually issued

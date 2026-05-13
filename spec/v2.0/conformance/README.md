@@ -29,8 +29,10 @@ spec/v2.0/conformance/
 │   ├── disclosure-graduated.yaml
 │   ├── negotiation.yaml
 │   └── attestation/
-│       ├── fido2.yaml
-│       └── voice-biometric.yaml
+│       ├── verify-fido2-valid.yaml          — kind: verification (§17.7 happy path)
+│       ├── verify-replayed-nonce.yaml       — kind: verification (§17.7 step 5)
+│       ├── verify-revoked-credential.yaml   — kind: verification (§17.7 step 3 + §17.8)
+│       └── voice-biometric.yaml             — TODO, comes with HMAN's #3 PR
 ├── authorization-required/      — Authorization-Required tier tests
 │   ├── cross-org-rejection.yaml
 │   ├── revocation-propagation.yaml
@@ -56,12 +58,10 @@ spec/v2.0/conformance/
 
 ## How tests run
 
-Each test is a single YAML file conforming to [`test-vector-format.yaml`](test-vector-format.yaml). A test is an HTTP request/response recording plus an expected event sequence.
+Each test is a single YAML file conforming to [`test-vector-format.yaml`](test-vector-format.yaml). There are two vector **kinds**:
 
-An implementation **passes** a test if, given the recorded request:
-1. It returns the recorded response (modulo `body_ignore_fields` — UUIDs, timestamps, etc.)
-2. It emits the expected events in the recorded order (or any order if `ordered: false`)
-3. Server state matches `postconditions` after the test runs
+- **`kind: http`** (default) — an HTTP request/response recording plus an expected event sequence. An implementation **passes** if, given the recorded request: (1) it returns the recorded response (modulo `body_ignore_fields` — UUIDs, timestamps); (2) it emits the expected events in the recorded order (or any order if `ordered: false`); (3) server state matches `postconditions`.
+- **`kind: verification`** — exercises the §17.7 `authorization_proof` verification flow (client-side logic, no HTTP). Given the `proof`, the `registry` / `did_documents` to resolve against, the `verifier_clock`, and the `issued_nonces`, an implementation **passes** if its verification outcome matches `expected.result` (`verified` / `rejected` / `unverifiable`) and, on rejection, the `expected.failing_step` (1–6 from §17.7).
 
 Reference runner: TBD. Likely Node.js + `ts-node`, callable from GitHub Actions, with an HTTP-record-and-replay harness.
 

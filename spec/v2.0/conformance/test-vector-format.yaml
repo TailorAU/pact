@@ -1,14 +1,22 @@
 # Test vector format for PACT v2.0 conformance suite.
 # Each test vector is a single YAML file describing one black-box test.
 # This is the schema; concrete test vectors conform to it.
+#
+# There are two vector kinds, distinguished by `kind`:
+#   - kind: http          (default) — an HTTP request/response + expected event sequence.
+#                          Has `request` / `expected_response` / `expected_events` / `postconditions`.
+#   - kind: verification  — exercise the §17.7 authorization-proof verification flow
+#                          (client-side logic, no HTTP). Has `verification` instead.
 
 test_vector_schema:
   version: "1"
 
+  kind: enum                             # http (default) | verification
+
+  # `request` + `expected_response` are required for kind: http.
+  # `verification` is required for kind: verification.
   required:
     - metadata
-    - request
-    - expected_response
 
   metadata:
     id: string                          # unique within suite, e.g. "core/join/basic"
@@ -53,6 +61,19 @@ test_vector_schema:
     server_state:
       events_added: int?
       resource_modified: bool?
+
+  # ─── kind: verification — exercises §17.7 ───────────────────────────────
+  verification:                          # present iff kind == verification
+    proof: object                        # the authorization_proof being verified (§17.6 envelope)
+    registry: object?                    # principal-registry.json content the verifier resolves against (or omit if using DID resolution stubs)
+    did_documents: object?               # map of DID -> DID document, for did:web/did:key resolution stubs
+    verifier_clock: string?              # ISO 8601 — the verifier's "now"; for §17.7 step 4 (freshness / clock skew)
+    issued_nonces: array?                # nonces the verifier has issued and not yet retired; for §17.7 step 5 (replay)
+    operation_requires_uv: bool?         # for fido2-assertion: does the operation require the User Verification flag?
+    expected:
+      result: enum                       # verified | rejected | unverifiable
+      failing_step: int?                 # 1..6 from §17.7 — set when result != verified
+      emits_trust_violation: bool?       # whether a pact.trust.violation { kind: authorization_failed } SHOULD be emitted
 
   failure_classification:                # how to report a failure
     severity: enum                       # blocker | warning

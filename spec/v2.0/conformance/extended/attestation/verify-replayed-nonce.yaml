@@ -1,0 +1,48 @@
+# Conformance test vector — Extended: a proof carrying a stale / unknown nonce is rejected (replay protection).
+# kind: verification — exercises §17.7 step 5.
+
+kind: verification
+
+metadata:
+  id: extended/attestation/verify-replayed-nonce
+  description: A fido2-assertion proof whose challenge_nonce was never issued by this verifier (or already retired) — rejected at the replay check (§17.7 step 5). Guards against a proof captured for verifier A being replayed at verifier B.
+  spec_section: "§17.6, §17.7"
+  conformance_level: extended
+  track: T1
+
+verification:
+  proof:
+    type: fido2-assertion
+    principal_id: did:web:knox.example
+    credential_id: cred_abc123
+    challenge_nonce: nonce-issued-to-someone-else      # not in issued_nonces below, not verifier-signed, no verifier_id
+    asserted_at: "2026-05-13T10:30:00Z"
+    signature: "<signature-that-would-otherwise-be-valid>"
+    alg: webauthn-es256
+    alg_version: "2"
+    attestation_chain: []
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:knox.example
+        display_name: Knox Hart
+        credentials:
+          - id: cred_abc123
+            type: fido2-assertion
+            public_key: "<es256-public-key>"
+            enrolled_at: "2026-01-01T00:00:00Z"
+            revoked: false
+  verifier_clock: "2026-05-13T10:30:30Z"
+  issued_nonces:
+    - nonce-001-fresh                                  # this verifier's outstanding nonce — the proof's nonce is NOT this
+  operation_requires_uv: false
+  expected:
+    result: rejected
+    failing_step: 5
+    emits_trust_violation: true
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Verifier accepts a nonce it never issued (no replay check)
+    - Verifier accepts a nonce that is neither verifier-signed nor accompanied by a matching verifier_id

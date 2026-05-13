@@ -82,8 +82,9 @@ Before the v2.0 normative tracks (T1, T2, T7) merge, the scaffold must include:
 
 - [x] This README
 - [x] `test-vector-format.yaml` defining the test vector schema
-- [ ] At least one smoke test per phase-0 track (T1, T2, T7)
-- [ ] A CI hook (GitHub Actions, `.github/workflows/conformance.yml`) that runs the smoke tests on every `spec/` PR
+- [x] A CI hook (`.github/workflows/conformance.yml`) that, on every `spec/` PR, checks the scaffold is present, parses `test-vector-format.yaml`, and parses any test vectors that exist
+- [ ] At least one smoke test per phase-0 track (T1, T2, T7) under `core/` / `extended/`
+- [ ] The real conformance runner (HTTP record/replay + event-sequence assertions) replacing the parse-only CI step
 
 Phase-0 smoke tests are intentionally minimal — they prove the scaffold works, not that every behaviour is covered. T9 expands to full coverage before v2.0 freeze.
 

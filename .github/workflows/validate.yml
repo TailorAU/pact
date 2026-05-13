@@ -41,9 +41,9 @@ jobs:
           done
           echo "All v0.3 schemas valid."
 
-      - name: Validate v1.0, v1.1, v1.2 schemas
+      - name: Validate v1.0, v1.1, v2.0 schemas
         run: |
-          for version in v1.0 v1.1 v1.2; do
+          for version in v1.0 v1.1 v2.0; do
             if [ -d "spec/$version/schemas" ]; then
               echo "Validating $version JSON schemas..."
               for schema in spec/$version/schemas/*.json; do

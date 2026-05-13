@@ -1,0 +1,66 @@
+name: PACT Conformance
+
+# Track T10 (docs/v2-plan.yaml): a conformance gate that runs on every spec/ PR.
+# Today this is scaffold-stage — it validates the test-vector format and the
+# conformance directory layout, and runs any test vectors that exist. As the
+# T1/T2/T7 normative tracks land their smoke tests under
+# spec/v2.0/conformance/{core,extended,...}/*.yaml, this workflow runs them too.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'spec/**'
+      - '.github/workflows/conformance.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'spec/**'
+      - '.github/workflows/conformance.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  conformance-scaffold:
+    name: Conformance scaffold checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install YAML tooling
+        run: npm install -g js-yaml
+
+      - name: Conformance directory exists
+        run: |
+          test -d spec/v2.0/conformance || { echo "spec/v2.0/conformance/ missing"; exit 1; }
+          test -f spec/v2.0/conformance/README.md || { echo "conformance README missing"; exit 1; }
+          test -f spec/v2.0/conformance/test-vector-format.yaml || { echo "test-vector-format.yaml missing"; exit 1; }
+          echo "Conformance scaffold present."
+
+      - name: Test-vector format file parses as YAML
+        run: |
+          node -e "require('js-yaml').load(require('fs').readFileSync('spec/v2.0/conformance/test-vector-format.yaml','utf8')); console.log('test-vector-format.yaml OK');"
+
+      - name: All conformance test vectors parse as YAML
+        run: |
+          shopt -s nullglob globstar
+          vectors=(spec/v2.0/conformance/{core,extended,authorization-required,sessions,push-delivery,service-account,identity,backward-compat}/**/*.yaml)
+          if [ ${#vectors[@]} -eq 0 ]; then
+            echo "No test vectors yet — scaffold-only. (T9/T10 expand this as normative tracks land.)"
+            exit 0
+          fi
+          for v in "${vectors[@]}"; do
+            echo "  Parsing $v"
+            node -e "require('js-yaml').load(require('fs').readFileSync('$v','utf8'));" || { echo "FAILED: $v"; exit 1; }
+          done
+          echo "All ${#vectors[@]} test vectors parsed."
+
+      # TODO (T9): replace the parse-only check above with the real conformance
+      # runner once spec/v2.0/conformance/runner/ exists — HTTP record/replay,
+      # expected-event-sequence assertions, postcondition checks. See
+      # spec/v2.0/conformance/README.md "How tests run".

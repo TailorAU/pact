@@ -318,17 +318,15 @@ tracks:
     inputs:
       - conversation 2026-05-12 (defects spotted + cold-eye review)
     deliverables:
-      - All v2 schemas use $id paths matching their version dir (no v0.4 leftovers)
-      - Resource-type registry section (formalise v1.1 §14.3)
-      - JSON Schema bumped to 2020-12 (currently draft-07)
-      - Errata note in spec/v1.1/README.md pointing readers at spec/v2.0/§14 and §15 (rev2 — v1.1 stays frozen per AGENTS.md, do not back-fill)
-      - Conformance scaffold (rev2):
-        - spec/v2.0/conformance/ directory structure
-        - Test-vector format defined (JSON, deterministic, version-pinned)
-        - CI hook running on every spec/ PR
-        - Smoke test per track in phase 0 (T1, T2, T7) before normative text merges
-      - Event-log retention policy (rev2) — minimum retention OR explicit "implementation-defined with audit-trail warning"
-    conformance_impact: none for protocol behaviour; T10 scaffold is the gate for every other track's normative text
+      - "[DONE] v2.0 schemas use $id paths matching their version dir (/v2.0/) — fixed in the collapse commit"
+      - "[DONE] v1.1 errata — promoted to spec/v1.1/ERRATA.md (E1 phantom §15/§16 refs, E2 stale schema $id paths); README v1.1 row links it; issue #15 closed"
+      - "[DONE] Conformance scaffold: spec/v2.0/conformance/ directory + README + test-vector-format.yaml; .github/workflows/conformance.yml CI hook (scaffold checks + YAML-parse gate on every spec/ PR); validate.yml updated to validate v2.0 schemas (was v1.2)"
+      - Smoke test per phase-0 track (T1, T2, T7) under spec/v2.0/conformance/{core,extended}/ — STILL TODO
+      - Real conformance runner (HTTP record/replay + event-sequence assertions) replacing the parse-only CI step — STILL TODO (T9 expands this)
+      - Resource-type registry section (formalise v1.1 §14.3) — STILL TODO
+      - JSON Schema bumped to 2020-12 (currently draft-07) — STILL TODO
+      - Event-log retention policy — STILL TODO (minimum retention OR explicit "implementation-defined with audit-trail warning"; partially addressed by §17.10 GDPR/RTBF text which states events are protocol-integrity records)
+    conformance_impact: none for protocol behaviour; the T10 scaffold + CI gate are now live
 
   - id: T11
     name: Reference CLI/MCP coverage (rev2 — new track)

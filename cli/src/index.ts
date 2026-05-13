@@ -10,6 +10,7 @@ import { registerDoneCommand } from './commands/done.js';
 import { registerEscalateCommands } from './commands/escalate.js';
 import { registerLockCommands } from './commands/lock.js';
 import { registerNegotiateCommands } from './commands/negotiate.js';
+import { registerVerifyProofCommand } from './commands/verify-proof.js';
 
 const program = new Command();
 
@@ -33,5 +34,6 @@ registerDoneCommand(program);
 registerEscalateCommands(program);
 registerLockCommands(program);
 registerNegotiateCommands(program);
+registerVerifyProofCommand(program);
 
 program.parse();

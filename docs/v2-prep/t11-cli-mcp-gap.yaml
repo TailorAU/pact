@@ -25,8 +25,8 @@ v2_0_additions_needed:
     title: authorization_proof pass-through
     why: §17.6 — agents attach a proof-of-human-intent to their messages. The CLI/MCP don't sign (that's the hardware/biometric layer, §17.3) — they CARRY a pre-built proof.
     status_mcp: "[DONE] 2026-05-13 — optional authorizationProof param on pact_intent, pact_constrain, pact_object, pact_done, pact_escalate, pact_ask, pact_negotiate_position. Threaded into request body as authorization_proof. Build + typecheck clean."
-    status_cli: "[TODO] — mechanical: add --authorization-proof <file> option to cli/src/commands/{intent,object,done,escalate,ask}.ts; thread an optional authorizationProof parameter through api.ts (declareIntent, publishConstraint, objectToProposal, signalDone, escalate, askHuman); read file, JSON.parse, pass through."
-    status_helper: "[TODO] pact verify-proof <proof.json> --registry <url|file> — local §17.7 verification harness (resolves principal_id, checks revocation, validates challenge_nonce binding, freshness; full crypto suites depend on attestation type). Useful for debugging + driving kind:verification conformance vectors."
+    status_cli: "[DONE] 2026-05-13 — --authorization-proof <file> on pact intent / constrain / salience / object / done / escalate / ask. cli/src/proof.ts provides loadProof(). api.ts (declareIntent, publishConstraint, setSalience, objectToProposal, signalDone, escalate, askHuman) accepts an optional authorizationProof param and threads it onto the request body."
+    status_helper: "[DONE] 2026-05-13 — pact verify-proof <file> command (cli/src/commands/verify-proof.ts). Performs §17.7 steps 1, 2, 4, 5 (type dispatch, principal/credential resolution if --registry, freshness, nonce binding) + tombstone/revocation checks. Step 3 (cryptographic signature verification) is attestation-type-specific and is explicitly deferred to the real conformance runner (T9) or a type-specific tool. Smoke-tested."
     priority: high
     blocked_by: []
 

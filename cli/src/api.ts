@@ -99,9 +99,11 @@ export async function declareIntent(
   sectionId: string,
   goal: string,
   category?: string,
+  authorizationProof?: Record<string, unknown>,
 ): Promise<unknown> {
   const body: Record<string, unknown> = { sectionId, goal };
   if (category) body.category = category;
+  if (authorizationProof) body.authorization_proof = authorizationProof;
   return request(`/api/pact/${docId}/intents`, {
     method: 'POST',
     body: JSON.stringify(body),
@@ -121,9 +123,11 @@ export async function publishConstraint(
   sectionId: string,
   boundary: string,
   category?: string,
+  authorizationProof?: Record<string, unknown>,
 ): Promise<unknown> {
   const body: Record<string, unknown> = { sectionId, boundary };
   if (category) body.category = category;
+  if (authorizationProof) body.authorization_proof = authorizationProof;
   return request(`/api/pact/${docId}/constraints`, {
     method: 'POST',
     body: JSON.stringify(body),
@@ -142,10 +146,13 @@ export async function setSalience(
   docId: string,
   sectionId: string,
   score: number,
+  authorizationProof?: Record<string, unknown>,
 ): Promise<void> {
+  const body: Record<string, unknown> = { sectionId, score };
+  if (authorizationProof) body.authorization_proof = authorizationProof;
   await request(`/api/pact/${docId}/salience`, {
     method: 'POST',
-    body: JSON.stringify({ sectionId, score }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -159,10 +166,13 @@ export async function objectToProposal(
   docId: string,
   proposalId: string,
   reason: string,
+  authorizationProof?: Record<string, unknown>,
 ): Promise<void> {
+  const body: Record<string, unknown> = { reason };
+  if (authorizationProof) body.authorization_proof = authorizationProof;
   await request(`/api/pact/${docId}/proposals/${proposalId}/object`, {
     method: 'POST',
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -200,10 +210,13 @@ export async function signalDone(
   docId: string,
   status: string,
   summary?: string,
+  authorizationProof?: Record<string, unknown>,
 ): Promise<unknown> {
+  const body: Record<string, unknown> = { status, summary };
+  if (authorizationProof) body.authorization_proof = authorizationProof;
   return request(`/api/pact/${docId}/done`, {
     method: 'POST',
-    body: JSON.stringify({ status, summary }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -239,9 +252,11 @@ export async function escalate(
   docId: string,
   message: string,
   sectionId?: string,
+  authorizationProof?: Record<string, unknown>,
 ): Promise<void> {
   const body: Record<string, unknown> = { message };
   if (sectionId) body.sectionId = sectionId;
+  if (authorizationProof) body.authorization_proof = authorizationProof;
   await request(`/api/pact/${docId}/escalate`, {
     method: 'POST',
     body: JSON.stringify(body),
@@ -254,15 +269,18 @@ export async function askHuman(
   sectionId?: string,
   context?: string,
   timeoutSeconds?: number,
+  authorizationProof?: Record<string, unknown>,
 ): Promise<unknown> {
+  const body: Record<string, unknown> = {
+    question,
+    sectionId: sectionId ?? null,
+    context: context ?? null,
+    timeoutSeconds: timeoutSeconds ?? 60,
+  };
+  if (authorizationProof) body.authorization_proof = authorizationProof;
   return request(`/api/pact/${docId}/ask-human`, {
     method: 'POST',
-    body: JSON.stringify({
-      question,
-      sectionId: sectionId ?? null,
-      context: context ?? null,
-      timeoutSeconds: timeoutSeconds ?? 60,
-    }),
+    body: JSON.stringify(body),
   });
 }
 

@@ -11,14 +11,14 @@
 
 ## Contents
 
-| File | Destination once approved | Status |
+| File | Destination | Status |
 |---|---|---|
-| [`d1-d6-decisions.yaml`](d1-d6-decisions.yaml) | Stays here as a working artifact; Knox edits inline to record decisions | Awaiting Knox |
-| [`rfc-sessions-mandate.md`](rfc-sessions-mandate.md) | Posted as a GitHub issue (`rfc` label) on TailorAU/pact | Awaiting Knox approval to post |
-| [`issue-13-response.md`](issue-13-response.md) | Posted as a comment on [TailorAU/pact#13](https://github.com/TailorAU/pact/issues/13) | Awaiting Knox approval to post |
-| [`conformance/README.md`](conformance/README.md) | Moves to `spec/v2/conformance/README.md` after D1 resolves | Ready |
-| [`conformance/test-vector-format.yaml`](conformance/test-vector-format.yaml) | Moves to `spec/v2/conformance/test-vector-format.yaml` after D1 resolves | Ready |
-| [`v1.1-errata.md`](v1.1-errata.md) | Moves to `spec/v1.1/ERRATA.md` after Knox approval (does not amend frozen SPECIFICATION.md) | Awaiting Knox approval |
+| [`d1-d6-decisions.yaml`](d1-d6-decisions.yaml) | Stays here as a working artifact; Knox edits inline to record decisions | **Awaiting Knox (D1/D4/D5/D6 gate phase 0)** |
+| [`rfc-sessions-mandate.md`](rfc-sessions-mandate.md) | Posted as [TailorAU/pact#14](https://github.com/TailorAU/pact/issues/14) (`rfc` label) | ✅ Posted 2026-05-12 |
+| [`issue-13-response.md`](issue-13-response.md) | Posted as a [comment on #13](https://github.com/TailorAU/pact/issues/13) | ✅ Posted 2026-05-12 |
+| [`conformance/README.md`](conformance/README.md) | Moves to `spec/v2/conformance/README.md` after D1 resolves | Ready (blocked on D1) |
+| [`conformance/test-vector-format.yaml`](conformance/test-vector-format.yaml) | Moves to `spec/v2/conformance/test-vector-format.yaml` after D1 resolves | Ready (blocked on D1) |
+| [`v1.1-errata.md`](v1.1-errata.md) | Public record: [TailorAU/pact#15](https://github.com/TailorAU/pact/issues/15). Promotes to `spec/v1.1/ERRATA.md` on Knox approval (new file; does not amend frozen SPECIFICATION.md) | Issue filed; ERRATA.md promotion awaiting Knox |
 
 ## What's NOT here yet
 
@@ -30,11 +30,15 @@ Blocked on D1–D6 resolution:
 - `cli/` and `mcp/` updates for new endpoints (T11)
 - `.github/workflows/conformance.yml` (CI gate)
 
-Blocked on Knox approval (no decision dependency):
+Done (shipped 2026-05-12):
 
-- Opening the T3 RFC issue on GitHub
-- Posting the consolidated response on #13
-- Promoting the v1.1 errata to `spec/v1.1/ERRATA.md`
+- ~~Opening the T3 RFC issue on GitHub~~ → [#14](https://github.com/TailorAU/pact/issues/14)
+- ~~Posting the consolidated response on #13~~ → [comment](https://github.com/TailorAU/pact/issues/13)
+- ~~Filing the v1.1 errata public record~~ → [#15](https://github.com/TailorAU/pact/issues/15)
+
+Still awaiting Knox approval (touches frozen `spec/v1.1/`):
+
+- Promoting the v1.1 errata note to `spec/v1.1/ERRATA.md` (kept as a draft in this dir until Knox green-lights writing inside a frozen version directory)
 
 ## Resolution flow
 

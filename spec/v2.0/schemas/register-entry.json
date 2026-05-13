@@ -1,5 +1,5 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pact-spec.dev/schemas/v2.0/register-entry.json",
   "title": "PACT Message Register Entry",
   "description": "An entry in the append-only Message Register. Only visible to human custodians. Records the original and delivered content of all mediated communications.",

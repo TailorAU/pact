@@ -1,5 +1,5 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pact-spec.dev/schemas/v2.0/principal-registry.json",
   "title": "PACT Credential Registry",
   "description": "Structure of the credential registry a PACT server MAY publish at /.well-known/pact-credentials.json (PACT Specification §17.8). An implementation MAY instead, or also, support DID-document resolution for the public keys.",

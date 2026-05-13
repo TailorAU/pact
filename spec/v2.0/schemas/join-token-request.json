@@ -1,5 +1,5 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pact-spec.dev/schemas/v2.0/join-token-request.json",
   "title": "PACT Join with Token Request",
   "description": "Request body for POST /api/pact/{documentId}/join-token (BYOK flow)",

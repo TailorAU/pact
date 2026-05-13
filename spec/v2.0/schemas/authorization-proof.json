@@ -1,5 +1,5 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pact-spec.dev/schemas/v2.0/authorization-proof.json",
   "title": "PACT Authorization Proof",
   "description": "Proof-of-human-intent envelope (PACT Specification §17.6) that MAY accompany any PACT message. Carries a cryptographic attestation that a specific HumanPrincipal authorized the action. Attestation-type-specific fields (e.g. `match`, `utterance_hash`, `verifier_id` for `voice-biometric`) are additive — see §18.",

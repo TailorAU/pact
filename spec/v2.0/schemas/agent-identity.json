@@ -1,9 +1,9 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pact-spec.dev/schemas/v2.0/agent-identity.json",
   "title": "PACT Agent Identity — transfer & recovery attestations",
   "description": "Structures for the Agent Identity Lifecycle (PACT Specification §23): the agentId form, the agent↔operator binding, a cooperative transfer attestation (§23.3), a recovery-quorum enrollment, and a non-cooperative recovery attestation (§23.4). Transfer/recovery attestations are themselves authorization_proof-bearing (§17.6) — each signature MUST verify as a valid HumanPrincipal proof.",
-  "definitions": {
+  "$defs": {
     "agentId": {
       "type": "string",
       "description": "A server-side agent principal that persists across sessions/machines. Portable in form (resolution across servers is v2.1 federation work). Either a urn:pact:agent: URN or a DID.",
@@ -22,9 +22,9 @@
       "description": "Cooperative operator transfer (§23.3). Carried with two authorization_proof signatures: the outgoing operator's, then the incoming operator's countersignature. A transfer with only one valid signature MUST be rejected.",
       "required": ["agentId", "from", "to", "effective_at"],
       "properties": {
-        "agentId": { "$ref": "#/definitions/agentId" },
-        "from": { "$ref": "#/definitions/principalRef", "description": "Outgoing operator-of-record." },
-        "to": { "$ref": "#/definitions/principalRef", "description": "Incoming operator-of-record." },
+        "agentId": { "$ref": "#/$defs/agentId" },
+        "from": { "$ref": "#/$defs/principalRef", "description": "Outgoing operator-of-record." },
+        "to": { "$ref": "#/$defs/principalRef", "description": "Incoming operator-of-record." },
         "effective_at": { "type": "string", "format": "date-time" },
         "reason": { "type": "string", "maxLength": 2000 }
       },
@@ -35,12 +35,12 @@
       "description": "A recovery quorum enrolled against an agentId (§23.4 M-of-N recovery). M signatures from the N members are required to complete a recovery.",
       "required": ["agentId", "members", "threshold"],
       "properties": {
-        "agentId": { "$ref": "#/definitions/agentId" },
+        "agentId": { "$ref": "#/$defs/agentId" },
         "members": {
           "type": "array",
           "description": "The N quorum members (HumanPrincipal DIDs).",
           "minItems": 1,
-          "items": { "$ref": "#/definitions/principalRef" }
+          "items": { "$ref": "#/$defs/principalRef" }
         },
         "threshold": {
           "type": "integer",
@@ -55,8 +55,8 @@
       "description": "Non-cooperative recovery via an M-of-N quorum (§23.4). Carried with >= threshold authorization_proof signatures, each from a distinct quorum member. Takes effect only after the time-locked dispute window (default 72h).",
       "required": ["agentId", "to", "effective_at"],
       "properties": {
-        "agentId": { "$ref": "#/definitions/agentId" },
-        "to": { "$ref": "#/definitions/principalRef", "description": "Incoming operator-of-record." },
+        "agentId": { "$ref": "#/$defs/agentId" },
+        "to": { "$ref": "#/$defs/principalRef", "description": "Incoming operator-of-record." },
         "effective_at": { "type": "string", "format": "date-time", "description": "When the recovery takes effect (after the dispute window)." },
         "reason": { "type": "string", "maxLength": 2000 }
       },
@@ -67,8 +67,8 @@
       "description": "Abandoned-agent reset (§23.4) — used where no recovery quorum was enrolled. Mints a NEW agentId for a successor; the old agentId is frozen but its history is preserved and citable.",
       "required": ["old_agentId", "successor_agentId", "effective_at", "reason"],
       "properties": {
-        "old_agentId": { "$ref": "#/definitions/agentId" },
-        "successor_agentId": { "$ref": "#/definitions/agentId" },
+        "old_agentId": { "$ref": "#/$defs/agentId" },
+        "successor_agentId": { "$ref": "#/$defs/agentId" },
         "effective_at": { "type": "string", "format": "date-time" },
         "reason": { "type": "string", "maxLength": 2000, "description": "Why the old operator is unreachable / off-boarded / etc." }
       },
@@ -76,9 +76,9 @@
     }
   },
   "oneOf": [
-    { "$ref": "#/definitions/transferAttestation" },
-    { "$ref": "#/definitions/recoveryQuorum" },
-    { "$ref": "#/definitions/recoveryAttestation" },
-    { "$ref": "#/definitions/abandonment" }
+    { "$ref": "#/$defs/transferAttestation" },
+    { "$ref": "#/$defs/recoveryQuorum" },
+    { "$ref": "#/$defs/recoveryAttestation" },
+    { "$ref": "#/$defs/abandonment" }
   ]
 }

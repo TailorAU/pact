@@ -41,9 +41,9 @@ jobs:
           done
           echo "All v0.3 schemas valid."
 
-      - name: Validate v1.0, v1.1, v2.0 schemas
+      - name: Validate v1.0, v1.1 schemas (draft-07)
         run: |
-          for version in v1.0 v1.1 v2.0; do
+          for version in v1.0 v1.1; do
             if [ -d "spec/$version/schemas" ]; then
               echo "Validating $version JSON schemas..."
               for schema in spec/$version/schemas/*.json; do
@@ -53,6 +53,19 @@ jobs:
               echo "All $version schemas valid."
             fi
           done
+
+      - name: Validate v2.0 schemas (JSON Schema 2020-12)
+        # v2.0 schemas are bumped to https://json-schema.org/draft/2020-12/schema.
+        # Older versions (v0.3/v0.4/v1.0/v1.1) stay on draft-07 (frozen for citation stability).
+        run: |
+          if [ -d spec/v2.0/schemas ]; then
+            echo "Validating v2.0 JSON schemas (draft 2020-12)..."
+            for schema in spec/v2.0/schemas/*.json; do
+              echo "  Checking $schema"
+              ajv compile -s "$schema" --spec=draft2020 -c ajv-formats || exit 1
+            done
+            echo "All v2.0 schemas valid."
+          fi
 
   check-links:
     name: Check Markdown Links

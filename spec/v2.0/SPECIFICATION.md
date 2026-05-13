@@ -323,6 +323,19 @@ pact.constraint.withdrawn      // Agent withdrew a constraint
 pact.salience.set              // Agent set salience score for a section
 ```
 
+### 6.3 Event-log retention
+
+The event log is the source of truth for collaboration state (Design Principle 5); the resource is a projection. Removing events breaks the consistency guarantee, so PACT does not define an "events can be deleted on request" mechanism. Instead it defines a **declared retention policy**.
+
+**Requirements.**
+
+- An implementation MUST publish its event-log retention policy in its [`/.well-known/pact.json`](./README.md) implementation profile (§15), as a `retentionPolicy` object: `{ "minimumDays": <int>, "indefinite": <bool>, "tombstoneAfter": <int|null> }`. `indefinite: true` means "retained for as long as the resource exists"; `minimumDays` gives a floor when `indefinite` is `false`.
+- The spec sets a **RECOMMENDED minimum of 365 days** for resources that carry authorization-relevant content (anything where `authorization_proof` may appear). Regulated domains will commonly need longer (financial: 7 years; clinical: longer still); implementations SHOULD honour the longer of the spec recommendation and any applicable regulatory requirement.
+- Personal-data handling within retained events is governed by §17.10 — events carry only the `principal_id` (a rotatable / revocable DID) and a salted hash of any proof payload, NOT raw biometric or PII data. Cryptographic erasure of credential-registry entries (§17.8 tombstone) is the right-to-be-forgotten lever; event-log entries themselves are not erased.
+- An implementation that retains events for less than the recommended minimum SHOULD prominently surface this in its profile (`retentionPolicy.minimumDays < 365` is visible to clients and conformance verifiers).
+
+**Audit-trail consequence.** Cross-org disputes, regulatory audits, and post-incident forensics all depend on the event log. An aggressively short retention policy makes the implementation cheaper to run and cheaper to attack — both of those consequences are the operator's call, but they MUST be a declared call, not an undocumented one.
+
 ---
 
 ## 7. API Surface
@@ -943,16 +956,24 @@ PACT v1.1 introduces **resource types** — a registry of well-known resource ca
 
 The `document` type is the default. Proposals without an explicit `type` field are treated as `document` proposals.
 
-### 14.3 Custom Resource Types
+### 14.3 The resource-type registry
 
-Implementations MAY register custom resource types. A custom type MUST define:
+The PACT **resource-type registry** is a machine-readable index of well-known resource types, both built-in (§14.2) and community-registered. It lives at [`spec/v2.0/resource-types.yaml`](./resource-types.yaml) in the canonical repository and is the source of truth implementations consult when negotiating resource-type compatibility.
 
-1. A unique string identifier (e.g., `"learning-story"`, `"insurance-claim"`)
-2. A field schema describing the addressable units within the resource
-3. Apply semantics — what the implementation does when consensus is reached
-4. One or more terminal state names
+Each registry entry carries:
 
-Custom types SHOULD be registered in the PACT resource type registry at `github.com/TailorAU/pact`.
+| Field | Description |
+|---|---|
+| `type` | Unique string identifier (e.g., `"document"`, `"learning-story"`). Built-ins use bare identifiers; custom types SHOULD use reverse-domain notation (`com.example.case-file`). |
+| `field_schema` | How addressable fields within the resource are named (e.g. `sec:{slug}` for documents, `txn:{field}` for transactions). |
+| `proposal_payload` | The shape of a proposal against this resource type (a JSON Schema reference, or a structural description). |
+| `apply_semantics` | What the implementation does when consensus is reached. |
+| `terminal_states` | One or more named terminal states (e.g. `Merged`, `Settled`, `Verified`). |
+| `content_format` | How the resource body is represented (Markdown, JSON, etc.). |
+| `maintainer` | The contact / organisation registering the type. |
+| `status` | `built-in` \| `registered` \| `proposed` \| `deprecated`. |
+
+To register a custom resource type, open a PR against `spec/v2.0/resource-types.yaml` with the entry filled out. A custom type MUST define a unique identifier, a field schema, apply semantics, and at least one terminal state. Implementations that support a custom type MUST declare it in their `/.well-known/pact.json` profile (§15).
 
 ### 14.4 Backward Compatibility
 
@@ -1404,7 +1425,7 @@ Implementations MAY define additional error codes under custom namespaces (e.g.,
 
 ### A.2 Request/Response Schemas
 
-Full JSON Schema (draft-07) definitions for all API endpoints are available in the [schemas directory](https://github.com/TailorAU/pact/tree/main/spec/v2.0/schemas).
+Full JSON Schema (2020-12) definitions for all API endpoints are available in the [schemas directory](https://github.com/TailorAU/pact/tree/main/spec/v2.0/schemas). Older spec versions (v0.3 / v0.4 / v1.0 / v1.1) use draft-07; v2.0 schemas were bumped to draft 2020-12 on 2026-05-13.
 
 | Schema | Endpoint | Description |
 |---|---|---|

@@ -1,5 +1,5 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pact-spec.dev/schemas/v2.0/invite-response.json",
   "title": "PACT Invite Response",
   "description": "Response body for POST /api/pact/{documentId}/invites — the created invite including the secret token (shown once).",

@@ -314,6 +314,9 @@ tracks:
       - "[DONE] v2.0 schemas use $id paths matching their version dir (/v2.0/) — fixed in the collapse commit"
       - "[DONE] v1.1 errata — promoted to spec/v1.1/ERRATA.md (E1 phantom §15/§16 refs, E2 stale schema $id paths); README v1.1 row links it; issue #15 closed"
       - "[DONE] Conformance scaffold: spec/v2.0/conformance/ directory + README + test-vector-format.yaml; .github/workflows/conformance.yml CI hook (scaffold checks + YAML-parse gate on every spec/ PR); validate.yml updated to validate v2.0 schemas (was v1.2)"
+      - "[DONE] JSON Schema bumped 2020-12 — all 29 v2.0 schemas declare https://json-schema.org/draft/2020-12/schema; agent-identity.json migrated definitions -> $defs; validate.yml split into draft-07 (v0.3-v1.1) + draft2020 (v2.0) steps; Appendix A.2 prose updated"
+      - "[DONE] Resource-type registry: spec/v2.0/resource-types.yaml (machine-readable index — built-in types document/transaction/fact/record + custom-type registration process + naming convention); §14.3 in SPECIFICATION.md rewritten to reference it"
+      - "[DONE] §6.3 Event-log retention — implementations MUST declare retentionPolicy in /.well-known/pact.json; spec RECOMMENDS minimum 365 days for resources carrying authorization_proof; cross-references §17.10 GDPR/RTBF and §17.8 tombstone"
       - "[PARTIAL] test vectors: core/join.yaml (Core: invite-token join); extended/attestation/verify-fido2-valid.yaml + verify-replayed-nonce.yaml + verify-revoked-credential.yaml (kind: verification — §17.7 happy path + replay + revocation). test-vector-format.yaml extended with the `verification` kind. STILL TODO: agent-transfer (T7), more §17/§18 vectors, voice-biometric vectors (HMAN #3)"
       - Real conformance runner (HTTP record/replay + event-sequence assertions + a §17.7 verification harness) replacing the parse-only CI step — STILL TODO (T9 expands this)
       - Resource-type registry section (formalise v1.1 §14.3) — STILL TODO

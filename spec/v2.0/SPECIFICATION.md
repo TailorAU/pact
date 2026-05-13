@@ -1062,32 +1062,233 @@ Each implementation:
 
 ---
 
-## 17. HumanPrincipal (v2.0)
+## 17. Human Authorization Layer (v2.0)
 
-> **Status:** Draft stub — directional decision recorded; full normative text (fields, signature shape, lifecycle, revocation, DID binding) lands via coordinated PR with HMAN / tailor-app. Tracking: issue [#4](https://github.com/TailorAU/pact/issues/4).
+> **Status:** v2.0 normative. At Core conformance the `authorization_proof` field is OPTIONAL (implementations MAY ignore it); at Extended it SHOULD be verified when present; at `Authorization-Required` (§17.9) it MUST be required on cross-organisation messages.
+>
+> *Coordination note:* the cryptographic detail deferred below — exact signature suites per attestation type, the full `voice-biometric` mechanics and test vectors (HMAN's [#3](https://github.com/TailorAU/pact/issues/3) PR is authoritative there), delegation trust-decay rules — lands via a reviewed PR. This section's structural and decision-bearing content (1:1 cardinality, DID identity, the envelope, the verification flow, the conformance tiers) is final for v2.0. Synced from the canonical mirror (`tailor-app` `docs/architecture/PACT_SPECIFICATION.md`) via coordination PR [TailorAU/tailor-app#1616](https://github.com/TailorAU/tailor-app/pull/1616).
 
-PACT v2.0 introduces `HumanPrincipal` as the abstraction for human-authorized actions. A `HumanPrincipal` is **strictly 1:1 with a single human**: each human maps to exactly one `principal_id` at the PACT layer.
+### 17.1 Problem
 
-Multi-persona models (e.g. one human running multiple "entities" such as Personal, Trade, Household) MUST be represented above the PACT layer — for example, as an implementation-specific `persona` claim on signed messages that rolls up to the same `principal_id`. PACT verifiers see a single principal per human; entity disambiguation is the implementation's responsibility.
+PACT (Sections 1–16) coordinates agents on shared resources, but does not define a mechanism for verifying that an agent is acting with **authorization from its human principal** when communicating with another agent.
 
-Full normative text — fields, signature shape, lifecycle, revocation — to be drafted.
+**Scenario:** Knox's agent sends a message to Bridget's agent. Bridget's agent needs cryptographic proof that Knox — not a rogue agent, prompt injection, or man-in-the-middle — authorized this specific action. Without such proof, any agent could impersonate any human's intent.
+
+### 17.2 Trust Chain
+
+The authorization trust chain flows from human intent to cryptographic verification:
+
+```
+Human Intent → Captured & Signed at Source Device → Transmitted with PACT Message → Verified Cryptographically at Destination Agent
+```
+
+Each link in the chain is independently verifiable. The chain breaks if any link is missing or forged.
+
+### 17.3 Two-Layer Architecture
+
+| Layer | Responsibility | Examples |
+|-------|---------------|---------|
+| **Hardware / Biometric** | Capture human intent, produce signed attestation | Earbuds with voice biometrics, phone with Face ID, typed passphrase, WebAuthn security key |
+| **Software / PACT** | Carry the trust chain between agents, verify authorization at destination | `authorization_proof` field on PACT messages, agent credential registry |
+
+The hardware layer captures and signs; PACT carries and verifies. Two separate concerns, one integrated protocol. PACT does not define the hardware attestation mechanism — it defines the envelope and verification protocol that any attestation format can plug into.
+
+### 17.4 HumanPrincipal — strictly 1:1
+
+A **HumanPrincipal** is the protocol-level abstraction for actions a human has authorized. A HumanPrincipal is **strictly 1:1 with a single human**: each human maps to exactly one `principal_id` at the PACT layer. There is no protocol mechanism for one principal to represent multiple humans, nor for a verifier to be asked to treat two principals as "the same human."
+
+The `principal_id` is a [W3C Decentralized Identifier](https://www.w3.org/TR/did-core/). Implementations MUST support the `did:web` and `did:key` methods, and MAY support additional methods (`did:ion`, `did:ethr`, etc.). A verifier that does not recognise a presented method MUST treat the proof as unverifiable (reject; §17.7).
+
+### 17.5 The `persona` claim (above the PACT layer)
+
+Some deployments give one human several operating "personas" (e.g. `Personal`, `Trade`, `Household`). **PACT does not model these.** An implementation MAY attach an advisory `persona` claim to a signed message; it is purely informational metadata for the receiving agent. A verifier:
+
+- MUST roll every persona up to the single `principal_id` it accompanies — distinct personas are NOT distinct principals;
+- MUST NOT use the `persona` value in any access-control, trust, or identity decision;
+- MAY surface it to a human operator for context.
+
+Entity / role disambiguation is the implementation's responsibility, not the protocol's. (Reference downstream: the [HMAN multi-entity model](https://github.com/Tailor-AUS/Human-Managed-Access-Network/blob/main/PROTOCOL.md#multi-entity-model) sits above PACT in exactly this way — it is a non-normative reference, not a protocol mechanism.)
+
+### 17.6 The `authorization_proof` envelope
+
+Any PACT message (proposal, intent, constraint, completion, mediated message, session mandate) MAY include an `authorization_proof` object:
+
+```json
+{
+  "sectionId": "sec:intro",
+  "newContent": "...",
+  "summary": "...",
+  "authorization_proof": {
+    "type": "fido2-assertion",
+    "principal_id": "did:web:knox.example",
+    "credential_id": "cred_abc123",
+    "challenge_nonce": "base64url-...",
+    "asserted_at": "2026-05-13T10:30:00Z",
+    "signature": "base64url-...",
+    "attestation_chain": []
+  }
+}
+```
+
+**Field definitions:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | Yes | Attestation type — `fido2-assertion`, `voice-biometric`, or a custom type in reverse-domain notation (§18.5). |
+| `principal_id` | string (DID) | Yes | The HumanPrincipal that authorized this action. |
+| `credential_id` | string | Yes | Identifier of the enrolled credential that produced the signature. |
+| `challenge_nonce` | string | Yes | Verifier-issued challenge. MUST be either signed by the verifier's key OR carry a `verifier_id` claim — otherwise a proof captured for verifier A can be replayed at verifier B. |
+| `asserted_at` | string (ISO 8601) | Yes | When the human authorization was captured. |
+| `signature` | string | Yes | Signature over the message payload + `challenge_nonce` + `asserted_at`, per the `type`'s suite. |
+| `attestation_chain` | array | No | Ordered intermediate attestations for delegated authorization (§17.11). Empty or absent = direct. |
+
+### 17.7 Verification Flow
+
+On receiving a message bearing `authorization_proof`, a verifying party MUST:
+
+1. **Type dispatch** — select the verification procedure for `type` (§18). Unrecognised `type` → unverifiable.
+2. **Principal resolution** — resolve `principal_id` (DID resolution for `did:web` / `did:key` / etc., or the credential registry `/.well-known/pact-credentials.json`; §17.8). Resolution failure → unverifiable.
+3. **Signature verification** — verify `signature` against the public key enrolled for `credential_id` under `principal_id`, per the `type`'s suite.
+4. **Freshness** — `asserted_at` MUST be within the implementation's allowed clock skew (default ±5 minutes; configurable).
+5. **Replay** — `challenge_nonce` MUST match a challenge the verifier (or its server) issued and not yet retired, OR be a verifier-signed nonce / carry a matching `verifier_id`.
+6. **Result** — any failure → the verifier SHOULD reject the message and MAY emit `pact.trust.violation` with `payloadJson.kind = "authorization_failed"` and the failing step. Success → the message is treated as human-authorized by `principal_id`.
+
+Verifiers MAY cache a successful resolution for the life of a session to avoid repeated registry / DID lookups; they MUST honour revocation (§17.8) within the cache's max-age hint.
+
+### 17.8 Credential Registry
+
+A PACT server MAY publish `/.well-known/pact-credentials.json`:
+
+```json
+{
+  "version": "1.0",
+  "principals": [
+    {
+      "id": "did:web:knox.example",
+      "display_name": "Knox Hart",
+      "credentials": [
+        { "id": "cred_abc123", "type": "fido2-assertion", "public_key": "base64url-...", "enrolled_at": "2026-01-01T00:00:00Z", "revoked": false }
+      ]
+    }
+  ]
+}
+```
+
+**Registry rules:**
+
+- An implementation MAY instead (or also) support DID-document resolution for the public keys.
+- A credential with `"revoked": true` MUST cause verification to fail.
+- Implementations SHOULD support rotation — multiple active credentials per principal.
+- The registry MUST be served over HTTPS in production; the server MAY require mTLS or a bearer token to read it.
+- A `Cache-Control: max-age` (or equivalent) hint bounds how stale a cached resolution may be; absent a hint, implementations SHOULD re-check at least every 5 minutes.
+- **Erasure / tombstone:** a human's withdrawal is effected by **cryptographic erasure** — destroying / revoking the credential keys — leaving a tombstone (`{"id": "...", "tombstoned_at": "...", "credentials": []}`) so prior proofs remain checkable as having-been-valid-then-revoked without the key material persisting (see §17.10).
+
+### 17.9 Conformance
+
+| Conformance Level | Requirement |
+|-------------------|-------------|
+| **Core** | `authorization_proof` is OPTIONAL — an implementation MAY ignore the field entirely. |
+| **Extended** | SHOULD support at least one attestation type from §18 and SHOULD run the §17.7 verification when a proof is present. |
+| **Authorization-Required** | MUST require a valid `authorization_proof` on every cross-organisation message; MUST reject any proof whose `principal_id` resolution implies the principal spans more than one human; MUST support the credential registry (or DID resolution) and revocation propagation. No implementation is required to claim this tier at v2.0 launch — it is defined so the protocol's trajectory is clear and so cross-org / regulated deployments have a target. |
+
+Implementations MAY require `authorization_proof` for specific operations regardless of their declared tier (e.g. cross-organisation proposals, high-trust-level operations, financial transactions).
+
+### 17.10 Personal data (GDPR / right-to-be-forgotten)
+
+- **Event-log entries are protocol-integrity records** — retained for as long as the resource's audit trail is retained, and not subject to erasure-on-request, because removing them breaks the event-sourced consistency guarantee. An `authorization_proof` recorded in the event log SHOULD carry only the `principal_id` (a DID — itself rotatable / revocable) and a salted hash of the proof payload, NOT raw biometric data or other PII. Raw biometric material MUST NOT appear in the event log under any circumstance (see §18.3).
+- **Credential-registry entries** are personal data and support erasure via cryptographic key destruction + tombstone (§17.8).
+
+### 17.11 Delegation
+
+`attestation_chain` carries an ordered list of intermediate attestations: a chain `[A0, A1, ...]` means principal `A0` authorized the next, and so on, to the message signer. Maximum chain length is **3 hops** (direct + 2 sub-delegations) at v2.0 — a starting point pending implementation feedback; longer chains amplify revocation lag and reduce auditability. Trust-decay rules along the chain (does a revoked `A0` invalidate `A1..n` immediately, or do they stand until their own expiry?) are deferred to the coordinated PR — candidate model: mirror X.509 OCSP / CRL.
+
+### 17.12 Open Questions (deferred to a reviewed PR)
+
+1. **Credential enrollment** — how does an agent prove its association with a specific human principal? (OAuth-based enrollment, in-person verification, web-of-trust attestation.)
+2. **Revocation propagation** — immediate (real-time registry checks) vs eventually consistent.
+3. **Offline verification** — pre-fetched public keys / signed credential bundles to verify without a registry round-trip.
+4. **Delegation trust-decay** — the §17.11 cap is set; the decay model along the chain is not.
+5. **Custom attestation types** — pre-registration required, or naming-convention only? (Current lean: naming-convention only — §18.5.)
 
 ---
 
 ## 18. Attestation Format Reference (v2.0)
 
-> **Status:** Draft stub — directional decision recorded; full normative text (credential schemas, signature suites, threshold requirements, replay protection) lands via coordinated PR with HMAN / tailor-app. Tracking: issue [#3](https://github.com/TailorAU/pact/issues/3).
+> **Status:** v2.0 normative. Defines the credential types a PACT verifier MAY accept as proof of a HumanPrincipal's authorization. v2.0 defines **two** first-class types; implementations MAY support additional custom types (§18.5).
 
-Section 18 enumerates the credential types a PACT verifier MAY accept as proof of human authorization for a `HumanPrincipal`'s action.
+### 18.1 Common envelope
 
-v2.0 defines two first-class credential types:
+Every attestation, whatever its `type`, uses the `authorization_proof` envelope of §17.6 and additionally carries:
 
-1. **`fido2-assertion`** — WebAuthn / FIDO2 authenticator response. Hardware-backed possession + user-verification gesture.
-2. **`voice-biometric`** — speaker-verification assertion bound to a device key. Captures both presence *and* intent (the human spoke a specific challenge utterance). Audio MUST NOT leave the verifying device; only the embedding score and a signed assertion cross the wire. Reference embedding algorithm: `resemblyzer-v1`.
+| Field | Required | Description |
+|---|---|---|
+| `alg` | Yes | Algorithm identifier for this attestation's signature / match (e.g. `"webauthn-es256"`, `"resemblyzer-v1"`). |
+| `alg_version` | Yes | Version of `alg` — model swaps / retrains MUST NOT silently invalidate enrolled references. |
 
-Both types share a common envelope (principal_id, device_id, challenge_nonce, asserted_at, signature). High-stakes operations MAY require both types to be presented together.
+`challenge_nonce` replay protection (§17.6) is mandatory for all types.
 
-Full normative text — credential schemas, signature suites, threshold requirements, replay protection — to be drafted.
+| Type | Based On | Hardware Required | Privacy | Offline Verify | Maturity |
+|------|----------|-------------------|---------|----------------|----------|
+| `fido2-assertion` | WebAuthn / FIDO2 | Yes (authenticator) | High (no biometric leaves device) | Yes | Established standard |
+| `voice-biometric` | speaker-verification embedding + utterance-hash binding | Yes (microphone) | High (zero-knowledge embedding match; audio never leaves device) | Yes | RFC ([#3](https://github.com/TailorAU/pact/issues/3)) — crypto detail + test vectors land via HMAN's PR |
+
+### 18.2 `fido2-assertion`
+
+**Based on:** [WebAuthn Level 2](https://www.w3.org/TR/webauthn-2/) / FIDO2.
+
+The human activates a FIDO2 authenticator (security key, platform authenticator, phone). The authenticator signs over the PACT message hash + `challenge_nonce`. The proof carries the WebAuthn `authenticatorData`, `clientDataJSON`, and `signature`.
+
+**Verification:** standard WebAuthn assertion verification — verify the signature against the enrolled public key for `credential_id`; verify the relying-party ID; confirm the User Presence (UP) flag, and the User Verification (UV) flag if the operation requires it.
+
+**Use when:** high-security and cross-organisation actions; financial transactions. Preferred when both parties have hardware-authenticator infrastructure.
+
+### 18.3 `voice-biometric`
+
+> **Authoritative spec:** HMAN's [#3](https://github.com/TailorAU/pact/issues/3) PR. The text below is the structural contract v2.0 commits to; the cryptographic detail and test vectors land via that PR.
+
+**Based on:** speaker-verification embedding similarity + utterance-hash binding.
+
+**Distinguishing property:** captures *intent* (the human spoke a specific challenge utterance), not just *presence* (a passkey tap).
+
+**Envelope additions:**
+
+```json
+"match": { "alg": "resemblyzer-v1", "alg_version": "1.0", "score": 0.91, "threshold": 0.75 },
+"utterance_hash": "base64url-...",
+"verifier_id": "did:web:bridget.example"
+```
+
+- `match` — the speaker-verification result. The `match` sub-object shape is reused by any future biometric modality (face, gait, keystroke dynamics).
+- `utterance_hash` — **normative**. A hash of the spoken utterance, binding the assertion to *what was said*. Non-normative note: a verifier requiring "approve transfer of $5000 to Bridget" MUST reject a valid voice match against the wrong `utterance_hash`.
+- `challenge_nonce` MUST be verifier-signed OR `verifier_id` MUST be present (replay protection across verifiers).
+
+**Hard constraint:** raw audio MUST NOT leave the verifying device. Only the embedding score (inside `match`), the `utterance_hash`, and the signed assertion cross the wire. No raw biometric data enters the event log (§17.10).
+
+**Reference embedding algorithm:** `resemblyzer-v1` (non-normative; HMAN's #3 PR pins the normative set and the versioning policy, plus the signature suite, key wrapping, threshold-selection guidance, and test vectors).
+
+**Use when:** real-time intent-bearing authorization on voice channels (calls, dictation, multi-party negotiation) where presence-only credentials are insufficient.
+
+### 18.4 Combining types
+
+A high-stakes operation MAY require two attestation types presented together (e.g. `fido2-assertion` for possession + `voice-biometric` for intent). When required, both proofs MUST verify independently and MUST carry the same `principal_id`.
+
+### 18.5 Custom Attestation Types
+
+Implementations MAY define custom attestation types using reverse-domain notation (e.g., `com.example.voice-print`, `au.gov.mygovid`). A custom type MUST:
+
+- use the `authorization_proof` envelope defined in §17.6 plus the common fields of §18.1;
+- document its signing and verification mechanics;
+- be declared in the implementation's `.well-known/pact-credentials.json` under a `supported_types` array.
+
+Whether custom types additionally require pre-registration in a central registry is deferred to a reviewed PR (current lean: naming-convention only).
+
+> *Note:* `vc-jwt`, `biometric-hash`, and `passphrase-signed` (which appeared in the v1.2-draft attestation list) are **not** v2.0 first-class types — an implementation that needs them carries them as custom types under this section.
+
+### 18.6 Deferred to HMAN's #3 PR
+
+- `voice-biometric` normative crypto: signature suite, key wrapping, the normative set of embedding algorithms + versioning policy, threshold-selection guidance, full replay-protection requirements.
+- Test vectors for `voice-biometric` (and `fido2-assertion`) — go in `spec/v2.0/conformance/extended/attestation/`.
+- The HMAN reference-stack citation (Resemblyzer + Fernet + PBKDF2 + per-session re-arm + hash-chained audit), conditional on the test vectors landing.
 
 ---
 

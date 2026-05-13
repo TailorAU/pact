@@ -18,18 +18,17 @@
 | [`d1-d6-decisions.yaml`](d1-d6-decisions.yaml) | Stays here as the decision record | ✅ All resolved 2026-05-12; collapse done 2026-05-13 |
 | [`rfc-sessions-mandate.md`](rfc-sessions-mandate.md) | Posted as [TailorAU/pact#14](https://github.com/TailorAU/pact/issues/14) (`rfc` label) | ✅ Posted 2026-05-12 — 14-day window to 2026-05-26; AI shepherding |
 | [`issue-13-response.md`](issue-13-response.md) | Posted as a [comment on #13](https://github.com/TailorAU/pact/issues/13) | ✅ Posted 2026-05-12 |
-| [`s17-s18-normative-draft.md`](s17-s18-normative-draft.md) | Lands in `spec/v2.0/SPECIFICATION.md` §17–§18 via the coordinated HMAN/tailor-app PR (AGENTS.md rule 5), then this file is deleted | ✅ Drafted 2026-05-13 (T1 + T2) — awaiting the tailor-app branch/context from Knox to back-port |
 
-(Promoted out of this directory: the conformance scaffold → [`spec/v2.0/conformance/`](../../spec/v2.0/conformance/); the v1.1 errata note → [`spec/v1.1/ERRATA.md`](../../spec/v1.1/ERRATA.md).)
+(Promoted out of this directory: the conformance scaffold → [`spec/v2.0/conformance/`](../../spec/v2.0/conformance/); the v1.1 errata note → [`spec/v1.1/ERRATA.md`](../../spec/v1.1/ERRATA.md); the §17/§18 normative text → [`spec/v2.0/SPECIFICATION.md`](../../spec/v2.0/SPECIFICATION.md) §17–§18, via coordination PR [TailorAU/tailor-app#1616](https://github.com/TailorAU/tailor-app/pull/1616).)
 
 ## Still pending
 
 **Phase-0 / phase-1 work (per [`../v2-plan.yaml`](../v2-plan.yaml)):**
-- §17/§18 normative text → **drafted** ([`s17-s18-normative-draft.md`](s17-s18-normative-draft.md)); blocked only on Knox providing the tailor-app branch/context for the coordinated PR back-port (T1, T2)
-- `spec/v2.0/schemas/{authorization-proof,principal-registry,...}.json` (T1, T3, T4, T5)
-- `spec/v2.0/conformance/` smoke tests for T1/T2/T7 + `.github/workflows/conformance.yml` (T10)
+- §17/§18 normative text → **landed** in `spec/v2.0/SPECIFICATION.md` (T1, T2). Tailor-app coordination PR [#1616](https://github.com/TailorAU/tailor-app/pull/1616) open; re-sync if its review changes anything. Remaining T1/T2 sub-items: `schemas/{authorization-proof,principal-registry,attestation/*}.json`; verification-flow test vectors; the voice-biometric crypto detail (comes with HMAN's #3 PR).
+- `spec/v2.0/conformance/` smoke tests for T1/T2/T7 + `.github/workflows/conformance.yml` (T10 — in progress)
 - `spec/v2.0/SPECIFICATION.md` §19–20 Sessions + Mandate (T3 — RFC #14 must converge first; 0 comments as of 2026-05-13)
 - `cli/` + `mcp/` v2.0 endpoint coverage (T11)
+- `spec/v2.0/SPECIFICATION.md` §23 Agent identity lifecycle (T7)
 
 ## Editing protocol
 

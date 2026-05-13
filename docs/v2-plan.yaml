@@ -58,13 +58,13 @@ tracks:
     inputs:
       - spec/v2.0/SPECIFICATION.md §17 (collapsed from main's spec/v1.2/SPECIFICATION.md — the canonical 1:1 version, not the stale v1.2-branch 1:N draft)
       - issue #4 (HumanPrincipal cardinality — resolved STRICTLY 1:1; multi-persona handled above the PACT layer)
+    status: NORMATIVE TEXT LANDED 2026-05-13 — spec/v2.0/SPECIFICATION.md §17 (Human Authorization Layer, §17.1-17.12) is no longer a stub; synced from the canonical mirror via coordination PR TailorAU/tailor-app#1616. Re-sync if that PR's review changes anything.
     deliverables:
-      - spec/v2.0/SPECIFICATION.md §17 promoted from stub; "draft" caveats removed (via coordinated HMAN/tailor-app PR per AGENTS.md rule 5)
-      - NORMATIVE TEXT DRAFTED — docs/v2-prep/s17-s18-normative-draft.md (PACT-lead draft, 2026-05-13; covers §17.1 concept + DID identity, §17.2 persona-above-PACT, §17.3 authorization_proof envelope, §17.4 verification flow, §17.5 credential registry, §17.6 conformance incl. Authorization-Required, §17.7 GDPR/RTBF position, §17.8 delegation). Lands in spec/v2.0/ once the coordinated PR reconciles it with tailor-app upstream.
-      - schemas/authorization-proof.json
-      - schemas/principal-registry.json   # formalises /.well-known/pact-credentials.json
-      - Verification flow expanded with example test vectors
-      - HumanPrincipal STRICTLY 1:1 cardinality (§17) — normative MUST; the `persona` claim documented as an above-PACT-layer implementation detail (PACT verifiers see one principal per human)
+      - "[DONE] spec/v2.0/SPECIFICATION.md §17 — full normative text: 17.1 problem, 17.2 trust chain, 17.3 two-layer arch, 17.4 HumanPrincipal strictly-1:1 + DID identity, 17.5 the persona claim (above PACT layer), 17.6 the authorization_proof envelope, 17.7 verification flow, 17.8 credential registry + tombstone/erasure, 17.9 conformance incl. the defined Authorization-Required tier, 17.10 GDPR/RTBF position, 17.11 delegation (3-hop cap), 17.12 open questions"
+      - schemas/authorization-proof.json   # still TODO — schema for the §17.6 envelope
+      - schemas/principal-registry.json   # still TODO — formalises /.well-known/pact-credentials.json
+      - example test vectors for the verification flow (→ spec/v2.0/conformance/)
+      - "[DONE] HumanPrincipal STRICTLY 1:1 (§17.4) — normative; the `persona` claim documented as above-PACT-layer advisory metadata (§17.5); HMAN multi-entity model demoted to a non-normative downstream reference"
       - Personal-data position for principal registry — cryptographic erasure via key destruction, tombstone semantics, or protocol-integrity exemption (rev2: GDPR/RTBF)
     conformance_impact:
       core: authorization_proof remains OPTIONAL — implementations MAY ignore
@@ -91,11 +91,11 @@ tracks:
     inputs:
       - spec/v2.0/SPECIFICATION.md §18 (collapsed from main's spec/v1.2/§18 — defines two first-class types only)
       - issue #3 (voice-biometric, RFC accepted in principle, awaiting HMAN PR)
+    status: NORMATIVE TEXT LANDED 2026-05-13 — spec/v2.0/SPECIFICATION.md §18 (§18.1-18.6) is no longer a stub; synced from the canonical mirror via PR TailorAU/tailor-app#1616. The voice-biometric crypto detail + test vectors remain deferred to HMAN's #3 PR (§18.6 lists them).
     deliverables:
-      - spec/v2.0/SPECIFICATION.md §18 — two v2.0 first-class types: fido2-assertion, voice-biometric (vc-jwt / biometric-hash / passphrase-signed from the v1.2-branch RFC are NOT v2.0 core; implementations MAY add custom types via reverse-domain notation)
-      - NORMATIVE TEXT DRAFTED — docs/v2-prep/s17-s18-normative-draft.md §18 (common envelope §18.1, fido2-assertion §18.2, voice-biometric structural contract §18.3, combining types §18.4, custom types §18.5; crypto detail + test vectors deferred to HMAN's #3 PR per §18.6)
-      - spec/v2.0/conformance/extended/attestation/ test vectors per first-class type
-      - schemas/attestation/{fido2,voice-biometric}.json
+      - "[DONE] spec/v2.0/SPECIFICATION.md §18 — 18.1 common envelope (+ comparison matrix), 18.2 fido2-assertion, 18.3 voice-biometric structural contract, 18.4 combining types, 18.5 custom types, 18.6 deferred-to-HMAN. Two v2.0 first-class types (fido2-assertion, voice-biometric); vc-jwt/biometric-hash/passphrase-signed demoted to custom types"
+      - spec/v2.0/conformance/extended/attestation/ test vectors per first-class type (still TODO; voice-biometric vectors come with HMAN's #3 PR)
+      - schemas/attestation/{fido2,voice-biometric}.json (still TODO)
     blocking_dependencies:
       - HMAN PR #3 must land before the voice-biometric §18 normative text is finalised
     open_questions:

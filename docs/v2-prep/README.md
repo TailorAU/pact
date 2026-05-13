@@ -18,6 +18,7 @@
 | [`d1-d6-decisions.yaml`](d1-d6-decisions.yaml) | Stays here as the decision record | ✅ All resolved 2026-05-12; collapse done 2026-05-13 |
 | [`rfc-sessions-mandate.md`](rfc-sessions-mandate.md) | Posted as [TailorAU/pact#14](https://github.com/TailorAU/pact/issues/14) (`rfc` label) | ✅ Posted 2026-05-12 — 14-day window to 2026-05-26; AI shepherding |
 | [`issue-13-response.md`](issue-13-response.md) | Posted as a [comment on #13](https://github.com/TailorAU/pact/issues/13) | ✅ Posted 2026-05-12 |
+| [`t11-cli-mcp-gap.yaml`](t11-cli-mcp-gap.yaml) | Working scoping doc for track T11 (reference CLI/MCP v2.0 coverage) | ✅ Surveyed 2026-05-13 — G1-G8 + suggested order |
 
 (Promoted out of this directory: the conformance scaffold → [`spec/v2.0/conformance/`](../../spec/v2.0/conformance/); the v1.1 errata note → [`spec/v1.1/ERRATA.md`](../../spec/v1.1/ERRATA.md); the §17/§18 normative text → [`spec/v2.0/SPECIFICATION.md`](../../spec/v2.0/SPECIFICATION.md) §17–§18, via coordination PR [TailorAU/tailor-app#1616](https://github.com/TailorAU/tailor-app/pull/1616).)
 

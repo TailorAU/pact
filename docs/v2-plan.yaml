@@ -330,13 +330,18 @@ tracks:
       added by T3/T4/T5 needs CLI + MCP coverage before v2 ships.
     inputs:
       - cli/ and mcp/ packages (currently v1.1.0, not published — issue #5)
-      - All track endpoints (T1, T3, T4, T5)
+      - All track endpoints (T1, T3, T4, T5, T7)
+      - docs/v2-prep/t11-cli-mcp-gap.yaml — gap analysis (current surface vs v2.0; G1-G8, suggested order)
     deliverables:
-      - @pact-protocol/cli updated to cover all v2 endpoints
-      - @pact-protocol/mcp updated likewise (same primitives as MCP tools)
-      - Version bump to v2.0.0
-      - npm publish unblocked (closes issue #5 dependency)
-      - CLI surface contract test in T9 suite
+      - "SCOPED: docs/v2-prep/t11-cli-mcp-gap.yaml — current CLI/MCP surface inventoried; v2.0 gaps G1-G8 identified with priority + blockers"
+      - "G7 (MCP→CLI parity: pact_ask, pact_negotiate_*, pact_join_token) — unblocked, do first"
+      - "G1 (authorization_proof pass-through: --authorization-proof flag + pact verify-proof helper) — unblocked"
+      - "G6 (pact profile <server> — read /.well-known/pact.json) — unblocked, helps #13 Q8 conformance story"
+      - "G2 (agent identity: pact agent transfer/recover/abandon) — once an impl exposes §23 endpoints"
+      - "G3 (Sessions: pact session create/accept/state/outcome/close; pact mandate sign) — after RFC #14 + §19-20 land"
+      - "G4 (subscriptions), G5 (service-account) — after T4/T5 land"
+      - "G8: version bump 1.1.0 → 2.0.0; npm publish — gated on #5"
+      - CLI surface contract tests in the T9 conformance suite
     conformance_impact:
       core: reference CLI demonstrates Core compliance for client-side
       extended: reference CLI supports Extended primitives optionally

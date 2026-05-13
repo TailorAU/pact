@@ -1,0 +1,96 @@
+# T11 — Reference CLI / MCP coverage: gap analysis
+# Survey 2026-05-13. The @pact-protocol/cli and @pact-protocol/mcp packages
+# carry the COORDINATION primitives only — content ops (propose/approve/etc.)
+# are implementation-side by design. T11 brings them up to the v2.0 surface.
+
+current_surface:
+  cli:
+    package: "@pact-protocol/cli"
+    binary: "pact (alias pact-agent)"
+    version_pin: "1.1.0"
+    commands:
+      coordination: [join, leave, agents, intent, constrain, salience, object, poll, done, lock, unlock, escalate, ask]
+      negotiate_group: [negotiate list, negotiate position, negotiate synthesis]   # §13 mediated
+      meta: [config]
+    api_helpers_present_but_maybe_not_wired: [joinWithToken]   # BYOK invite-token join — confirm it's exposed as a command
+  mcp:
+    package: "@pact-protocol/mcp"
+    version_pin: "1.1.0"
+    tools: [pact_join, pact_leave, pact_agents, pact_intent, pact_constrain, pact_salience, pact_object, pact_poll, pact_done, pact_lock, pact_unlock, pact_escalate]
+    parity_gap_vs_cli: [pact_ask, pact_negotiate_list, pact_negotiate_position, pact_negotiate_synthesis, pact_join_token]   # MCP is already behind the CLI on these
+
+v2_0_additions_needed:
+
+  - id: G1
+    title: authorization_proof pass-through
+    why: §17.6 — agents attach a proof-of-human-intent to their messages. The CLI/MCP don't sign (that's the hardware/biometric layer, §17.3) — they CARRY a pre-built proof.
+    cli: "--authorization-proof <file.json> flag on the write commands (intent, constrain, object, done, escalate, ask) — reads a §17.6 envelope and includes it in the request body"
+    mcp: "optional authorizationProof argument on the same tools"
+    helper: "pact verify-proof <proof.json> --registry <url|file> — local §17.7 verification, useful for debugging and for kind:verification conformance vectors"
+    priority: high   # depends on nothing — §17 is landed
+    blocked_by: []
+
+  - id: G2
+    title: agent identity lifecycle (§23)
+    why: cooperative transfer, M-of-N recovery, abandoned-agent reset, reading the operator binding (#13 Q7)
+    cli: "pact agent show <agentId>; pact agent transfer <agentId> --to <did> --reason ...; pact agent transfer-countersign <attestation.json>; pact agent recover <agentId> --to <did> (collects M-of-N sigs); pact agent abandon <agentId> --successor <newAgentId> --reason ..."
+    mcp: "pact_agent_show, pact_agent_transfer, pact_agent_recover, pact_agent_abandon"
+    schema: spec/v2.0/schemas/agent-identity.json (done)
+    priority: medium   # §23 landed; the server endpoints aren't speced yet (only the attestation shapes are)
+    blocked_by: []     # but useful to wait for an impl to expose the endpoints
+
+  - id: G3
+    title: ephemeral negotiation Sessions (§19-20)
+    why: the new bilateral-negotiation mode with handler-signed Mandates
+    cli: "pact session create --purpose ... --ttl ... --mandate <file>; pact session accept <sessionId> --mandate <file>; pact session state|outcome|transcript <sessionId>; pact session close <sessionId>; pact mandate sign --agent <agentId> --topic ... → emits a signed Mandate"
+    mcp: "pact_session_create, pact_session_accept, pact_session_state, pact_session_outcome, pact_session_transcript, pact_session_close"
+    priority: medium
+    blocked_by: [RFC #14 must converge; §19-20 normative text must land first]
+
+  - id: G4
+    title: push delivery / subscriptions (§21, track T4)
+    cli: "pact subscription create <resourceId> --url <webhook> --events ...; pact subscription list|delete <resourceId> [<id>]"
+    mcp: "pact_subscription_create, pact_subscription_list, pact_subscription_delete"
+    priority: low
+    blocked_by: [§21 normative text (T4) must land first]
+
+  - id: G5
+    title: service-account auth (§22, track T5)
+    cli: "pact service-account create --scope ...; pact service-account rotate <id>; pact service-account revoke <id>  (the CLI already USES scoped keys; this is about minting/managing them)"
+    mcp: "pact_service_account_create / rotate / revoke"
+    priority: low
+    blocked_by: [§22 normative text (T5) must land first]
+
+  - id: G6
+    title: implementation profile read
+    why: §14-15 (v2.0) — servers publish /.well-known/pact.json (conformance level, resource types, capabilities)
+    cli: "pact profile <server-url> — fetch and pretty-print the profile; pact profile --check <server-url> — assert a minimum conformance level"
+    mcp: "pact_profile"
+    priority: medium   # nice-to-have for the conformance story (#13 Q8)
+    blocked_by: []
+
+  - id: G7
+    title: MCP-to-CLI parity
+    why: the MCP is missing pact_ask + the pact_negotiate_* group + pact_join_token that the CLI already has
+    mcp: "add pact_ask, pact_negotiate_list, pact_negotiate_position, pact_negotiate_synthesis, pact_join_token"
+    priority: high   # cheap, removes a known gap
+    blocked_by: []
+
+  - id: G8
+    title: version bump + publish
+    detail: "bump both packages 1.1.0 -> 2.0.0 (version-pinned together); npm publish is blocked on the pact-protocol npm org — issue #5"
+    priority: do-last
+    blocked_by: ["#5 (pact-protocol npm org creation)"]
+
+suggested_order:
+  - "G7 (MCP parity) + G1 (authorization_proof pass-through) — both unblocked, both small/high-value"
+  - "G6 (profile read) — unblocked, helps the conformance story"
+  - "G2 (agent identity) — once an implementation exposes the §23 endpoints"
+  - "G3 (Sessions) — after RFC #14 converges and §19-20 lands"
+  - "G4 (push), G5 (service-account) — after T4/T5 land"
+  - "G8 (version bump + publish) — last, gated on #5"
+
+notes:
+  - The CLI/MCP are vendor-neutral COORDINATION clients. Don't add content-op commands (propose/approve/merge) — those belong to the implementation (Tailor's @tailor-app/cli, etc.).
+  - AGENTS.md rule 6: do NOT rename cli/ or mcp/ or their package names — externally referenced.
+  - Each new command/tool should get a CLI-surface contract test in the T9 conformance suite (cross-reference: v2-plan.yaml T11 + T9).

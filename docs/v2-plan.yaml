@@ -541,10 +541,10 @@ next_actions:
     owner: AI / coordinated PRs
     sequence: 1 (phase 0)
   - id: N7
-    action: Promote docs/v2-prep/v1.1-errata.md → spec/v1.1/ERRATA.md (touches frozen dir — needs explicit Knox green-light, see issue #15)
-    owner: AI (pending Knox confirmation)
-    sequence: independent
-  - id: N8
-    action: Shepherd RFC #14 — surface comments, draft responses (Knox approves before posting)
+    action: Promote docs/v2-prep/v1.1-errata.md → spec/v1.1/ERRATA.md (additive; does not amend frozen SPECIFICATION.md)
     owner: AI
-    sequence: ongoing until 2026-05-26
+    status: DONE 2026-05-13 — Knox green-lit; ERRATA.md added; README v1.1 row links it; issue #15 can close
+  - id: N8
+    action: Shepherd RFC #14 — periodic check, collect substantive feedback, draft replies for Knox approval
+    owner: AI
+    status: ACTIVE — scheduled check set up 2026-05-13; runs through 2026-05-26 close of comment window

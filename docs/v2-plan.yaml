@@ -12,8 +12,8 @@
 plan:
   spec: PACT
   version: "2.0"
-  status: draft-planning
-  revision: 2
+  status: draft-planning — D1-D6 RESOLVED, phase 0 unblocked
+  revision: 3   # rev3 (2026-05-12): D1-D6 resolved by Knox; T8 moved out of v2 core (D2=B); phase gates updated
   predecessor:
     stable: v1.1
     draft: v1.2-draft (on `v1.2` branch — see decision D1)
@@ -49,6 +49,9 @@ tracks:
 
   - id: T1
     name: Human Authorization Layer (normative)
+    decision_status: |
+      D4=A — define Authorization-Required conformance tier normatively in v2 (no launch impl required to satisfy it).
+      D6=A — adopt W3C DIDs as principal identity layer; did:web + did:key REQUIRED at v2; did:ion/did:ethr/etc. optional.
     rationale: |
       Promote v1.2 §17 from draft to normative. v1.1 has no proof-of-human-intent
       primitive; v2 makes it the standard envelope for cross-org messages.
@@ -108,6 +111,12 @@ tracks:
       Sidesteps self-approval (#13 Q1) by having no approval step at all.
       T6 (allowSelfApproval) is the fallback for legacy long-lived resource
       collaborations where Sessions don't fit.
+    decision_status: |
+      D3=A — Mandate lands NORMATIVELY in v2 (not deferred to v2.1). Demotable
+        before v2 freeze if the T3 design review finds the primitive unstable.
+      D5=A — Sessions are PEER-TO-PEER by default with an OPT-IN facilitator
+        role. Always-mediated MediatedSession is NOT v2 core — parked as a
+        v2.1 candidate if demand materialises.
     canonical_for: new agent-to-agent ephemeral negotiation
     depends_on: [T7]   # rev2: identity semantics must settle before Sessions design
     inputs:
@@ -259,18 +268,22 @@ tracks:
       - M-of-N quorum size — implementation-defined or spec-fixed minimum?
 
   - id: T8
-    name: Weight & type semantic contract (attached resources)
+    name: Weight & type semantic contract (attached resources) — MOVED OUT OF v2 CORE
+    decision_status: D2=B (2026-05-12) — NOT a v2 core track. Ships as a separate Tailor extension spec. v2 plan retains this entry as a cross-reference only.
     rationale: Closes #13 Q5, Q3, Q4. Documents what `--weight` and `--type` do at protocol layer vs documentary metadata.
     inputs:
       - issue #13 Q3, Q4, Q5
+    deliverables_now_owned_by: Tailor extension spec (separate repo/doc — TBD location)
     deliverables:
-      - spec/v2/SPECIFICATION.md §24 Resource Composition (attached resources, weight, type)
-      - Decision: weight/type protocol-enforced (e.g. Mandatory blocks merge until satisfied) OR purely documentary
-      - Share-link visibility rules for attached resources
-      - Whether `--section` can target attached resources or only root
+      - "[Tailor ext] Resource Composition (attached resources, weight, type)"
+      - "[Tailor ext] Decision: weight/type protocol-enforced (e.g. Mandatory blocks merge until satisfied) OR purely documentary"
+      - "[Tailor ext] Share-link visibility rules for attached resources"
+      - "[Tailor ext] Whether `--section` can target attached resources or only root"
     notes: |
-      Currently Tailor-specific; may move to a separate Tailor extension spec
-      if Knox prefers a smaller v2 core. Decision deferred to phase 2 gate.
+      Per D2=B: document composition is Tailor-domain-specific. PACT v2 core
+      stays lean. If transaction/fact resources later need composition
+      primitives, design then as a v2.x addition. AloomU's #13 Q3-Q5 will be
+      answered in the Tailor extension, not v2 core.
 
   - id: T9
     name: Conformance test suite (full coverage) + IMPLEMENTERS.md
@@ -338,28 +351,33 @@ tracks:
 phases:
   # Rev2 reordering. T7 promoted to phase 0; T10 expanded with conformance
   # scaffold; T11 added in phase 2.
+  # D1-D6 ALL RESOLVED 2026-05-12 — phase 0 unblocked, phase 1/2 gates met.
 
   - phase: 0
     name: Foundation (identity, authorization, attestation, hygiene + conformance scaffold)
+    status: UNBLOCKED 2026-05-12 (D1=A, D4=A, D5=A, D6=A resolved)
     parallel: [T1, T2, T7, T10]
+    prerequisite: v1.2 → v2 branch collapse (D1=A) — see next_actions N4
     gate: |
-      - T1 normative text approved by Knox
-      - T7 identity model settled (Sessions and push-delivery depend on it)
+      - T1 normative text approved by Knox; uses W3C DIDs (did:web + did:key required) per D6=A; defines Authorization-Required tier per D4=A
+      - T7 identity model settled (Sessions and push-delivery depend on it); identity URNs designed for future federation
       - T10 conformance scaffold operational; smoke tests run on every PR
       - T2 voice-biometric blocked on HMAN PR #3 (carved out if it slips — R2)
-      - D1 (v1.2→v2 collapse), D5 (mediator presence), D6 (DID adoption) RESOLVED before phase 1 opens
 
   - phase: 1
     name: New primitives (Sessions, push, service accounts)
     parallel: [T3, T4, T5]
     gate: |
-      - T3 Mandate primitive RFC opened, design converged before normative text
+      - T3 Mandate primitive RFC opened (#14, 14-day window to 2026-05-26), design converged before normative text
+      - T3 ships peer-to-peer Sessions with opt-in facilitator per D5=A; Mandate is normative-track per D3=A (demotable before v2 freeze if review finds it unstable)
       - T3, T4 normative text passes conformance smoke tests from T10 scaffold
 
   - phase: 2
     name: Operational gaps + reference clients
-    parallel: [T6, T8, T11]
-    gate: T8 decision — v2 core or Tailor extension? D2 resolved.
+    parallel: [T6, T11]   # T8 removed from v2 core per D2=B — ships as separate Tailor extension spec
+    gate: |
+      - D2 resolved (B) — T8 attached-resource model is NOT v2 core; lives in a Tailor extension repo/spec. v2 plan tracks it only as a cross-reference.
+      - T11 reference CLI/MCP covers all v2 endpoints; npm publish unblocked (#5)
 
   - phase: 3
     name: Compliance & launch
@@ -456,58 +474,79 @@ cutover_criteria:
   - spec/v2/SPECIFICATION.md sections signed by attributed humans (rev2 — replace "Knox Hart + AI" with concrete per-section attribution for grant assessors / federal-customer trust posture)
 
 open_decisions:
+  # ALL RESOLVED by Knox 2026-05-12 — see docs/v2-prep/d1-d6-decisions.yaml resolution block.
   - id: D1
     question: v1.2-draft → v2 collapse, or v1.2 ships as its own stable first?
     owner: Knox
     blocks: [T1, T2]
     phase: 0
+    resolved: A — collapse v1.2-draft directly into v2; no short-lived v1.2-stable unless v2 slips past 6 months
   - id: D2
     question: T8 attached-resource model — in v2 core, or split to Tailor extension?
     owner: Knox
     blocks: [T8]
     phase: 2
+    resolved: B — attached-resource weighting/type stays a Tailor extension; PACT core stays lean
   - id: D3
     question: Sessions (T3) — is the Mandate primitive normative in v2, or ship in v2.1 as an addendum?
     owner: Knox
     blocks: [T3]
     phase: 1
     note: Sharpened in rev2. Feature opt-in vs Extended is settled (opt-in at Core, SHOULD at Extended). Real decision is whether Mandate ships at all in v2.
+    resolved: A — Mandate normative in v2 (D5 resolved cleanly); demotable before v2 freeze if T3 review finds it unstable
   - id: D4
     question: Authorization-Required tier — define in v2 or defer to v2.1?
     owner: Knox
     blocks: [T1]
     phase: 0
+    resolved: A — define Authorization-Required as a normative conformance tier in v2 even with no launch implementation satisfying it yet
   - id: D5
     question: Sessions — peer-to-peer with opt-in facilitator role, OR always-mediated (separate MediatedSession resource type)? (rev2 — promoted from T3 open_questions; load-bearing)
     owner: Knox
     blocks: [T3]
     phase: 0
     recommendation: opt-in facilitator. Keeps Mandate primitive minimal. If mediator-mandatory case is needed later, ship MediatedSession in v2.1 as a separate resource type.
+    resolved: A — peer-to-peer by default with opt-in facilitator role; always-mediated MediatedSession parked as a v2.1 candidate
   - id: D6
     question: Adopt W3C DIDs as principal identity layer, OR stay with simpler principal URI scheme? (rev2 — charter-level external-standards commitment)
     owner: Knox
     blocks: [T1, T7]
     phase: 0
     note: Both paths viable. DIDs give cross-server resolution for free (good for v2.1 federation) but commit PACT to W3C DID method ecosystem (adoption surface, dependency on external standard maturity). Simpler URI scheme is lighter but requires hand-rolling federation primitives in v2.1.
+    resolved: A — adopt W3C DIDs; did:web + did:key required at v2; other DID methods optional
 
 next_actions:
   - id: N1
     action: Knox decides D1–D6
     owner: Knox
-    sequence: 1
+    status: DONE 2026-05-12 — all six resolved (D1=A D2=B D3=A D4=A D5=A D6=A)
   - id: N2
-    action: Open RFC issue for T3 Sessions primitive (link to this plan; explicitly note D5 pre-resolved)
-    owner: AI (draft for Knox approval)
-    sequence: 2
+    action: Open RFC issue for T3 Sessions primitive
+    owner: AI
+    status: DONE 2026-05-12 — TailorAU/pact#14
   - id: N3
     action: Comment on #13 pointing at this plan as consolidated response
-    owner: AI (draft for Knox approval)
-    sequence: 2
+    owner: AI
+    status: DONE 2026-05-12 — comment posted on #13
   - id: N4
-    action: Stand up T10 conformance scaffold (directory, test-vector format, CI hook) — phase 0 foundation
-    owner: deferred until D1 resolved
-    sequence: 3
+    action: v1.2 branch → v2 collapse — rename branch, git mv spec/v1.2 → spec/v2, bump version 1.2-draft → 2.0-draft, strip v1.2-draft caveats from §17/§18
+    owner: AI (pending Knox confirmation of branch-rename approach — touches shared branch state)
+    sequence: 1
   - id: N5
-    action: Forward-port schema $id fixes (T10) into a v2 working dir
-    owner: deferred until D1 resolved
-    sequence: 3
+    action: Move docs/v2-prep/conformance/ → spec/v2/conformance/ once spec/v2/ exists; add T1/T2/T7 smoke tests + .github/workflows/conformance.yml
+    owner: AI
+    sequence: 2
+    depends_on: N4
+  - id: N6
+    action: Forward-port schema $id fixes (T10) into spec/v2/schemas/
+    owner: AI
+    sequence: 2
+    depends_on: N4
+  - id: N7
+    action: Promote docs/v2-prep/v1.1-errata.md → spec/v1.1/ERRATA.md (touches frozen dir — needs explicit Knox green-light, see issue #15)
+    owner: AI (pending Knox confirmation)
+    sequence: independent
+  - id: N8
+    action: Shepherd RFC #14 — surface comments, draft responses (Knox approves before posting)
+    owner: AI
+    sequence: ongoing until 2026-05-26

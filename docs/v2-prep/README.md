@@ -13,7 +13,7 @@
 
 | File | Destination | Status |
 |---|---|---|
-| [`d1-d6-decisions.yaml`](d1-d6-decisions.yaml) | Stays here as a working artifact; Knox edits inline to record decisions | **Awaiting Knox (D1/D4/D5/D6 gate phase 0)** |
+| [`d1-d6-decisions.yaml`](d1-d6-decisions.yaml) | Stays here as a working artifact | ✅ **All resolved 2026-05-12** — D1=A D2=B D3=A D4=A D5=A D6=A |
 | [`rfc-sessions-mandate.md`](rfc-sessions-mandate.md) | Posted as [TailorAU/pact#14](https://github.com/TailorAU/pact/issues/14) (`rfc` label) | ✅ Posted 2026-05-12 |
 | [`issue-13-response.md`](issue-13-response.md) | Posted as a [comment on #13](https://github.com/TailorAU/pact/issues/13) | ✅ Posted 2026-05-12 |
 | [`conformance/README.md`](conformance/README.md) | Moves to `spec/v2/conformance/README.md` after D1 resolves | Ready (blocked on D1) |
@@ -43,23 +43,26 @@ Still awaiting Knox approval (touches frozen `spec/v1.1/`):
 ## Resolution flow
 
 ```
-D1, D4, D5, D6 resolved
+D1-D6 RESOLVED 2026-05-12 (D1=A D2=B D3=A D4=A D5=A D6=A)
        │
        ▼
-Phase 0 unblocks:
-  - T10 conformance scaffold → spec/v2/conformance/   (mechanical move)
-  - T1 normative work begins                          (depends on D4, D6)
-  - T2 normative work begins                          (depends on HMAN PR #3)
-  - T7 normative work begins                          (depends on D6)
+v1.2 → v2 branch collapse (D1=A)            ← NEXT — pending Knox confirmation of branch mechanics
        │
        ▼
-D3 resolves → Phase 1 (T3 Sessions, T4 push, T5 service-account)
+Phase 0 (unblocked):
+  - T10 conformance scaffold → spec/v2/conformance/   (mechanical move once spec/v2/ exists)
+  - T1 normative work — W3C DIDs (did:web + did:key), Authorization-Required tier  (D4=A, D6=A)
+  - T2 normative work                                 (depends on HMAN PR #3)
+  - T7 normative work — identity URNs designed for future federation               (D6=A)
        │
        ▼
-D2 resolves → Phase 2 (T6 legacy, T8 composition or extension, T11 CLI/MCP)
+Phase 1 — T3 peer-to-peer Sessions + normative Mandate (D3=A, D5=A), T4 push, T5 service-account
        │
        ▼
-Phase 3 (T9 full conformance) → v2.0 release
+Phase 2 — T6 legacy self-approval, T11 CLI/MCP   (T8 removed — Tailor extension per D2=B)
+       │
+       ▼
+Phase 3 — T9 full conformance → v2.0 release
 ```
 
 ## Editing protocol

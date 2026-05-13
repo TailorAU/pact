@@ -1,6 +1,21 @@
-# D1–D6 — pending decisions for PACT v2 phase-0 start
-# These six decisions gate every other v2 track. Knox to resolve.
-# Drafted: 2026-05-12. AI recommendations included; Knox decides.
+# D1–D6 — decisions for PACT v2 phase-0 start.
+# Drafted 2026-05-12. RESOLVED by Knox 2026-05-12. AI recommendations were
+# advisory; Knox's calls below are authoritative.
+
+resolution:
+  resolved_by: Knox Hart
+  resolved_on: 2026-05-12
+  calls:
+    D1: A   # collapse v1.2-draft directly into v2; no short-lived v1.2-stable unless v2 slips past 6 months
+    D2: B   # attached-resource weighting/type stays a Tailor extension; keep PACT core lean
+    D3: A   # Mandate lands normatively in v2 (D5 resolved cleanly); can be demoted before v2 freeze if T3 review finds it unstable
+    D4: A   # define Authorization-Required as a normative conformance tier in v2 even with no launch implementation satisfying it yet
+    D5: A   # Sessions peer-to-peer by default with opt-in facilitator role; always-mediated MediatedSession parked as v2.1 candidate
+    D6: A   # adopt W3C DIDs as principal identity layer; did:web + did:key required at v2; other DID methods optional
+  effect: |
+    Phase 0 fully unblocked (D1, D4, D5, D6). Phase 1 gate (D3) resolved.
+    Phase 2 gate (D2) resolved. v1.2 branch collapses to v2 (D1 = A) —
+    branch-rename mechanics pending Knox confirmation.
 
 decisions:
 
@@ -30,7 +45,8 @@ decisions:
           - v1.2 stable is a short-lived state if v2 work is already in flight
           - More maintainer-bandwidth cost (R5)
     ai_recommendation: A (collapse). Sole-maintainer bandwidth is the binding constraint per R5; one big migration with comprehensive conformance suite is cheaper than two small ones. Caveat: only if v2 timeline is < 6 months. If v2 stretches longer, B becomes attractive.
-    knox_decision: pending
+    knox_decision: A
+    knox_note: Collapse v1.2-draft directly into v2. No short-lived v1.2-stable unless v2 slips beyond six months, in which case we revisit.
 
   - id: D2
     title: T8 attached-resource model — v2 core or Tailor extension?
@@ -57,7 +73,8 @@ decisions:
           - "#13 Q3-Q5 only resolved for Tailor users; AloomU + future impls reinvent"
           - Risk of incompatible extension forks if multiple impls need composition
     ai_recommendation: B (Tailor extension). Document composition is more domain-specific than the cold-eye review acknowledged. Spec lean wins. If transaction/fact resources later need composition primitives, design then.
-    knox_decision: pending
+    knox_decision: B
+    knox_note: Attached-resource weighting/type semantics stay as a Tailor extension for now. Keep PACT core lean.
 
   - id: D3
     title: Mandate primitive — normative in v2 or v2.1?
@@ -84,7 +101,8 @@ decisions:
           - "#13 Q1/Q6/Q7 partially unresolved in v2 (only T4/T6/T7 cover them)"
           - Two release cycles for adopters who need Sessions
     ai_recommendation: A (in v2), conditional on D5 resolving cleanly. If D5 is contested, demote to B. Sessions are too useful to defer if the design converges; too dangerous to ship if it doesn't.
-    knox_decision: pending
+    knox_decision: A
+    knox_note: Mandate lands normatively in v2, because D5 resolves cleanly as peer-to-peer with optional facilitation. If the T3 design review finds the primitive is not stable, it can still be demoted before v2 freeze.
 
   - id: D4
     title: Authorization-Required tier — v2 or v2.1?
@@ -110,7 +128,8 @@ decisions:
           - Loses a strong open-standards positioning lever
           - Authorization-Required adopters must wait for v2.1
     ai_recommendation: A (define in v2). Even unimplemented, the tier shapes the protocol's trajectory and signals seriousness about cross-org trust. Implementations follow specs; specs don't always wait for implementations.
-    knox_decision: pending
+    knox_decision: A
+    knox_note: Define Authorization-Required in v2. It can be a normative conformance tier without claiming any launch implementation satisfies it yet.
 
   - id: D5
     title: Sessions topology — peer-to-peer with optional facilitator, OR always-mediated MediatedSession?
@@ -147,7 +166,8 @@ decisions:
           - Doubles the primitive surface area for v2
           - Risk of design divergence between the two
     ai_recommendation: A (peer-to-peer with opt-in facilitator). MediatedSession is a v2.1 candidate IF demand materialises. Spec lean wins; cross-org dispute resolution can use the existing §13 Mediator on a long-lived resource for cases Sessions don't fit.
-    knox_decision: pending
+    knox_decision: A
+    knox_note: Sessions are peer-to-peer by default with an opt-in facilitator role. Always-mediated MediatedSession is not v2 core; park it as a v2.1 candidate if demand materialises.
 
   - id: D6
     title: W3C DID adoption as principal identity layer?
@@ -178,15 +198,18 @@ decisions:
           - Loses the open-standards positioning lever
           - Risk of inventing parallel identity model that diverges from DID
     ai_recommendation: A (adopt DIDs), with did:web and did:key as the two required methods at v2. did:web gives existing-infrastructure on-ramp; did:key gives offline / hardware-bound identities. Both are mature. Other methods (did:ion, did:ethr, etc.) become optional.
-    knox_decision: pending
+    knox_decision: A
+    knox_note: Adopt W3C DIDs as the principal identity layer, with did:web and did:key required at v2. Other DID methods remain optional.
 
 resolution_order:
-  # Decisions are not independent. Resolve in this order to avoid rework.
-  phase_0_blockers: [D1, D4, D5, D6]   # must resolve before phase 0 opens
-  phase_1_blockers: [D3]                # must resolve before T3 normative text
-  phase_2_blockers: [D2]                # must resolve before T8 starts
+  # Decisions are not independent. Resolved in this order to avoid rework.
+  phase_0_blockers: [D1, D4, D5, D6]   # RESOLVED — phase 0 unblocked
+  phase_1_blockers: [D3]                # RESOLVED — T3 Mandate is normative-track
+  phase_2_blockers: [D2]                # RESOLVED — T8 ships as Tailor extension, not v2 core
 
-next_step: |
-  Knox to read this brief, call each decision (set knox_decision: A | B | C),
-  and either reply inline or commit a revision with calls filled in.
-  Once D1, D4, D5, D6 resolve, phase 0 unblocks. D2 and D3 can wait.
+status: ALL RESOLVED 2026-05-12. See resolution: block at top.
+
+remaining_action: |
+  v1.2 branch → v2 collapse (D1 = A). Mechanics (branch rename, dir move,
+  version bump, strip v1.2-draft caveats) pending Knox confirmation —
+  touches shared branch state, so confirm approach before executing.

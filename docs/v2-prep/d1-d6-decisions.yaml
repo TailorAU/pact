@@ -182,7 +182,7 @@ decisions:
           - Cross-server resolution for free (federation_constraints satisfied automatically)
           - Open-standards alignment (signal to grant assessors, federal customers)
           - Existing DID method ecosystem (did:web, did:key, did:ion) to reuse
-          - HumanPrincipal 1:N maps naturally to DID controller / subject distinction
+          - DID controller/subject model handles delegation chains cleanly (relevant even with a strictly-1:1 HumanPrincipal)
         con:
           - Charter commitment to W3C DID method ecosystem maturity
           - Implementation surface grows (DID resolver, method support)
@@ -209,7 +209,9 @@ resolution_order:
 
 status: ALL RESOLVED 2026-05-12. See resolution: block at top.
 
-remaining_action: |
-  v1.2 branch → v2 collapse (D1 = A). Mechanics (branch rename, dir move,
-  version bump, strip v1.2-draft caveats) pending Knox confirmation —
-  touches shared branch state, so confirm approach before executing.
+collapse_done: |
+  2026-05-13 — v1.2-draft collapsed into spec/v2.0/ on `main`. Per Knox's
+  collapse-correction: source = main's canonical spec/v1.2/SPECIFICATION.md
+  (strictly 1:1), NOT the stale `v1.2` branch (1:N relic, left untouched).
+  Dir = spec/v2.0/. Conformance scaffold moved into spec/v2.0/conformance/.
+  Commit: d129cae "spec(v2.0): collapse v1.2-draft into v2.0".

@@ -140,7 +140,7 @@ These need resolution before normative text lands.
 ## Implementation references
 
 - Mandate enforcement reference algorithm: TBD in normative §20.
-- Test vectors: TBD in `spec/v2/conformance/sessions/`.
+- Test vectors: TBD in `spec/v2.0/conformance/sessions/`.
 - Reference CLI / MCP coverage: T11 deliverable.
 
 ## Asks for reviewers
@@ -150,4 +150,4 @@ These need resolution before normative text lands.
 3. Weigh in on the six open design questions above, particularly mandate revocation (Q1) and outcome binding (Q3).
 4. Confirm or contest the non-goals.
 
-Open for comment for 14 days from this RFC's posting date. After convergence, normative text lands in spec/v2/SPECIFICATION.md §19 and §20.
+Open for comment for 14 days from this RFC's posting date. After convergence, normative text lands in spec/v2.0/SPECIFICATION.md §19 and §20.

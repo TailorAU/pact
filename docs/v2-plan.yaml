@@ -1,6 +1,6 @@
 # PACT v2 — planning handoff
 # Machine-readable working plan. Not normative; not spec text.
-# Edit inline; promote sections to spec/v2/SPECIFICATION.md when they converge.
+# Edit inline; promote sections to spec/v2.0/SPECIFICATION.md when they converge.
 #
 # Revision 2 (2026-05-12): incorporates cold-eye review feedback.
 # Changes: T3/T6 disambiguated; T7 promoted to phase 0; conformance scaffold
@@ -12,22 +12,22 @@
 plan:
   spec: PACT
   version: "2.0"
-  status: draft-planning — D1-D6 RESOLVED, phase 0 unblocked
-  revision: 3   # rev3 (2026-05-12): D1-D6 resolved by Knox; T8 moved out of v2 core (D2=B); phase gates updated
+  status: draft-planning — D1-D6 RESOLVED; spec/v2.0/ created by collapsing main's v1.2-draft; phase 0 underway
+  revision: 4   # rev4 (2026-05-13): v1.2-draft collapsed into spec/v2.0/; HumanPrincipal corrected to STRICTLY 1:1 (per #4 + Knox); §18 first-class types narrowed to fido2-assertion + voice-biometric; conformance scaffold now lives in spec/v2.0/conformance/
   predecessor:
     stable: v1.1
-    draft: v1.2-draft (on `v1.2` branch — see decision D1)
+    collapsed_from: main's spec/v1.2/SPECIFICATION.md (the canonical 1:1 draft) — git mv'd to spec/v2.0/ on 2026-05-13. The stale `v1.2` branch (which carried a superseded 1:N approach) is NOT the source — it is left untouched as a relic.
   drafted: 2026-05-12
   author: Knox Hart + AI   # final spec-of-record requires per-section human attribution (cutover criterion)
   source_threads:
     - conversation 2026-05-12 (Knox + AI design discussion)
     - conversation 2026-05-12 (cold-eye review pass)
     - https://github.com/TailorAU/pact/issues/3   # voice-biometric RFC
-    - https://github.com/TailorAU/pact/issues/4   # HumanPrincipal 1:N
+    - https://github.com/TailorAU/pact/issues/4   # HumanPrincipal cardinality — resolved STRICTLY 1:1
     - https://github.com/TailorAU/pact/issues/13  # AloomU production feedback
 
 goals:
-  - Promote v1.2-draft additions (Human Authorization Layer, attestation formats, HumanPrincipal 1:N) to normative
+  - Promote v1.2-draft additions (Human Authorization Layer, attestation formats, HumanPrincipal — strictly 1:1) to normative
   - Land the voice-biometric attestation type (RFC #3) as a first-class format
   - Introduce ephemeral negotiation Sessions with handler-signed Mandates as a new mode
   - Resolve production gaps surfaced by AloomU deployment (issue #13)
@@ -56,14 +56,14 @@ tracks:
       Promote v1.2 §17 from draft to normative. v1.1 has no proof-of-human-intent
       primitive; v2 makes it the standard envelope for cross-org messages.
     inputs:
-      - spec/v1.2/SPECIFICATION.md §17
-      - issue #4 (HumanPrincipal 1:N — resolution adopted in §17.8)
+      - spec/v2.0/SPECIFICATION.md §17 (collapsed from main's spec/v1.2/SPECIFICATION.md — the canonical 1:1 version, not the stale v1.2-branch 1:N draft)
+      - issue #4 (HumanPrincipal cardinality — resolved STRICTLY 1:1; multi-persona handled above the PACT layer)
     deliverables:
-      - spec/v2/SPECIFICATION.md §17 promoted; "draft" caveats removed
+      - spec/v2.0/SPECIFICATION.md §17 promoted from stub; "draft" caveats removed (via coordinated HMAN/tailor-app PR per AGENTS.md rule 5)
       - schemas/authorization-proof.json
       - schemas/principal-registry.json   # formalises /.well-known/pact-credentials.json
-      - Verification flow §17.5 expanded with example test vectors
-      - HumanPrincipal 1:N cardinality (§17.8) promoted to normative MUST/SHOULD
+      - Verification flow expanded with example test vectors
+      - HumanPrincipal STRICTLY 1:1 cardinality (§17) — normative MUST; the `persona` claim documented as an above-PACT-layer implementation detail (PACT verifiers see one principal per human)
       - Personal-data position for principal registry — cryptographic erasure via key destruction, tombstone semantics, or protocol-integrity exemption (rev2: GDPR/RTBF)
     conformance_impact:
       core: authorization_proof remains OPTIONAL — implementations MAY ignore
@@ -78,24 +78,24 @@ tracks:
       - §17.9 Q1 credential enrollment → principal-registry.json (+ optional DID resolution pending D6)
       - §17.9 Q2 revocation propagation → eventually-consistent registry + max-age cache hint
     carries_forward:
-      - §17.9 Q3 delegation depth — starting point 3 hops pending v2.1 implementation feedback (threat model: longer chains amplify revocation lag and reduce auditability)
-      - §17.9 Q5 privacy / selective disclosure
-      - §17.9 Q6 cross-principal linkage trust decay
+      - Delegation depth — starting point 3 hops pending v2.1 implementation feedback (threat model: longer chains amplify revocation lag and reduce auditability)
+      - Privacy / selective disclosure of authorization proofs
       - Personal-data treatment of authorization_proof in the event log (rev2)
+      # NOTE (rev3): "cross-principal linkage trust decay" dropped — the 1:1 model has no cross-principal linkage. Trust-decay applies only to delegation chains (see delegation-depth item above).
 
   - id: T2
     name: Attestation Format Reference (normative + voice-biometric merge)
     rationale: Promote §18 to normative. Merge voice-biometric RFC #3 as a first-class type once HMAN PR lands.
     depends_on: [T1]
     inputs:
-      - spec/v1.2/SPECIFICATION.md §18
+      - spec/v2.0/SPECIFICATION.md §18 (collapsed from main's spec/v1.2/§18 — defines two first-class types only)
       - issue #3 (voice-biometric, RFC accepted in principle, awaiting HMAN PR)
     deliverables:
-      - spec/v2/SPECIFICATION.md §18 (fido2-assertion, vc-jwt, biometric-hash, passphrase-signed, voice-biometric)
-      - spec/v2/test-vectors/ per attestation type
-      - schemas/attestation/{fido2,vc-jwt,biometric-hash,passphrase-signed,voice-biometric}.json
+      - spec/v2.0/SPECIFICATION.md §18 — two v2.0 first-class types: fido2-assertion, voice-biometric (vc-jwt / biometric-hash / passphrase-signed from the v1.2-branch RFC are NOT v2.0 core; implementations MAY add custom types via reverse-domain notation)
+      - spec/v2.0/conformance/extended/attestation/ test vectors per first-class type
+      - schemas/attestation/{fido2,voice-biometric}.json
     blocking_dependencies:
-      - HMAN PR #3 must land before §18.6 normative text is finalised
+      - HMAN PR #3 must land before the voice-biometric §18 normative text is finalised
     open_questions:
       - Custom attestation types — pre-registration required, or just reverse-domain naming?
 
@@ -124,8 +124,8 @@ tracks:
       - issue #13 Q1, Q6, Q7
       - v1.2 §17 authorization_proof (Mandate generalises this)
     deliverables:
-      - spec/v2/SPECIFICATION.md §19 PACT Sessions
-      - spec/v2/SPECIFICATION.md §20 Mandate primitive
+      - spec/v2.0/SPECIFICATION.md §19 PACT Sessions
+      - spec/v2.0/SPECIFICATION.md §20 Mandate primitive
       - schemas/session-create-request.json
       - schemas/session-accept-request.json
       - schemas/mandate.json
@@ -174,7 +174,7 @@ tracks:
       - issue #13 Q6
       - conversation 2026-05-12 (escalation routing back to originating session)
     deliverables:
-      - spec/v2/SPECIFICATION.md §21 Push Delivery
+      - spec/v2.0/SPECIFICATION.md §21 Push Delivery
       - schemas/subscription-create-request.json
       - schemas/event-delivery.json   # signed event envelope
       - REST endpoints:
@@ -201,7 +201,7 @@ tracks:
       - issue #13 Q2
       - v1.1 join-token flow
     deliverables:
-      - spec/v2/SPECIFICATION.md §22 Service-Account Authentication
+      - spec/v2.0/SPECIFICATION.md §22 Service-Account Authentication
       - schemas/service-account-create-request.json
       - Lifecycle: create / rotate / revoke / scope-narrow
       - Scoping: per-resource, per-section, per-operation, per-mandate
@@ -226,7 +226,7 @@ tracks:
       - issue #13 Q1
       - v1.1 §5 Approval Policy
     deliverables:
-      - spec/v2/SPECIFICATION.md §5 updated — self-approval rule explicitly described
+      - spec/v2.0/SPECIFICATION.md §5 updated — self-approval rule explicitly described
       - Per-resource config flag `allowSelfApproval` (default false)
       - Recommendation: ObjectionBased policy when one principal operates multiple agents
       - Cross-reference to T3: "For new agent-to-agent flows, prefer Sessions"
@@ -250,7 +250,7 @@ tracks:
       - issue #13 Q7
       - federation_constraints (this document)
     deliverables:
-      - spec/v2/SPECIFICATION.md §23 Agent Identity Lifecycle
+      - spec/v2.0/SPECIFICATION.md §23 Agent Identity Lifecycle
       - schemas/agent-identity.json
       - Cooperative operator-transfer flow:
         - outgoing operator signs transfer attestation
@@ -300,7 +300,7 @@ tracks:
       - T10 conformance scaffold (phase 0)
     deliverables:
       - docs/IMPLEMENTERS.md (registry of known impls, conformance level claimed, contact)
-      - spec/v2/conformance/ — full black-box test suite per track
+      - spec/v2.0/conformance/ — full black-box test suite per track
       - Self-certification badge in implementer profiles
       - Backward-compat tests: v1.1-client-against-v2-server forward-compat suite (rev2)
     conformance_impact:
@@ -319,9 +319,9 @@ tracks:
       - All v2 schemas use $id paths matching their version dir (no v0.4 leftovers)
       - Resource-type registry section (formalise v1.1 §14.3)
       - JSON Schema bumped to 2020-12 (currently draft-07)
-      - Errata note in spec/v1.1/README.md pointing readers at spec/v2/§14 and §15 (rev2 — v1.1 stays frozen per AGENTS.md, do not back-fill)
+      - Errata note in spec/v1.1/README.md pointing readers at spec/v2.0/§14 and §15 (rev2 — v1.1 stays frozen per AGENTS.md, do not back-fill)
       - Conformance scaffold (rev2):
-        - spec/v2/conformance/ directory structure
+        - spec/v2.0/conformance/ directory structure
         - Test-vector format defined (JSON, deterministic, version-pinned)
         - CI hook running on every spec/ PR
         - Smoke test per track in phase 0 (T1, T2, T7) before normative text merges
@@ -411,7 +411,7 @@ conformance_levels_v2:
     must:
       - All Extended requirements
       - Reject cross-organisation messages lacking valid authorization_proof
-      - HumanPrincipal 1:N support
+      - HumanPrincipal strictly-1:1 enforcement (reject proofs claiming a principal spans multiple humans)
       - Credential registry + revocation propagation
 
 deprecations:
@@ -471,7 +471,7 @@ cutover_criteria:
   - HMAN voice-biometric PR landed (or §18.6 explicitly carved out)
   - Migration guide published (docs/MIGRATING_v1_1_v2.md)
   - npm packages @pact-protocol/cli + @pact-protocol/mcp at v2.0.0 on registry (closes #5)
-  - spec/v2/SPECIFICATION.md sections signed by attributed humans (rev2 — replace "Knox Hart + AI" with concrete per-section attribution for grant assessors / federal-customer trust posture)
+  - spec/v2.0/SPECIFICATION.md sections signed by attributed humans (rev2 — replace "Knox Hart + AI" with concrete per-section attribution for grant assessors / federal-customer trust posture)
 
 open_decisions:
   # ALL RESOLVED by Knox 2026-05-12 — see docs/v2-prep/d1-d6-decisions.yaml resolution block.
@@ -529,19 +529,17 @@ next_actions:
     owner: AI
     status: DONE 2026-05-12 — comment posted on #13
   - id: N4
-    action: v1.2 branch → v2 collapse — rename branch, git mv spec/v1.2 → spec/v2, bump version 1.2-draft → 2.0-draft, strip v1.2-draft caveats from §17/§18
-    owner: AI (pending Knox confirmation of branch-rename approach — touches shared branch state)
-    sequence: 1
+    action: Collapse v1.2-draft → spec/v2.0/ — per Knox's collapse-correction, promote main's canonical spec/v1.2/SPECIFICATION.md (strictly 1:1), git mv to spec/v2.0/, bump version to 2.0-draft, reframe §17/§18 as v2.0 stubs, fix schema $id paths, move conformance scaffold into spec/v2.0/conformance/. Do NOT rename the stale v1.2 branch.
+    owner: AI
+    status: DONE 2026-05-13 — commit "spec(v2.0): collapse v1.2-draft into v2.0" + docs follow-up
   - id: N5
-    action: Move docs/v2-prep/conformance/ → spec/v2/conformance/ once spec/v2/ exists; add T1/T2/T7 smoke tests + .github/workflows/conformance.yml
+    action: Forward-port schema $id fixes (T10) — done as part of N4 (spec/v2.0/schemas/*.json now use /v2.0/ $id paths)
     owner: AI
-    sequence: 2
-    depends_on: N4
+    status: DONE 2026-05-13 (folded into N4)
   - id: N6
-    action: Forward-port schema $id fixes (T10) into spec/v2/schemas/
-    owner: AI
-    sequence: 2
-    depends_on: N4
+    action: Phase-0 normative work — T1 §17 + T2 §18 normative text (needs HMAN/tailor-app coordination per AGENTS.md rule 5); T7 §23 agent identity; T10 smoke tests + .github/workflows/conformance.yml
+    owner: AI / coordinated PRs
+    sequence: 1 (phase 0)
   - id: N7
     action: Promote docs/v2-prep/v1.1-errata.md → spec/v1.1/ERRATA.md (touches frozen dir — needs explicit Knox green-light, see issue #15)
     owner: AI (pending Knox confirmation)

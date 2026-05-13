@@ -228,6 +228,7 @@ These packages handle **coordination only**. Content operations (reading documen
 
 | Version | Status | Docs |
 |---------|--------|------|
+| v2.0 | **Draft** (in development) | [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Roadmap](docs/v2-plan.yaml) |
 | **v1.1** | **Stable** | [Specification](spec/v1.1/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) |
 | v1.0 | Previous | [Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) |
 | v0.3 | Legacy | [Specification](spec/v0.3/SPECIFICATION.md) · [Getting Started](spec/v0.3/GETTING_STARTED.md) |

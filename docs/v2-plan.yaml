@@ -545,6 +545,6 @@ next_actions:
     owner: AI
     status: DONE 2026-05-13 — Knox green-lit; ERRATA.md added; README v1.1 row links it; issue #15 can close
   - id: N8
-    action: Shepherd RFC #14 — periodic check, collect substantive feedback, draft replies for Knox approval
+    action: Shepherd RFC #14 — periodic check, collect substantive feedback, draft replies for Knox approval, through the 2026-05-26 comment window
     owner: AI
-    status: ACTIVE — scheduled check set up 2026-05-13; runs through 2026-05-26 close of comment window
+    status: PENDING setup — scheduled-task creation (`shepherd-pact-rfc-14`, daily 09:00 local) needs an interactive approval that couldn't render in the current mode; full task spec drafted; create it next time Knox is in an interactive session, or run the check manually each visit

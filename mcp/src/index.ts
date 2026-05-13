@@ -82,11 +82,13 @@ server.tool(
     sectionId: z.string().describe('Target section ID'),
     goal: z.string().describe('What you plan to do'),
     category: z.string().optional().describe('Intent category'),
+    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof — proof-of-human-intent envelope. Pre-built by the hardware/biometric layer; the MCP just carries it.'),
   },
-  async ({ documentId, sectionId, goal, category }) => {
+  async ({ documentId, sectionId, goal, category, authorizationProof }) => {
     try {
       const body: Record<string, unknown> = { sectionId, goal };
       if (category) body.category = category;
+      if (authorizationProof) body.authorization_proof = authorizationProof;
       const result = await request(`/api/pact/${documentId}/intents`, {
         method: 'POST',
         body: JSON.stringify(body),
@@ -104,11 +106,13 @@ server.tool(
     sectionId: z.string().describe('Target section ID'),
     boundary: z.string().describe('What must or must not happen'),
     category: z.string().optional().describe('Constraint category'),
+    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
   },
-  async ({ documentId, sectionId, boundary, category }) => {
+  async ({ documentId, sectionId, boundary, category, authorizationProof }) => {
     try {
       const body: Record<string, unknown> = { sectionId, boundary };
       if (category) body.category = category;
+      if (authorizationProof) body.authorization_proof = authorizationProof;
       const result = await request(`/api/pact/${documentId}/constraints`, {
         method: 'POST',
         body: JSON.stringify(body),
@@ -146,12 +150,15 @@ server.tool(
     documentId: z.string().describe('Document ID'),
     proposalId: z.string().describe('Proposal ID'),
     reason: z.string().describe('Why this violates your constraints'),
+    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
   },
-  async ({ documentId, proposalId, reason }) => {
+  async ({ documentId, proposalId, reason, authorizationProof }) => {
     try {
+      const body: Record<string, unknown> = { reason };
+      if (authorizationProof) body.authorization_proof = authorizationProof;
       await request(`/api/pact/${documentId}/proposals/${proposalId}/object`, {
         method: 'POST',
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify(body),
       });
       return jsonResult({ status: 'objected', proposalId });
     } catch (err) { return errorResult(err); }
@@ -191,12 +198,15 @@ server.tool(
     documentId: z.string().describe('Document ID'),
     status: z.string().describe('Completion status: aligned, blocked, or withdrawn'),
     summary: z.string().optional().describe('Summary of what was accomplished'),
+    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
   },
-  async ({ documentId, status, summary }) => {
+  async ({ documentId, status, summary, authorizationProof }) => {
     try {
+      const body: Record<string, unknown> = { status, summary };
+      if (authorizationProof) body.authorization_proof = authorizationProof;
       const result = await request(`/api/pact/${documentId}/done`, {
         method: 'POST',
-        body: JSON.stringify({ status, summary }),
+        body: JSON.stringify(body),
       });
       return jsonResult(result);
     } catch (err) { return errorResult(err); }
@@ -250,16 +260,98 @@ server.tool(
     documentId: z.string().describe('Document ID'),
     message: z.string().describe('Reason for escalation'),
     sectionId: z.string().optional().describe('Relevant section ID'),
+    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
   },
-  async ({ documentId, message, sectionId }) => {
+  async ({ documentId, message, sectionId, authorizationProof }) => {
     try {
       const body: Record<string, unknown> = { message };
       if (sectionId) body.sectionId = sectionId;
+      if (authorizationProof) body.authorization_proof = authorizationProof;
       await request(`/api/pact/${documentId}/escalate`, {
         method: 'POST',
         body: JSON.stringify(body),
       });
       return jsonResult({ status: 'escalated', documentId });
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_ask',
+  'Ask a question of the human custodian — for clarifications PACT cannot resolve via agent consensus. Distinct from escalate: this is a targeted question, not a coordination breakdown.',
+  {
+    documentId: z.string().describe('Document ID'),
+    question: z.string().describe('The question for the human'),
+    sectionId: z.string().optional().describe('Relevant section ID'),
+    context: z.string().optional().describe('Background context for the question'),
+    timeoutSeconds: z.number().optional().describe('How long to wait for an answer (default 60)'),
+    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
+  },
+  async ({ documentId, question, sectionId, context, timeoutSeconds, authorizationProof }) => {
+    try {
+      const body: Record<string, unknown> = {
+        question,
+        sectionId: sectionId ?? null,
+        context: context ?? null,
+        timeoutSeconds: timeoutSeconds ?? 60,
+      };
+      if (authorizationProof) body.authorization_proof = authorizationProof;
+      const result = await request(`/api/pact/${documentId}/ask-human`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+// ── Mediated Negotiation (§13) ───────────────────────────────────
+
+server.tool(
+  'pact_negotiate_list',
+  'List active mediated negotiations on a document (§13 — structured multi-round exchanges facilitated by the Mediator).',
+  { documentId: z.string().describe('Document ID') },
+  async ({ documentId }) => {
+    try {
+      const result = await request(`/api/pact/${documentId}/negotiations`);
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_negotiate_position',
+  'Submit this agent\'s position for the current round of a mediated negotiation. The Mediator synthesises positions across rounds (§13.5.3).',
+  {
+    documentId: z.string().describe('Document ID'),
+    negotiationId: z.string().describe('Negotiation ID'),
+    position: z.string().describe('This agent\'s position for the current round'),
+    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
+  },
+  async ({ documentId, negotiationId, position, authorizationProof }) => {
+    try {
+      const body: Record<string, unknown> = { position };
+      if (authorizationProof) body.authorization_proof = authorizationProof;
+      const result = await request(`/api/pact/${documentId}/negotiations/${negotiationId}/position`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_negotiate_synthesis',
+  'Get the Mediator\'s synthesis for the latest round of a negotiation — what positions have been received, and what the Mediator has surfaced to each party (subject to graduated-disclosure rules, §10.3 / §13.5.2).',
+  {
+    documentId: z.string().describe('Document ID'),
+    negotiationId: z.string().describe('Negotiation ID'),
+  },
+  async ({ documentId, negotiationId }) => {
+    try {
+      const result = await request(`/api/pact/${documentId}/negotiations/${negotiationId}/synthesis`);
+      return jsonResult(result);
     } catch (err) { return errorResult(err); }
   },
 );

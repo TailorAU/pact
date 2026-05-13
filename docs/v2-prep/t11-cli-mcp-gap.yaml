@@ -24,10 +24,10 @@ v2_0_additions_needed:
   - id: G1
     title: authorization_proof pass-through
     why: §17.6 — agents attach a proof-of-human-intent to their messages. The CLI/MCP don't sign (that's the hardware/biometric layer, §17.3) — they CARRY a pre-built proof.
-    cli: "--authorization-proof <file.json> flag on the write commands (intent, constrain, object, done, escalate, ask) — reads a §17.6 envelope and includes it in the request body"
-    mcp: "optional authorizationProof argument on the same tools"
-    helper: "pact verify-proof <proof.json> --registry <url|file> — local §17.7 verification, useful for debugging and for kind:verification conformance vectors"
-    priority: high   # depends on nothing — §17 is landed
+    status_mcp: "[DONE] 2026-05-13 — optional authorizationProof param on pact_intent, pact_constrain, pact_object, pact_done, pact_escalate, pact_ask, pact_negotiate_position. Threaded into request body as authorization_proof. Build + typecheck clean."
+    status_cli: "[TODO] — mechanical: add --authorization-proof <file> option to cli/src/commands/{intent,object,done,escalate,ask}.ts; thread an optional authorizationProof parameter through api.ts (declareIntent, publishConstraint, objectToProposal, signalDone, escalate, askHuman); read file, JSON.parse, pass through."
+    status_helper: "[TODO] pact verify-proof <proof.json> --registry <url|file> — local §17.7 verification harness (resolves principal_id, checks revocation, validates challenge_nonce binding, freshness; full crypto suites depend on attestation type). Useful for debugging + driving kind:verification conformance vectors."
+    priority: high
     blocked_by: []
 
   - id: G2
@@ -71,9 +71,9 @@ v2_0_additions_needed:
 
   - id: G7
     title: MCP-to-CLI parity
-    why: the MCP is missing pact_ask + the pact_negotiate_* group + pact_join_token that the CLI already has
-    mcp: "add pact_ask, pact_negotiate_list, pact_negotiate_position, pact_negotiate_synthesis, pact_join_token"
-    priority: high   # cheap, removes a known gap
+    why: the MCP was missing pact_ask + the pact_negotiate_* group that the CLI already has
+    status: "[DONE] 2026-05-13 — added pact_ask, pact_negotiate_list, pact_negotiate_position, pact_negotiate_synthesis to mcp/src/index.ts. pact_join_token was NOT needed: pact_join already handles BYOK via its `token` parameter (lines 33-39 of the pre-existing code). Build + typecheck clean."
+    priority: high
     blocked_by: []
 
   - id: G8

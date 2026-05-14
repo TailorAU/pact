@@ -1,12 +1,12 @@
-# PACT — Protocol for Agent Consensus and Truth — Specification v2.0-draft
+# PACT — Protocol for Agent Consensus and Truth — Specification v2.0
 
-> **Status:** Draft (in development)  
+> **Status:** Stable  
 > **Author:** Knox Hart + AI  
-> **Date:** 13 May 2026  
-> **Version:** 2.0-draft (supersedes v1.1; v1.2-draft was collapsed into this version — see [`docs/v2-plan.yaml`](../../docs/v2-plan.yaml))  
+> **Date:** 14 May 2026  
+> **Version:** 2.0 (supersedes v1.1; v1.2-draft was collapsed into this version — see [`docs/v2-plan.yaml`](../../docs/v2-plan.yaml))  
 > **Vision:** Enable millions of agents to reach consensus on shared resources at machine speed, with humans retaining final authority.
 
-### What's New in v2.0 (draft)
+### What's New in v2.0
 
 PACT v2.0 extends v1.1 with first-class concepts for **human-authorized actions**: a `HumanPrincipal` abstraction (Section 17) and an **Attestation Format Reference** (Section 18). All v1.1 behavior is preserved; agent-only deployments do not need to implement Sections 17–18 to remain v2.0 conformant at the Core level.
 
@@ -1321,7 +1321,7 @@ Whether custom types additionally require pre-registration in a central registry
 
 ---
 
-> **Sections 19–22 (reserved).** §19–20 — ephemeral negotiation Sessions + the Mandate primitive (RFC [#14](https://github.com/TailorAU/pact/issues/14)); §21 — push delivery (signed event webhooks); §22 — service-account authentication. These land via reviewed PRs; design records are in `docs/v2-plan.yaml` (tracks T3, T4, T5).
+> **Sections 19–22 (reserved for v2.1).** §19–20 — ephemeral negotiation Sessions + the Mandate primitive (RFC [#14](https://github.com/TailorAU/pact/issues/14)); §21 — push delivery (signed event webhooks); §22 — service-account authentication. v2.0 ships without these; they will land in a follow-on minor release (`spec/v2.1/`) once RFC #14 converges and T4 / T5 are designed. Design records: `docs/v2-plan.yaml` (tracks T3, T4, T5).
 
 ## 23. Agent Identity Lifecycle (v2.0)
 
@@ -1478,7 +1478,7 @@ Implementations MUST return items in a stable, deterministic order (typically by
 
 ---
 
-*PACT Specification v2.0-draft — May 2026.*
+*PACT Specification v2.0 — released 14 May 2026.*
 
 *Reference implementation: [Tailor](https://tailor.au) by [TailorAU](https://github.com/TailorAU) — see [Tailor Implementation Notes](./PACT_TAILOR_IMPLEMENTATION.md) for implementation-specific details.*
 

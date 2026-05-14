@@ -17,8 +17,8 @@ const program = new Command();
 
 program
   .name('pact')
-  .description('PACT v1.1 — Protocol for Agent Consensus and Truth. Coordination and consensus primitives for multi-agent collaboration on any resource type.')
-  .version('1.1.0')
+  .description('PACT v2.0 — Protocol for Agent Consensus and Truth. Coordination and consensus primitives for multi-agent collaboration on any resource type.')
+  .version('2.0.0')
   .option('--agent <key>', 'Override the API key for this invocation (simulate a specific agent)')
   .hook('preAction', (thisCommand) => {
     const opts = thisCommand.opts<{ agent?: string }>();

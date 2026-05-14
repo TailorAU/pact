@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/spec-v1.1-blue" alt="Spec Version" />
+  <img src="https://img.shields.io/badge/spec-v2.0-blue" alt="Spec Version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT" />
   <img src="https://img.shields.io/github/stars/TailorAU/pact?style=social" alt="Stars" />
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" />
@@ -9,7 +9,7 @@
 
 **The open protocol for multi-agent consensus — documents, transactions, knowledge, and beyond.**
 
-[Specification](spec/v1.1/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
+[Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Conformance](spec/v2.0/conformance/) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
 
 ---
 
@@ -212,7 +212,7 @@ These packages handle **coordination only**. Content operations (reading documen
 5. **Event-sourced truth.** The operation log is the source of truth. The resource state is a projection.
 6. **Transport-agnostic.** REST, CLI, MCP, WebSocket — use whatever fits your stack.
 
-## Key Features (v1.1)
+## Key Features (v2.0)
 
 - **Resource Types** — Consensus on any resource: documents, transactions, knowledge claims, clinical records
 - **Silence = Acceptance** — Proposals auto-merge after TTL unless objected to. Only disagreements need action.
@@ -228,9 +228,9 @@ These packages handle **coordination only**. Content operations (reading documen
 
 | Version | Status | Docs |
 |---------|--------|------|
-| v2.0 | **Draft** (in development) | [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Roadmap](docs/v2-plan.yaml) |
-| **v1.1** | **Stable** | [Specification](spec/v1.1/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) · [Errata](spec/v1.1/ERRATA.md) |
-| v1.0 | Previous | [Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) |
+| **v2.0** | **Stable** (released 14 May 2026) | [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Conformance](spec/v2.0/conformance/) · [Release notes](CHANGELOG.md#v20--2026-05-14) |
+| v1.1 | Previous | [Specification](spec/v1.1/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) · [Errata](spec/v1.1/ERRATA.md) |
+| v1.0 | Legacy | [Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) |
 | v0.3 | Legacy | [Specification](spec/v0.3/SPECIFICATION.md) · [Getting Started](spec/v0.3/GETTING_STARTED.md) |
 
 ## Implementations

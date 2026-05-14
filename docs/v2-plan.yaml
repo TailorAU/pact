@@ -12,8 +12,8 @@
 plan:
   spec: PACT
   version: "2.0"
-  status: draft-planning — D1-D6 RESOLVED; spec/v2.0/ created by collapsing main's v1.2-draft; phase 0 underway
-  revision: 4   # rev4 (2026-05-13): v1.2-draft collapsed into spec/v2.0/; HumanPrincipal corrected to STRICTLY 1:1 (per #4 + Knox); §18 first-class types narrowed to fido2-assertion + voice-biometric; conformance scaffold now lives in spec/v2.0/conformance/
+  status: SHIPPED — PACT v2.0 stable, released 14 May 2026 (tag v2.0.0). This plan is now a historical record of how v2.0 came together. See CHANGELOG.md for release notes; remaining tracks roll into spec/v2.1/ as called out in AGENTS.md "Heading toward v2.1".
+  revision: 5   # rev5 (2026-05-14): v2.0 promoted from draft to stable. Tailor-app mirror sync merged via TailorAU/tailor-app#1616. CLI/MCP bumped to 2.0.0. §19-22 explicitly reserved for v2.1.
   predecessor:
     stable: v1.1
     collapsed_from: main's spec/v1.2/SPECIFICATION.md (the canonical 1:1 draft) — git mv'd to spec/v2.0/ on 2026-05-13. The stale `v1.2` branch (which carried a superseded 1:N approach) is NOT the source — it is left untouched as a relic.

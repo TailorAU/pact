@@ -10,15 +10,18 @@ This is the **public spec repo** for PACT — Protocol for Agent Consensus and T
 
 ```
 TailorAU/pact/
-├── spec/v1.1/        ← current stable spec (May 2026)
-├── spec/v2.0/        ← active draft spec (was spec/v1.2/ — v1.2-draft collapsed into v2.0 on 2026-05-13, decision D1)
-│   ├── SPECIFICATION.md  ← §17 HumanPrincipal (strictly 1:1), §18 Attestation Format Reference — stubs; full text via coordinated HMAN/tailor-app PRs
-│   └── conformance/      ← conformance test scaffold (track T10)
-├── cli/              ← @pact-protocol/cli (vendor-neutral coordination CLI)
-├── mcp/              ← @pact-protocol/mcp (vendor-neutral MCP for PACT servers)
+├── spec/v2.0/        ← current stable spec (released 14 May 2026)
+│   ├── SPECIFICATION.md
+│   ├── resource-types.yaml      ← machine-readable resource-type registry (§14.3)
+│   ├── schemas/                 ← JSON Schema 2020-12, incl. authorization-proof, principal-registry, agent-identity
+│   └── conformance/             ← test vectors + @pact-protocol/conformance-runner
+├── spec/v1.1/        ← previous stable spec; has ERRATA.md
+├── cli/              ← @pact-protocol/cli (vendor-neutral coordination CLI; v2.0 — `--authorization-proof`, `pact verify-proof`, `pact profile`)
+├── mcp/              ← @pact-protocol/mcp (vendor-neutral MCP for PACT servers; v2.0 — pact_ask, pact_negotiate_*, pact_profile)
+├── CHANGELOG.md      ← release notes per spec version
 ├── docs/             ← supplementary architecture / protocol notes
-│   ├── v2-plan.yaml      ← the PACT v2 roadmap (tracks T1–T11, phases, conformance tiers)
-│   └── v2-prep/          ← v2 working drafts (decision brief, RFC drafts, errata)
+│   ├── v2-plan.yaml      ← the PACT v2 roadmap (now mostly DONE)
+│   └── v2-prep/          ← v2 working artifacts (decision record, RFC drafts, gap analyses)
 ├── examples/         ← example payloads and integrations
 └── README.md         ← public landing
 ```
@@ -35,26 +38,25 @@ TailorAU/pact/
 
 The richer, in-progress version of `spec/*/SPECIFICATION.md` historically lived in the **Tailor monorepo** (`tailor-app/docs/architecture/PACT_SPECIFICATION.md`, mirrored *out* on 2026-04-26 as part of ticket #1301).
 
-**Status as of 2026-05-13:** the canonical-source flip has *not* been confirmed. The §17 and §18 stubs in `spec/v2.0/SPECIFICATION.md` (collapsed from `spec/v1.2/`) were drafted directly here in this repo to land the design decisions from issues #3 and #4. They have **not** been back-ported to `tailor-app/docs/architecture/PACT_SPECIFICATION.md` yet. Knox or the tailor-app maintainer needs to either:
+**Status as of 2026-05-14:** the v2.0 spec landed in both repos. The tailor-app mirror was synced via PR [TailorAU/tailor-app#1616](https://github.com/TailorAU/tailor-app/pull/1616) (squash-merged 2026-05-14). For v2.0.x and v2.1 work, the same coordinated-PR pattern applies: edit `spec/vX.Y/SPECIFICATION.md` here AND `tailor-app/docs/architecture/PACT_SPECIFICATION.md` there, back-port via a PR on tailor-app, then sync to pact-repo. The "which side is canonical" question remains nominally open — current de facto flow is "draft here, back-port to tailor-app, then both reflect the change."
 
-- Back-port the §17 (strictly 1:1) and §18 (`fido2-assertion` + `voice-biometric`) stubs into tailor-app and keep tailor-app canonical, or
-- Confirm the flip and make this repo upstream (then update this section + rule #5).
+## Open work (as of 2026-05-14)
 
-Until that's resolved, **don't make further substantive edits to `spec/v2.0/SPECIFICATION.md` §17 or §18** without coordinating across both repos.
-
-## Open work (as of 2026-05-13)
+**v2.0 shipped 14 May 2026.** Tag `v2.0.0`; the tailor-app mirror sync merged via PR [TailorAU/tailor-app#1616](https://github.com/TailorAU/tailor-app/pull/1616). The PACT v2 roadmap (`docs/v2-plan.yaml`) is mostly done; decisions D1–D6 are recorded in `docs/v2-prep/d1-d6-decisions.yaml`. Release notes: `CHANGELOG.md`.
 
 | # | Title | Status | Owner |
 |---|---|---|---|
-| [#3](https://github.com/TailorAU/pact/issues/3) | `voice-biometric` credential type for Section 18 | **Closed** 2026-05-08 — RFC accepted as a v2.0 first-class type alongside `fido2-assertion`; §18 stub landed in `spec/v2.0/` | HMAN team to PR normative text |
-| [#4](https://github.com/TailorAU/pact/issues/4) | `HumanPrincipal` cardinality | **Closed** 2026-05-08 — direction adopted: **strictly 1:1** with a single human; HMAN persona model lives above the PACT layer; §17 stub landed in `spec/v2.0/` | — |
-| [#5](https://github.com/TailorAU/pact/issues/5) | Publish `@pact-protocol/cli` and `@pact-protocol/mcp` to npm | Blocked on `pact-protocol` npm org creation; nudge posted 2026-05-08 | Knox (human) |
-| [#6](https://github.com/TailorAU/pact/issues/6) | Deprecate `tailor tap *` overlap in `@tailor-app/cli` | Tracking only, blocked on #5 | No action until #5 |
-| [#13](https://github.com/TailorAU/pact/issues/13) | AloomU v1.1 production feedback (8 questions) | Open — consolidated response posted 2026-05-12; mapped to v2 tracks in `docs/v2-plan.yaml` | AI shepherds; Q3-Q5 deferred to a Tailor extension (D2=B) |
-| [#14](https://github.com/TailorAU/pact/issues/14) | RFC: ephemeral negotiation Sessions + Mandates (v2.0 §19-20) | Open — RFC posted 2026-05-12; 14-day comment window to 2026-05-26 | AI shepherds |
-| [#15](https://github.com/TailorAU/pact/issues/15) | v1.1 errata (phantom §15/§16 refs, schema `$id` paths) | Open — errata note promoted to `spec/v1.1/ERRATA.md` 2026-05-13 (additive; does not amend frozen `SPECIFICATION.md`); issue can close | — |
+| [#3](https://github.com/TailorAU/pact/issues/3) | `voice-biometric` credential type | Closed 2026-05-08 — accepted as a v2.0 first-class type; §18.3 structural contract in v2.0. Crypto detail + test vectors land via HMAN's PR; patches into spec/v2.0/ §18 (v2.0.x) or rolls into spec/v2.1/ depending on timing. | HMAN team |
+| [#4](https://github.com/TailorAU/pact/issues/4) | `HumanPrincipal` cardinality | Closed 2026-05-08 — strictly 1:1 (§17.4). Shipped in v2.0. | — |
+| [#5](https://github.com/TailorAU/pact/issues/5) | Publish `@pact-protocol/cli` and `@pact-protocol/mcp` to npm | Blocked on `pact-protocol` npm org creation. CLI + MCP at v2.0.0 ready to publish the moment the org exists. | Knox (human) |
+| [#6](https://github.com/TailorAU/pact/issues/6) | Deprecate `tailor tap *` overlap | Tracking only, blocked on #5. | — |
+| [#13](https://github.com/TailorAU/pact/issues/13) | AloomU v1.1 production feedback (8 questions) | Open — Q1/Q2/Q6/Q7/Q8 addressed by v2.0; Q3-Q5 deferred to a Tailor extension (D2=B). Can close once AloomU confirms. | AloomU + Knox |
+| [#14](https://github.com/TailorAU/pact/issues/14) | RFC: Sessions + Mandates | Open — comment window to 2026-05-26. §19-20 normative text DEFERRED to spec/v2.1/ (v2.0 ships with §19-22 reserved). | AI shepherds |
+| [#15](https://github.com/TailorAU/pact/issues/15) | v1.1 errata | Closed 2026-05-13 — `spec/v1.1/ERRATA.md` landed. | — |
 
-The maintainer comments on #3 and #4 (posted 2026-05-08) define the design constraints for the incoming PR. Read them before touching `spec/v2.0/SPECIFICATION.md` Section 17 or 18. The PACT v2 roadmap is `docs/v2-plan.yaml`; decisions D1–D6 were resolved 2026-05-12 (see `docs/v2-prep/d1-d6-decisions.yaml`).
+### Heading toward v2.1
+
+`spec/v2.1/` will pick up: §19-20 Sessions + Mandate (T3), §21 push delivery (T4), §22 service-account auth (T5), the `voice-biometric` crypto from HMAN's #3 PR (slots into §18.3 / §18.6 — patches into v2.0.x if that lands before v2.1; otherwise lands cleanly in v2.1). T8 (attached-resource model) ships as a Tailor extension (D2=B), not in PACT core.
 
 ## Things you should NOT do
 

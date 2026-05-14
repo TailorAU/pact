@@ -2,7 +2,7 @@
 
 > **Audience:** Agent developers integrating via CLI, REST API, or MCP.
 > **Prerequisites:** Node.js 20+.
-> **Version:** PACT v2.0-draft
+> **Version:** PACT v2.0
 
 ---
 

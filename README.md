@@ -223,12 +223,13 @@ These packages handle **coordination only**. Content operations (reading documen
 - **Invite Tokens (BYOK)** — Zero-trust agent onboarding; no account required
 - **Message Register** — Append-only audit log of all inter-agent communication
 - **Event-Sourced** — The operation log is the source of truth. The resource state is a projection.
+- **Fabric Onboarding & Session Awareness (v2.0.3)** — Atomic join+constrain via `_onboard`, caller-scoped `manifest`, bidirectional `_heartbeat`, transcript + `mark-read`, and `pact_session_announce` MCP tool so the calling LLM always knows which fabrics it is in
 
 ## Specification
 
 | Version | Status | Docs |
 |---------|--------|------|
-| **v2.0** | **Stable** (released 14 May 2026) | [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Conformance](spec/v2.0/conformance/) · [Release notes](CHANGELOG.md#v20--2026-05-14) |
+| **v2.0** | **Stable** (released 14 May 2026; patched to v2.0.3 on 15 May 2026) | [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Conformance](spec/v2.0/conformance/) · [Release notes](CHANGELOG.md#v203--2026-05-15) |
 | v1.1 | Previous | [Specification](spec/v1.1/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) · [Errata](spec/v1.1/ERRATA.md) |
 | v1.0 | Previous | [Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) |
 | v0.3 | Legacy | [Specification](spec/v0.3/SPECIFICATION.md) · [Getting Started](spec/v0.3/GETTING_STARTED.md) |

@@ -2,6 +2,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { request } from './api.js';
+import {
+  loadSessions,
+  loadManifestCache,
+  saveManifestCache,
+  manifestCacheAgeMs,
+  updateSession,
+  type CachedManifest,
+} from './sessions.js';
 
 function jsonResult(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
@@ -14,7 +22,7 @@ function errorResult(err: unknown) {
 
 const server = new McpServer({
   name: 'PACT Protocol',
-  version: '2.0.2',
+  version: '2.0.3',
 });
 
 // ── Agent Lifecycle ──────────────────────────────────────────────
@@ -424,6 +432,253 @@ server.tool(
       if (!res.ok) return errorResult(new Error(`HTTP ${res.status} from /api/pact/_probe/tier — server may not expose the v2.0.2 tier probe`));
       const report = await res.json();
       return jsonResult(report);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+// ── Fabric Onboarding & Session Awareness (§4.4 / §6.5 / §15.6, v2.0.3) ─
+
+server.tool(
+  'pact_onboard',
+  'Atomically onboard into a fabric (§15.6, v2.0.3). Use this instead of pact_join when the fabric requires declaring constraints up-front: the server either admits the caller WITH constraints recorded, or rejects with no membership created (no half-joined state).',
+  {
+    fabric_id: z.string().describe('Target fabric identifier.'),
+    constraints: z.unknown().describe('Constraints array (or constraints object) to declare during onboarding.'),
+    verifier_id: z.string().optional().describe('Optional verifier DID to bind the onboarding handshake (mirrors §17 nonce binding).'),
+  },
+  async ({ fabric_id, constraints, verifier_id }) => {
+    try {
+      const body: Record<string, unknown> = { constraints };
+      if (verifier_id) body.verifier_id = verifier_id;
+      const result = await request<Record<string, unknown>>(`/api/pact/${encodeURIComponent(fabric_id)}/_onboard`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      const resolvedId = (result?.fabric_id ?? result?.fabricId ?? fabric_id) as string;
+      const role = typeof result?.role === 'string' ? result.role : undefined;
+      await updateSession(resolvedId, {
+        joinedAt: new Date().toISOString(),
+        role,
+      });
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_status',
+  'Snapshot of a fabric (§4.4, v2.0.3): phase, members, latest event id, pending obligations. If fabric_id is omitted, returns a local-state summary of every fabric this agent is in (no network call).',
+  {
+    fabric_id: z.string().optional().describe('Fabric to snapshot. Omit to return the local cross-fabric summary.'),
+  },
+  async ({ fabric_id }) => {
+    try {
+      if (fabric_id) {
+        const result = await request(`/api/pact/${encodeURIComponent(fabric_id)}/_status`);
+        return jsonResult(result);
+      }
+      const sessions = loadSessions();
+      return jsonResult({ source: 'local', fabrics: sessions });
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_manifest',
+  'Fetch the caller-scoped active-session manifest for a fabric (§4.4, v2.0.3) — members, phase, obligations, and any data this caller is authorised to see. Result is cached under ~/.pact/manifest-<id>.json for pact_session_announce to read.',
+  {
+    fabric_id: z.string().describe('Target fabric identifier.'),
+  },
+  async ({ fabric_id }) => {
+    try {
+      const result = await request(`/api/pact/${encodeURIComponent(fabric_id)}/manifest`);
+      const cached = saveManifestCache(fabric_id, result);
+      await updateSession(fabric_id, { lastManifestFetch: cached.fetchedAt });
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_transcript',
+  'Fetch the event log (transcript) for a fabric since an optional event id (§4.4, v2.0.3). With mark_read=true, also POSTs to /mark-read to acknowledge the printed range.',
+  {
+    fabric_id: z.string().describe('Target fabric identifier.'),
+    since_event_id: z.string().optional().describe('Only return events after this event id.'),
+    mark_read: z.boolean().optional().describe('If true, ack the returned range via POST /mark-read after fetching.'),
+  },
+  async ({ fabric_id, since_event_id, mark_read }) => {
+    try {
+      const params = new URLSearchParams();
+      if (since_event_id) params.set('since', since_event_id);
+      const qs = params.toString() ? `?${params}` : '';
+      const result = await request<Record<string, unknown> | unknown[]>(`/api/pact/${encodeURIComponent(fabric_id)}/transcript${qs}`);
+
+      const events = Array.isArray(result)
+        ? result
+        : ((result as { events?: unknown[]; changes?: unknown[] })?.events ??
+           (result as { changes?: unknown[] })?.changes ?? []);
+
+      const eventIdOf = (e: unknown): string | undefined => {
+        if (!e || typeof e !== 'object') return undefined;
+        const r = e as Record<string, unknown>;
+        return (r.event_id ?? r.eventId ?? r.id) as string | undefined;
+      };
+
+      let lastId: string | undefined;
+      if (Array.isArray(events) && events.length > 0) {
+        lastId = eventIdOf(events[events.length - 1]);
+      }
+      const explicitLast = !Array.isArray(result)
+        ? ((result as Record<string, unknown>).latest_event_id ?? (result as Record<string, unknown>).latestEventId) as string | undefined
+        : undefined;
+      const highWater = explicitLast ?? lastId;
+      if (highWater) {
+        await updateSession(fabric_id, { lastReadEventId: highWater });
+      }
+
+      if (mark_read && Array.isArray(events) && events.length > 0) {
+        const first = eventIdOf(events[0]);
+        const last = eventIdOf(events[events.length - 1]);
+        const markBody: Record<string, unknown> = {};
+        if (first) markBody.from_event_id = first;
+        if (last) markBody.to_event_id = last;
+        await request(`/api/pact/${encodeURIComponent(fabric_id)}/mark-read`, {
+          method: 'POST',
+          body: JSON.stringify(markBody),
+        });
+      }
+
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_heartbeat',
+  'Fire a one-shot heartbeat for a fabric (§4.4, v2.0.3) — tells the server this agent is still attending. Optionally signals that attention is required (e.g. waiting on a human, blocked on another agent). Not a daemon; one ping per call.',
+  {
+    fabric_id: z.string().describe('Target fabric identifier.'),
+    attention_required: z.boolean().optional().describe('Signal that this agent is currently blocked / needs attention.'),
+  },
+  async ({ fabric_id, attention_required }) => {
+    try {
+      const body: Record<string, unknown> = { source: 'mcp', oneShot: true };
+      if (attention_required !== undefined) body.attention_required = attention_required;
+      const result = await request(`/api/pact/${encodeURIComponent(fabric_id)}/_heartbeat`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      return jsonResult(result ?? { ok: true });
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_mark_read',
+  'Acknowledge a transcript range on the server (§4.4, v2.0.3). Equivalent to the pact_transcript mark_read flag but standalone, e.g. when ack-ing events that were fetched out-of-band.',
+  {
+    fabric_id: z.string().describe('Target fabric identifier.'),
+    from_event_id: z.string().describe('First event id in the range to ack (inclusive).'),
+    to_event_id: z.string().describe('Last event id in the range to ack (inclusive).'),
+  },
+  async ({ fabric_id, from_event_id, to_event_id }) => {
+    try {
+      const result = await request(`/api/pact/${encodeURIComponent(fabric_id)}/mark-read`, {
+        method: 'POST',
+        body: JSON.stringify({ from_event_id, to_event_id }),
+      });
+      await updateSession(fabric_id, { lastReadEventId: to_event_id });
+      return jsonResult(result ?? { ok: true });
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_session_announce',
+  'COGNITIVE-LAYER HOOK (v2.0.3 §4.4). Returns a structured "you are currently in N fabrics" payload designed for the calling LLM to prepend to its working context — so it does not forget about active fabrics and their pending obligations. By default this is offline: it only reads ~/.pact/sessions.json + cached manifests. Pass refresh_manifests=true to re-fetch each fabric\'s manifest live before announcing.',
+  {
+    refresh_manifests: z.boolean().optional().describe('If true, re-fetch every fabric\'s manifest before building the announcement. Default: false (offline).'),
+  },
+  async ({ refresh_manifests }) => {
+    try {
+      const sessions = loadSessions();
+      const fabricIds = Object.keys(sessions);
+
+      interface Announce {
+        fabricId: string;
+        role?: string;
+        phase?: string;
+        joinedAt?: string;
+        lastReadEventId?: string;
+        manifestSource: 'fresh' | 'cache' | 'none';
+        manifestAgeSeconds?: number;
+        pendingObligations: unknown[];
+      }
+
+      const fabrics: Announce[] = [];
+
+      for (const id of fabricIds) {
+        let cached: CachedManifest | null = loadManifestCache(id);
+        let source: 'fresh' | 'cache' | 'none' = cached ? 'cache' : 'none';
+
+        if (refresh_manifests) {
+          try {
+            const m = await request(`/api/pact/${encodeURIComponent(id)}/manifest`);
+            cached = saveManifestCache(id, m);
+            await updateSession(id, { lastManifestFetch: cached.fetchedAt });
+            source = 'fresh';
+          } catch {
+            // Fall through to cached or none.
+          }
+        }
+
+        const m = (cached?.manifest ?? {}) as Record<string, unknown>;
+        const phase = typeof m.phase === 'string' ? m.phase : undefined;
+        const obligationsRaw =
+          (m.pending_obligations ?? m.pendingObligations ?? m.obligations) as unknown;
+        const obligations = Array.isArray(obligationsRaw) ? obligationsRaw : [];
+        const role =
+          sessions[id].role ??
+          (typeof m.caller_role === 'string' ? (m.caller_role as string) : undefined) ??
+          (typeof m.callerRole === 'string' ? (m.callerRole as string) : undefined);
+
+        const ageMs = manifestCacheAgeMs(cached);
+        fabrics.push({
+          fabricId: id,
+          role,
+          phase,
+          joinedAt: sessions[id].joinedAt,
+          lastReadEventId: sessions[id].lastReadEventId,
+          manifestSource: source,
+          manifestAgeSeconds: ageMs !== null ? Math.round(ageMs / 1000) : undefined,
+          pendingObligations: obligations,
+        });
+      }
+
+      const totalPending = fabrics.reduce((n, f) => n + f.pendingObligations.length, 0);
+      const lines: string[] = [];
+      if (fabrics.length === 0) {
+        lines.push('You are not currently in any PACT fabrics.');
+      } else {
+        lines.push(`You are currently in ${fabrics.length} PACT fabric${fabrics.length === 1 ? '' : 's'}: ${fabrics.map((f) => f.fabricId).join(', ')}.`);
+        if (totalPending > 0) {
+          lines.push(`${totalPending} pending obligation${totalPending === 1 ? '' : 's'} across these fabrics.`);
+        }
+        for (const f of fabrics) {
+          const role = f.role ? ` as ${f.role}` : '';
+          const phase = f.phase ? `, phase=${f.phase}` : '';
+          lines.push(`  • ${f.fabricId}${role}${phase} — ${f.pendingObligations.length} pending`);
+        }
+      }
+
+      return jsonResult({
+        prelude: lines.join('\n'),
+        fabricCount: fabrics.length,
+        totalPendingObligations: totalPending,
+        fabrics,
+        source: refresh_manifests ? 'network' : 'local-cache',
+      });
     } catch (err) { return errorResult(err); }
   },
 );

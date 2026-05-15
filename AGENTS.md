@@ -42,13 +42,13 @@ The richer, in-progress version of `spec/*/SPECIFICATION.md` historically lived 
 
 ## Open work (as of 2026-05-15)
 
-**v2.0** shipped 14 May 2026 (tag `v2.0.0`; mirror via [#1616](https://github.com/TailorAU/tailor-app/pull/1616)). **v2.0.1** patch released 15 May 2026 morning (tag `v2.0.1`; mirror via [#1673](https://github.com/TailorAU/tailor-app/pull/1673)). **v2.0.2** patch released 15 May 2026 afternoon (tag `v2.0.2`; mirror via PR TBD) — closes 10 named attacks (A1–A10) + 3 structural concerns (S1–S3) from the adversarial / red-team cold-eye review. Highlights: real WebAuthn signature verification in the conformance runner (A1); the `pact_introspect_tier` behavioural probe (§15.5, A2); `verifier_id` equality enforcement (A3); registry append-only mutation log (§17.8, A4); event-log hash-chain + signed root (§6.4, A5); DID Document pinning (§17.4, A6); recovery dispute event + multi-channel notification (§23.5b, A8); `alg` whitelist (§17.6, A9); honest reframe of "cryptographic erasure" (§17.10, A10); cross-org boundary defined (§15.4, S1); salience abstention timeout (§10.7, S2); explicit trust-model section (§17.13, S3). See `CHANGELOG.md` v2.0.2 for the full attack-by-attack mapping. The PACT v2 roadmap (`docs/v2-plan.yaml`) is mostly done; decisions D1–D6 are recorded in `docs/v2-prep/d1-d6-decisions.yaml`.
+**v2.0** shipped 14 May 2026 (tag `v2.0.0`; mirror via [#1616](https://github.com/TailorAU/tailor-app/pull/1616)). **v2.0.1** patch released 15 May 2026 morning (tag `v2.0.1`; mirror via [#1673](https://github.com/TailorAU/tailor-app/pull/1673)). **v2.0.2** patch released 15 May 2026 afternoon (tag `v2.0.2`; mirror via [#1679](https://github.com/TailorAU/tailor-app/pull/1679)) — closes 10 named attacks (A1–A10) + 3 structural concerns (S1–S3) from the adversarial / red-team cold-eye review. **v2.0.3** patch released 15 May 2026 evening (tag `v2.0.3`; mirror via PR TBD) — adds **Fabric Onboarding & Session Awareness**: five additive operations (§4.4 `_status`, `manifest`, `_heartbeat`, `mark-read`, `_onboard`), §6.5 pending obligations as first-class concept, §15.6 onboarding pattern, §7.2/§7.3 event-channel + MCP additions, §17.13 manifest visibility, nine new schemas, five new test vectors, runner `kind: session`, seven new MCP tools incl. `pact_session_announce` (cognitive-layer hook). See `CHANGELOG.md` v2.0.2 and v2.0.3 for the full attack-by-attack / operation-by-operation mappings. The PACT v2 roadmap (`docs/v2-plan.yaml`) is mostly done; decisions D1–D6 are recorded in `docs/v2-prep/d1-d6-decisions.yaml`.
 
 | # | Title | Status | Owner |
 |---|---|---|---|
 | [#3](https://github.com/TailorAU/pact/issues/3) | `voice-biometric` credential type | Closed 2026-05-08 — accepted as a v2.0 first-class type; §18.3 structural contract in v2.0. Crypto detail + test vectors land via HMAN's PR; patches into spec/v2.0/ §18 (v2.0.x) or rolls into spec/v2.1/ depending on timing. | HMAN team |
 | [#4](https://github.com/TailorAU/pact/issues/4) | `HumanPrincipal` cardinality | Closed 2026-05-08 — strictly 1:1 (§17.4). Shipped in v2.0. | — |
-| [#5](https://github.com/TailorAU/pact/issues/5) | Publish `@pact-protocol/cli` and `@pact-protocol/mcp` to npm | Blocked on `pact-protocol` npm org creation. CLI + MCP at v2.0.0 ready to publish the moment the org exists. | Knox (human) |
+| [#5](https://github.com/TailorAU/pact/issues/5) | Publish `@pact-protocol/cli` and `@pact-protocol/mcp` to npm | Blocked on `pact-protocol` npm org creation. CLI + MCP at v2.0.3 ready to publish the moment the org exists. | Knox (human) |
 | [#6](https://github.com/TailorAU/pact/issues/6) | Deprecate `tailor tap *` overlap | Tracking only, blocked on #5. | — |
 | [#13](https://github.com/TailorAU/pact/issues/13) | AloomU v1.1 production feedback (8 questions) | Open — Q1/Q2/Q6/Q7/Q8 addressed by v2.0; Q3-Q5 deferred to a Tailor extension (D2=B). Can close once AloomU confirms. | AloomU + Knox |
 | [#14](https://github.com/TailorAU/pact/issues/14) | RFC: Sessions + Mandates | Open — comment window to 2026-05-26. §19-20 normative text DEFERRED to spec/v2.1/ (v2.0 ships with §19-22 reserved). | AI shepherds |
@@ -94,7 +94,7 @@ gh issue comment <num> --repo TailorAU/pact --body-file <file>
 
 ## CLI / MCP packages
 
-Both packages live in this repo and are version-pinned together (currently `1.1.0`).
+Both packages live in this repo and are version-pinned together (currently `2.0.3`).
 
 | Package | Path | Status | Install (when published) |
 |---|---|---|---|

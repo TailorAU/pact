@@ -1,5 +1,104 @@
 # Changelog
 
+## v2.0.3 — 2026-05-15
+
+Third patch on v2.0. Introduces **Fabric Onboarding & Session Awareness** — five additive operations and six new events that close the "cognitive layer" gap between *being registered in a fabric* and an agent *knowing it is in a fabric, with these obligations, with these counterparties*. **Additive — no breaking changes to v2.0 / v2.0.1 / v2.0.2 clients.**
+
+### Why this patch
+
+The user framing: PACT v2.0.2 had the network and registration layers right (TLS join/leave, registry membership) but agents were still being told "you are in fabric X" by callers — there was no canonical way for an agent to ask the server *what fabrics am I currently in, what's the phase of each, what do I owe, what have I missed?* This release fills that gap with manifest, status, transcript, mark-read, heartbeat, and an atomic onboard operation that bundles join+constrain so there is never a half-joined window.
+
+### Spec text changes
+
+`spec/v2.0/SPECIFICATION.md`:
+
+- §4.1 (expanded) — heartbeat is now bidirectional and feeds the manifest's per-member `last_seen`; back-compat note for v2.0.2 clients
+- §4.4 (NEW) — **Active Session Manifest Operations** — five subsections covering `_status`, `manifest`, `_heartbeat`, `mark-read`, `_onboard`; each specifies method/path, request schema, response schema, errors, idempotency, emitted events, verifier_id binding, and §15.5 tier
+- §4.5 (renumbered) — existing Merge Operations moved from §4.4 → §4.5
+- §6.2 — events catalog adds `pact.fabric.onboarded`, `pact.agent.heartbeat-received`, `pact.agent.attention-required`, `pact.agent.mark-read`, `pact.obligation.created`, `pact.obligation.discharged`
+- §6.5 (NEW) — **Pending Obligations** — first-class definition: shape, four `kind`s (vote / respond / sign / ack), creation/discharge semantics, surfacing rules
+- §7.1 — REST endpoints listing extended with all five new paths
+- §7.2 — Real-time event channel extended with six new `On*` events (mirrors §6.2 additions)
+- §7.3 — MCP tools list extended with seven new tools (mirrors `mcp/` v2.0.3)
+- §15.1 — capability flags list extended: `atomicOnboard`, `manifest`, `sessionAwareness` (all v2.0.3)
+- §15.6 (NEW) — **Fabric Onboarding Pattern** — sequence diagram, half-joined-window analysis, cross-org guidance
+- §17.13 — added "Manifest visibility" subsection: cross-org / clearance disclosure rules enforced on manifest endpoints; coarse-grained timestamps to avoid timing side channels; non-member 403/404 behaviour
+- Appendix A.2 — schema table extended with nine new schemas
+
+### Schemas
+
+Nine new files under `spec/v2.0/schemas/`, all JSON Schema 2020-12, all with `examples`:
+
+- `fabric-status.json`, `fabric-manifest.json`
+- `heartbeat-request.json`, `heartbeat-response.json`
+- `mark-read-request.json`, `mark-read-response.json`
+- `onboard-request.json`, `onboard-response.json`
+- `pending-obligation.json` (shared shape used by both status and manifest)
+
+### Conformance suite
+
+Five new test vectors under `spec/v2.0/conformance/extended/sessions/`:
+
+- `onboard-success.yaml` — atomic happy path; asserts `pact.fabric.onboarded` and `pact.agent.joined`
+- `onboard-partial-failure.yaml` — constraint rejected; follow-up status assertion proves non-membership (atomicity)
+- `manifest-cross-org-disclosure.yaml` — §17.13 reduction pinned; caller sees own record fully, cross-org peer reduced to `display_name` + summary counts
+- `heartbeat-timeout.yaml` — stale member flagged (`liveness: stale`), not auto-evicted
+- `obligation-surfacing.yaml` — pre-vote manifest shows pending obligation; post-vote shows it discharged
+
+Runner extensions (`@pact-protocol/conformance-runner@0.3.0-dev`):
+
+- New `kind: session` for multi-step vectors with `cross_call_assertions` (e.g. "after rejected onboard, status MUST show non-membership")
+- New assertion kinds: `negative_membership`, `negative_obligation`
+- `resolveBodyPath` dot-path body accessor
+- Existing v2.0.2 baseline (7 pass · 0 fail · 1 skip) preserved; new total: 7 pass · 0 fail · 6 skip (5 new server-bound vectors require `--server`)
+
+### CLI changes (`@pact-protocol/cli@2.0.3`)
+
+- New `pact onboard <fabricId> [--constraints <file>] [--verifier <did>]` — atomic onboard via `_onboard`
+- New `pact status [<fabricId>] [--all]` — remote `_status` snapshot or local-state cross-fabric summary
+- New `pact where` — offline cross-fabric "what am I in" view with 60s cache freshness, `--refresh` for live data
+- New `pact manifest <fabricId>` — caller-scoped manifest fetch + local cache
+- New `pact transcript <fabricId> [--since <id>] [--mark-read]` — event log + optional ack
+- `pact join` and `pact negotiate position` gain `--heartbeat` (one-shot, best-effort)
+- New `cli/src/sessions.ts` — local state under `~/.pact/` with atomic O_EXCL lockfile (5s timeout)
+
+### MCP changes (`@pact-protocol/mcp@2.0.3`)
+
+Seven new tools added:
+
+- `pact_onboard`, `pact_status`, `pact_manifest`, `pact_transcript`, `pact_heartbeat`, `pact_mark_read`
+- `pact_session_announce` — **cognitive-layer hook**: returns a structured "you are in N fabrics with M obligations" payload for the calling LLM to prepend to its working context. Offline by default; `refresh_manifests: true` for live data.
+
+### Capability flags (advertised in `/.well-known/pact.json` `capabilities`)
+
+Servers SHOULD set:
+
+- `capabilities.atomicOnboard: true` when `_onboard` is implemented
+- `capabilities.manifest: true` when `GET /manifest` is implemented
+- `capabilities.sessionAwareness: true` when the full §4.4 operation set is implemented
+
+Clients SHOULD prefer `_onboard` over `join` + N `POST /constraints` when the server advertises support.
+
+### Path conventions
+
+All v2.0.3 operations live under `/api/pact/{fabricId}/...` (consistent with v2.0.2 routes). `{fabricId}` and `{documentId}` are synonyms — servers MUST accept both forms in the URL.
+
+### Files touched
+
+- 1 spec file (`spec/v2.0/SPECIFICATION.md`)
+- 9 new schemas
+- 5 new test vectors + runner extensions
+- 5 new CLI commands + 1 new local-state module
+- 7 new MCP tools + 1 mirrored local-state module
+- `cli/package.json` and `mcp/package.json` → `2.0.3`
+- `spec/v2.0/conformance/runner/package.json` → `0.3.0-dev`
+
+### Mirror
+
+This release mirrors to `tailor-app` via PR TBD (squash-merged 2026-05-15) following the v2.0.x coordinated-PR pattern (see [TailorAU/tailor-app#1616](https://github.com/TailorAU/tailor-app/pull/1616), [#1673](https://github.com/TailorAU/tailor-app/pull/1673), [#1679](https://github.com/TailorAU/tailor-app/pull/1679)).
+
+---
+
 ## v2.0.2 — 2026-05-15
 
 Second patch on v2.0. Response to the **adversarial / red-team cold-eye review**. Closes 10 named attacks (A1–A10) and three structural concerns (S1–S3) from that review. **Additive — no breaking changes to v2.0 / v2.0.1 clients.**

@@ -1,10 +1,22 @@
-# PACT — Protocol for Agent Consensus and Truth — Specification v2.0.2
+# PACT — Protocol for Agent Consensus and Truth — Specification v2.0.3
 
 > **Status:** Stable  
 > **Author:** Knox Hart + AI  
 > **Date:** 15 May 2026  
-> **Version:** 2.0.2 (second patch on the v2.0 line; addresses cold-eye-audit-#2 (the red-team / adversarial review). Additive — no breaking changes to v2.0/v2.0.1 clients. See [`CHANGELOG.md`](../../CHANGELOG.md#v202--2026-05-15) for the list of attacks closed and how.)  
+> **Version:** 2.0.3 (third patch on the v2.0 line; adds **fabric onboarding & session awareness** — the "cognitive layer" of active session: agents can now atomically join+constrain a fabric, query their scoped manifest of obligations, heartbeat bidirectionally, and acknowledge event ranges. Additive — no breaking changes to v2.0 / v2.0.1 / v2.0.2 clients. See [`CHANGELOG.md`](../../CHANGELOG.md#v203--2026-05-15) for the operations added.)  
 > **Vision:** Enable millions of agents to reach consensus on shared resources at machine speed, with humans retaining final authority.
+
+### What's New in v2.0.3
+
+PACT v2.0.3 closes the gap between the *registration* layer (an agent is a member of the fabric per the registry) and the *cognitive* layer (the agent's reasoning context actually knows it's in the fabric and is acting under those constraints). v2.0.2 covered join/leave but left "what fabric am I in, who else is here, what do I owe them, what just happened" implicit. v2.0.3 makes it explicit:
+
+- **Active Session Manifest Operations (§4.4)** — five additive operations: `GET /_status` (fabric snapshot), `GET /manifest` (caller-scoped view), `POST /_heartbeat` (bidirectional liveness + attention flagging), `POST /mark-read` (event-range acknowledgement), `POST /_onboard` (atomic join+constrain).
+- **Pending Obligations (§6.5)** — first-class concept: what the protocol expects a specific member to do next, surfaced via `/manifest` and `/_status`.
+- **Fabric Onboarding Pattern (§15.6)** — recommended flow that eliminates the half-joined window between membership and constraint declaration.
+- **Bidirectional heartbeat (§4.1 update)** — v2.0's one-way ping becomes a two-way liveness signal feeding per-member `last_seen`.
+- **Manifest visibility (§17.13 update)** — cross-org disclosure rules apply to the new manifest endpoint; it is not a privacy bypass.
+
+The five new operations and six new events are described in §4.4 and §6.5. Onboarding-flow guidance is in §15.6.
 
 ### What's New in v2.0
 
@@ -168,7 +180,10 @@ For content outside headings (preamble, top-level paragraphs), a synthetic `sec:
 |---|---|---|
 | `agent.join` | Register as a participant on a document | Observer+ |
 | `agent.leave` | Unregister from a document | Any |
-| `agent.heartbeat` | Signal liveness (auto-evicted after 5min silence) | Any |
+| `agent.heartbeat` | Bidirectional liveness signal (v2.0.3+ — feeds per-member `last_seen` in the §4.4 manifest; auto-evicted after 5min silence) | Any |
+| `agent.onboard` | (v2.0.3+) Atomic join + constraint declaration — see §4.4 and §15.6 | Observer+ |
+
+**Heartbeat — bidirectional (v2.0.3+).** Through v2.0.2, `agent.heartbeat` was a one-way client→server ping: the agent told the server "I'm still here." v2.0.3 makes the heartbeat **bidirectional**: the server's response carries the fabric's current liveness view (per-member `last_seen` timestamps, the latest event id, and a count of pending obligations for the caller) so the agent immediately knows whether its counterparties are still present. The full request/response shape, the optional `attention_required` flag, and the emitted events (`pact.agent.heartbeat-received`, `pact.agent.attention-required`) are defined in §4.4 under `POST /fabric/{id}/_heartbeat`. The legacy v2.0.2 one-way semantics remain valid (the response body is additive); v2.0.2 clients that ignore the body see no behavioural change.
 
 ### 4.2 Read Operations
 
@@ -200,7 +215,270 @@ For content outside headings (preamble, top-level paragraphs), a synthetic `sec:
 | `section.unlock` | Release a section lock | Collaborator+ |
 | `escalate.human` | Flag something for human review | Any |
 
-### 4.4 Merge Operations (Server-Side)
+### 4.4 Active Session Manifest Operations (v2.0.3+)
+
+Through v2.0.2, PACT defined how an agent *registers* with a fabric (§4.1 `agent.join`) but said nothing about how an agent should *know it is in* a fabric — i.e. how its reasoning context comes to hold "I am acting in fabric F with counterparties X and Y, under constraints C, with these pending obligations." v2.0.3 adds five operations that surface this cognitive-layer state and let the agent acknowledge what it has seen.
+
+**Terminology.** "Fabric" is the v2.0.3 term for *a single resource's coordination context* — the set of agents joined to one PACT resource (document, transaction, claim, etc.), plus the constraints, intents, obligations, and events that bind them. The fabric ID equals the resource ID (`{documentId}` in v1.x / v2.0 URL paths); the operations below use `{fabricId}` as a synonym to make the cognitive-layer intent explicit. Either ID form MUST be accepted as the path parameter; this is a naming choice, not a new identifier.
+
+**Convention — `_`-prefixed vs non-prefixed paths.** Per the §15.5 introspection convention, paths beginning with `_` (`/_status`, `/_heartbeat`, `/_onboard`) are **introspection / control-plane** — they read or assert session state without producing a substantive negotiation event. Non-prefixed paths (`/manifest`, `/mark-read`) are **first-class operations** with their own event types and are subject to the usual idempotency and trust-level rules.
+
+| Operation | Method + Path | Purpose | Tier (§15.5) |
+|---|---|---|---|
+| Fabric status | `GET /api/pact/{fabricId}/_status` | Server's whole-fabric snapshot: members, phase, latest event id, last activity per member. Cross-org disclosure rules of §17.13 apply. | basic |
+| Caller manifest | `GET /api/pact/{fabricId}/manifest` | The caller-scoped view: what *this caller* needs to know about the fabric it is in — its constraints, its pending obligations, its visible counterparties. | basic |
+| Heartbeat | `POST /api/pact/{fabricId}/_heartbeat` | Bidirectional liveness: agent declares it is present and aware; server returns the fabric's liveness view. Optional `attention_required: true` to flag active presence to counterparties. | basic |
+| Mark-read | `POST /api/pact/{fabricId}/mark-read` | Caller acknowledges receipt of an event range `[from_event_id, to_event_id]` so counterparties see "seen" not just "delivered." | basic |
+| Atomic onboard | `POST /api/pact/{fabricId}/_onboard` | Atomic join + constraint declaration in a single transaction. Either both commit or neither. See §15.6 for the onboarding flow. | full |
+
+**Verifier ID binding (§17.6).** All five operations are PACT messages and MAY carry an `authorization_proof` envelope. When present, the envelope's `verifier_id` MUST equal the receiving server's DID per §17.7 step 5. At the `Authorization-Required` tier (§17.9), cross-organisation calls to `_onboard` MUST carry a valid `authorization_proof`; the four other operations follow the same rule as their underlying-event counterparts (read endpoints inherit the surrounding read-access rules; `mark-read` is treated as a substantive event and MUST carry proof on cross-org calls).
+
+**Schema references.** Request and response schemas land in `spec/v2.0/schemas/`: `fabric-status.json`, `fabric-manifest.json`, `heartbeat-request.json`, `heartbeat-response.json`, `mark-read-request.json`, `mark-read-response.json`, `onboard-request.json`, `onboard-response.json`, and the shared `pending-obligation.json`. See Appendix A.2.
+
+#### 4.4.1 `GET /api/pact/{fabricId}/_status` — fabric snapshot
+
+Returns a whole-fabric snapshot intended for orchestration tooling, monitoring dashboards, and an agent's "where am I" probe at session start.
+
+**Request.** No body. Optional query parameters:
+
+| Param | Type | Default | Meaning |
+|---|---|---|---|
+| `include` | csv | `members,phase,latest_event,obligations,activity` | Subset of fields to include. Tools polling for liveness only can pass `include=activity,latest_event` to keep responses small. |
+
+**Response** (matches `fabric-status.json`):
+
+```json
+{
+  "fabric_id": "doc_xyz",
+  "spec_version": "2.0.3",
+  "phase": "negotiating",
+  "latest_event_id": "evt_5a2c",
+  "latest_sequence_number": 412,
+  "members": [
+    {
+      "agent_id": "urn:pact:agent:k-1",
+      "agent_name": "Agent-Legal",
+      "principal_id": "did:web:knox.example",
+      "trust_level": "Collaborator",
+      "joined_at": "2026-05-15T18:02:11Z",
+      "last_seen": "2026-05-15T18:14:33Z",
+      "last_heartbeat_seq": 410,
+      "attention_required": false
+    }
+  ],
+  "pending_obligations": [
+    { "id": "obl_001", "member_id": "urn:pact:agent:b-1", "kind": "vote", "due_by": "2026-05-15T18:20:00Z", "created_at": "2026-05-15T18:15:00Z", "event_ref": "evt_5a2c" }
+  ],
+  "open_proposals": 2,
+  "open_intents": 1,
+  "snapshot_at": "2026-05-15T18:14:40Z"
+}
+```
+
+The `phase` enum is `forming | negotiating | converged | escalated | closed`. The `members` array is filtered by §17.13 cross-org disclosure rules (see §17.13 "Manifest visibility"); fields the caller is not entitled to see are omitted, not nulled.
+
+**Idempotency.** Pure read; no state change; no event emitted. Safe to retry.
+
+**Errors.** `auth.unauthorized` (401), `agent.not_joined` (403 — non-members get a 403, not a 404, unless the implementation prefers fabric-existence hiding), `document.not_found` (404), `rate.limited` (429).
+
+#### 4.4.2 `GET /api/pact/{fabricId}/manifest` — caller-scoped manifest
+
+Returns the **caller-scoped** view of the fabric — what *this caller* needs to know to act. Where `_status` is global ("here is the whole fabric"), `manifest` is local ("here is what concerns you").
+
+**Request.** No body. The caller is identified by the credentials on the request (per §15.1 endpoints). Optional query parameter `as_of_event_id` returns the manifest as it would have appeared after the given event was processed (for replay debugging).
+
+**Response** (matches `fabric-manifest.json`):
+
+```json
+{
+  "fabric_id": "doc_xyz",
+  "spec_version": "2.0.3",
+  "caller": {
+    "agent_id": "urn:pact:agent:b-1",
+    "agent_name": "Agent-Finance",
+    "trust_level": "Collaborator",
+    "clearance_level": "Confidential",
+    "context_mode": "section-scoped",
+    "allowed_sections": ["sec:budget", "sec:risk"]
+  },
+  "constraints_on_caller": [
+    { "constraint_id": "con_42", "section_id": "sec:risk", "boundary": "Must not name specific instruments", "published_by_self": true }
+  ],
+  "pending_obligations": [
+    { "id": "obl_001", "member_id": "urn:pact:agent:b-1", "kind": "vote", "event_ref": "evt_5a2c", "due_by": "2026-05-15T18:20:00Z", "created_at": "2026-05-15T18:15:00Z" }
+  ],
+  "counterparties": [
+    {
+      "agent_id": "urn:pact:agent:k-1",
+      "agent_name": "Agent-Legal",
+      "principal_id": "did:web:knox.example",
+      "trust_level": "Collaborator",
+      "last_seen": "2026-05-15T18:14:33Z",
+      "disclosure_level": "summary"
+    }
+  ],
+  "unread_event_id_from": "evt_5a08",
+  "unread_event_id_to": "evt_5a2c",
+  "snapshot_at": "2026-05-15T18:14:40Z"
+}
+```
+
+**Cross-org disclosure (§17.13).** The `counterparties[].principal_id`, `counterparties[].agent_name`, and any other PII fields are subject to the trust model of §17.13's "Manifest visibility" subsection. Counterparties whose disclosure level (per §10.3) is "Constraint" or "Category" are returned with `disclosure_level` set accordingly and PII fields elided. The manifest is NOT a privacy bypass: a caller receives only what they are entitled to see under the normal cross-org and clearance rules.
+
+**Idempotency.** Pure read; no state change; no event emitted.
+
+**Errors.** As §4.4.1. Additionally `auth.forbidden` (403) if the caller is a registered member but the implementation determines the manifest cannot be served (e.g. cleared-out-only mode during a major incident).
+
+#### 4.4.3 `POST /api/pact/{fabricId}/_heartbeat` — bidirectional liveness
+
+The agent declares it is still alive and aware of the fabric. The server records the heartbeat, updates the caller's `last_seen`, and returns the fabric's liveness view.
+
+**Request body** (matches `heartbeat-request.json`):
+
+```json
+{
+  "client_heartbeat_id": "uuid (caller-chosen; echoed back; idempotency key)",
+  "attention_required": false,
+  "client_observed_event_id": "evt_5a2c"
+}
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `client_heartbeat_id` | Yes | UUID chosen by the caller. The server treats `(member_id, client_heartbeat_id)` as the idempotency key — a duplicate POST within the implementation's idempotency window MUST return the cached prior response and MUST NOT emit a second event. The window SHOULD be at least 60 seconds. |
+| `attention_required` | No (default `false`) | When `true`, the caller is signalling "I am actively present and want my counterparty to know it" (e.g. about to send a substantive message). Server MAY emit a `pact.agent.attention-required` event so counterparties can prioritise. |
+| `client_observed_event_id` | No | The latest event the caller has processed locally. Implementations MAY use this to surface drift (the caller is behind the server) in the response. |
+
+**Response body** (matches `heartbeat-response.json`):
+
+```json
+{
+  "fabric_id": "doc_xyz",
+  "client_heartbeat_id": "...",
+  "server_received_at": "2026-05-15T18:14:33Z",
+  "latest_event_id": "evt_5a2c",
+  "latest_sequence_number": 412,
+  "caller_last_seen": "2026-05-15T18:14:33Z",
+  "members_liveness": [
+    { "agent_id": "urn:pact:agent:k-1", "last_seen": "2026-05-15T18:14:00Z", "attention_required": false }
+  ],
+  "pending_obligation_count": 1
+}
+```
+
+**Verifier ID binding.** When a heartbeat carries an `authorization_proof` (rare; usually heartbeats are bearer-authenticated), the envelope's `verifier_id` MUST equal the server's DID (§17.7).
+
+**Idempotency.** Idempotent over `(member_id, client_heartbeat_id)`. Duplicate within window → cached response, no event.
+
+**Event emitted.** `pact.agent.heartbeat-received` on the first POST of a given `(member_id, client_heartbeat_id)`. Additionally `pact.agent.attention-required` when `attention_required: true`.
+
+**Errors.** `auth.unauthorized`, `agent.not_joined`, `rate.limited` (heartbeat is a common rate-limit target — implementations SHOULD set a generous floor, e.g. 1 Hz per member, and document the rate in their Implementation Profile).
+
+#### 4.4.4 `POST /api/pact/{fabricId}/mark-read` — acknowledge event range
+
+The caller acknowledges that it has received and processed events in the range `[from_event_id, to_event_id]`. Counterparties polling `_status` or `manifest` can see "Agent B has seen up to event evt_5a2c," which is stronger than "the event was delivered to Agent B's transport."
+
+**Request body** (matches `mark-read-request.json`):
+
+```json
+{
+  "from_event_id": "evt_5a08",
+  "to_event_id": "evt_5a2c",
+  "from_sequence_number": 400,
+  "to_sequence_number": 412
+}
+```
+
+Either the `_event_id` pair OR the `_sequence_number` pair is sufficient; if both are provided they MUST be consistent (the server MAY reject otherwise). The range is inclusive on both ends.
+
+**Response body** (matches `mark-read-response.json`):
+
+```json
+{
+  "fabric_id": "doc_xyz",
+  "caller_member_id": "urn:pact:agent:b-1",
+  "marked_from_sequence_number": 400,
+  "marked_to_sequence_number": 412,
+  "acknowledged_at": "2026-05-15T18:14:33Z",
+  "event_id": "evt_ack_001"
+}
+```
+
+**Idempotency.** Re-posting the same range is a no-op — the server returns the original `event_id`. Posting a partially-overlapping range advances the caller's read cursor to the new high-water mark and MUST emit only one `pact.agent.mark-read` event (with the union of the prior cursor and the new range).
+
+**Event emitted.** `pact.agent.mark-read`. The event's `payloadJson` carries `{ caller_member_id, marked_from_sequence_number, marked_to_sequence_number }`. Like all v2.0.2+ events, it is chained via `prev_hash` per §6.4.
+
+**Errors.** `auth.unauthorized`, `agent.not_joined`, `mark-read.invalid_range` (the range is malformed or references events outside the fabric — implementations SHOULD define this code under their custom namespace per Appendix A.1).
+
+#### 4.4.5 `POST /api/pact/{fabricId}/_onboard` — atomic join + constrain
+
+The atomic onboarding operation. Bundles the v2.0.2 `agent.join` call with an explicit constraints declaration into a single transaction. **Either both commit, or neither.** Constraint rejection rolls back any partial join state — no half-joined member exists at any observable point. This is the operation that establishes the negotiation envelope *before* any substantive message; see §15.6 for the recommended onboarding flow and why it beats join-then-constrain.
+
+**Request body** (matches `onboard-request.json`):
+
+```json
+{
+  "agentName": "Agent-Finance",
+  "role": "reviewer",
+  "contextMode": "section-scoped",
+  "protocolVersion": "2.0",
+  "orgId": "bridget-co",
+  "constraints": [
+    { "sectionId": "sec:risk", "boundary": "Must not name specific instruments", "category": "regulatory" },
+    { "sectionId": "sec:budget", "boundary": "Must not commit beyond Q3 forecast", "category": "commercial" }
+  ],
+  "invite_token": "...",
+  "authorization_proof": { "...": "§17.6 envelope" }
+}
+```
+
+The request is the union of `join-request.json` (or `join-token-request.json` for BYOK) and one or more `constraint-request.json` items. All fields of `join-request.json` carry their existing semantics. `constraints` is an array (may be empty for "join only, no constraints declared up front" — the operation is still atomic, just trivially so).
+
+**Atomicity contract (normative).** The server MUST treat the request as a single transaction:
+
+1. Validate the join half (token, identity, capacity).
+2. Validate each constraint item against the resource's constraint-acceptance rules (e.g. section exists, boundary is non-empty, caller's clearance permits publishing a constraint on this section).
+3. If **any** validation step fails, the server MUST NOT create a registration, MUST NOT publish any constraint, and MUST NOT emit any event. The response is a single `onboard-response` with the failing reason.
+4. If all validations pass, the server creates the registration, publishes all constraints, and emits **one** `pact.fabric.onboarded` event whose `payloadJson` references both the new `registrationId` and the `constraintIds` of the published constraints. The individual `pact.constraint.published` events for the bundled constraints MUST be emitted in the same transaction and MUST carry a `correlationId` linking them to the `pact.fabric.onboarded` event.
+5. `pact.fabric.onboarded` replaces the bare `pact.agent.joined` event when the onboarding path is taken: implementations MUST NOT emit both `pact.agent.joined` and `pact.fabric.onboarded` for the same registration. Implementations that internally trigger the join logic from `_onboard` MUST suppress the `pact.agent.joined` event in favour of `pact.fabric.onboarded`.
+
+**Response body** (matches `onboard-response.json`) — success case:
+
+```json
+{
+  "status": "onboarded",
+  "fabric_id": "doc_xyz",
+  "registration": { "...": "join-response.json shape" },
+  "constraints": [
+    { "constraint_id": "con_42", "sectionId": "sec:risk", "boundary": "Must not name specific instruments" }
+  ],
+  "onboarded_event_id": "evt_onb_001",
+  "onboarded_at": "2026-05-15T18:02:11Z"
+}
+```
+
+Rejection case:
+
+```json
+{
+  "status": "rejected",
+  "rejection_reason": "constraint.incompatible",
+  "rejected_constraint_index": 1,
+  "errors": [
+    { "code": "constraint.incompatible", "description": "Constraint on sec:budget conflicts with existing fabric constraint con_18.", "metadata": { "conflicting_constraint_id": "con_18" } }
+  ]
+}
+```
+
+**Verifier ID binding.** Cross-organisation `_onboard` calls at the `Authorization-Required` tier MUST carry a valid `authorization_proof`. The envelope's `verifier_id` MUST equal the server's DID per §17.7 step 5. Inside-org and Core-tier calls follow the existing §17.9 rules.
+
+**Idempotency.** Onboarding is idempotent over the v2.0.2 invite-token / BYOK mechanism it inherits: a duplicate POST with the same single-use token returns the cached registration. A retry that arrives after a previous `_onboard` failed (no registration created) MUST be allowed to succeed — failure does not consume the token.
+
+**Event emitted.** `pact.fabric.onboarded` (one event per successful onboard, even with N bundled constraints). The constraint publications themselves emit their normal `pact.constraint.published` events, each carrying `correlationId = onboarded_event_id`.
+
+**Errors.** `auth.unauthorized`, `agent.already_joined` (409 — onboarding does not replace existing membership; if the caller is already joined and wants to add constraints, they SHOULD use the regular `POST /constraints` endpoint), `constraint.incompatible`, `constraint.invalid`, `invite_token.invalid` / `invite_token.consumed`.
+
+### 4.5 Merge Operations (Server-Side)
 
 These are triggered automatically by the server, not directly by agents:
 
@@ -321,6 +599,14 @@ pact.intent.objected           // Agent objected to an intent
 pact.constraint.published      // Agent published a constraint on a section
 pact.constraint.withdrawn      // Agent withdrew a constraint
 pact.salience.set              // Agent set salience score for a section
+
+// v2.0.3 — Fabric onboarding & session awareness (§4.4, §6.5)
+pact.fabric.onboarded           // Atomic join+constrain completed via POST /_onboard (§4.4.5); replaces pact.agent.joined on that path
+pact.agent.heartbeat-received   // Bidirectional heartbeat recorded; updates the member's last_seen in the manifest (§4.4.3)
+pact.agent.attention-required   // Agent flagged attention_required=true on a heartbeat — counterparties SHOULD prioritise (§4.4.3)
+pact.agent.mark-read            // Agent acknowledged a closed event range (§4.4.4)
+pact.obligation.created         // Server registered a pending obligation against a member (§6.5)
+pact.obligation.discharged      // The targeted member fulfilled (or the obligation otherwise resolved) — see §6.5 for the resolution kinds
 ```
 
 ### 6.3 Event-log retention
@@ -373,6 +659,60 @@ The `signature` is an Ed25519 (or whitelisted alg per §17.6) signature over the
 
 **Migration from v2.0 / v2.0.1.** Events emitted before v2.0.2's chaining requirement land in the log without `prev_hash`. Implementations upgrading SHOULD treat the first v2.0.2 event as `prev_hash: "GENESIS-v202"` to mark the transition, and SHOULD emit a `pact.log.root` over the prior history at upgrade time so the legacy events are committed to a signed window even if they're not individually chained.
 
+### 6.5 Pending Obligations (v2.0.3+)
+
+Through v2.0.2, "what does the protocol expect from each member next?" was an inferential question — clients had to scan open proposals, intent TTLs, escalation states, and salience thresholds to compute it. v2.0.3 lifts this into a first-class concept: a **pending obligation** is a thing the protocol expects a specific member to do next. Each obligation is registered as an event in the log and surfaced through §4.4 `_status` and `manifest`.
+
+**Shape** (matches `pending-obligation.json`):
+
+```json
+{
+  "id": "obl_001",
+  "fabric_id": "doc_xyz",
+  "member_id": "urn:pact:agent:b-1",
+  "kind": "vote",
+  "event_ref": "evt_5a2c",
+  "created_at": "2026-05-15T18:15:00Z",
+  "due_by": "2026-05-15T18:20:00Z",
+  "discharged_at": null,
+  "discharge_kind": null,
+  "discharge_event_ref": null
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | Yes | Obligation identifier, server-minted. Stable across the obligation's lifecycle. |
+| `fabric_id` | string | Yes | The fabric / resource the obligation belongs to. |
+| `member_id` | string | Yes | The `agentId` (or registration ID, per implementation convention) expected to act. Exactly one member per obligation; multi-member expectations are modelled as N obligations. |
+| `kind` | enum | Yes | `vote` \| `respond` \| `sign` \| `ack` — what kind of action discharges the obligation. See below. |
+| `event_ref` | string | Yes | The event that **created** the obligation (e.g. the `pact.proposal.created` event for which a vote is owed). The event is the obligation's source-of-truth context. |
+| `created_at` | ISO 8601 | Yes | When the obligation was registered. |
+| `due_by` | ISO 8601 | No | Optional deadline. After this, the obligation MAY be flagged in the manifest as `overdue: true` (the implementation chooses whether to auto-escalate). Absent → no implicit deadline. |
+| `discharged_at` | ISO 8601 | No | When the obligation was resolved. `null` while pending. |
+| `discharge_kind` | enum | No | How it was discharged: `fulfilled` (the member acted), `superseded` (a later event made it moot — e.g. the proposal was withdrawn), `timed_out` (the `due_by` passed and the implementation auto-resolved), `escalated` (the obligation was rolled up into a `pact.escalation.human` event). |
+| `discharge_event_ref` | string | No | The event that discharged the obligation. |
+
+**Obligation kinds.**
+
+| Kind | Created when | Discharged when |
+|---|---|---|
+| `vote` | A proposal targets a section the member has non-zero salience on (or the approval policy requires the member's vote). | The member emits `proposal.approve`, `proposal.reject`, or `proposal.object`. Also discharged when the proposal is withdrawn (`discharge_kind = "superseded"`). |
+| `respond` | A `query.submit` (§13.5.2) or `escalate.human` targets this member. | The member emits the matching response event. |
+| `sign` | A commit / merge requires the member's signature (e.g. an `authorization_proof`-bearing merge). | The member's signature lands in the event log. |
+| `ack` | A counterparty's substantive event (proposal, escalation, mediated message) was delivered to this member and the implementation requires acknowledgement before further state advances. | The member calls `POST /mark-read` covering the source event, or otherwise acts on it. |
+
+**Event semantics.** Two new event types:
+
+- **`pact.obligation.created`** — emitted whenever the server registers a new pending obligation. The event's `payloadJson` carries the full `pending-obligation.json` shape with `discharged_at = null`. `correlationId` MUST point to the creating event (the proposal, query, escalation, etc.) so a consumer can trace `creating event → obligation → discharge event` as a single chain. The `actorKind` for this event is `System`.
+- **`pact.obligation.discharged`** — emitted when an obligation resolves. The event's `payloadJson` carries the obligation's final state with `discharged_at`, `discharge_kind`, and `discharge_event_ref` populated. `correlationId` MUST equal the `pact.obligation.created` event's `id`. `inResponseTo` MAY point to the discharging event for ergonomics.
+
+**Surfacing in operations.** Both `GET /_status` and `GET /manifest` (§4.4) include a `pending_obligations` array using the `pending-obligation.json` shape. `_status` includes all pending obligations across the fabric (filtered by cross-org disclosure — a counterparty's obligation visibility follows §17.13 rules); `manifest` includes only the caller's own pending obligations plus a `counterparties[].pending_obligation_count` summary.
+
+**Conformance.** Pending obligations are RECOMMENDED at Core and SHOULD be emitted at Extended and Authorization-Required. An implementation that does not emit obligation events MUST omit the `pending_obligations` field from `_status` and `manifest` rather than returning a stub empty array (so consumers can detect non-support).
+
+**Backward compatibility.** v2.0.2 clients that ignore the new event types and the manifest endpoint see no behavioural change — the existing proposal / intent / escalation lifecycle continues to work without obligation events, and the inferential model of v2.0.2 remains valid.
+
 ---
 
 ## 7. API Surface
@@ -406,6 +746,13 @@ DELETE /api/pact/{documentId}/constraints/{id}         // Withdraw a constraint
 POST   /api/pact/{documentId}/salience                // Set salience score
 GET    /api/pact/{documentId}/salience                // Get salience heat map
 POST   /api/pact/{documentId}/proposals/{id}/object   // Object to a proposal
+
+// Fabric onboarding & session awareness (v2.0.3 — §4.4)
+GET    /api/pact/{documentId}/_status                  // Whole-fabric snapshot
+GET    /api/pact/{documentId}/manifest                 // Caller-scoped view (constraints, obligations, counterparties)
+POST   /api/pact/{documentId}/_heartbeat               // Bidirectional liveness + attention flag
+POST   /api/pact/{documentId}/mark-read                // Acknowledge an event range
+POST   /api/pact/{documentId}/_onboard                 // Atomic join + constraint declaration
 
 // PACT Live Endpoints (v0.3)
 GET    /api/pact/{documentId}/poll                    // Poll events with cursor-based pagination
@@ -449,6 +796,14 @@ OnHumanResponded(documentId, queryId, responderId, agentId, agentName)
 OnAgentCompleted(documentId, completionId, agentId, agentName, status, summary)
 OnHumanResolved(documentId, resolutionId, sectionId, decision, isOverride)
 OnCascadeValidated(documentId, resolutionId, agentRegistrationId, result, cascadeStatus)
+
+// Fabric onboarding & session awareness events (v2.0.3 §4.4 / §6.5)
+OnFabricOnboarded(documentId, principalId, agentId, role, correlationId)
+OnHeartbeatReceived(documentId, principalId, agentId, attentionRequired, observedAt)
+OnAttentionRequired(documentId, principalId, agentId, reason, observedAt)
+OnMarkRead(documentId, principalId, fromEventId, toEventId, observedAt)
+OnObligationCreated(documentId, obligationId, memberId, kind, eventRef, dueBy)
+OnObligationDischarged(documentId, obligationId, memberId, kind, dischargedAt)
 ```
 
 ### 7.3 MCP Tools
@@ -479,7 +834,16 @@ Implementations MAY expose PACT operations as MCP (Model Context Protocol) tools
     { "name": "pact_salience_map", "description": "Get salience heat map for a document" },
     { "name": "pact_poll", "description": "Poll for events since a cursor" },
     { "name": "pact_lock", "description": "Lock a section for editing" },
-    { "name": "pact_unlock", "description": "Unlock a section" }
+    { "name": "pact_unlock", "description": "Unlock a section" },
+
+    // Fabric onboarding & session awareness (v2.0.3 §4.4 / §15.6)
+    { "name": "pact_onboard", "description": "Atomically onboard into a fabric — declare constraints up-front; either admitted with constraints recorded or rejected with no membership created" },
+    { "name": "pact_status", "description": "Snapshot a fabric (phase, members, latest event id, pending obligations) — or, if no id given, return a local-state summary of every fabric this agent is in" },
+    { "name": "pact_manifest", "description": "Fetch the caller-scoped active-session manifest for a fabric and cache it for pact_session_announce" },
+    { "name": "pact_transcript", "description": "Fetch the event log for a fabric since an optional event id; optionally ack the printed range via /mark-read" },
+    { "name": "pact_heartbeat", "description": "Fire a one-shot heartbeat to signal liveness on a fabric; optionally mark attention_required" },
+    { "name": "pact_mark_read", "description": "Acknowledge a transcript event range on the server (standalone alternative to the pact_transcript mark_read flag)" },
+    { "name": "pact_session_announce", "description": "COGNITIVE-LAYER HOOK — returns a 'you are in N fabrics with M obligations' payload for the calling LLM to prepend to its working context. Offline by default; use refresh_manifests=true for live data" }
   ]
 }
 ```
@@ -1099,7 +1463,7 @@ Each PACT server SHOULD publish an **Implementation Profile** describing its cap
 | `conformanceLevel` | Yes | One of `core` / `extended` / `authorization-required`. |
 | `resourceTypes` | Yes | Resource types this server supports (must intersect with the v2.0 registry, §14.3). |
 | `retentionPolicy` | **Yes (v2.0+)** | Event-log retention policy per §6.3: `{ minimumDays: int, indefinite: bool, tombstoneAfter: int\|null }`. |
-| `capabilities` | SHOULD | Boolean capability flags. v2.0 well-known flags: `mediatedCommunication`, `informationBarriers`, `structuredNegotiation`, `inviteTokens`, `authorizationProof`, `agentIdentityTransfer`, `pushDelivery` (when v2.1 lands), `sessions` (v2.1). |
+| `capabilities` | SHOULD | Boolean capability flags. v2.0 well-known flags: `mediatedCommunication`, `informationBarriers`, `structuredNegotiation`, `inviteTokens`, `authorizationProof`, `agentIdentityTransfer`, `didDocumentPinning`, `recoverySingleChannel`, `atomicOnboard` (v2.0.3), `manifest` (v2.0.3), `sessionAwareness` (v2.0.3), `pushDelivery` (when v2.1 lands), `sessions` (v2.1). |
 | `endpoints` | SHOULD | At minimum `rest`. SHOULD include `realtime` for SignalR/WebSocket and `credentialsRegistry` for §17.8. |
 
 ### 15.2 Conformance Levels
@@ -1199,6 +1563,79 @@ The server MUST respond with a `tier_probe_report`:
 **Conformance:** OPTIONAL at Core; SHOULD at Extended; **MUST at Authorization-Required**. Implementations claiming Authorization-Required without exposing `_probe/tier` are accepted by tooling but flagged as non-introspectable; consumers SHOULD prefer probeable counterparties for cross-org trust.
 
 The reference CLI exposes this as `pact tier-introspect <server-url> [--checks <list>]`; the MCP exposes `pact_tier_introspect`.
+
+### 15.6 Fabric Onboarding Pattern (v2.0.3+)
+
+§4.4.5 defines the `POST /_onboard` operation; this section documents the *flow* it is designed for and explains why the atomic onboarding path is preferred over the legacy join-then-constrain sequence.
+
+**Recommended flow.**
+
+```
+┌──────────────┐                                         ┌──────────────┐
+│  Initiator A │                                         │   Invitee B  │
+└──────┬───────┘                                         └──────┬───────┘
+       │ 1. Opens a fabric on its server                       │
+       │    (POST /api/pact resource, configures policy)        │
+       │                                                        │
+       │ 2. Sends an invitation out-of-band                     │
+       │    (email, signed message, signed link).               │
+       │    Invitation carries: { fabricId, invite_token,       │
+       │      counterparty_did, suggested_constraints? }        │
+       │ ───────────────────────────────────────────────────────│
+       │                                                        │
+       │                                          3. Constructs │
+       │                                             its own    │
+       │                                             constraints│
+       │                                                        │
+       │                4. POST /_onboard (§4.4.5)              │
+       │                ◄────────────────────────────────────── │
+       │                   { agentName, constraints[],          │
+       │                     invite_token, authorization_proof }│
+       │                                                        │
+       │ 5. Atomic check                                        │
+       │    - validate join half                                │
+       │    - validate each constraint                          │
+       │    - if either fails → reject (no partial state)       │
+       │    - else → register + publish constraints + emit      │
+       │      one pact.fabric.onboarded event                   │
+       │                                                        │
+       │ 6. Both sides observe the fabric.onboarded event;       │
+       │    B's manifest now reflects the negotiation envelope. │
+       │                                                        │
+       │ 7. Substantive messages may now flow.                  │
+       ▼                                                        ▼
+```
+
+**Why atomic onboard beats join-then-constrain.**
+
+The pre-v2.0.3 path was:
+
+```
+B → POST /join          (creates registration, emits pact.agent.joined)
+B → POST /constraints   (publishes constraint #1)
+B → POST /constraints   (publishes constraint #2)
+...
+B is now ready to negotiate.
+```
+
+This sequence has a **half-joined window** between step 1 and the last `POST /constraints`. During that window:
+
+- **Counterparties believe B is a full member.** A may send messages, target proposals, or include B in vote tallies — even though B has not yet declared the constraints it intends to negotiate under.
+- **B's reasoning context is split.** B "knows it's joined" because its `join` returned `200 OK`, but its constraints exist only in B's local intent — not yet in the fabric. If B crashes between step 1 and step 2, recovery is ambiguous (is the registration valid? are the unpublished constraints abandoned?).
+- **Constraint-rejection has bad blast radius.** If B's third constraint is rejected for incompatibility, B is left as a partial member whose declared envelope doesn't match what it intended. Rolling back from the failed constraint to "as if B never joined" is a manual cleanup.
+- **The event log is misleading.** `pact.agent.joined` appears before the constraints, suggesting B accepted whatever envelope existed at join time. The constraints arrive seconds (or longer) later as separate events with their own correlation gaps.
+
+`_onboard` collapses this to one transaction: either B is a member with constraints `[c1, c2, c3]` declared, or B never joined at all. There is no observable point at which B is a member but its constraints have not yet been declared, and the event log records a single `pact.fabric.onboarded` event that names both the registration and the constraints, with the bundled `pact.constraint.published` events carrying matching `correlationId`s (§4.4.5 step 4).
+
+**When to use legacy join.** The legacy `POST /join` remains valid for cases that don't fit the onboarding flow:
+
+- An agent joining as a pure observer with no constraints to declare ever.
+- An agent whose constraints emerge dynamically during negotiation and were genuinely not known at join time.
+- Compatibility with v2.0.2 / v2.0.1 / v2.0 / v1.x clients.
+
+**Implementer guidance.** Servers SHOULD advertise `_onboard` availability via the `capabilities.atomicOnboard: true` flag in the Implementation Profile (§15.1). Clients SHOULD prefer `_onboard` when they have constraints to declare and the server advertises support; SHOULD fall back to join + N `POST /constraints` only when the server's profile lacks the flag (or when the server returns `404` / `405` on `_onboard`).
+
+**Cross-organisation onboarding.** At the `Authorization-Required` tier (§17.9), a cross-org `_onboard` call MUST carry a valid `authorization_proof`. The verifier checks the proof against the same envelope rules as any other cross-org message (§17.7); a failure rejects the entire onboarding, just as it would reject any substantive message. This is the natural place to bind onboarding to human intent: the proof witnesses "the human Bridget authorized her agent to join fabric F with these constraints" rather than the legacy split-witness pattern (one proof for joining, separate proofs for each later constraint).
 
 ---
 
@@ -1434,6 +1871,16 @@ PACT v2.0.2's security properties depend on more than the protocol. A complete t
 
 This section is non-normative framing. It does not impose new requirements; it makes the existing trust model explicit so implementers and consumers calibrate accordingly.
 
+**Manifest visibility (v2.0.3+).** The §4.4 active-session-manifest endpoints (`/_status` and `/manifest`) make existing fabric state easier to *read* — they do NOT relax the disclosure rules under which that state is shared. The manifest is **not** a privacy bypass. A server MUST apply the same cross-organisation, clearance, and graduated-disclosure (§10.3) rules to manifest responses as it does to the underlying per-endpoint reads:
+
+- A counterparty's `principal_id`, `agent_name`, contact metadata, and other PII fields are returned in `_status.members[]` and `manifest.counterparties[]` only to the extent §17 already permits the caller to learn them. Where a counterparty's disclosure level (per §10.3) is "Constraint" or "Category," the field MUST be elided (key omitted), NOT set to `null` or an empty string — omission preserves the distinction between "field not present" and "field present and explicitly empty."
+- Pending obligations (§6.5) belonging to a counterparty are surfaced in `_status.pending_obligations[]` filtered by the same rules; the caller sees only obligations whose existence it would already be entitled to learn from observing the underlying events. A summary count (`counterparties[].pending_obligation_count`) MAY be returned even when individual obligation entries are elided, but implementations SHOULD weigh whether the count itself leaks too much (e.g. a counterparty's overload signal) for the deployment's threat model.
+- Last-seen timestamps (`members[].last_seen`, `counterparties[].last_seen`) are coarse-grained liveness signals and are RECOMMENDED to be served at second-precision or coarser — not millisecond — to avoid being weaponised as a timing side channel against the counterparty's local workflow.
+- A caller that is itself **not a member** of the fabric MUST NOT receive a manifest. `/manifest` responds `403 auth.forbidden`; `/_status` responds `403 agent.not_joined` (or `404` if the implementation prefers fabric-existence hiding) — never a partially-redacted snapshot.
+- The atomicity guarantee of `_onboard` (§4.4.5) is independent of manifest visibility: a rejected onboard does not leak through the manifest because no membership ever existed.
+
+In short: manifest endpoints are *aggregators of state the caller would already be entitled to compute by other means*, not new disclosure surfaces. If a counterparty's name is hidden from the caller via the §10.3 graduated-disclosure rules, it stays hidden in the manifest.
+
 ---
 
 ## 18. Attestation Format Reference (v2.0)
@@ -1652,6 +2099,15 @@ Full JSON Schema (2020-12) definitions for all API endpoints are available in th
 | `authorization-proof.json` | Any message | Proof-of-human-intent envelope (Section 17.6) |
 | `principal-registry.json` | `/.well-known/pact-credentials.json` | Credential registry structure (Section 17.8) |
 | `agent-identity.json` | Transfer / recovery | Agent identity lifecycle — transfer & recovery attestations, recovery-quorum enrollment (Section 23) |
+| `fabric-status.json` | `GET /_status` | Fabric-wide snapshot (v2.0.3 — §4.4.1) |
+| `fabric-manifest.json` | `GET /manifest` | Caller-scoped manifest of constraints, obligations, counterparties (v2.0.3 — §4.4.2) |
+| `heartbeat-request.json` | `POST /_heartbeat` | Bidirectional heartbeat request (v2.0.3 — §4.4.3) |
+| `heartbeat-response.json` | `POST /_heartbeat` | Bidirectional heartbeat response (v2.0.3 — §4.4.3) |
+| `mark-read-request.json` | `POST /mark-read` | Event-range acknowledgement request (v2.0.3 — §4.4.4) |
+| `mark-read-response.json` | `POST /mark-read` | Event-range acknowledgement response (v2.0.3 — §4.4.4) |
+| `onboard-request.json` | `POST /_onboard` | Atomic join + constrain request (v2.0.3 — §4.4.5) |
+| `onboard-response.json` | `POST /_onboard` | Atomic join + constrain response (v2.0.3 — §4.4.5) |
+| `pending-obligation.json` | `/_status`, `/manifest` | Shared pending-obligation shape (v2.0.3 — §6.5) |
 
 > **Note:** `authorization-proof.json` carries the §18.1 common fields and the `voice-biometric` additions inline (`match`, `utterance_hash`, `verifier_id`); the full normative `voice-biometric` schema — signature suite, embedding-algorithm versioning — lands via HMAN's [#3](https://github.com/TailorAU/pact/issues/3) PR (§18.6).
 
@@ -1686,7 +2142,7 @@ Implementations MUST return items in a stable, deterministic order (typically by
 
 ---
 
-*PACT Specification v2.0.2 — released 15 May 2026 (second patch on the v2.0 line; v2.0 was 14 May 2026, v2.0.1 also 15 May 2026 earlier).*
+*PACT Specification v2.0.3 — released 15 May 2026 (third patch on the v2.0 line; v2.0 was 14 May 2026, v2.0.1 and v2.0.2 also 15 May 2026 earlier in the day; v2.0.3 adds fabric onboarding & session awareness — see "What's New in v2.0.3" at the top).*
 
 *Reference implementation: [Tailor](https://tailor.au) by [TailorAU](https://github.com/TailorAU) — see [Tailor Implementation Notes](./PACT_TAILOR_IMPLEMENTATION.md) for implementation-specific details.*
 

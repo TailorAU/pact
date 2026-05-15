@@ -1,6 +1,6 @@
 {
   "name": "@pact-protocol/mcp",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "MCP server for the PACT protocol — multi-agent consensus on documents, transactions, knowledge, and beyond",
   "license": "MIT",
   "bin": { "pact-mcp": "./bin/pact-mcp.js" },

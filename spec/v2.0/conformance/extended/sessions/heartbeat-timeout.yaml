@@ -1,0 +1,110 @@
+# Conformance test vector — Extended: heartbeat timeout surfaces stale members
+# in /_status (v2.0.3, §4.4 + §4.1 bidirectional-heartbeat update).
+# kind: http — single GET /_status against a fabric whose state has been
+# seeded such that one member (B) has not heartbeated within the configured
+# window. The strictest-reasonable conservative reading: B is FLAGGED as
+# stale (last_seen older than threshold + a `liveness: stale` marker), NOT
+# automatically evicted. Eviction is a policy choice that requires explicit
+# action — the spec preamble line 183 says "auto-evicted after 5min silence"
+# as an example, but the conservative-default interpretation for the
+# conformance suite is "flagged, not evicted" so implementations that take a
+# slower policy still pass.
+
+kind: http
+
+metadata:
+  id: extended/sessions/heartbeat-timeout
+  description: Fabric has member A (heartbeated within window) and member B (silent past the timeout). GET /_status reports B's last_seen older than the threshold and marks B with liveness=stale. B remains a member — the conformance vector requires flagging, not eviction.
+  spec_section: "§4.1, §4.4"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    resource_id: fab_hb_001
+    # Server's "now" for this test is verifier_clock below. Member A's
+    # last_seen is 5s ago (well within the 60s default heartbeat window).
+    # Member B's last_seen is 120s ago — 2x the threshold.
+    heartbeat_timeout_seconds: 60
+    registered_agents:
+      - principalId: did:web:alice.example
+        agentName: alice-bot
+        last_seen: "2026-05-15T11:59:55Z"    # 5s before now
+        liveness: live
+      - principalId: did:web:bob.example
+        agentName: bob-bot
+        last_seen: "2026-05-15T11:58:00Z"    # 120s before now
+        liveness: live                        # server has NOT yet observed the timeout — this GET should surface it
+    server_clock: "2026-05-15T12:00:00Z"
+  request_context:
+    auth: bearer
+    principal_id: did:web:alice.example      # any member can query
+
+request:
+  method: GET
+  path: /api/pact/fab_hb_001/_status
+
+expected_response:
+  status: 200
+  body_match:
+    mode: subset
+    value:
+      fabricId: fab_hb_001
+      heartbeat_timeout_seconds: 60
+      members:
+        - principalId: did:web:alice.example
+          liveness: live
+        - principalId: did:web:bob.example
+          liveness: stale                     # MUST be surfaced — past timeout
+          # `evicted` MUST NOT be true in the conservative interpretation.
+          # The strictest reading is "stale is a flag, eviction is a policy
+          # action requiring a separate event/operation."
+          evicted: false
+  body_ignore_fields:
+    - generated_at
+    - last_event_seq
+    - last_seen                               # absolute timestamp varies per impl clock
+
+expected_events:
+  # A GET is non-mutating. The strictest reading is no events emitted by the
+  # status query itself. Implementations that emit a `pact.agent.stale`
+  # event on first observation of staleness do so out-of-band of this GET
+  # — that's a separate vector (not asserted here).
+  ordered: true
+  sequence: []
+
+postconditions:
+  server_state:
+    events_added: 0
+    resource_modified: false
+
+notes: |
+  Assumptions made against the still-drafting v2.0.3 §4.1 + §4.4 text:
+  - 60s is taken as the default heartbeat_timeout_seconds. The spec preamble
+    (line 183) suggests 5 minutes (300s) for auto-eviction. Distinguishing:
+    60s is the "go stale" threshold; eviction (if any) is a longer threshold
+    and requires explicit action. This vector tests staleness only.
+  - liveness has at least these states: `live` | `stale`. Implementations
+    MAY add `evicted` | `pending` etc. — the subset match is forgiving.
+  - The CONSERVATIVE interpretation is "flag, don't evict." If the spec
+    converges on "auto-evict after T seconds," this vector needs a sibling
+    `heartbeat-eviction.yaml` covering the eviction path; the staleness
+    flagging still applies as an earlier state.
+  - The /_status endpoint is non-mutating (a GET). Some implementations may
+    LAZILY transition liveness=live→stale on the read path itself (i.e. emit
+    `pact.agent.stale` as a side effect of this GET). That emission is NOT
+    asserted here — the vector only pins what the GET response body looks
+    like, not the server's internal state transition mechanism.
+  - The runner does NOT advance wall-clock — `server_clock` is the
+    server-state precondition the test author expects the test harness to
+    seed. Live-server runs of this vector require a fixture or time-travel
+    helper to plant the stale member; this is an `events_since`-style
+    precondition that the runner currently treats as documentation.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - /_status omits liveness field entirely (callers cannot detect stale peers)
+    - Liveness reports `live` for B despite last_seen > threshold (heartbeat clock not enforced)
+    - /_status auto-evicts B without an intermediate stale state (callers lose the warning signal)
+    - Liveness is reported but `last_seen` is absent (callers can flag but cannot compute how-stale)

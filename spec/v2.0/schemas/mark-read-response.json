@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.0/mark-read-response.json",
+  "title": "PACT Mark-Read Response",
+  "description": "Response body for POST /api/pact/{fabricId}/mark-read. Confirms the caller's read cursor advanced and returns the id of the emitted pact.agent.mark-read event. Idempotent: re-posting the same range returns the original event_id. Added in PACT v2.0.3 (§4.4.4).",
+  "type": "object",
+  "required": ["fabric_id", "caller_member_id", "marked_from_sequence_number", "marked_to_sequence_number", "acknowledged_at", "event_id"],
+  "properties": {
+    "fabric_id": { "type": "string" },
+    "caller_member_id": {
+      "type": "string",
+      "description": "The caller's agentId (or registration id, per implementation convention)."
+    },
+    "marked_from_sequence_number": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Inclusive lower bound of the range now recorded as read."
+    },
+    "marked_to_sequence_number": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Inclusive upper bound (the caller's new read high-water mark)."
+    },
+    "marked_from_event_id": {
+      "type": ["string", "null"],
+      "description": "Echo of the resolved from_event_id when the request used event ids."
+    },
+    "marked_to_event_id": {
+      "type": ["string", "null"],
+      "description": "Echo of the resolved to_event_id when the request used event ids."
+    },
+    "acknowledged_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the server recorded the acknowledgement."
+    },
+    "event_id": {
+      "type": "string",
+      "description": "Id of the emitted pact.agent.mark-read event. Stable across idempotent retries of the same range."
+    },
+    "merged_with_existing": {
+      "type": "boolean",
+      "description": "True if this mark-read merged with a prior read cursor (range overlap or extension); false if it is a brand-new acknowledgement.",
+      "default": false
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "fabric_id": "doc_xyz",
+      "caller_member_id": "urn:pact:agent:b-1",
+      "marked_from_sequence_number": 400,
+      "marked_to_sequence_number": 412,
+      "marked_from_event_id": "evt_5a08",
+      "marked_to_event_id": "evt_5a2c",
+      "acknowledged_at": "2026-05-15T18:14:33Z",
+      "event_id": "evt_ack_001",
+      "merged_with_existing": false
+    }
+  ]
+}

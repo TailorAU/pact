@@ -1,0 +1,179 @@
+# Conformance test vector — Extended: pending-obligation surfacing in manifest
+# and discharge on satisfying action (v2.0.3 §6.5).
+#
+# kind: session — three sequenced HTTP calls:
+#   step 1. GET /fabric/{id}/manifest as member B   → manifest carries a
+#           pending obligation { kind: vote, event_ref: prop_xyz }.
+#   step 2. POST /fabric/{id}/proposals/{propId}/vote as member B → vote
+#           recorded.
+#   step 3. GET /fabric/{id}/manifest as member B again → obligation no
+#           longer present; discharge event was emitted in the interim.
+#
+# This is the obligation-lifecycle test: protocol-level "what does this
+# member owe the fabric" must be observable AND must clear automatically
+# when the underlying action is taken. A manifest that retains discharged
+# obligations would cause agents to retry already-completed actions.
+
+kind: session
+
+metadata:
+  id: extended/sessions/obligation-surfacing
+  description: "A proposal P exists in fabric F; member B is required to vote. Pre-vote, B's manifest carries the pending obligation { kind: vote, event_ref: P.id, due_by }. After B votes, the obligation is discharged from the manifest and a pact.obligation.discharged event is emitted."
+  spec_section: "§4.4, §6.5"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    resource_id: fab_obl_001
+    registered_agents:
+      - principalId: did:web:bob.example
+        agentName: bob-bot
+        role: proposer
+        liveness: live
+    # A proposal already exists and requires B's vote — the manifest is
+    # supposed to surface that requirement as an obligation.
+    proposals:
+      - id: prop_xyz
+        status: open
+        required_voters:
+          - did:web:bob.example
+        due_by: "2026-05-16T10:00:00Z"
+  request_context:
+    auth: bearer
+    principal_id: did:web:bob.example
+
+steps:
+  - id: pre-vote-manifest-shows-obligation
+    request:
+      method: GET
+      path: /api/pact/fab_obl_001/manifest
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          fabricId: fab_obl_001
+          caller:
+            principalId: did:web:bob.example
+            obligations:
+              - kind: vote
+                event_ref: prop_xyz
+                due_by: "2026-05-16T10:00:00Z"
+                status: pending
+      body_ignore_fields:
+        - generated_at
+        - last_event_seq
+
+  - id: cast-vote
+    request:
+      method: POST
+      path: /api/pact/fab_obl_001/proposals/prop_xyz/vote
+      headers:
+        Content-Type: application/json
+      body:
+        decision: approve
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          proposalId: prop_xyz
+          recorded: true
+      body_ignore_fields:
+        - vote_id
+        - recorded_at
+
+  - id: post-vote-manifest-omits-obligation
+    request:
+      method: GET
+      path: /api/pact/fab_obl_001/manifest
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          fabricId: fab_obl_001
+          caller:
+            principalId: did:web:bob.example
+      body_ignore_fields:
+        - generated_at
+        - last_event_seq
+    cross_call_assertions:
+      # The vote obligation MUST NOT appear in caller.obligations with
+      # status: pending. The runner's `negative_obligation` assertion walks
+      # body.caller.obligations and rejects if any entry matches all of
+      # the given keys.
+      - kind: negative_obligation
+        body_path: caller.obligations
+        match:
+          kind: vote
+          event_ref: prop_xyz
+          status: pending
+
+expected_events:
+  ordered: true
+  # The vote in step 2 emits a vote-recorded event AND a discharge event
+  # against B's obligation. The strictest reading: the discharge event
+  # MUST carry the obligation it discharged so manifest reconcilers can
+  # cross-reference.
+  sequence:
+    - event_type: pact.proposal.voted
+      match:
+        mode: subset
+        value:
+          proposalId: prop_xyz
+          voter: did:web:bob.example
+          decision: approve
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+    - event_type: pact.obligation.discharged
+      match:
+        mode: subset
+        value:
+          principalId: did:web:bob.example
+          obligation:
+            kind: vote
+            event_ref: prop_xyz
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - discharged_at
+
+postconditions:
+  server_state:
+    events_added: 2                          # vote + discharge
+    resource_modified: true                  # proposal vote count incremented
+
+notes: |
+  Assumptions made against the still-drafting v2.0.3 §6.5 text:
+  - Obligation shape is `{ kind, event_ref, due_by, status }`. `kind` is
+    extensible (`vote` | `acknowledge` | `respond` | impl-defined); v2.0.3
+    pins `vote` as a first-class kind because the proposal-voting flow is
+    the most common obligation source.
+  - The discharge mechanism is implicit: when the underlying action (here,
+    a vote) is taken, the server cleans up the matching obligation and
+    emits `pact.obligation.discharged`. The strictest reading is that the
+    discharge MUST be visible BOTH in the manifest (obligation no longer
+    pending) AND in the event log (a discharge event references the
+    discharged obligation). Either alone is insufficient — manifest-only
+    means no audit trail; event-only means agents can't read current state.
+  - `cross_call_assertions[].kind: negative_obligation` is a v2.0.3 runner
+    extension: walks the named body_path and rejects if any entry matches
+    ALL of the given keys in `match`. This is the negation form needed for
+    "MUST NOT contain" assertions on collection bodies.
+  - The vote-cast endpoint is `POST /proposals/{id}/vote` — this mirrors
+    v1.1 conventions; spec text may converge on a different verb (e.g.
+    `/cast-vote`). If it does, only this vector's step 2 path needs an
+    update.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Manifest does not surface pending obligations (agents have no protocol-level signal of what they owe — falls back to ad-hoc polling)
+    - Voting does not discharge the obligation (manifest keeps prompting B to vote forever; agents end up retrying or escalating)
+    - Obligation cleared from manifest but no pact.obligation.discharged event emitted (audit-trail gap — disputes can't reconstruct who discharged when)
+    - Discharge event omits `obligation.event_ref` (cross-reference to manifest entry is broken; reconcilers must guess)

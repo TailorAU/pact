@@ -1,0 +1,138 @@
+# Conformance test vector — Extended: cross-org disclosure reduction on the
+# manifest endpoint (v2.0.3, §17.13 trust-model applied to §4.4 /manifest).
+# kind: http — single GET; the rich preconditions describe the multi-member
+# multi-org setup, and the assertion is the strictly-reduced view member A
+# sees of member B's record.
+#
+# The subtlety: §17.13 trust-floor framing + §15.4 cross-org boundary
+# definition combine to say that contact-info fields on a cross-org peer
+# are NOT visible without an explicit recorded consent event. display_name
+# IS visible (needed for human-readable manifest UX). This vector pins the
+# reduction shape.
+
+kind: http
+
+metadata:
+  id: extended/sessions/manifest-cross-org-disclosure
+  description: Member A (org-A) queries /manifest on a fabric also containing member B (org-B). A sees its own record in full (constraints + obligations + contact); A sees B's display_name only — B's contact, raw constraints and obligations are reduced per §17.13. No cross-org consent has been recorded.
+  spec_section: "§4.4, §15.4, §17.13"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    resource_id: fab_xorg_001
+    # Two members, two distinct registrable domains (eTLD+1 differs per §15.4).
+    registered_agents:
+      - principalId: did:web:org-a.example
+        agentName: alice-bot
+        org_eTLD_plus_1: org-a.example
+        role: contributor
+        constraints:
+          - name: rate-limit-per-minute
+            value: 30
+        obligations: []
+        contact:
+          email: alice@org-a.example
+          escalation_hook: https://alerts.org-a.example/inbox
+      - principalId: did:web:org-b.example
+        agentName: bob-bot
+        org_eTLD_plus_1: org-b.example
+        role: contributor
+        constraints:
+          - name: rate-limit-per-minute
+            value: 60
+          - name: disclosure-ceiling
+            value: 1
+        obligations:
+          - kind: vote
+            event_ref: prop_xyz
+            due_by: "2026-05-16T10:00:00Z"
+        contact:
+          email: bob@org-b.example
+          escalation_hook: https://alerts.org-b.example/inbox
+    cross_org_consent_records: []          # no consent on file — strictest case
+  request_context:
+    auth: bearer
+    principal_id: did:web:org-a.example    # Alice is the caller
+
+request:
+  method: GET
+  path: /api/pact/fab_xorg_001/manifest
+
+expected_response:
+  status: 200
+  body_match:
+    mode: subset
+    value:
+      fabricId: fab_xorg_001
+      caller:
+        # Own record: full visibility.
+        principalId: did:web:org-a.example
+        role: contributor
+        constraints:
+          - name: rate-limit-per-minute
+            value: 30
+        obligations: []
+        contact:
+          email: alice@org-a.example
+          escalation_hook: https://alerts.org-a.example/inbox
+      peers:
+        # Cross-org peer: display_name visible; contact hidden; constraints
+        # and obligations summarised to counts, not enumerated. The strictest
+        # §17.13 reading is "no enumeration of policy state across orgs
+        # without consent" because constraint shape itself can leak strategy.
+        - principalId: did:web:org-b.example
+          display_name: bob-bot
+          role: contributor
+          cross_org: true
+          contact_visible: false
+          constraints_summary:
+            count: 2
+          obligations_summary:
+            pending_count: 1
+  body_ignore_fields:
+    - generated_at
+    - last_event_seq
+
+# The manifest endpoint is a read; no events emitted.
+expected_events:
+  ordered: true
+  sequence: []
+
+postconditions:
+  server_state:
+    events_added: 0
+    resource_modified: false
+
+notes: |
+  Assumptions made against the still-drafting v2.0.3 §4.4 + §17.13 update text:
+  - The /manifest response separates `caller` (self) from `peers` (others).
+    The strictest §17.13 reading is "you always see your own record in full,
+    you see cross-org peers' display_name only." Same-org peers SHOULD see
+    each other's constraints (not asserted here — vector is cross-org only).
+  - `display_name` is asserted visible for cross-org peers because manifest
+    UX needs a human label. Hiding it would force callers to display raw
+    DIDs which defeats the manifest's whole purpose.
+  - Constraints and obligations are surfaced as `*_summary { count }` rather
+    than enumerated. Counts leak less than shapes — a competitor reading a
+    cross-org peer's full constraint list could infer their strategy.
+  - `cross_org: true` is asserted as an explicit boolean so callers can
+    branch on visibility tier without recomputing eTLD+1 themselves.
+  - `contact_visible: false` is explicit (rather than just-omitting `contact`)
+    because absence-of-field is ambiguous: a missing contact could mean
+    "hidden" or "the peer has no contact configured." The explicit boolean
+    disambiguates.
+  - If cross_org_consent_records[] contained an entry binding org-a ↔ org-b
+    for this fabric, the reduction would NOT apply — but that consented
+    case is out of scope here. A future positive-consent vector should
+    cover it.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Manifest returns peer contact fields without cross-org consent (privacy leak — direct §17.13 violation)
+    - Manifest enumerates peer constraints across orgs (strategy leak — softer §17.13 violation but still load-bearing)
+    - Manifest reduces caller's OWN view as if cross-org (false-positive over-reduction; harmless for privacy but breaks caller UX)
+    - Manifest hides display_name for cross-org peers (over-reduction; manifest becomes unusable)
+    - Manifest treats same-org peers as cross-org because the implementation doesn't apply the §15.4 eTLD+1 rule

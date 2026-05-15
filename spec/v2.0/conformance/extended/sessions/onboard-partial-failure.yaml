@@ -1,0 +1,127 @@
+# Conformance test vector — Extended: atomic onboarding failure leaves NO state
+# behind (v2.0.3). kind: session — two sequenced HTTP calls with cross-call
+# assertions:
+#   step 1. POST /fabric/{id}/_onboard with a constraint that conflicts with
+#           fabric policy → expect 4xx, body identifies the conflicting
+#           constraint by name.
+#   step 2. GET /fabric/{id}/_status → caller MUST NOT appear as a member.
+#
+# This is the load-bearing atomicity test: a partial-failure onboarding that
+# silently half-joined a caller would break manifest invariants downstream.
+
+kind: session
+
+metadata:
+  id: extended/sessions/onboard-partial-failure
+  description: A caller invokes _onboard with a constraint conflicting with fabric policy. The server rejects (4xx), names the offending constraint, and the post-call /_status snapshot confirms the caller is NOT a member of the fabric — i.e. the onboarding was atomic, not partial.
+  spec_section: "§4.4, §15.6"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    resource_id: fab_abc123
+    registered_agents: []                  # caller is not a member
+    # Fabric policy: max disclosure-ceiling = 2. The caller will ask for 4
+    # in step 1 — that's the conflict the server must reject.
+    fabric_policy:
+      max_disclosure_ceiling: 2
+  request_context:
+    auth: bearer
+    principal_id: did:web:knox.example
+
+steps:
+  - id: onboard-rejected
+    request:
+      method: POST
+      path: /api/pact/fab_abc123/_onboard
+      headers:
+        Content-Type: application/json
+      body:
+        agentName: test-bot
+        role: contributor
+        constraints:
+          - name: rate-limit-per-minute
+            value: 30
+          - name: disclosure-ceiling
+            value: 4                       # exceeds fabric policy max of 2
+    expected_response:
+      # 422 is the strictest reading ("the request body is well-formed but
+      # the policy refused"). Implementations MAY return 409 if they model
+      # the conflict as a state-conflict rather than a semantic-validation
+      # failure; both are documented as acceptable in `notes:`.
+      status: 422
+      body_match:
+        mode: subset
+        value:
+          error: constraint_rejected
+          rejected_constraint:
+            name: disclosure-ceiling
+      body_ignore_fields:
+        - request_id
+        - timestamp
+
+  - id: status-confirms-non-membership
+    request:
+      method: GET
+      path: /api/pact/fab_abc123/_status
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          fabricId: fab_abc123
+          # The caller's principal MUST NOT appear in members[]. This is
+          # expressed structurally below via the assertion contract:
+          # the runner walks `members` and rejects if any entry has
+          # principalId == did:web:knox.example.
+      body_ignore_fields:
+        - last_event_seq
+        - heartbeat_timeout_seconds
+    # cross_call_assertions runs after the response is captured. The runner
+    # treats `negative_membership` as a structural check on the response body:
+    # for every entry in `body.members`, `principalId` MUST NOT equal the
+    # listed principal_id.
+    cross_call_assertions:
+      - kind: negative_membership
+        body_path: members
+        principal_id: did:web:knox.example
+
+expected_events:
+  # The strictest reading of atomicity is that a rejected onboard emits NO
+  # success events. A diagnostic `pact.trust.violation` or
+  # `pact.fabric.onboard-rejected` event MAY be emitted; v2.0.3 leaves this
+  # implementation-defined per the parallel spec draft. We do NOT assert
+  # presence here — that's a `notes:` reconciliation item.
+  ordered: true
+  sequence: []
+
+postconditions:
+  server_state:
+    events_added: 0                        # strict atomicity: no half-state
+    resource_modified: false               # membership table unchanged
+
+notes: |
+  Assumptions made against the still-drafting v2.0.3 §4.4 / §15.6 text:
+  - HTTP 422 is the strictest reading of "constraint rejected by policy."
+    409 (Conflict) is also acceptable. If the spec converges on 409, this
+    vector's expected_response.status will need to change.
+  - The rejection body carries `error: constraint_rejected` and
+    `rejected_constraint: { name: <name> }`. The strictest reading is that
+    the response identifies the conflicting constraint BY NAME so the caller
+    can retry with a narrower request without trial-and-error binary search.
+  - `events_added: 0` is the conservative interpretation. Some implementations
+    will emit an audit event (`pact.fabric.onboard-rejected` or
+    `pact.trust.violation`) for SIEM consumption — this vector does NOT
+    require absence of audit events, only absence of success events.
+  - `cross_call_assertions[].kind: negative_membership` is a v2.0.3 runner
+    extension: walks the named body_path and rejects if any entry has
+    `principalId` matching the listed value. Documented in the runner.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Server returns 200 / partially-joined membership on a conflicting onboard (atomicity violated)
+    - Rejection body omits the conflicting constraint name (caller cannot self-correct)
+    - GET /_status shows the rejected caller as a member with reduced constraints (silent constraint narrowing — worse than outright failure because it hides the policy enforcement)
+    - Server emits pact.fabric.onboarded before policy check completes (event-log inconsistent with membership table)

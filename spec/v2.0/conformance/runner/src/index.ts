@@ -24,8 +24,49 @@ import { verifyFido2Assertion } from './webauthn.js';
 
 // ─── types ──────────────────────────────────────────────────────────────
 
+interface HttpRequest {
+  method: string;
+  path: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+}
+
+interface HttpExpectedResponse {
+  status: number;
+  headers?: Record<string, string>;
+  body_match?: { mode: 'exact' | 'subset' | 'schema'; value: unknown };
+  body_ignore_fields?: string[];
+}
+
+/**
+ * Cross-call assertion run against a step's response body AFTER the basic
+ * status + body_match checks pass. Used by kind: session vectors to express
+ * "MUST NOT contain" invariants on collection bodies — e.g. after a rejected
+ * onboard, the /_status response's `members` array MUST NOT contain the
+ * rejected caller's principal_id.
+ *
+ * Two v2.0.3 kinds:
+ *   - negative_membership: walks `body_path` (dot-pathed array of objects);
+ *     rejects if any entry has `principalId === principal_id`.
+ *   - negative_obligation: walks `body_path` (dot-pathed array of objects);
+ *     rejects if any entry's keys match ALL keys in `match`.
+ */
+interface CrossCallAssertion {
+  kind: 'negative_membership' | 'negative_obligation';
+  body_path: string;
+  principal_id?: string;
+  match?: Record<string, unknown>;
+}
+
+interface SessionStep {
+  id: string;
+  request: HttpRequest;
+  expected_response: HttpExpectedResponse;
+  cross_call_assertions?: CrossCallAssertion[];
+}
+
 interface Vector {
-  kind?: 'http' | 'verification';
+  kind?: 'http' | 'verification' | 'session';
   metadata: {
     id: string;
     description?: string;
@@ -35,20 +76,12 @@ interface Vector {
   };
   // kind: http
   preconditions?: unknown;
-  request?: {
-    method: string;
-    path: string;
-    headers?: Record<string, string>;
-    body?: unknown;
-  };
-  expected_response?: {
-    status: number;
-    headers?: Record<string, string>;
-    body_match?: { mode: 'exact' | 'subset' | 'schema'; value: unknown };
-    body_ignore_fields?: string[];
-  };
+  request?: HttpRequest;
+  expected_response?: HttpExpectedResponse;
   expected_events?: unknown;
   postconditions?: unknown;
+  // kind: session — sequenced HTTP steps with cross-call assertions
+  steps?: SessionStep[];
   // kind: verification
   verification?: {
     proof: Record<string, unknown>;
@@ -287,48 +320,162 @@ function subsetMatch(actual: unknown, expected: unknown): boolean {
   return true;
 }
 
+/**
+ * Resolve a dot-pathed accessor against an object body. Returns undefined if
+ * any segment is missing. e.g. resolvePath({a: {b: 1}}, "a.b") === 1.
+ */
+function resolveBodyPath(body: unknown, path: string): unknown {
+  if (!path) return body;
+  let cur: unknown = body;
+  for (const seg of path.split('.')) {
+    if (cur === null || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[seg];
+    if (cur === undefined) return undefined;
+  }
+  return cur;
+}
+
+/**
+ * Run a cross-call assertion against a step's response body. Returns null on
+ * pass, a human-readable failure reason on fail.
+ */
+function checkCrossCallAssertion(body: unknown, a: CrossCallAssertion): string | null {
+  const target = resolveBodyPath(body, a.body_path);
+  if (a.kind === 'negative_membership') {
+    if (!Array.isArray(target)) {
+      // Absence-of-collection is a structural pass for a negative assertion:
+      // if there's no `members` array at all, the principal trivially isn't in it.
+      return null;
+    }
+    for (const entry of target) {
+      if (entry && typeof entry === 'object' && (entry as Record<string, unknown>).principalId === a.principal_id) {
+        return `negative_membership violated: ${a.principal_id} present in ${a.body_path}`;
+      }
+    }
+    return null;
+  }
+  if (a.kind === 'negative_obligation') {
+    if (!Array.isArray(target)) return null;
+    const m = a.match ?? {};
+    for (const entry of target) {
+      if (!entry || typeof entry !== 'object') continue;
+      const e = entry as Record<string, unknown>;
+      let allMatch = true;
+      for (const k of Object.keys(m)) {
+        if (JSON.stringify(e[k]) !== JSON.stringify(m[k])) { allMatch = false; break; }
+      }
+      if (allMatch) {
+        return `negative_obligation violated: entry matching ${JSON.stringify(m)} present in ${a.body_path}`;
+      }
+    }
+    return null;
+  }
+  return `unknown cross_call_assertion kind: ${(a as { kind: string }).kind}`;
+}
+
+/**
+ * Run a single HTTP request + assertions block. Used both directly (kind:
+ * http) and per-step (kind: session). Returns { outcome, body? } so callers
+ * can do cross-call assertions against the parsed body if they want.
+ */
+async function runHttpStep(
+  req: HttpRequest,
+  expected: HttpExpectedResponse,
+  serverUrl: string,
+): Promise<{ outcome: Outcome; body?: unknown }> {
+  const url = new URL(req.path, serverUrl).toString();
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: req.method,
+      headers: { 'Content-Type': 'application/json', ...(req.headers ?? {}) },
+      body: req.body !== undefined ? JSON.stringify(req.body) : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err) {
+    return { outcome: { status: 'fail', reason: `request failed: ${(err as Error).message}` } };
+  }
+
+  if (res.status !== expected.status) {
+    return { outcome: { status: 'fail', reason: `expected status ${expected.status}, got ${res.status}` } };
+  }
+
+  // Always read the body so callers can do cross-call assertions even when
+  // body_match is omitted (the negative-membership / negative-obligation tests
+  // assert on shape without enumerating positive matches).
+  const text = await res.text();
+  let actual: unknown = null;
+  try { actual = text ? JSON.parse(text) : null; } catch { actual = text; }
+
+  const bodyMatch = expected.body_match;
+  if (bodyMatch) {
+    const ignore = expected.body_ignore_fields ?? [];
+    const actualPruned = pruneIgnored(actual, ignore);
+    if (bodyMatch.mode === 'exact') {
+      if (JSON.stringify(actualPruned) !== JSON.stringify(bodyMatch.value)) {
+        return { outcome: { status: 'fail', reason: `body mismatch (exact): got ${JSON.stringify(actualPruned).slice(0, 200)}` }, body: actual };
+      }
+    } else if (bodyMatch.mode === 'subset') {
+      if (!subsetMatch(actualPruned, bodyMatch.value)) {
+        return { outcome: { status: 'fail', reason: `body mismatch (subset): expected ${JSON.stringify(bodyMatch.value)} ⊆ ${JSON.stringify(actualPruned).slice(0, 200)}` }, body: actual };
+      }
+    } else if (bodyMatch.mode === 'schema') {
+      // Schema-mode validation is left for a follow-up (would need ajv).
+      return { outcome: { status: 'skip', reason: 'body_match mode: schema not implemented yet in the runner skeleton' }, body: actual };
+    }
+  }
+  return { outcome: { status: 'pass' }, body: actual };
+}
+
 async function checkHttp(vec: Vector, serverUrl: string | null): Promise<Outcome> {
   if (!serverUrl) return { status: 'skip', reason: 'no --server provided; HTTP vectors need a server target' };
   if (!vec.request || !vec.expected_response) return { status: 'fail', reason: 'kind: http but missing `request` / `expected_response`' };
 
-  const url = new URL(vec.request.path, serverUrl).toString();
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: vec.request.method,
-      headers: { 'Content-Type': 'application/json', ...(vec.request.headers ?? {}) },
-      body: vec.request.body !== undefined ? JSON.stringify(vec.request.body) : undefined,
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch (err) {
-    return { status: 'fail', reason: `request failed: ${(err as Error).message}` };
-  }
+  const { outcome } = await runHttpStep(vec.request, vec.expected_response, serverUrl);
+  // expected_events checking needs a running event-log subscription; deferred.
+  return outcome;
+}
 
-  if (res.status !== vec.expected_response.status) {
-    return { status: 'fail', reason: `expected status ${vec.expected_response.status}, got ${res.status}` };
-  }
+// ─── kind: session ──────────────────────────────────────────────────────
+//
+// A session vector is a sequence of HTTP calls representing a compound
+// scenario whose assertions cross call boundaries (e.g. "after onboard
+// fails, /_status MUST show non-membership"). The runner walks `steps[]` in
+// order; each step is an HTTP request + expected response + optional
+// `cross_call_assertions` evaluated against the parsed response body.
+//
+// A vector PASSes iff every step passes (status, body_match, AND every
+// cross_call_assertion). A vector SKIPs as a unit if no --server is
+// provided. A step FAILing aborts the run for that vector with the
+// failing step's reason — we don't continue after a failure because the
+// later steps' preconditions may not hold.
 
-  const bodyMatch = vec.expected_response.body_match;
-  if (bodyMatch) {
-    const text = await res.text();
-    let actual: unknown = null;
-    try { actual = text ? JSON.parse(text) : null; } catch { actual = text; }
-    const ignore = vec.expected_response.body_ignore_fields ?? [];
-    const actualPruned = pruneIgnored(actual, ignore);
-    if (bodyMatch.mode === 'exact') {
-      if (JSON.stringify(actualPruned) !== JSON.stringify(bodyMatch.value)) {
-        return { status: 'fail', reason: `body mismatch (exact): got ${JSON.stringify(actualPruned).slice(0, 200)}` };
+async function checkSession(vec: Vector, serverUrl: string | null): Promise<Outcome> {
+  if (!serverUrl) return { status: 'skip', reason: 'no --server provided; session vectors need a server target' };
+  if (!vec.steps || vec.steps.length === 0) return { status: 'fail', reason: 'kind: session but missing or empty `steps`' };
+
+  for (const step of vec.steps) {
+    if (!step.request || !step.expected_response) {
+      return { status: 'fail', reason: `step ${step.id}: missing request / expected_response` };
+    }
+    const { outcome, body } = await runHttpStep(step.request, step.expected_response, serverUrl);
+    if (outcome.status === 'fail') {
+      return { status: 'fail', reason: `step ${step.id}: ${outcome.reason}` };
+    }
+    if (outcome.status === 'skip') {
+      // A skipped step (e.g. body_match: schema) skips the whole vector;
+      // partial-pass would be misleading.
+      return { status: 'skip', reason: `step ${step.id}: ${outcome.reason}` };
+    }
+    // Cross-call assertions, evaluated against the parsed body.
+    for (const a of step.cross_call_assertions ?? []) {
+      const violation = checkCrossCallAssertion(body, a);
+      if (violation !== null) {
+        return { status: 'fail', reason: `step ${step.id}: ${violation}` };
       }
-    } else if (bodyMatch.mode === 'subset') {
-      if (!subsetMatch(actualPruned, bodyMatch.value)) {
-        return { status: 'fail', reason: `body mismatch (subset): expected ${JSON.stringify(bodyMatch.value)} ⊆ ${JSON.stringify(actualPruned).slice(0, 200)}` };
-      }
-    } else if (bodyMatch.mode === 'schema') {
-      // Schema-mode validation is left for a follow-up (would need ajv).
-      return { status: 'skip', reason: 'body_match mode: schema not implemented yet in the runner skeleton' };
     }
   }
-  // expected_events checking needs a running event-log subscription; deferred.
+  // expected_events across steps is deferred (needs event-log subscription).
   return { status: 'pass' };
 }
 
@@ -373,12 +520,14 @@ async function main(): Promise<void> {
 
   const results: { path: string; id: string; kind: string; outcome: Outcome }[] = [];
   for (const { path, vec } of vectors) {
-    const kind = vec.kind ?? (vec.verification ? 'verification' : 'http');
+    const kind = vec.kind ?? (vec.verification ? 'verification' : (vec.steps ? 'session' : 'http'));
     let outcome: Outcome;
     if (kind === 'verification') {
       outcome = checkVerification(vec);
     } else if (kind === 'http') {
       outcome = await checkHttp(vec, args.server);
+    } else if (kind === 'session') {
+      outcome = await checkSession(vec, args.server);
     } else {
       outcome = { status: 'fail', reason: `unknown kind: ${String(kind)}` };
     }
@@ -394,8 +543,10 @@ async function main(): Promise<void> {
   //    so a passing vector is not mistaken for a real-crypto check.
   // 2. If every kind:http vector in the suite was skipped (typically because no --server was
   //    passed), HTTP-runner regressions can hide. Print a stderr warning even on a green run.
-  const httpVectorCount = results.filter((r) => r.kind === 'http').length;
-  const httpExecutedCount = results.filter((r) => r.kind === 'http' && r.outcome.status !== 'skip').length;
+  // Both kind:http and kind:session need --server to execute; group them
+  // under "server-bound" coverage for the warning below.
+  const httpVectorCount = results.filter((r) => r.kind === 'http' || r.kind === 'session').length;
+  const httpExecutedCount = results.filter((r) => (r.kind === 'http' || r.kind === 'session') && r.outcome.status !== 'skip').length;
 
   // Per-result JSON shape: surface verification_mode at the top level so JSON
   // consumers (CI gates, badge generators) can branch on cryptographic vs
@@ -448,7 +599,7 @@ async function main(): Promise<void> {
       console.log(`\nNOTE: kind:verification "✓ verified-cryptographic" PASSes additionally verified the FIDO2 / WebAuthn signature against the enrolled public key (§17.7 step 3, §18.2).`);
     }
     if (httpVectorCount > 0 && httpExecutedCount === 0) {
-      console.error(`\nWARNING: ${httpVectorCount} kind:http vector(s) skipped (no --server). HTTP-runner regressions cannot be detected without a server target. Pass --server <url> for full coverage.`);
+      console.error(`\nWARNING: ${httpVectorCount} server-bound vector(s) (kind:http + kind:session) skipped (no --server). HTTP-runner regressions cannot be detected without a server target. Pass --server <url> for full coverage.`);
     }
   }
 

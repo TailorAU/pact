@@ -1,0 +1,116 @@
+# Conformance test vector — Extended: atomic onboarding happy path (v2.0.3).
+# kind: http — single POST to /fabric/{id}/_onboard, asserts response shape +
+# event sequence emitted by the server.
+#
+# The v2.0.3 spec text for §4.4 and §15.6 is still being drafted in parallel
+# with this vector. The shape below uses the strictest reasonable interpretation
+# of the preamble at the top of spec/v2.0/SPECIFICATION.md — see `notes:` for
+# the specific assumptions the coordinator will reconcile before tagging.
+
+kind: http
+
+metadata:
+  id: extended/sessions/onboard-success
+  description: A caller atomically joins a fabric and declares its constraints in a single _onboard call. The fabric exists, the constraints are compatible with fabric policy, the response carries membership_id + role + accepted_constraints, and both pact.fabric.onboarded and pact.agent.joined are emitted.
+  spec_section: "§4.4, §6.5, §15.6"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    resource_id: fab_abc123                # the fabric the caller is joining
+    registered_agents: []                  # caller is not yet a member
+  request_context:
+    auth: bearer                           # caller already authenticated; onboarding declares fabric-membership intent
+    principal_id: did:web:knox.example
+
+request:
+  method: POST
+  path: /api/pact/fab_abc123/_onboard
+  headers:
+    Content-Type: application/json
+  body:
+    agentName: test-bot
+    role: contributor                      # one of: observer | contributor | proposer (impl-defined further roles allowed)
+    constraints:
+      - name: rate-limit-per-minute
+        value: 30
+      - name: disclosure-ceiling
+        value: 2
+
+expected_response:
+  status: 200
+  body_match:
+    mode: subset
+    value:
+      role: contributor
+      accepted_constraints:
+        - name: rate-limit-per-minute
+          value: 30
+        - name: disclosure-ceiling
+          value: 2
+  body_ignore_fields:
+    - membership_id                        # server-assigned
+    - apiKey                               # scoping key when issued (§22 service-account auth, OPTIONAL)
+    - onboarded_at                         # server timestamp
+    - last_seen                            # server timestamp seeded at onboard
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.fabric.onboarded
+      match:
+        mode: subset
+        value:
+          fabricId: fab_abc123
+          principalId: did:web:knox.example
+          actorDisplay: test-bot
+          role: contributor
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - actorId
+        - membership_id
+    - event_type: pact.agent.joined
+      match:
+        mode: subset
+        value:
+          actorDisplay: test-bot
+          actorKind: AiAgent
+          entityType: pact-fabric
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - actorId
+
+postconditions:
+  server_state:
+    events_added: 2                        # both pact.fabric.onboarded and pact.agent.joined
+    resource_modified: true                # membership added to fabric state
+
+notes: |
+  Assumptions made against the still-drafting v2.0.3 §4.4 / §15.6 text:
+  - The endpoint is `POST /api/pact/{fabricId}/_onboard` (mirrors the v1.1
+    `/join-token` shape — same prefix, leading-underscore action verb).
+  - The response carries (at minimum) `membership_id`, `role`,
+    `accepted_constraints`. The strictest reading of "atomic" is that EITHER
+    every constraint is accepted as-stated OR the call fails (vector 2).
+  - Two events are emitted: `pact.fabric.onboarded` (the v2.0.3-specific
+    high-level event listed in the spec preamble at line 184 as `agent.onboard`)
+    AND the carried-over `pact.agent.joined` event from §4.1, because the
+    membership IS-A join in the v1.1 model. If the spec converges on a single
+    event, the second sequence entry should be dropped — the runner will report
+    a mismatch and the coordinator should reconcile.
+  - `entityType: pact-fabric` is asserted on `pact.agent.joined` to distinguish
+    fabric onboarding from document/transaction/fact/record joins.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Implementation does not expose POST /_onboard at all (returns 404)
+    - _onboard split into separate /join + /constrain calls (atomicity gone)
+    - accepted_constraints omitted from response (caller cannot confirm what was committed)
+    - pact.fabric.onboarded event not emitted (manifest queries downstream cannot reconstruct membership history)
+    - role echoed differently from request without explanation (silent role downgrade)

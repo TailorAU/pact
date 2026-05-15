@@ -72,7 +72,7 @@ test_vector_schema:
     operation_requires_uv: bool?         # for fido2-assertion: does the operation require the User Verification flag?
     expected:
       result: enum                       # verified | rejected | unverifiable
-      failing_step: int?                 # 1..6 from §17.7 — set when result != verified
+      failing_step: int?                 # 1..5 from §17.7 — set when result != verified. (Step 6 is "Result" in the spec — that's the outcome, not a failure mode, so it never appears here.)
       emits_trust_violation: bool?       # whether a pact.trust.violation { kind: authorization_failed } SHOULD be emitted
 
   failure_classification:                # how to report a failure

@@ -315,15 +315,37 @@ async function main(): Promise<void> {
   const counts = { pass: 0, fail: 0, skip: 0 };
   for (const r of results) counts[r.outcome.status]++;
 
+  // Diagnostics for misleading-passes (cold-eye-audit hard-issue #1 + concern #10).
+  // 1. kind:verification PASS reports omit cryptographic signature verification (§17.7 step 3).
+  //    The runner is structural; rename "verified" to "verified-structural" in the per-vector tag
+  //    so a passing vector is not mistaken for a real-crypto check.
+  // 2. If every kind:http vector in the suite was skipped (typically because no --server was
+  //    passed), HTTP-runner regressions can hide. Print a stderr warning even on a green run.
+  const httpVectorCount = results.filter((r) => r.kind === 'http').length;
+  const httpExecutedCount = results.filter((r) => r.kind === 'http' && r.outcome.status !== 'skip').length;
+
   if (args.json) {
-    console.log(JSON.stringify({ counts, results }, null, 2));
+    console.log(JSON.stringify({
+      counts,
+      results,
+      runner_disclaimer: 'kind:verification PASS results omit cryptographic signature verification (§17.7 step 3) — they are structural-only. Use a per-attestation-type verifier for end-to-end crypto.',
+      http_coverage: { total: httpVectorCount, executed: httpExecutedCount },
+    }, null, 2));
   } else {
     for (const r of results) {
-      const tag = r.outcome.status === 'pass' ? '✓' : r.outcome.status === 'fail' ? '✗' : '·';
+      const tag = r.outcome.status === 'pass'
+        ? (r.kind === 'verification' ? '✓ verified-structural' : '✓')
+        : r.outcome.status === 'fail' ? '✗' : '·';
       const detail = r.outcome.status === 'pass' ? '' : ` — ${r.outcome.reason}`;
       console.log(`${tag} [${r.kind}] ${r.id}${detail}`);
     }
     console.log(`\n${counts.pass} pass · ${counts.fail} fail · ${counts.skip} skip`);
+    if (counts.pass > 0 && results.some((r) => r.kind === 'verification' && r.outcome.status === 'pass')) {
+      console.log(`\nNOTE: kind:verification "✓ verified-structural" PASSes omit cryptographic signature verification (§17.7 step 3 is attestation-type-specific and out of scope for this structural runner). A passing vector here proves the envelope, principal resolution, freshness and replay-binding rules — not that the signature is cryptographically valid.`);
+    }
+    if (httpVectorCount > 0 && httpExecutedCount === 0) {
+      console.error(`\nWARNING: ${httpVectorCount} kind:http vector(s) skipped (no --server). HTTP-runner regressions cannot be detected without a server target. Pass --server <url> for full coverage.`);
+    }
   }
 
   process.exit(counts.fail === 0 ? 0 : 1);

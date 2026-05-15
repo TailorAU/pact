@@ -12,8 +12,8 @@
 plan:
   spec: PACT
   version: "2.0"
-  status: SHIPPED — PACT v2.0 stable, released 14 May 2026 (tag v2.0.0). This plan is now a historical record of how v2.0 came together. See CHANGELOG.md for release notes; remaining tracks roll into spec/v2.1/ as called out in AGENTS.md "Heading toward v2.1".
-  revision: 5   # rev5 (2026-05-14): v2.0 promoted from draft to stable. Tailor-app mirror sync merged via TailorAU/tailor-app#1616. CLI/MCP bumped to 2.0.0. §19-22 explicitly reserved for v2.1.
+  status: SHIPPED — PACT v2.0 stable (14 May 2026, tag v2.0.0); v2.0.1 patch (15 May 2026, tag v2.0.1) lands the cold-eye-audit fixes. This plan is now a historical record. See CHANGELOG.md for release notes; remaining tracks roll into spec/v2.1/ as called out in AGENTS.md "Heading toward v2.1".
+  revision: 6   # rev6 (2026-05-15): v2.0.1 patch shipped — §17.4 did:web security note, §17.9 Authorization-Required tier rewritten, §17.10 GDPR softened, §17.11 delegation deferred to v2.1, §15.1 retentionPolicy required, §23.4 quorum-enrollment impl-defined, schema verifier-binding if/then, runner verdict honesty, HTTP-coverage warning, CHANGELOG flesh-out, README implementations row qualified, AGENTS.md rules 3/4/5 refreshed.
   predecessor:
     stable: v1.1
     collapsed_from: main's spec/v1.2/SPECIFICATION.md (the canonical 1:1 draft) — git mv'd to spec/v2.0/ on 2026-05-13. The stale `v1.2` branch (which carried a superseded 1:N approach) is NOT the source — it is left untouched as a relic.

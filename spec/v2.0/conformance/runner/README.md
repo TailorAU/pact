@@ -36,6 +36,21 @@ Exit code: `0` if all selected vectors `pass` (or are `skip`ped for documented r
 - HTTP record-and-replay (rather than live-execute) — useful for offline conformance checks.
 - A self-certification badge generator.
 
+## Honesty disclosure
+
+`kind: verification` PASS results are **structural-only**. The runner explicitly does NOT perform §17.7 step 3 (cryptographic signature verification) — that's attestation-type-specific (WebAuthn assertion check for `fido2-assertion`, the HMAN voice-pipeline for `voice-biometric`). A passing vector here proves the envelope is well-formed, the principal resolves, the credential isn't revoked, the timestamp is fresh, and the nonce binding holds. **It does NOT prove the signature is real.** A forged proof against an existing un-revoked credential will currently pass.
+
+The runner makes this loud in two places: the per-vector tag prints as `✓ verified-structural` (not `✓ verified`), and the report footer reminds you. End-to-end crypto needs a per-attestation-type verifier — see the §17.11 / §18 deferred items.
+
+## External implementers
+
+This runner is currently a **private package** (`private: true` in `package.json`). External implementers can use it via:
+
+- **Source checkout:** `git clone TailorAU/pact && cd spec/v2.0/conformance/runner && npm install && npm run build`. This is the supported path while npm publish is gated on issue [#5](https://github.com/TailorAU/pact/issues/5) (the `pact-protocol` org).
+- **Self-cert flow:** run the suite locally against your server, then PR the result manifest into `docs/IMPLEMENTERS.md` (TODO until first implementer arrives).
+
+When `pact-protocol` is on npm, this package will publish alongside `@pact-protocol/cli` and `@pact-protocol/mcp` and external implementers can `npx @pact-protocol/conformance-runner run --server …`.
+
 ## Status
 
-Scaffold / first usable version, v0.1.0-dev. Not published to npm. Ride-along with the conformance scaffold (`spec/v2.0/conformance/`) and the `.github/workflows/conformance.yml` CI gate.
+First usable version, v0.1.0-dev. Ride-along with the conformance scaffold (`spec/v2.0/conformance/`) and the `.github/workflows/conformance.yml` CI gate.

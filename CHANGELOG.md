@@ -1,5 +1,43 @@
 # Changelog
 
+## v2.0.1 — 2026-05-15
+
+Patch release in response to the cold-eye audit (no breaking changes; additive clarifications, schema tightening, runner-honesty disclosures).
+
+### Spec
+
+- **§17.4** — added a security note on `did:web`: DNS hijack / cert compromise / domain takeover compromises every authorization signed under the domain. Implementations SHOULD treat `did:key` as the default for high-stakes principals; `Authorization-Required`-tier deployments accepting `did:web` SHOULD also require Certificate Transparency monitoring.
+- **§17.9 Authorization-Required tier** — replaced the unenforceable "principal spans more than one human" rule with four concrete, deterministic registry checks: tombstoned principals, revoked credentials, revoked credentials anywhere in `attestation_chain`, and CT-visible certificates for `did:web` principals. The 1:1 invariant from §17.4 already does the prior rule's work.
+- **§17.10 GDPR / right-to-be-forgotten** — softened to make explicit that PACT cannot answer per-jurisdiction legal questions. Implementations MUST evaluate compatibility with applicable law and document any exemption claimed; EU-jurisdiction `Authorization-Required` deployments SHOULD obtain external legal review of event-log retention.
+- **§17.11 Delegation** — explicitly DEFERRED TO v2.1: the canonical `attestation_chain` item shape, the chained-verification algorithm, and trust-decay rules. v2.0 verifiers that cannot verify a non-empty chain MUST reject the proof as `unverifiable`; implementations that don't support delegation MUST reject any non-empty chain.
+- **§23.4 Hostile recovery** — added quorum-enrollment-is-implementation-defined note (v2.1 will normalize an `agent.enroll-quorum` operation) and clarified the abandoned-agent-reset administrator must itself carry a valid `authorization_proof`.
+- **§15.1 Implementation Profile** — example bumped to specVersion 2.0; added `retentionPolicy` (now Required at v2.0+), `authorizationProof` and `agentIdentityTransfer` capability flags, the `credentialsRegistry` endpoint, and a Required/SHOULD field table.
+- **§6.3 Event-log retention** — softened the "not erased" wording to defer to §17.10's legal-evaluation requirement.
+- **Footer** — replaced "auto-synced from this file" (which was never automated) with the actual mechanism: synced manually via coordinated PRs.
+
+### Schemas
+
+- **`authorization-proof.json`** — added `verifier_signed_nonce: boolean` annotation; `verifier_id` now REQUIRED via an `allOf` `if/then` block whenever `verifier_signed_nonce` is not `true`. The §17.6 verifier-binding rule is now machine-checkable. `attestation_chain` description updated to reflect the §17.11 deferral.
+
+### Runner
+
+- **Verdict honesty (cold-eye #1)** — `kind: verification` PASS results now print as `✓ verified-structural` (not `✓ verified`) plus a one-line footer reminder. JSON output adds a `runner_disclaimer` field. Makes it impossible to mistake a structural PASS for a real cryptographic check.
+- **HTTP coverage warning (cold-eye #10)** — when every `kind: http` vector is skipped (typically because no `--server`), the runner prints a stderr WARNING. Run still exits 0 but the gap is visible.
+- **README honesty disclosure** — runner README now prominently flags the structural-only scope and documents the external-implementer access pattern (source checkout while npm publish is gated on #5).
+
+### Tooling / hygiene
+
+- `package-lock.json` now committed for the conformance runner — CI reproducibility.
+- `test-vector-format.yaml` — `failing_step` corrected from `1..6` to `1..5` (step 6 is the outcome step, not a failure mode).
+- `AGENTS.md` rules 3, 4, 5 refreshed: rule 3 documents v2.0 as already promoted; rule 4 adds v2.0 to the frozen list; rule 5's "stub" wording dropped (sections are full now); coordinated-PR pattern made the explicit norm.
+- `README.md` — implementations table now distinguishes "spec version served" (Tailor + Source serve v1.1; v2.0 server-side rollout in progress); v1.0 row re-tiered Legacy → Previous.
+
+### Migration
+
+Fully additive at every conformance level. v2.0 clients work against v2.0.1 servers unchanged. The new `verifier_signed_nonce` annotation is OPTIONAL; existing proofs with `verifier_id` set continue to validate. The new `Authorization-Required` checks are stricter on what counts as `verified`; implementations claiming that tier may need to add the four concrete checks (which they should already be doing under the prior rule's spirit).
+
+---
+
 ## v2.0 — 2026-05-14
 
 **Stable.** Supersedes v1.1. All v1.1 behavior is preserved; v2.0 is additive at Core conformance.
@@ -77,8 +115,28 @@ Fully additive at Core conformance. A v1.1 client works against a v2.0 server un
 
 ## v1.1 — 2026-04
 
-See [`spec/v1.1/SPECIFICATION.md`](spec/v1.1/SPECIFICATION.md). Resource-agnostic protocol; documents are the default resource type.
+Resource-agnostic protocol — generalised v1.0 from document-only to **any resource type** (documents, transactions, knowledge claims, clinical records). Documents remain the default resource type and v1.0 endpoints continue to work.
 
-## v1.0 — earlier
+Key additions:
 
-See [`spec/v1.0/SPECIFICATION.md`](spec/v1.0/SPECIFICATION.md).
+- **Resource Types** (§14) — implementations declare what kind of resource agents negotiate over (`document` / `transaction` / `fact` / `record`).
+- **Implementation Profiles** (§15.1) — each PACT server publishes `/.well-known/pact.json` advertising its supported resource types and capabilities.
+- **Conformance Levels** (§15.2) — Core vs Extended compliance tiers.
+- **Backward compatibility** — proposals without an explicit `type` default to `document`; all v1.0 endpoints continue to work.
+
+[`spec/v1.1/SPECIFICATION.md`](spec/v1.1/SPECIFICATION.md). Errata: [`spec/v1.1/ERRATA.md`](spec/v1.1/ERRATA.md) — phantom §15/§16 preamble references and stale schema `$id` paths (corrected forward in v2.0; v1.1 itself stays frozen for citation stability).
+
+## v1.0 — March 2026
+
+Promotion of v0.4 to a stable v1.0. The protocol surface stabilised at this point:
+
+- Core primitives (`join`, `leave`, `intent`, `constrain`, `propose`, `object`, `escalate`, `done`, `poll`).
+- Event-sourced operation log; objection-based merge (silence = consent).
+- Information barriers, classification, graduated disclosure, mediated communication, structured negotiation.
+- BYOK invite-token flow for cross-organisation joins (no shared account required).
+
+[`spec/v1.0/SPECIFICATION.md`](spec/v1.0/SPECIFICATION.md).
+
+## v0.x — early 2026
+
+Initial protocol drafts (`v0.3`, `v0.4`). Documents-only consensus, the original `propose → vote → merge` flow, the first cuts of intent / constraint / salience. Retained for citation stability; not for production use.

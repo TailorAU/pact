@@ -1,9 +1,9 @@
-# PACT — Protocol for Agent Consensus and Truth — Specification v2.0
+# PACT — Protocol for Agent Consensus and Truth — Specification v2.0.1
 
 > **Status:** Stable  
 > **Author:** Knox Hart + AI  
-> **Date:** 14 May 2026  
-> **Version:** 2.0 (supersedes v1.1; v1.2-draft was collapsed into this version — see [`docs/v2-plan.yaml`](../../docs/v2-plan.yaml))  
+> **Date:** 15 May 2026  
+> **Version:** 2.0.1 (patch on v2.0; see [`CHANGELOG.md`](../../CHANGELOG.md#v201--2026-05-15) for the cold-eye-audit fixes — additive, no breaking changes)  
 > **Vision:** Enable millions of agents to reach consensus on shared resources at machine speed, with humans retaining final authority.
 
 ### What's New in v2.0
@@ -331,7 +331,7 @@ The event log is the source of truth for collaboration state (Design Principle 5
 
 - An implementation MUST publish its event-log retention policy in its [`/.well-known/pact.json`](./README.md) implementation profile (§15), as a `retentionPolicy` object: `{ "minimumDays": <int>, "indefinite": <bool>, "tombstoneAfter": <int|null> }`. `indefinite: true` means "retained for as long as the resource exists"; `minimumDays` gives a floor when `indefinite` is `false`.
 - The spec sets a **RECOMMENDED minimum of 365 days** for resources that carry authorization-relevant content (anything where `authorization_proof` may appear). Regulated domains will commonly need longer (financial: 7 years; clinical: longer still); implementations SHOULD honour the longer of the spec recommendation and any applicable regulatory requirement.
-- Personal-data handling within retained events is governed by §17.10 — events carry only the `principal_id` (a rotatable / revocable DID) and a salted hash of any proof payload, NOT raw biometric or PII data. Cryptographic erasure of credential-registry entries (§17.8 tombstone) is the right-to-be-forgotten lever; event-log entries themselves are not erased.
+- Personal-data handling within retained events is governed by §17.10. Events SHOULD carry only the `principal_id` (a rotatable / revocable DID) and a salted hash of any proof payload, NOT raw biometric or PII data. Whether the cryptographic-erasure lever in §17.8 (registry tombstone) is sufficient to satisfy a specific jurisdiction's right of erasure for the event log itself is a per-deployment legal question — see §17.10's legal-evaluation requirement.
 - An implementation that retains events for less than the recommended minimum SHOULD prominently surface this in its profile (`retentionPolicy.minimumDays < 365` is visible to clients and conformance verifiers).
 
 **Audit-trail consequence.** Cross-org disputes, regulatory audits, and post-incident forensics all depend on the event log. An aggressively short retention policy makes the implementation cheaper to run and cheaper to attack — both of those consequences are the operator's call, but they MUST be a declared call, not an undocumented one.
@@ -1009,8 +1009,8 @@ Each PACT server SHOULD publish an **Implementation Profile** describing its cap
 ```json
 {
   "name": "Tailor",
-  "version": "1.1.0",
-  "specVersion": "1.1",
+  "version": "2.0.0",
+  "specVersion": "2.0",
   "conformanceLevel": "extended",
   "resourceTypes": [
     {
@@ -1025,14 +1025,35 @@ Each PACT server SHOULD publish an **Implementation Profile** describing its cap
     "mediatedCommunication": true,
     "informationBarriers": true,
     "structuredNegotiation": true,
-    "inviteTokens": true
+    "inviteTokens": true,
+    "authorizationProof": true,
+    "agentIdentityTransfer": true
+  },
+  "retentionPolicy": {
+    "minimumDays": 365,
+    "indefinite": false,
+    "tombstoneAfter": null
   },
   "endpoints": {
     "rest": "https://api.tailor.au/api/pact",
-    "realtime": "wss://api.tailor.au/hubs/pact"
+    "realtime": "wss://api.tailor.au/hubs/pact",
+    "credentialsRegistry": "https://api.tailor.au/.well-known/pact-credentials.json"
   }
 }
 ```
+
+**Required and recommended fields.**
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | Yes | Implementation name. |
+| `version` | Yes | Implementation version (independent of `specVersion`). |
+| `specVersion` | Yes | PACT spec version this profile targets (e.g. `"2.0"`). |
+| `conformanceLevel` | Yes | One of `core` / `extended` / `authorization-required`. |
+| `resourceTypes` | Yes | Resource types this server supports (must intersect with the v2.0 registry, §14.3). |
+| `retentionPolicy` | **Yes (v2.0+)** | Event-log retention policy per §6.3: `{ minimumDays: int, indefinite: bool, tombstoneAfter: int\|null }`. |
+| `capabilities` | SHOULD | Boolean capability flags. v2.0 well-known flags: `mediatedCommunication`, `informationBarriers`, `structuredNegotiation`, `inviteTokens`, `authorizationProof`, `agentIdentityTransfer`, `pushDelivery` (when v2.1 lands), `sessions` (v2.1). |
+| `endpoints` | SHOULD | At minimum `rest`. SHOULD include `realtime` for SignalR/WebSocket and `credentialsRegistry` for §17.8. |
 
 ### 15.2 Conformance Levels
 
@@ -1128,6 +1149,8 @@ A **HumanPrincipal** is the protocol-level abstraction for actions a human has a
 
 The `principal_id` is a [W3C Decentralized Identifier](https://www.w3.org/TR/did-core/). Implementations MUST support the `did:web` and `did:key` methods, and MAY support additional methods (`did:ion`, `did:ethr`, etc.). A verifier that does not recognise a presented method MUST treat the proof as unverifiable (reject; §17.7).
 
+**Security note on `did:web`:** a `did:web` DID resolves to an HTTPS GET on a domain. A DNS hijack, certificate compromise, or domain takeover compromises every authorization signed under that domain — for HumanPrincipals carrying cross-organisation authorization, this is a significant operator-of-record threat. Implementations SHOULD treat `did:key` (offline / hardware-bound) as the default for high-stakes principals, and reserve `did:web` for federation-friendly cases where the domain's operational security is itself part of the trust posture. Implementations operating under the `Authorization-Required` tier (§17.9) SHOULD additionally require certificate-transparency monitoring for `did:web` principals they accept.
+
 ### 17.5 The `persona` claim (above the PACT layer)
 
 Some deployments give one human several operating "personas" (e.g. `Personal`, `Trade`, `Household`). **PACT does not model these.** An implementation MAY attach an advisory `persona` claim to a signed message; it is purely informational metadata for the receiving agent. A verifier:
@@ -1218,18 +1241,24 @@ A PACT server MAY publish `/.well-known/pact-credentials.json`:
 |-------------------|-------------|
 | **Core** | `authorization_proof` is OPTIONAL — an implementation MAY ignore the field entirely. |
 | **Extended** | SHOULD support at least one attestation type from §18 and SHOULD run the §17.7 verification when a proof is present. |
-| **Authorization-Required** | MUST require a valid `authorization_proof` on every cross-organisation message; MUST reject any proof whose `principal_id` resolution implies the principal spans more than one human; MUST support the credential registry (or DID resolution) and revocation propagation. No implementation is required to claim this tier at v2.0 launch — it is defined so the protocol's trajectory is clear and so cross-org / regulated deployments have a target. |
+| **Authorization-Required** | MUST require a valid `authorization_proof` on every cross-organisation message; MUST support the credential registry (or DID resolution) and revocation propagation; MUST enforce all of the following operational checks (each a deterministic registry query, no inference): (a) reject if the `principal_id` resolves to a registry entry with `tombstoned_at` set (§17.8); (b) reject if `credentials[id == credential_id].revoked` is `true`; (c) reject if any entry in `attestation_chain` references a revoked or tombstoned credential at any hop; (d) for `did:web` principals, reject if the resolved DID Document was served by a certificate not visible in Certificate Transparency logs at the time of `asserted_at` (the §17.4 `did:web` security note). No implementation is required to claim this tier at v2.0 launch — it is defined so the protocol's trajectory is clear and so cross-org / regulated deployments have a target. |
 
 Implementations MAY require `authorization_proof` for specific operations regardless of their declared tier (e.g. cross-organisation proposals, high-trust-level operations, financial transactions).
 
 ### 17.10 Personal data (GDPR / right-to-be-forgotten)
 
-- **Event-log entries are protocol-integrity records** — retained for as long as the resource's audit trail is retained, and not subject to erasure-on-request, because removing them breaks the event-sourced consistency guarantee. An `authorization_proof` recorded in the event log SHOULD carry only the `principal_id` (a DID — itself rotatable / revocable) and a salted hash of the proof payload, NOT raw biometric data or other PII. Raw biometric material MUST NOT appear in the event log under any circumstance (see §18.3).
-- **Credential-registry entries** are personal data and support erasure via cryptographic key destruction + tombstone (§17.8).
+PACT's design separates two classes of personal data with different erasure stories. Whether either treatment satisfies any specific jurisdiction's data-protection law is **not** a protocol determination — see the legal-evaluation requirement at the end of this section.
 
-### 17.11 Delegation
+- **Event-log entries are protocol-integrity records.** Removing past events breaks the event-sourced consistency guarantee that PACT relies on (Design Principle 5). An `authorization_proof` recorded in the event log SHOULD carry only the `principal_id` (a DID — itself rotatable / revocable) and a salted hash of the proof payload, NOT raw biometric data or other PII. Raw biometric material MUST NOT appear in the event log under any circumstance (see §18.3). The intent is that the personal-data exposure of a retained event is a single rotatable identifier plus an opaque hash.
+- **Credential-registry entries** are personal data and support erasure via the cryptographic-erasure pattern of §17.8: destroy the credential keys, leave a tombstone. Prior proofs remain checkable as having-been-valid-then-revoked; new authorizations from the principal become impossible.
 
-`attestation_chain` carries an ordered list of intermediate attestations: a chain `[A0, A1, ...]` means principal `A0` authorized the next, and so on, to the message signer. Maximum chain length is **3 hops** (direct + 2 sub-delegations) at v2.0 — a starting point pending implementation feedback; longer chains amplify revocation lag and reduce auditability. Trust-decay rules along the chain (does a revoked `A0` invalidate `A1..n` immediately, or do they stand until their own expiry?) are deferred to the coordinated PR — candidate model: mirror X.509 OCSP / CRL.
+**Legal evaluation (REQUIRED).** Whether the above treatment satisfies a specific jurisdiction's right-of-erasure law (notably GDPR Art. 17 in the EU, but also similar provisions elsewhere) is a per-deployment legal question that the protocol cannot answer. Implementations MUST evaluate compatibility with applicable law and document, in their `/.well-known/pact.json` profile or accompanying compliance posture, any exemption claimed (e.g. Art. 17(3) public-interest, legal-obligation, or freedom-of-expression bases). Implementations operating in EU jurisdictions SHOULD obtain external legal review of their event-log retention before claiming the `Authorization-Required` tier.
+
+### 17.11 Delegation (deferred to v2.1)
+
+The `authorization_proof` envelope carries an `attestation_chain` field — ordered intermediate attestations for the case where principal `A0` authorizes a sub-agent who in turn authorizes the message signer. The intent for v2.0 is a maximum chain length of **3 hops** (direct + 2 sub-delegations); longer chains amplify revocation lag and reduce auditability.
+
+**The canonical shape of an `attestation_chain` item, the trust-decay rules along the chain (does a revoked `A0` invalidate `A1..n` immediately, or do they stand until their own expiry?), and the verification algorithm for chained proofs are all DEFERRED TO v2.1.** For v2.0, implementations that need delegation MAY use the field with implementation-defined item shapes coordinated out-of-band with their counterparties; v2.0 verifiers MUST treat any non-empty `attestation_chain` they cannot themselves verify as `unverifiable` (reject) rather than silently passing the proof through. Implementations that do not support delegation MUST reject any proof where `attestation_chain.length > 0`.
 
 ### 17.12 Open Questions (deferred to a reviewed PR)
 
@@ -1352,7 +1381,9 @@ A transfer with only one valid signature MUST be rejected.
 When the outgoing operator cannot or will not co-sign (fired, deceased, unreachable, adversarial), one of two recovery paths applies. An implementation that runs sovereignty-posture deployments SHOULD support at least one; both are OPTIONAL at every conformance tier.
 
 - **M-of-N recovery.** The `agentId` was enrolled with a recovery quorum — a governance group of N principals, M of whom must co-sign a recovery attestation `{ agentId, to: <incoming principal_id>, effective_at, reason }`. On a valid M-of-N signature set the server rotates the binding and emits `pact.agent.recovered`. The `agentId` is unchanged. Quorum size (M, N) is implementation-defined; the spec sets no minimum but RECOMMENDS M ≥ 2.
+  - **Quorum enrollment is implementation-defined for v2.0.** Implementations supporting M-of-N recovery MUST document, in their `/.well-known/pact.json` profile or accompanying impl notes, (a) the enrollment endpoint and authentication requirements, (b) the canonical attestation format for the enrollment record, and (c) who is authorized to initiate enrollment for a given `agentId`. v2.1 will normalize an `agent.enroll-quorum` operation; until then, cross-implementation interop on recovery is not guaranteed.
 - **Abandoned-agent reset.** Where no recovery quorum was enrolled, an administrator MAY mint a **new** `agentId` for a successor agent and emit `pact.agent.abandoned` against the old one, carrying an attestation of why (the old operator is unreachable / off-boarded / etc.). The old `agentId`'s history is preserved and remains citable; it is simply marked abandoned and accepts no further operations.
+  - **Who counts as an "administrator" is implementation-defined for v2.0.** At minimum, the administrator's action MUST itself carry a valid `authorization_proof` (§17.6), and the implementation SHOULD document the principal(s) authorized to perform abandoned-agent reset (typically a small, named operations group rather than any holder of an admin token).
 
 Both recovery paths take effect only after a **time-locked dispute window** (implementation-configurable; default 72 hours) during which the current operator-of-record, if reachable, can veto. The window is announced via `pact.agent.recovery-initiated` (carrying `effective_at`).
 
@@ -1478,8 +1509,8 @@ Implementations MUST return items in a stable, deterministic order (typically by
 
 ---
 
-*PACT Specification v2.0 — released 14 May 2026.*
+*PACT Specification v2.0.1 — released 15 May 2026 (patch on v2.0, 14 May 2026).*
 
 *Reference implementation: [Tailor](https://tailor.au) by [TailorAU](https://github.com/TailorAU) — see [Tailor Implementation Notes](./PACT_TAILOR_IMPLEMENTATION.md) for implementation-specific details.*
 
-> **Standalone spec:** [github.com/TailorAU/pact](https://github.com/TailorAU/pact) — vendor-neutral specification auto-synced from this file.
+> **Standalone spec:** [github.com/TailorAU/pact](https://github.com/TailorAU/pact) — vendor-neutral specification. Synced manually with this file via coordinated PRs (most recently [TailorAU/tailor-app#1616](https://github.com/TailorAU/tailor-app/pull/1616)).

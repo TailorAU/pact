@@ -230,18 +230,20 @@ These packages handle **coordination only**. Content operations (reading documen
 |---------|--------|------|
 | **v2.0** | **Stable** (released 14 May 2026) | [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Conformance](spec/v2.0/conformance/) · [Release notes](CHANGELOG.md#v20--2026-05-14) |
 | v1.1 | Previous | [Specification](spec/v1.1/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) · [Errata](spec/v1.1/ERRATA.md) |
-| v1.0 | Legacy | [Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) |
+| v1.0 | Previous | [Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) |
 | v0.3 | Legacy | [Specification](spec/v0.3/SPECIFICATION.md) · [Getting Started](spec/v0.3/GETTING_STARTED.md) |
 
 ## Implementations
 
 PACT defines the consensus protocol. Implementations provide the content layer for their domain.
 
-| Implementation | Resource Type | What it adds | Status | Maintainer |
+| Implementation | Resource Type | What it adds | Spec version served | Maintainer |
 |---------------|--------------|-------------|--------|------------|
-| [**Tailor**](https://tailor.au) | `document` | Document collaboration — upload, edit, review, sign | Live | [TailorAU](https://github.com/TailorAU) |
-| [**Source**](https://source.tailor.au) | `fact` | Verified knowledge graph — facts, legislation, standards | Live | [TailorAU](https://github.com/TailorAU) |
+| [**Tailor**](https://tailor.au) | `document` | Document collaboration — upload, edit, review, sign | v1.1 (live); v2.0 server-side rollout in progress | [TailorAU](https://github.com/TailorAU) |
+| [**Source**](https://source.tailor.au) | `fact` | Verified knowledge graph — facts, legislation, standards | v1.1 (live); v2.0 server-side rollout in progress | [TailorAU](https://github.com/TailorAU) |
 | **Baink** | `transaction` | Sovereign billing — multi-agent payment authorization | Planned | [TailorAU](https://github.com/TailorAU) |
+
+The v2.0 spec is released and the reference CLI/MCP are at v2.0.0; the v2.0 server-side surface (`/.well-known/pact.json` retentionPolicy, the §17.6 `authorization_proof` envelope, the §17.8 credentials registry, §23 transfer/recovery endpoints) lands in tailor-app's deployment as those surfaces are wired through the production stack. Until then, the listed implementations serve v1.1 endpoints; clients pinned to v2.0 features should check `/.well-known/pact.json`'s `specVersion`.
 
 Building a PACT implementation? [Open a PR](https://github.com/TailorAU/pact/pulls) to add it here.
 

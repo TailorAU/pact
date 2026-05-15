@@ -28,12 +28,16 @@
     "challenge_nonce": {
       "type": "string",
       "minLength": 1,
-      "description": "Verifier-issued challenge. MUST be either signed by the verifier's key or accompanied by a matching `verifier_id` — otherwise a proof captured for verifier A can be replayed at verifier B (§17.6)."
+      "description": "Verifier-issued challenge. Per §17.6, MUST be either (a) signed by the verifier's key (a runtime cryptographic property the JSON Schema cannot encode — assert via `verifier_signed_nonce: true`), OR (b) accompanied by a matching `verifier_id` field in this envelope. Verifiers MUST reject any proof where neither condition holds (§17.7 step 5)."
     },
     "verifier_id": {
       "type": "string",
-      "description": "Identifier (typically a DID) of the verifier the challenge was issued for. REQUIRED when `challenge_nonce` is not itself verifier-signed.",
+      "description": "Identifier (typically a DID) of the verifier the challenge was issued for. REQUIRED when `verifier_signed_nonce` is not `true` (the schema's `allOf` block at the bottom of this file enforces presence-or-explicit-acknowledgement).",
       "pattern": "^did:[a-z0-9]+:.+"
+    },
+    "verifier_signed_nonce": {
+      "type": "boolean",
+      "description": "Annotation: set to `true` if the producer asserts that `challenge_nonce` is itself signed by the verifier's key (the (a) branch of §17.6). Setting this is an assertion to the schema validator, not a cryptographic check — the verifier MUST still validate the signature at §17.7 step 5. When `false` or absent, `verifier_id` MUST be present."
     },
     "asserted_at": {
       "type": "string",
@@ -54,9 +58,9 @@
     },
     "attestation_chain": {
       "type": "array",
-      "description": "Ordered intermediate attestations for delegated authorization (§17.11). Maximum length 3 (direct + 2 sub-delegations) at v2.0. Empty or absent = direct.",
+      "description": "Ordered intermediate attestations for delegated authorization (§17.11). Empty or absent = direct (no delegation). MAX length 3 (direct + 2 sub-delegations) at v2.0. The canonical item shape, the chained-verification algorithm, and trust-decay rules are DEFERRED TO v2.1; v2.0 leaves item structure implementation-defined and v2.0 verifiers that cannot themselves verify a non-empty chain MUST reject the proof as `unverifiable` (§17.11). Implementations that do not support delegation MUST reject any proof where this array is non-empty.",
       "maxItems": 3,
-      "items": { "type": "object" }
+      "items": {}
     },
     "match": {
       "type": "object",
@@ -80,6 +84,16 @@
     {
       "if": { "properties": { "type": { "const": "voice-biometric" } } },
       "then": { "required": ["match", "utterance_hash"] }
+    },
+    {
+      "description": "§17.6 verifier-binding rule: challenge_nonce MUST be either verifier-signed (asserted via verifier_signed_nonce: true) OR accompanied by verifier_id.",
+      "if": {
+        "not": {
+          "properties": { "verifier_signed_nonce": { "const": true } },
+          "required": ["verifier_signed_nonce"]
+        }
+      },
+      "then": { "required": ["verifier_id"] }
     }
   ]
 }

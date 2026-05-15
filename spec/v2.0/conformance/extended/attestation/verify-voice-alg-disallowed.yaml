@@ -1,0 +1,66 @@
+# Conformance test vector — Extended: voice-biometric with an alg outside the
+# §17.6 whitelist. Exercises §17.6 alg whitelist + §17.7 step 3.
+#
+# This vector asserts REAL behaviour TODAY — the §17.6 alg-whitelist check
+# does NOT need the crypto verifier. An adversary submits a voice-biometric
+# proof with `alg: HS256` (HMAC, a shared-secret algorithm — broken for the
+# public-key proof-of-human-intent model PACT relies on). The verifier MUST
+# reject at step 3 by the whitelist rule, before any signature work.
+#
+# hman_3_flip: NONE — this vector already exercises real whitelist
+#   enforcement and does not change when HMAN's #3 PR lands.
+
+kind: verification
+
+metadata:
+  id: extended/attestation/verify-voice-alg-disallowed
+  description: "A voice-biometric proof with alg=HS256 (HMAC — outside the §17.6 whitelist). Rejected at step 3 by the alg-whitelist rule. Asserts real behaviour today (no crypto verifier needed)."
+  spec_section: "§17.6, §17.7, §18.3"
+  conformance_level: extended
+  track: T1
+
+verification:
+  proof:
+    type: voice-biometric
+    principal_id: did:web:knox.example
+    credential_id: voice_ref_001
+    challenge_nonce: nonce-voice-alg-001
+    asserted_at: "2026-05-16T10:00:00Z"
+    signature: "<not inspected — alg check fails before signature verification>"
+    alg: HS256                                     # HMAC — explicitly disallowed (§17.6); voice-biometric is a public-key model
+    alg_version: "1"
+    match:
+      alg: resemblyzer-v1
+      alg_version: "1.0"
+      score: 0.90
+      threshold: 0.75
+    utterance_hash: "dXR0ZXJhbmNlLWhhc2gtcGxhY2Vob2xkZXItMDAx"
+    verifier_id: did:web:bridget.example
+    attestation_chain: []
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:knox.example
+        display_name: Knox Hart
+        credentials:
+          - id: voice_ref_001
+            type: voice-biometric
+            public_key: "<not used — alg fails before crypto>"
+            enrolled_at: "2026-05-16T09:00:00Z"
+            revoked: false
+  verifier_clock: "2026-05-16T10:00:30Z"
+  issued_nonces:
+    - nonce-voice-alg-001
+  receiving_verifier_id: did:web:bridget.example
+  signature_check: real
+  expected:
+    result: rejected
+    failing_step: 3
+    emits_trust_violation: true
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Verifier doesn't enforce the §17.6 alg whitelist for voice-biometric (only for fido2-assertion)
+    - Verifier accepts HMAC / symmetric-key algorithms for a public-key attestation type
+    - Verifier defers the alg check until after the crypto verifier (it should reject earlier)

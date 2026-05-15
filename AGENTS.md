@@ -120,7 +120,7 @@ npm link    # exposes `pact` (and `pact-agent` fallback) globally
 ## Cross-repo references
 
 - **Tailor monorepo** (private; reference implementation): `https://github.com/TailorAU/tailor-app`. Holds canonical spec source today, reference implementation of all PACT endpoints, and the `@tailor-app/cli` (which currently still ships a legacy `tap` command group — see [#6](https://github.com/TailorAU/pact/issues/6)).
-- **HMAN — Human-Managed-Access-Network** (downstream consumer): `https://github.com/Tailor-AUS/Human-Managed-Access-Network`. Source of [#3](https://github.com/TailorAU/pact/issues/3) and [#4](https://github.com/TailorAU/pact/issues/4) RFCs.
+- **HMAN — Human-Managed-Access-Network** (public, MIT; **reference implementation of §17/§18**): `https://github.com/Tailor-AUS/Human-Managed-Access-Network`. The canonical proof that the Human Authorization Layer is implementable on a sovereign local-first stack. Source of [#3](https://github.com/TailorAU/pact/issues/3) (voice-biometric crypto) and [#4](https://github.com/TailorAU/pact/issues/4) RFCs. **PACT and HMAN are deliberately separate artifacts** — PACT is the vendor-neutral protocol; HMAN is one implementation of the human end. Do not merge them; do not let spec text assume HMAN. The one co-designed seam (§18.3 voice-biometric) is frozen as a contract in `docs/v2-prep/v2.0.4-voice-biometric-lockdown.yaml`; HMAN's #3 PR fills in the crypto and must pass the conformance vectors that contract pins.
 
 ## When in doubt
 

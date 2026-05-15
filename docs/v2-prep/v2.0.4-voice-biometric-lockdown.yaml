@@ -1,0 +1,194 @@
+# v2.0.4 — §18.3 voice-biometric contract lockdown
+#
+# Design record (NON-NORMATIVE). The normative crypto for `voice-biometric`
+# lands via HMAN's #3 PR per §18.6 and AGENTS.md rule 5 (coordinated PR).
+# This file pins the *interface contract* that PR must satisfy so the
+# spec/implementation boundary stays sharp at the one seam where PACT and
+# HMAN are genuinely co-designed.
+#
+# Status: SCOPED 2026-05-16. Authored by PACT lead (Claude, Opus 4.7) under
+# Knox's standing "you are the PACT lead" authority. Not yet shipped — v2.0.4
+# ships when HMAN's #3 PR fills the crypto and the conformance vectors flip
+# from fail-closed scaffolding to verified-cryptographic.
+
+meta:
+  version_target: 2.0.4
+  patch_against: spec/v2.0
+  owner_split:
+    contract_and_scaffolding: PACT lead (this repo, shipped now)
+    normative_crypto: HMAN team (issue #3 PR, coordinated per rule 5)
+  related:
+    issue_3: https://github.com/TailorAU/pact/issues/3
+    spec_section: "§18.3, §18.6, §17.6, §17.7"
+    decision_record: docs/v2-prep/d1-d6-decisions.yaml
+
+# ---------------------------------------------------------------------------
+# WHY THIS EXISTS — the security gap, stated plainly
+# ---------------------------------------------------------------------------
+rationale:
+  the_gap: |
+    As of v2.0.3 the reference conformance runner accepts a `voice-biometric`
+    proof as `verified-structural` with ZERO cryptographic verification
+    (runner src/index.ts: "No crypto check attempted ... Pass as structural").
+    This is the exact A1 "forged-signature pass" footgun the v2.0.2
+    adversarial audit closed for `fido2-assertion` — still wide open for
+    `voice-biometric`. An adversary submits a voice-biometric proof with a
+    garbage signature and a self-asserted match score; the reference runner
+    says "verified". That is incoherent with the entire §17 trust model.
+  the_principle: |
+    A proof type whose verification is unimplemented MUST fail closed, never
+    open. "We haven't built the verifier yet" maps to `unverifiable` /
+    `rejected`, not `verified`. This is non-negotiable and is the v2.0.2 S3
+    trust-model position applied consistently.
+  what_v2_0_4_does_NOT_do: |
+    It does NOT invent the voice-biometric crypto. Signature suite, key
+    wrapping, embedding-algorithm set + versioning, threshold-selection
+    guidance, replay-protection specifics — all remain HMAN's #3 PR,
+    authoritative per §18.6. v2.0.4 only (a) freezes the interface those
+    deliverables must conform to, (b) makes the runner fail closed now, and
+    (c) ships the conformance vectors HMAN's PR must turn green.
+
+# ---------------------------------------------------------------------------
+# THE FROZEN INTERFACE — what HMAN's #3 PR MUST conform to
+# ---------------------------------------------------------------------------
+# These are contract surfaces. HMAN's PR fills in the crypto behind them but
+# MUST NOT change their shape without a new coordinated spec PR + version bump.
+frozen_interface:
+
+  envelope:
+    description: >
+      voice-biometric reuses the §17.6 authorization_proof envelope plus the
+      §18.1 common fields plus the §18.3 additions. Shape is FROZEN as of
+      v2.0; HMAN's PR pins the values inside, not the field set.
+    required_fields:
+      - type: "MUST be the literal string 'voice-biometric'"
+      - principal_id: "DID of the HumanPrincipal (1:1 per §17.4)"
+      - challenge_nonce: "verifier-issued OR verifier-signed (replay; §17.6)"
+      - asserted_at: "RFC3339 timestamp"
+      - signature: "over the canonical proof payload — suite pinned by #3 PR"
+      - alg: "MUST be in the voice-biometric alg whitelist (see below)"
+      - alg_version: "embedding/model version — retrains MUST NOT silently revalidate"
+      - match:
+          alg: "embedding algorithm id"
+          alg_version: "embedding model version"
+          score: "number, the speaker-verification similarity"
+          threshold: "number, the accept threshold in force at assertion time"
+      - utterance_hash: "NORMATIVE — binds the assertion to WHAT was said"
+      - verifier_id: "present (or challenge_nonce verifier-signed) — §17.7 step 5 equality"
+
+  alg_whitelist:
+    description: >
+      §17.6 already declares the whitelist is normative and that anything
+      outside it MUST be rejected at §17.7 step 3. For voice-biometric the
+      v2.0 placeholder is `resemblyzer-v1`. HMAN's #3 PR pins the NORMATIVE
+      set + versioning policy. Until it lands, the runner treats any
+      voice-biometric `alg` as "verifier not implemented" → fail closed.
+    v2_0_placeholder: ["resemblyzer-v1"]
+    hman_pr_pins:
+      - the normative embedding-algorithm set
+      - the signature suite over the proof payload
+      - the alg_version / model-retrain invalidation policy
+      - threshold-selection guidance (FAR/FRR targets per assurance tier)
+    hard_rule: >
+      symmetric-key / HMAC algs are forbidden for voice-biometric exactly as
+      for fido2-assertion (A9). proof-of-human-intent is a public-key model.
+
+  privacy_invariants:
+    description: FROZEN. HMAN's PR MUST NOT relax these.
+    invariants:
+      - "raw audio MUST NOT leave the verifying device (§18.3)"
+      - "no raw biometric material in the event log, ever (§17.10, §18.3)"
+      - "event log carries only principal_id (rotatable DID) + salted payload hash"
+      - "the match score + utterance_hash + signed assertion are the ONLY things that cross the wire"
+
+  utterance_binding:
+    description: FROZEN. The intent-capture property is the whole point of the type.
+    rule: >
+      a verifier requiring a specific utterance ("approve transfer of $5000
+      to Bridget") MUST reject a cryptographically valid voice match carried
+      against the WRONG utterance_hash. presence != intent. This is what
+      distinguishes voice-biometric from fido2-assertion and MUST survive
+      whatever crypto HMAN's PR chooses.
+
+# ---------------------------------------------------------------------------
+# FAIL-CLOSED SEMANTICS — runner behaviour shipped in v2.0.4 scaffolding
+# ---------------------------------------------------------------------------
+fail_closed:
+  rule: |
+    In the reference conformance runner, for type == 'voice-biometric':
+      - signature_check: real  -> result MUST be `unverifiable`, failing_step 3,
+        reason "voice-biometric crypto verifier not implemented (HMAN #3)".
+        It MUST NOT return `verified` of any mode.
+      - signature_check: structural -> may remain `verified-structural` ONLY
+        for explicitly-marked legacy/structural vectors that assert envelope
+        shape, freshness, replay, utterance-binding — NEVER the signature.
+  why_this_is_safe_to_ship_now: |
+    It is a defensive runner change, not normative spec text. It cannot break
+    a conformant implementation (there is no conformant voice-biometric
+    verifier yet — that's the point). It mirrors the A1 fido2 fix exactly. No
+    coordinated PR needed (rule 5 exempts non-normative tooling).
+  flip_condition: |
+    When HMAN's #3 PR lands the crypto, the runner gains a real
+    voice-biometric verifier and the scaffolding vectors below flip their
+    `expected` from fail-closed to verified-cryptographic / rejected-on-forge.
+    THAT coordinated PR is what promotes this scope to a shipped v2.0.4.
+
+# ---------------------------------------------------------------------------
+# CONFORMANCE VECTOR CONTRACT — what HMAN's PR must turn green
+# ---------------------------------------------------------------------------
+# Scaffolding vectors are shipped now under
+# spec/v2.0/conformance/extended/attestation/ with fail-closed `expected`
+# blocks and a `hman_3_flip:` annotation describing the post-crypto expectation.
+vectors:
+  - id: extended/attestation/verify-voice-valid
+    ships_now_as: >
+      fail-closed scaffold — signature_check: real, expected result
+      `unverifiable` failing_step 3 (verifier not implemented).
+    hman_3_flip: >
+      becomes a real Ed25519/suite-of-record signed voice proof with a
+      genuine embedding match >= threshold; expected verified-cryptographic.
+  - id: extended/attestation/verify-voice-forged-signature
+    ships_now_as: fail-closed scaffold (unverifiable, step 3).
+    hman_3_flip: >
+      byte-flipped signature over an otherwise valid voice proof; expected
+      `rejected` failing_step 3. The A1 mutation test, voice edition.
+  - id: extended/attestation/verify-voice-wrong-utterance
+    ships_now_as: fail-closed scaffold (unverifiable, step 3).
+    hman_3_flip: >
+      cryptographically valid signature + good match score but utterance_hash
+      does not match the verifier's required utterance; expected `rejected`.
+      Proves presence != intent survives the real crypto.
+  - id: extended/attestation/verify-voice-alg-disallowed
+    ships_now_as: >
+      runnable now — HMAC alg on a voice-biometric proof; expected `rejected`
+      failing_step 3 by the §17.6 whitelist (this check does NOT need the
+      crypto verifier, so it asserts real behaviour today).
+    hman_3_flip: unchanged — already exercises real whitelist enforcement.
+  - id: extended/attestation/verify-voice-replayed-cross-verifier
+    ships_now_as: fail-closed scaffold (unverifiable, step 3).
+    hman_3_flip: >
+      valid voice proof bound to verifier A replayed at verifier B; expected
+      `rejected` failing_step 5 (verifier_id equality, A3 — voice edition).
+
+acceptance_criteria:
+  v2_0_4_ships_when:
+    - HMAN's #3 PR lands the normative voice-biometric crypto via the
+      coordinated tailor-app PR (rule 5) and mirrors to spec/v2.0/.
+    - the five vectors above flip from fail-closed scaffolds to their
+      hman_3_flip expectations and the suite is green with a real
+      voice-biometric verifier in the runner.
+    - a forged voice signature produces `rejected` failing_step 3 (the A1
+      mutation test passes for voice, not just fido2).
+    - wrong-utterance rejection passes (intent-binding proven under real crypto).
+    - CHANGELOG v2.0.4 entry + tag + GitHub release + mirror PR
+      (use tools/mirror-spec.ps1 -Version 2.0.4 -AutoMerge).
+  until_then:
+    - the scaffolds keep the runner FAIL-CLOSED for voice-biometric so the
+      A1-class hole is shut in the meantime.
+    - §18.3 / §18.6 normative text is UNCHANGED (no freehand crypto).
+
+non_goals:
+  - inventing the signature suite, key wrapping, or embedding-alg set (HMAN #3)
+  - delegation / attestation_chain (deferred to v2.1 per §17.11)
+  - face/gait/keystroke modalities (the `match` sub-object is reused by them
+    later, but only voice is in scope here)

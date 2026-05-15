@@ -244,7 +244,13 @@ PACT defines the consensus protocol. Implementations provide the content layer f
 | [**Source**](https://source.tailor.au) | `fact` | Verified knowledge graph — facts, legislation, standards | v1.1 (live); v2.0 server-side rollout in progress | [TailorAU](https://github.com/TailorAU) |
 | **Baink** | `transaction` | Sovereign billing — multi-agent payment authorization | Planned | [TailorAU](https://github.com/TailorAU) |
 
-The v2.0 spec is released and the reference CLI/MCP are at v2.0.0; the v2.0 server-side surface (`/.well-known/pact.json` retentionPolicy, the §17.6 `authorization_proof` envelope, the §17.8 credentials registry, §23 transfer/recovery endpoints) lands in tailor-app's deployment as those surfaces are wired through the production stack. Until then, the listed implementations serve v1.1 endpoints; clients pinned to v2.0 features should check `/.well-known/pact.json`'s `specVersion`.
+The v2.0 spec is released and the reference CLI/MCP are at v2.0.3; the v2.0 server-side surface (`/.well-known/pact.json` retentionPolicy, the §17.6 `authorization_proof` envelope, the §17.8 credentials registry, §23 transfer/recovery endpoints) lands in tailor-app's deployment as those surfaces are wired through the production stack. Until then, the listed implementations serve v1.1 endpoints; clients pinned to v2.0 features should check `/.well-known/pact.json`'s `specVersion`.
+
+### Reference implementation of the Human Authorization Layer
+
+[**HMAN** — Human-Managed-Access-Network](https://github.com/Tailor-AUS/Human-Managed-Access-Network) (public, MIT) is the **reference implementation of PACT §17 (Human Authorization Layer) and §18 (Attestation Format Reference)**. It is the canonical proof that those sections are implementable on a sovereign, local-first stack: it runs the human's credential registry, mints and rotates per-task `agentId`s (§23), and produces the `authorization_proof` envelope (§17.6) — including the `voice-biometric` attestation type (§18.3) whose normative crypto is tracked in issue [#3](https://github.com/TailorAU/pact/issues/3).
+
+HMAN is **not** PACT and is deliberately a separate artifact: PACT is the vendor-neutral protocol; HMAN is one (reference-grade) implementation of the human end of it. A conformant non-HMAN implementation that produces a valid §18-conformant proof interoperates with HMAN over a fabric with no special-casing — that interoperability is the protocol's reason to exist and the reason the boundary is kept. The §18.3 interface between the two is frozen as a contract (see [`docs/v2-prep/v2.0.4-voice-biometric-lockdown.yaml`](docs/v2-prep/v2.0.4-voice-biometric-lockdown.yaml)) precisely so the spec/implementation boundary stays sharp at the one seam where the two are genuinely co-designed.
 
 Building a PACT implementation? [Open a PR](https://github.com/TailorAU/pact/pulls) to add it here.
 

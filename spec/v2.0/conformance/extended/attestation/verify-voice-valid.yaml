@@ -1,0 +1,67 @@
+# Conformance test vector — Extended: voice-biometric happy path.
+# kind: verification — exercises §17.7 + §18.3.
+#
+# SCAFFOLD (v2.0.4 lockdown, docs/v2-prep/v2.0.4-voice-biometric-lockdown.yaml).
+# The normative voice-biometric crypto lands via HMAN's #3 PR (§18.6). Until
+# then this vector FAILS CLOSED: a `signature_check: real` voice-biometric
+# proof whose verifier is not implemented MUST be `unverifiable` at step 3 —
+# it MUST NOT pass structurally (that was the A1 footgun, voice edition).
+#
+# hman_3_flip: when HMAN's #3 PR lands a real voice-biometric verifier,
+#   replace `signature` with a real suite-of-record signature over the
+#   canonical payload, set a genuine `match.score >= match.threshold`, and
+#   change expected.result -> verified (verification_mode cryptographic).
+
+kind: verification
+
+metadata:
+  id: extended/attestation/verify-voice-valid
+  description: "A voice-biometric proof with a valid embedding match. SCAFFOLD — fails closed (unverifiable, step 3) until HMAN's #3 PR lands the crypto verifier."
+  spec_section: "§17.6, §17.7, §18.3, §18.6"
+  conformance_level: extended
+  track: T1
+
+verification:
+  proof:
+    type: voice-biometric
+    principal_id: did:web:knox.example
+    credential_id: voice_ref_001
+    challenge_nonce: nonce-voice-001
+    asserted_at: "2026-05-16T10:00:00Z"
+    signature: "<HMAN #3: real suite-of-record signature over the canonical voice proof payload>"
+    alg: resemblyzer-v1
+    alg_version: "1.0"
+    match:
+      alg: resemblyzer-v1
+      alg_version: "1.0"
+      score: 0.91
+      threshold: 0.75
+    utterance_hash: "dXR0ZXJhbmNlLWhhc2gtcGxhY2Vob2xkZXItMDAx"
+    verifier_id: did:web:bridget.example
+    attestation_chain: []
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:knox.example
+        display_name: Knox Hart
+        credentials:
+          - id: voice_ref_001
+            type: voice-biometric
+            public_key: "<HMAN #3: enrolled voice-reference verification material>"
+            enrolled_at: "2026-05-16T09:00:00Z"
+            revoked: false
+  verifier_clock: "2026-05-16T10:00:30Z"
+  issued_nonces:
+    - nonce-voice-001
+  receiving_verifier_id: did:web:bridget.example
+  signature_check: real
+  expected:
+    result: unverifiable
+    failing_step: 3
+    emits_trust_violation: false
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Runner passed a voice-biometric proof structurally without a crypto verifier (A1, voice edition — the hole v2.0.4 closes)
+    - Runner did not fail closed when the voice-biometric verifier is unimplemented

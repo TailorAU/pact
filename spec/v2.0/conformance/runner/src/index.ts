@@ -278,8 +278,44 @@ function runVerification(v: Vector['verification']): VerificationResult {
     return { result: 'verified', verification_mode: 'structural' };
   }
 
-  // No crypto check attempted (voice-biometric, custom type, or no registry).
-  // Pass as structural.
+  // Step 3 (cryptographic half): voice-biometric. The normative crypto lands
+  // via HMAN's #3 PR (§18.6); until then the runner has no voice verifier.
+  // FAIL CLOSED — a `signature_check: real` voice proof MUST NOT pass
+  // structurally just because we haven't built the verifier. That was the
+  // A1 "forged proof passes" footgun (closed for fido2 in v2.0.2; closed
+  // for voice here). The §17.6 alg whitelist is enforced FIRST because it
+  // does not need the crypto verifier — so alg-disallowed asserts real
+  // behaviour today. Contract + flip conditions:
+  // docs/v2-prep/v2.0.4-voice-biometric-lockdown.yaml.
+  if (type === 'voice-biometric') {
+    // v2.0 placeholder set; HMAN's #3 PR pins the normative whitelist.
+    const VOICE_ALG_WHITELIST = new Set(['resemblyzer-v1']);
+    const valg = typeof proof.alg === 'string' ? proof.alg : '';
+    if (!VOICE_ALG_WHITELIST.has(valg)) {
+      return {
+        result: 'rejected',
+        failing_step: 3,
+        reason: `voice-biometric alg '${valg}' outside the §17.6 whitelist`,
+        verification_mode: 'cryptographic',
+      };
+    }
+    if (signatureCheck === 'real') {
+      return {
+        result: 'unverifiable',
+        failing_step: 3,
+        reason: 'voice-biometric crypto verifier not implemented (HMAN #3, §18.6) — failing closed',
+        verification_mode: 'cryptographic',
+      };
+    }
+    // Only explicitly-structural vectors reach here (none exist yet); the
+    // envelope / freshness / replay / verifier-binding checks above already
+    // ran. The signature itself is NOT asserted.
+    return { result: 'verified', verification_mode: 'structural' };
+  }
+
+  // No crypto check attempted (custom reverse-domain type, or no registry —
+  // a pure envelope test). Custom types defer to their own verifiers (§18.5);
+  // a no-registry vector is an envelope-shape test only.
   return { result: 'verified', verification_mode: 'structural' };
 }
 

@@ -95,7 +95,7 @@ All v2.0.3 operations live under `/api/pact/{fabricId}/...` (consistent with v2.
 
 ### Mirror
 
-This release mirrors to `tailor-app` via PR TBD (squash-merged 2026-05-15) following the v2.0.x coordinated-PR pattern (see [TailorAU/tailor-app#1616](https://github.com/TailorAU/tailor-app/pull/1616), [#1673](https://github.com/TailorAU/tailor-app/pull/1673), [#1679](https://github.com/TailorAU/tailor-app/pull/1679)).
+This release mirrors to `tailor-app` via PR [#1701](https://github.com/TailorAU/tailor-app/pull/1701) (squash-merged 2026-05-15) following the v2.0.x coordinated-PR pattern (see [TailorAU/tailor-app#1616](https://github.com/TailorAU/tailor-app/pull/1616), [#1673](https://github.com/TailorAU/tailor-app/pull/1673), [#1679](https://github.com/TailorAU/tailor-app/pull/1679)).
 
 ---
 

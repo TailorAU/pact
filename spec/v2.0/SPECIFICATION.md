@@ -1,9 +1,9 @@
-# PACT — Protocol for Agent Consensus and Truth — Specification v2.0.1
+# PACT — Protocol for Agent Consensus and Truth — Specification v2.0.2
 
 > **Status:** Stable  
 > **Author:** Knox Hart + AI  
 > **Date:** 15 May 2026  
-> **Version:** 2.0.1 (patch on v2.0; see [`CHANGELOG.md`](../../CHANGELOG.md#v201--2026-05-15) for the cold-eye-audit fixes — additive, no breaking changes)  
+> **Version:** 2.0.2 (second patch on the v2.0 line; addresses cold-eye-audit-#2 (the red-team / adversarial review). Additive — no breaking changes to v2.0/v2.0.1 clients. See [`CHANGELOG.md`](../../CHANGELOG.md#v202--2026-05-15) for the list of attacks closed and how.)  
 > **Vision:** Enable millions of agents to reach consensus on shared resources at machine speed, with humans retaining final authority.
 
 ### What's New in v2.0
@@ -335,6 +335,43 @@ The event log is the source of truth for collaboration state (Design Principle 5
 - An implementation that retains events for less than the recommended minimum SHOULD prominently surface this in its profile (`retentionPolicy.minimumDays < 365` is visible to clients and conformance verifiers).
 
 **Audit-trail consequence.** Cross-org disputes, regulatory audits, and post-incident forensics all depend on the event log. An aggressively short retention policy makes the implementation cheaper to run and cheaper to attack — both of those consequences are the operator's call, but they MUST be a declared call, not an undocumented one.
+
+### 6.4 Event-log integrity (hash-chained + signed root)
+
+Retention (§6.3) tells you how long the event log is kept. Integrity tells you whether you can trust that what's kept is what actually happened. v2.0.2 adds a normative integrity requirement that closes the silent-tampering attack: a compromised server can no longer rewrite or delete past events without that mutation being externally detectable.
+
+**Per-event chaining (REQUIRED at Extended and Authorization-Required; RECOMMENDED at Core).** Every event in the operation log MUST carry an additional `prev_hash` field — a base64url-encoded SHA-256 hash of the *canonical JSON encoding* (RFC 8785) of the immediately preceding event in the same resource's log. The first event (sequenceNumber 0 or 1) uses the literal string `"GENESIS"` as its `prev_hash`. Implementations MUST reject any incoming event whose `prev_hash` does not match the recomputed hash of the prior event.
+
+```json
+{
+  "id": "evt_abc123",
+  "epochMs": 1747276800000,
+  "sequenceNumber": 42,
+  "eventType": "pact.proposal.merged",
+  "entityType": "pact-document",
+  "entityId": "doc_xyz",
+  "payloadJson": "...",
+  "prev_hash": "base64url-sha256(canonical(event 41))"
+}
+```
+
+**Daily signed root (REQUIRED at Extended and Authorization-Required).** Every 24 hours (or on operator-defined cadence — at minimum once daily), the server MUST emit a `pact.log.root` system event:
+
+```json
+{
+  "eventType": "pact.log.root",
+  "epochMs": ...,
+  "payloadJson": "{\"resource_id\":\"doc_xyz\",\"window_start_seq\":1,\"window_end_seq\":42,\"window_end_hash\":\"base64url-...\",\"signature\":\"base64url-...\",\"signing_key\":\"did:web:server.example#log-signing\"}"
+}
+```
+
+The `signature` is an Ed25519 (or whitelisted alg per §17.6) signature over the canonical encoding of `{resource_id, window_start_seq, window_end_seq, window_end_hash}`. The `signing_key` is advertised in the Implementation Profile (§15.1) as `endpoints.logSigningKey`. The signed root commits the server to "this is what the chain looks like as of this moment"; any later mutation that doesn't replay through new chained events will produce a `prev_hash` mismatch detectable by any consumer with the prior root.
+
+**External transparency anchor (RECOMMENDED at Authorization-Required).** A server claiming `Authorization-Required` SHOULD periodically publish its signed roots to an external append-only log (Certificate Transparency, a public Git-signed-tag repository, a Tor onion-service mirror, etc.). The protocol does not pin a specific anchor mechanism; the requirement is that an external party SHOULD be able to compare the server's claimed history against a copy the server cannot retroactively edit.
+
+**Verification.** A consumer polling for events SHOULD validate each event's `prev_hash` against the prior event's recomputed hash. Implementations MAY cache by `window_end_hash` and only re-validate on each new signed root. A consumer that detects a hash-chain break MUST treat the server as compromised and stop accepting new events from it until reconciled.
+
+**Migration from v2.0 / v2.0.1.** Events emitted before v2.0.2's chaining requirement land in the log without `prev_hash`. Implementations upgrading SHOULD treat the first v2.0.2 event as `prev_hash: "GENESIS-v202"` to mark the transition, and SHOULD emit a `pact.log.root` over the prior history at upgrade time so the legacy events are committed to a signed window even if they're not individually chained.
 
 ---
 
@@ -676,6 +713,16 @@ System:          proposal.status → Objected
                  → Both agents see the objection reason
                  → Agent-Legal revises and creates a new proposal
 ```
+
+### 10.7 Salience abstention timeout (v2.0.2+)
+
+Salience scores have the right shape as coordination signals but can be misused as authority constraints — an agent that sets salience=10 (critical) on a section and then abstains can indefinitely block auto-merge. v2.0.2 introduces an explicit abstention rule:
+
+- An agent that declares `salience >= 7` on a section MUST respond to any proposal targeting that section within `abstention_ttl` (default: 4× the proposal's normal TTL, configurable per resource). A response is any of: `proposal.approve`, `proposal.object`, or `proposal.review-noted` (a new no-op event indicating "I saw it; no objection, no approval").
+- An agent that has not responded by `abstention_ttl` is **auto-demoted to salience=5** on that section for the remainder of the proposal's lifecycle. The auto-demotion is recorded as a `pact.salience.auto-demoted` event with the original score, the new score, and the proposal that triggered the demotion. After the proposal concludes, the agent's declared salience returns to its pre-demotion value.
+- Salience=10 agents that auto-demote three times consecutively on the same resource SHOULD trigger a `pact.escalation.human` event (operator review of whether the agent is functioning correctly).
+
+This is non-breaking: in the cooperative case nothing changes. The rule only fires when an agent is asserting high authority without exercising it — which is the abuse case salience-as-constraint was conflating.
 
 ---
 
@@ -1088,6 +1135,71 @@ Each implementation:
 - Publishes a conformance profile
 - Does NOT share code with other implementations (federation, not monolith)
 
+### 15.4 Cross-organisation boundary (v2.0.2+)
+
+The `Authorization-Required` tier (§17.9) and several other normative rules (§17.4's CT monitoring SHOULD, §17.13's trust-floor framing) reference "cross-organisation messages." v2.0 left "organisation" implicit; v2.0.2 defines it deterministically so the rules trigger consistently:
+
+A message from agent A to agent B is **cross-organisation** if any of the following holds:
+
+- A's `principal_id` and B's `principal_id` use different DID methods (e.g. one is `did:web:`, the other `did:key:`).
+- Both DIDs use `did:web` but their domain components differ at the registrable-domain level (per [Mozilla's Public Suffix List](https://publicsuffix.org/)) — `did:web:org-a.example` and `did:web:org-b.example` are cross-org; `did:web:org.example` and `did:web:api.org.example` are intra-org (same eTLD+1).
+- Either DID is unresolvable against the receiving server's federated registry (the message arrived from a counterparty whose registry the server does not directly mirror).
+- An explicit `cross_org_assertion` field on the message says so. The sender MAY assert cross-org status even when the heuristics above don't trigger; the receiver MUST honour it (more checks, not fewer).
+
+A message is **intra-organisation** only if none of the above is true. Implementations SHOULD log their cross-org / intra-org determination on every message bearing `authorization_proof`; the determination is itself an audit-trail artifact and MUST be preserved in the event log when the resource policy requires it (e.g. for Authorization-Required tier deployments under regulated audit).
+
+Implementations MAY refuse to act on a message they classify as cross-org without an `authorization_proof` envelope, even at Core conformance — they simply MUST document that refusal in their Implementation Profile.
+
+### 15.5 `pact_introspect_tier` — behavioural conformance probe (v2.0.2+)
+
+Conformance levels declared in `/.well-known/pact.json` are self-asserted. A server can claim `Authorization-Required` without enforcing the four checks of §17.9. To make conformance partially probeable, v2.0.2 defines a small surface a verifier can use to **behaviourally check** that an advertised tier is actually being honoured.
+
+**Operation:** `POST /api/pact/_probe/tier`
+
+```json
+{
+  "probe_id": "string (caller-chosen unique id; echoed back)",
+  "advertised_tier": "authorization-required",
+  "checks": [
+    "tombstoned_principal_rejected",
+    "revoked_credential_rejected",
+    "did_web_ct_check",
+    "alg_whitelist_enforced",
+    "verifier_id_equality_enforced"
+  ]
+}
+```
+
+The server MUST respond with a `tier_probe_report`:
+
+```json
+{
+  "probe_id": "...",
+  "server_advertised_tier": "authorization-required",
+  "report_generated_at": "ISO 8601",
+  "report_signature": "base64url-... (over canonical JSON of this report minus the signature field)",
+  "signing_key": "did:web:server.example#tier-probe",
+  "check_results": [
+    { "check": "tombstoned_principal_rejected", "outcome": "pass", "evidence": "rejected probe-proof against tombstoned principal probe_tombstoned_001 at step 2" },
+    { "check": "revoked_credential_rejected", "outcome": "pass", "evidence": "..." },
+    { "check": "did_web_ct_check", "outcome": "not_implemented", "evidence": "server runs Authorization-Required tier without CT monitoring — see §17.4" },
+    { "check": "alg_whitelist_enforced", "outcome": "pass", "evidence": "rejected proof with alg=HS256 at step 3" },
+    { "check": "verifier_id_equality_enforced", "outcome": "pass", "evidence": "rejected proof with verifier_id mismatch at step 5" }
+  ]
+}
+```
+
+**Probe semantics.** For each requested check, the server runs a canonical test against itself (using pre-registered probe principals / probe credentials in the registry — implementations MAY designate specific principal IDs as probe-only) and reports the outcome. Outcomes are `pass` / `fail` / `not_implemented` (the server doesn't claim to enforce this check) / `unsupported` (the check name isn't recognised).
+
+**What this probe IS and ISN'T:**
+
+- It IS: a partial behavioural check that the most-load-bearing tier requirements are actually wired up. Catches conformance laundering for the small subset of checks that are runnable from a single API call.
+- It IS NOT: a complete audit. Many tier requirements (e.g. event-log hash-chaining, registry append-only log integrity, did:web Document pinning over time) require multi-call sequences or external observation. Those are addressed by §6.4 signed roots and §17.8 mutation logs, not by this probe.
+
+**Conformance:** OPTIONAL at Core; SHOULD at Extended; **MUST at Authorization-Required**. Implementations claiming Authorization-Required without exposing `_probe/tier` are accepted by tooling but flagged as non-introspectable; consumers SHOULD prefer probeable counterparties for cross-org trust.
+
+The reference CLI exposes this as `pact tier-introspect <server-url> [--checks <list>]`; the MCP exposes `pact_tier_introspect`.
+
 ---
 
 ## 16. Open Questions
@@ -1151,6 +1263,8 @@ The `principal_id` is a [W3C Decentralized Identifier](https://www.w3.org/TR/did
 
 **Security note on `did:web`:** a `did:web` DID resolves to an HTTPS GET on a domain. A DNS hijack, certificate compromise, or domain takeover compromises every authorization signed under that domain — for HumanPrincipals carrying cross-organisation authorization, this is a significant operator-of-record threat. Implementations SHOULD treat `did:key` (offline / hardware-bound) as the default for high-stakes principals, and reserve `did:web` for federation-friendly cases where the domain's operational security is itself part of the trust posture. Implementations operating under the `Authorization-Required` tier (§17.9) SHOULD additionally require certificate-transparency monitoring for `did:web` principals they accept.
 
+**DID Document pinning (REQUIRED for v2.0.2+; closes the historical-rewrite attack).** When a verifier first accepts a proof from a `principal_id`, it MUST record the DID Document it resolved against — at minimum the `id`, `verificationMethod` set, and `controller` value(s). For all subsequent proofs from the same `principal_id`, the verifier MUST check that the resolved DID Document either matches the pinned state exactly OR chains to it via a signed rotation event recorded in the credential registry's mutation log (§17.8). A DID Document that has "moved" without a corresponding signed rotation is evidence of compromise (domain takeover, DNS hijack, registry tampering) and MUST cause verification to fail (reject; §17.7 step 2). This rule is mandatory at the `Authorization-Required` tier and RECOMMENDED at Extended; implementations operating Core MAY skip pinning but SHOULD document that decision in their `/.well-known/pact.json` profile as `capabilities.didDocumentPinning: false`.
+
 ### 17.5 The `persona` claim (above the PACT layer)
 
 Some deployments give one human several operating "personas" (e.g. `Personal`, `Trade`, `Household`). **PACT does not model these.** An implementation MAY attach an advisory `persona` claim to a signed message; it is purely informational metadata for the receiving agent. A verifier:
@@ -1175,8 +1289,11 @@ Any PACT message (proposal, intent, constraint, completion, mediated message, se
     "principal_id": "did:web:knox.example",
     "credential_id": "cred_abc123",
     "challenge_nonce": "base64url-...",
+    "verifier_id": "did:web:bridget.example",
     "asserted_at": "2026-05-13T10:30:00Z",
     "signature": "base64url-...",
+    "alg": "webauthn-es256",
+    "alg_version": "2",
     "attestation_chain": []
   }
 }
@@ -1189,10 +1306,14 @@ Any PACT message (proposal, intent, constraint, completion, mediated message, se
 | `type` | string | Yes | Attestation type — `fido2-assertion`, `voice-biometric`, or a custom type in reverse-domain notation (§18.5). |
 | `principal_id` | string (DID) | Yes | The HumanPrincipal that authorized this action. |
 | `credential_id` | string | Yes | Identifier of the enrolled credential that produced the signature. |
-| `challenge_nonce` | string | Yes | Verifier-issued challenge. MUST be either signed by the verifier's key OR carry a `verifier_id` claim — otherwise a proof captured for verifier A can be replayed at verifier B. |
+| `challenge_nonce` | string | Yes | Verifier-issued challenge. MUST be either signed by the verifier's key (asserted via `verifier_signed_nonce: true`) OR accompanied by a `verifier_id` field. See replay-protection rules below. |
+| `verifier_id` | string (DID) | Conditional | Identifier of the verifier the challenge was issued for. REQUIRED when `verifier_signed_nonce` is not `true`. The receiving verifier MUST reject the proof if `verifier_id` does not equal its own identity (the receiver's `principal_id` or registered verifier DID) — see §17.7 step 5. |
+| `verifier_signed_nonce` | bool | No | Annotation asserting that `challenge_nonce` is itself signed by the verifier's key. When `true`, `verifier_id` is not required. Verifiers MUST still cryptographically validate the nonce signature; this field is the producer's hint, not a check. |
 | `asserted_at` | string (ISO 8601) | Yes | When the human authorization was captured. |
 | `signature` | string | Yes | Signature over the message payload + `challenge_nonce` + `asserted_at`, per the `type`'s suite. |
-| `attestation_chain` | array | No | Ordered intermediate attestations for delegated authorization (§17.11). Empty or absent = direct. |
+| `alg` | string | Yes (v2.0.2+) | Signature/match algorithm identifier. **Normative whitelist for `fido2-assertion`**: `webauthn-es256` (ECDSA P-256 + SHA-256), `webauthn-es384` (P-384 + SHA-384), `webauthn-eddsa` (Ed25519). For `voice-biometric`: `resemblyzer-v1` (HMAN's #3 PR pins the normative set). Custom attestation types declare their own algs in reverse-domain notation (`com.example.alg-name`). **Anything outside this whitelist MUST be rejected at §17.7 step 3** — HMAC-based or symmetric-key algs are explicitly disallowed for `fido2-assertion`. |
+| `alg_version` | string | Yes | Version of `alg`. Model swaps / retrains / suite revisions MUST NOT silently invalidate enrolled references. |
+| `attestation_chain` | array | No | Ordered intermediate attestations for delegated authorization (§17.11). Empty or absent = direct. v2.0 item shape is implementation-defined and verifiers that cannot verify the chain MUST reject — see §17.11. |
 
 ### 17.7 Verification Flow
 
@@ -1202,18 +1323,23 @@ On receiving a message bearing `authorization_proof`, a verifying party MUST:
 2. **Principal resolution** — resolve `principal_id` (DID resolution for `did:web` / `did:key` / etc., or the credential registry `/.well-known/pact-credentials.json`; §17.8). Resolution failure → unverifiable.
 3. **Signature verification** — verify `signature` against the public key enrolled for `credential_id` under `principal_id`, per the `type`'s suite.
 4. **Freshness** — `asserted_at` MUST be within the implementation's allowed clock skew (default ±5 minutes; configurable).
-5. **Replay** — `challenge_nonce` MUST match a challenge the verifier (or its server) issued and not yet retired, OR be a verifier-signed nonce / carry a matching `verifier_id`.
+5. **Replay** — `challenge_nonce` MUST satisfy ONE of: (a) match a challenge the verifier (or its server) issued and has not yet retired, OR (b) carry a cryptographically valid verifier-signature over the nonce body (the verifier's own key, asserted by `verifier_signed_nonce: true`), OR (c) be accompanied by a `verifier_id` field whose value **exactly equals** the receiving verifier's identity (DID). **Presence of `verifier_id` alone is not sufficient — the value MUST equal the receiver's DID; a proof with `verifier_id: did:web:other.example` MUST be rejected by `did:web:this.example`.** This is the difference between schema-validity (the v2.0.1 `if/then` enforces presence) and replay-protection-validity (a runtime equality check, mandatory here).
 6. **Result** — any failure → the verifier SHOULD reject the message and MAY emit `pact.trust.violation` with `payloadJson.kind = "authorization_failed"` and the failing step. Success → the message is treated as human-authorized by `principal_id`.
 
 Verifiers MAY cache a successful resolution for the life of a session to avoid repeated registry / DID lookups; they MUST honour revocation (§17.8) within the cache's max-age hint.
 
 ### 17.8 Credential Registry
 
-A PACT server MAY publish `/.well-known/pact-credentials.json`:
+A PACT server publishing principal credentials does so at `/.well-known/pact-credentials.json`. Two surfaces are required: a **snapshot** (the current registry state) and a **mutation log** (an append-only record of every change to the snapshot, ever). The snapshot answers "who's enrolled right now?"; the log answers "who has the registry ever claimed was enrolled, and when did each claim change?" Without the log, tombstones and revocations are honour-system: the server could remove a tombstone tomorrow and no verifier could tell.
+
+**Snapshot:**
 
 ```json
 {
-  "version": "1.0",
+  "version": "2.0",
+  "snapshot_root": "base64url-sha256-hash",
+  "snapshot_signature": "base64url-sig-over-snapshot_root-using-the-servers-key",
+  "log_uri": "https://api.tailor.au/.well-known/pact-credentials.log",
   "principals": [
     {
       "id": "did:web:knox.example",
@@ -1226,14 +1352,26 @@ A PACT server MAY publish `/.well-known/pact-credentials.json`:
 }
 ```
 
+**Mutation log (append-only, hash-chained):**
+
+```jsonl
+{"seq":1,"epochMs":1735689600000,"op":"enroll","principal_id":"did:web:knox.example","credential_id":"cred_abc123","public_key":"base64url-...","prev_hash":"GENESIS"}
+{"seq":2,"epochMs":1746230400000,"op":"revoke","principal_id":"did:web:knox.example","credential_id":"cred_abc123","reason":"key-rotation","prev_hash":"base64url-sha256(entry-1-canonical)"}
+{"seq":3,"epochMs":1746230401000,"op":"enroll","principal_id":"did:web:knox.example","credential_id":"cred_def456","public_key":"base64url-...","prev_hash":"base64url-sha256(entry-2-canonical)"}
+{"seq":4,"epochMs":1747276800000,"op":"tombstone","principal_id":"did:other-human.example","reason":"withdrawal","prev_hash":"base64url-sha256(entry-3-canonical)"}
+```
+
+Each entry's `prev_hash` is the SHA-256 of the *canonical* JSON encoding (RFC 8785) of the previous entry, base64url-encoded. The first entry (`seq: 1`) uses the literal string `"GENESIS"`. The `snapshot_root` in `/.well-known/pact-credentials.json` is the hash of the most recent log entry; the `snapshot_signature` is signed by the server's registry-signing key (advertised in the Implementation Profile, §15.1).
+
 **Registry rules:**
 
 - An implementation MAY instead (or also) support DID-document resolution for the public keys.
 - A credential with `"revoked": true` MUST cause verification to fail.
 - Implementations SHOULD support rotation — multiple active credentials per principal.
-- The registry MUST be served over HTTPS in production; the server MAY require mTLS or a bearer token to read it.
+- The registry (snapshot + log) MUST be served over HTTPS in production; the server MAY require mTLS or a bearer token to read either surface.
 - A `Cache-Control: max-age` (or equivalent) hint bounds how stale a cached resolution may be; absent a hint, implementations SHOULD re-check at least every 5 minutes.
-- **Erasure / tombstone:** a human's withdrawal is effected by **cryptographic erasure** — destroying / revoking the credential keys — leaving a tombstone (`{"id": "...", "tombstoned_at": "...", "credentials": []}`) so prior proofs remain checkable as having-been-valid-then-revoked without the key material persisting (see §17.10).
+- **Append-only mutation log (REQUIRED at Extended and Authorization-Required; RECOMMENDED at Core).** Every `enroll`, `revoke`, `rotate`, `tombstone`, or `untombstone` MUST be appended as a new log entry; entries MUST NOT be edited or deleted in place. Verifiers checking a registry state MAY fetch the log and validate the hash chain back to GENESIS; a verifier that detects a chain break or a snapshot whose `snapshot_root` doesn't match the log tip MUST treat the registry as compromised and reject all proofs resolving against it until the discrepancy is resolved. This closes the tombstone-then-resurrect attack: the resurrection is itself a logged event, visible to every cache-respecting verifier.
+- **Erasure / tombstone (honest reframe — see §17.10 for what this does and doesn't guarantee):** a human's withdrawal is recorded as a `tombstone` log entry. The server SHOULD destroy the credential's private key material at this point; the registry SHOULD remove the public_key from future snapshots; the tombstone log entry remains forever (this is the protocol-integrity property). Prior proofs remain checkable as having-been-valid-then-revoked. The cryptographic-erasure property — that the destroyed key is actually unreachable — is an operational claim by the registry operator, not a protocol guarantee (§17.10).
 
 ### 17.9 Conformance
 
@@ -1250,7 +1388,7 @@ Implementations MAY require `authorization_proof` for specific operations regard
 PACT's design separates two classes of personal data with different erasure stories. Whether either treatment satisfies any specific jurisdiction's data-protection law is **not** a protocol determination — see the legal-evaluation requirement at the end of this section.
 
 - **Event-log entries are protocol-integrity records.** Removing past events breaks the event-sourced consistency guarantee that PACT relies on (Design Principle 5). An `authorization_proof` recorded in the event log SHOULD carry only the `principal_id` (a DID — itself rotatable / revocable) and a salted hash of the proof payload, NOT raw biometric data or other PII. Raw biometric material MUST NOT appear in the event log under any circumstance (see §18.3). The intent is that the personal-data exposure of a retained event is a single rotatable identifier plus an opaque hash.
-- **Credential-registry entries** are personal data and support erasure via the cryptographic-erasure pattern of §17.8: destroy the credential keys, leave a tombstone. Prior proofs remain checkable as having-been-valid-then-revoked; new authorizations from the principal become impossible.
+- **Credential-registry entries** are personal data. The registry serves them via the snapshot + append-only log of §17.8. Erasure of a principal is recorded as a `tombstone` log entry, and the server SHOULD at that point destroy the credential's private key material and remove the `public_key` from future snapshots. **The term "cryptographic erasure" is widely used for this pattern but is, strictly, an OPERATIONAL claim, not a cryptographic guarantee.** Whether the destroyed key is actually unreachable depends on: (a) whether the key was hardware-bound (`did:key` backed by an HSM or platform authenticator approximates real unrecoverability; software keys do not), (b) whether the registry operator's backup / disaster-recovery policy retains key material that survives the "destruction," (c) whether the keys can be compelled (subpoena, regulator demand, internal access). A PACT verifier accepting a tombstone is trusting the registry operator's word that the key is gone; the append-only log makes that word visible and auditable, but does not make it cryptographically true. Implementations claiming the `Authorization-Required` tier (§17.9) SHOULD document, in their Implementation Profile, (i) whether their credential storage is hardware-bound, (ii) their backup-of-private-key-material policy, and (iii) the legal regime under which key disclosure could be compelled. Without those disclosures, the protective claim of cryptographic erasure is incomplete.
 
 **Legal evaluation (REQUIRED).** Whether the above treatment satisfies a specific jurisdiction's right-of-erasure law (notably GDPR Art. 17 in the EU, but also similar provisions elsewhere) is a per-deployment legal question that the protocol cannot answer. Implementations MUST evaluate compatibility with applicable law and document, in their `/.well-known/pact.json` profile or accompanying compliance posture, any exemption claimed (e.g. Art. 17(3) public-interest, legal-obligation, or freedom-of-expression bases). Implementations operating in EU jurisdictions SHOULD obtain external legal review of their event-log retention before claiming the `Authorization-Required` tier.
 
@@ -1267,6 +1405,34 @@ The `authorization_proof` envelope carries an `attestation_chain` field — orde
 3. **Offline verification** — pre-fetched public keys / signed credential bundles to verify without a registry round-trip.
 4. **Delegation trust-decay** — the §17.11 cap is set; the decay model along the chain is not.
 5. **Custom attestation types** — pre-registration required, or naming-convention only? (Current lean: naming-convention only — §18.5.)
+
+### 17.13 Trust model (what PACT actually guarantees)
+
+PACT v2.0.2's security properties depend on more than the protocol. A complete trust posture is the conjunction of (i) what the protocol normatively requires, (ii) what the implementer actually delivers, and (iii) what an external party can verify. The protocol is honest about which is which.
+
+**What PACT v2.0.2 normatively requires of a conformant implementation:**
+
+- Type dispatch, principal resolution, freshness, replay-binding equality, and signature verification per §17.7 against the alg whitelist of §17.6.
+- An append-only credential-registry mutation log with hash chaining (§17.8).
+- Event-log hash chaining + signed root (§6.4, when an implementation claims Extended or higher).
+- DID Document pinning (§17.4) at Extended and Authorization-Required.
+- Per the `Authorization-Required` tier, the four concrete checks of §17.9.
+
+**What PACT v2.0.2 cannot guarantee through normative requirements alone:**
+
+- That a server *actually performs* the checks it advertises in its profile. The conformance model is self-certifying (§15.5 `pact_introspect_tier` lets verifiers probe a small number of these behaviourally; the full set is not probeable). A server claiming `conformanceLevel: "authorization-required"` may or may not enforce all four checks; a verifier accepting proofs from that server is trusting the claim.
+- That "cryptographic erasure" of a tombstoned credential's private key material is actually irreversible (§17.10 — operational, not cryptographic).
+- That a `did:web` principal has not been silently rebound by a domain takeover the verifier cannot independently detect. The DID Document pinning rule (§17.4) catches changes the verifier observes post-pinning but cannot retroactively detect a takeover that happened before first observation.
+- That an attestation chain (§17.11) accepted by a delegation-supporting implementation actually walks back to a valid principal — v2.0 leaves chain semantics implementation-defined.
+- That a multi-channel notification of `recovery-initiated` (§23.4) actually reached the operator-of-record. The notification channel is implementation-defined.
+
+**What a verifier should therefore assume:**
+
+- The trust floor in any PACT interaction is the *weakest implementation in the trust graph*, not the strongest. A federation of three impls — two at `Authorization-Required` and one at `Core` — operates at Core-level trust against any principal whose authoritative registry is on the Core impl.
+- "Conformance" is not a single binary. It's a stack: (i) the protocol's normative requirements, (ii) the implementer's declared profile, (iii) what an external probe / audit can independently verify. Cross-org consumers SHOULD probe (§15.5) before extending trust, not rely on the declared tier alone.
+- For high-stakes operations, prefer hardware-bound principals (`did:key` via FIDO2/HSM) over `did:web`; require Authorization-Required from counterparties and verify it via probe; and treat the credential-registry mutation log as part of the audit surface, not just the snapshot.
+
+This section is non-normative framing. It does not impose new requirements; it makes the existing trust model explicit so implementers and consumers calibrate accordingly.
 
 ---
 
@@ -1393,17 +1559,28 @@ Both recovery paths take effect only after a **time-locked dispute window** (imp
 pact.agent.transferred         // Cooperative operator transfer completed (binding rotated, agentId unchanged)
 pact.agent.identity-rotated     // Agent's own signing key rotated (may accompany a transfer)
 pact.agent.recovery-initiated   // M-of-N recovery or abandoned-agent reset started; dispute window open
+pact.agent.recovery-disputed    // Operator-of-record (or proxy) lodged a dispute during the window; recovery suspended for human resolution
 pact.agent.recovered            // M-of-N recovery completed (binding rotated, agentId unchanged)
 pact.agent.abandoned            // Abandoned-agent reset completed (old agentId frozen; successor has a new agentId)
 ```
+
+### 23.5b Multi-channel notification and dispute (v2.0.2+; closes the dispute-window-starvation attack)
+
+The 72-hour default dispute window (§23.4) is only as safe as the operator-of-record's ability to actually receive `pact.agent.recovery-initiated` in time. v2.0 left the notification channel implementation-defined; an attacker who has captured M-of-N quorum keys and can also DoS / spoof / hijack a single notification channel can ride the window out unopposed. v2.0.2 strengthens this:
+
+- An implementation supporting M-of-N recovery MUST emit the `pact.agent.recovery-initiated` event to **at least two distinct notification channels** from the agent's enrolled `notificationChannels` list (registered at agent join time or rotated via cooperative transfer). Channels SHOULD include heterogeneous transports — e.g. one IP-network webhook AND one out-of-band channel (email, SMS, push to a hardware authenticator, a signed entry on a public log). Implementations using only one channel MUST advertise this limitation in their Implementation Profile (§15.1) as `capabilities.recoverySingleChannel: true` so consumers can downweight the implementation's recovery-safety claim.
+- The recovery-initiated event MUST include an `external_anchor_uri` field — a URL on an append-only log (§17.8 mutation-log style, or an external transparency log) where the event is also published. A consumer that observes the recovery on the anchor but not on its primary channel SHOULD treat the primary channel as compromised.
+- The operator-of-record (or any quorum member who did NOT co-sign the recovery, or any human with administrative oversight as defined by the implementation) MAY emit a `pact.agent.recovery-disputed` event during the window. A valid dispute event suspends the recovery pending human resolution (the implementation MUST emit `pact.escalation.human` referencing the agentId and the dispute, and MUST NOT auto-complete the recovery until a human-resolution event clears it).
+- The dispute event itself MUST carry an `authorization_proof` from the disputing principal. A dispute from a principal not authorized to dispute (per the implementation's documented rules — typically the current operator-of-record OR any non-co-signing quorum member) MUST be rejected with `pact.trust.violation`.
+- Default behaviour when the dispute window expires without a dispute event: the recovery proceeds. Implementations MAY require an additional explicit "no-dispute" confirmation step at the `Authorization-Required` tier.
 
 ### 23.6 Conformance
 
 | Level | Requirement |
 |---|---|
 | **Core** | `agentId` MUST persist across sessions and be server-portable in form (§23.1). Cooperative transfer (§23.3) is OPTIONAL. |
-| **Extended** | SHOULD support cooperative operator transfer (§23.3). |
-| **Authorization-Required** | The transfer / recovery attestations are themselves `authorization_proof`-bearing (§17.6); a recovery quorum's signatures MUST each verify as valid HumanPrincipal proofs. |
+| **Extended** | SHOULD support cooperative operator transfer (§23.3). Implementations supporting recovery (§23.4) SHOULD provide multi-channel notification (§23.5b). |
+| **Authorization-Required** | The transfer / recovery attestations are themselves `authorization_proof`-bearing (§17.6); a recovery quorum's signatures MUST each verify as valid HumanPrincipal proofs. Implementations supporting recovery MUST provide multi-channel notification + external anchor URI + dispute support (§23.5b). |
 
 M-of-N recovery and abandoned-agent reset (§23.4) are OPTIONAL at every tier but RECOMMENDED for deployments that commit to operator-independent identity continuity.
 
@@ -1509,7 +1686,7 @@ Implementations MUST return items in a stable, deterministic order (typically by
 
 ---
 
-*PACT Specification v2.0.1 — released 15 May 2026 (patch on v2.0, 14 May 2026).*
+*PACT Specification v2.0.2 — released 15 May 2026 (second patch on the v2.0 line; v2.0 was 14 May 2026, v2.0.1 also 15 May 2026 earlier).*
 
 *Reference implementation: [Tailor](https://tailor.au) by [TailorAU](https://github.com/TailorAU) — see [Tailor Implementation Notes](./PACT_TAILOR_IMPLEMENTATION.md) for implementation-specific details.*
 

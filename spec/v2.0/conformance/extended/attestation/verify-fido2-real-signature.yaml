@@ -1,0 +1,64 @@
+# Conformance test vector — Extended: a fido2-assertion proof carrying a REAL
+# Ed25519 signature is cryptographically verified (§17.7 step 3 + §18.2).
+# kind: verification — exercises the §17.7 verification flow end-to-end including
+# real signature verification.
+#
+# The signature below was generated offline with Node `crypto.generateKeyPairSync('ed25519')`
+# and `crypto.sign(null, Buffer.from(challenge_nonce + asserted_at, 'utf8'), privateKey)`,
+# with the matching SPKI-DER public key base64url-encoded into the registry. The
+# private key has been discarded — only the verifier-side material is in the
+# repo. This makes the vector self-contained and reproducible across runs.
+
+kind: verification
+
+metadata:
+  id: extended/attestation/verify-fido2-real-signature
+  description: A fido2-assertion proof with a real Ed25519 signature over (challenge_nonce + asserted_at), verified end-to-end against the enrolled SPKI-DER public key. Closes the v2.0.1 "forged signature pass" attack — this vector PASSes only if the runner performs real cryptographic verification.
+  spec_section: "§17.6, §17.7, §18.2"
+  conformance_level: extended
+  track: T1
+
+verification:
+  proof:
+    type: fido2-assertion
+    principal_id: did:web:knox.example
+    credential_id: cred_real001
+    challenge_nonce: nonce-real-001
+    asserted_at: "2026-05-15T10:00:00Z"
+    # Real Ed25519 signature over UTF-8(challenge_nonce || asserted_at) =
+    # UTF-8("nonce-real-0012026-05-15T10:00:00Z"). 64-byte raw signature,
+    # base64url-encoded.
+    signature: "qZtAkmSwAcUhqR8jkwkHBfD7iCBRkd15miQGQX4V_bxGmiGtOZjrTnm7s4C7_8CyPdpl1Lh5h7X_hNcHIuA3Cw"
+    alg: webauthn-eddsa
+    alg_version: "1"
+    attestation_chain: []
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:knox.example
+        display_name: Knox Hart
+        credentials:
+          - id: cred_real001
+            type: fido2-assertion
+            # SPKI-DER encoding of the Ed25519 public key, base64url-encoded.
+            # Decodes to the 44-byte DER SubjectPublicKeyInfo whose raw 32-byte
+            # public point matches the private key used to produce `signature`.
+            public_key: "MCowBQYDK2VwAyEAlsqQfe9gY5G3V4rFDCoimZ3BlxoBNYJ_wH6WPGmftsc"
+            enrolled_at: "2026-05-15T09:00:00Z"
+            revoked: false
+  verifier_clock: "2026-05-15T10:00:30Z"   # 30s after asserted_at — within ±5min skew
+  issued_nonces:
+    - nonce-real-001
+  operation_requires_uv: false
+  signature_check: real
+  expected:
+    result: verified
+    emits_trust_violation: false
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Runner did not perform real WebAuthn / Ed25519 signature verification (v2.0.1 regression)
+    - Runner does not recognise `webauthn-eddsa` in the alg whitelist
+    - SPKI-DER public-key decode path is broken
+    - Runner signs over the wrong payload composition (must be UTF-8(challenge_nonce || asserted_at))

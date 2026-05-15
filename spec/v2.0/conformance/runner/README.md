@@ -25,22 +25,29 @@ Exit code: `0` if all selected vectors `pass` (or are `skip`ped for documented r
 
 ## What's covered today
 
-- §17.7 verification flow steps 1, 2, 4, 5 + §17.8 revocation/tombstone. Step 3 (cryptographic signature verification proper) is attestation-type-specific and out of scope for the structural runner; vectors expecting a step-3 rejection use a detectable failure mode (e.g. revoked credential).
+- §17.7 verification flow steps 1, 2, 4, 5 + §17.8 revocation/tombstone.
+- **§17.7 step 3 (cryptographic signature verification)** for `type: fido2-assertion` proofs when the vector declares `verification.signature_check: real`. The runner uses Node's built-in `crypto.verify` over the SPKI-DER-encoded enrolled public key, with the v2.0 alg whitelist `webauthn-es256` / `webauthn-es384` / `webauthn-eddsa`. The fallback signed-payload composition is `UTF-8(challenge_nonce || asserted_at [|| payload_hash])`. Full WebAuthn buffer verification (`authenticatorData` + `clientDataJSON`) via `@simplewebauthn/server` is wired in as a branch but deferred to v2.0.3.
 - HTTP execution + status/body match (exact/subset). Body-ignore-fields supported.
 
 ## What's NOT covered yet (TODO)
 
 - `body_match.mode: schema` — needs ajv (or equivalent) plugged in.
 - `expected_events` — needs an event-log subscription. Most servers expose this via SignalR or polling; the runner will subscribe and verify the sequence with a configurable timeout.
-- Attestation-type-specific cryptographic signature verification (fido2-assertion WebAuthn assertion check, voice-biometric per HMAN's #3 PR).
+- Full WebAuthn `authenticatorData + clientDataJSON` buffer verification via `@simplewebauthn/server` (deferred to v2.0.3 — the generic fallback covers the v2.0.2 self-contained vectors).
+- `voice-biometric` cryptographic verification (per HMAN's #3 PR — §18.6).
 - HTTP record-and-replay (rather than live-execute) — useful for offline conformance checks.
 - A self-certification badge generator.
 
 ## Honesty disclosure
 
-`kind: verification` PASS results are **structural-only**. The runner explicitly does NOT perform §17.7 step 3 (cryptographic signature verification) — that's attestation-type-specific (WebAuthn assertion check for `fido2-assertion`, the HMAN voice-pipeline for `voice-biometric`). A passing vector here proves the envelope is well-formed, the principal resolves, the credential isn't revoked, the timestamp is fresh, and the nonce binding holds. **It does NOT prove the signature is real.** A forged proof against an existing un-revoked credential will currently pass.
+The runner now performs **real cryptographic signature verification** for `type: fido2-assertion` proofs whenever the vector declares `verification.signature_check: real`. Such vectors PASS only if the runner can verify the proof's `signature` against the SPKI-DER public key enrolled in the vector's `registry`. A real-shape signature that does NOT verify is rejected at §17.7 step 3 (`failing_step: 3`). This closes the v2.0.1 "A1: forged-signature pass" attack — see `spec/v2.0/conformance/extended/attestation/verify-fido2-real-signature.yaml` (positive) and `verify-fido2-forged-signature.yaml` (negative) for the smoke test.
 
-The runner makes this loud in two places: the per-vector tag prints as `✓ verified-structural` (not `✓ verified`), and the report footer reminds you. End-to-end crypto needs a per-attestation-type verifier — see the §17.11 / §18 deferred items.
+Two PASS shapes:
+
+- **`✓ verified-cryptographic`** (JSON `verification_mode: cryptographic`) — §17.7 step 3 ran and the signature verified against the enrolled public key. The result `verified` here means the same thing it does in §17.7: the proof is end-to-end valid.
+- **`✓ verified-structural`** (JSON `verification_mode: structural`) — the runner exercised envelope / principal resolution / freshness / replay only. Step 3 was skipped because the vector opted in via `signature_check: structural` (legacy v2.0.1 placeholder-signature vectors), or because the attestation type is not `fido2-assertion` (`voice-biometric` defers to HMAN's #3 PR; custom types defer to their implementation-defined verifiers).
+
+A structural-only PASS does **NOT** prove the signature is cryptographically valid. New `fido2-assertion` vectors SHOULD use `signature_check: real` and carry a real signature + matching public key.
 
 ## External implementers
 

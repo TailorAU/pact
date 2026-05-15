@@ -73,12 +73,26 @@
         "reason": { "type": "string", "maxLength": 2000, "description": "Why the old operator is unreachable / off-boarded / etc." }
       },
       "additionalProperties": false
+    },
+    "recoveryDispute": {
+      "type": "object",
+      "description": "Dispute lodged against an in-flight `pact.agent.recovery-initiated` (§23.5b, v2.0.2+). A valid dispute event suspends the recovery pending human resolution. The disputing principal MUST be either the current operator-of-record OR a quorum member who did NOT co-sign the recovery; their `authorization_proof` is carried on the message that emits this event.",
+      "required": ["agentId", "recovery_initiated_event_id", "disputed_at", "reason"],
+      "properties": {
+        "agentId": { "$ref": "#/$defs/agentId" },
+        "recovery_initiated_event_id": { "type": "string", "format": "uuid", "description": "The `pact.agent.recovery-initiated` event being disputed." },
+        "disputed_at": { "type": "string", "format": "date-time", "description": "MUST fall within the dispute window of the original recovery-initiated event." },
+        "reason": { "type": "string", "maxLength": 2000 },
+        "disputing_principal_role": { "type": "string", "enum": ["operator-of-record", "non-cosigning-quorum-member", "administrative-oversight"], "description": "How the disputing principal is authorized to dispute this recovery." }
+      },
+      "additionalProperties": false
     }
   },
   "oneOf": [
     { "$ref": "#/$defs/transferAttestation" },
     { "$ref": "#/$defs/recoveryQuorum" },
     { "$ref": "#/$defs/recoveryAttestation" },
-    { "$ref": "#/$defs/abandonment" }
+    { "$ref": "#/$defs/abandonment" },
+    { "$ref": "#/$defs/recoveryDispute" }
   ]
 }

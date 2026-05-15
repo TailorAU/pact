@@ -14,7 +14,7 @@ function errorResult(err: unknown) {
 
 const server = new McpServer({
   name: 'PACT Protocol',
-  version: '2.0.1',
+  version: '2.0.2',
 });
 
 // ── Agent Lifecycle ──────────────────────────────────────────────
@@ -382,6 +382,48 @@ server.tool(
         return jsonResult({ profile, meetsMinimum: meets, requestedMinimum: minimumLevel });
       }
       return jsonResult(profile);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+// ── Tier introspection (§15.5, v2.0.2+) ──────────────────────────
+
+server.tool(
+  'pact_tier_introspect',
+  'Behaviourally probe a PACT server\'s advertised conformance tier (§15.5). Calls /api/pact/_probe/tier and reports which of the tier\'s required checks the server actually enforces. Use BEFORE extending cross-org trust to a counterparty: a self-asserted tier in /.well-known/pact.json is not behavioural conformance.',
+  {
+    serverUrl: z.string().describe('Base URL of the PACT server.'),
+    advertisedTier: z.enum(['core', 'extended', 'authorization-required']).optional().describe('Tier to probe. Defaults to the tier the server self-advertises in /.well-known/pact.json.'),
+    checks: z.array(z.string()).optional().describe('Specific checks to probe. Defaults to the v2.0.2 well-known set: tombstoned_principal_rejected, revoked_credential_rejected, did_web_ct_check, alg_whitelist_enforced, verifier_id_equality_enforced.'),
+  },
+  async ({ serverUrl, advertisedTier, checks }) => {
+    try {
+      const base = serverUrl.replace(/\/+$/, '');
+      let tier = advertisedTier;
+      if (!tier) {
+        const profRes = await fetch(`${base}/.well-known/pact.json`, { signal: AbortSignal.timeout(15_000) });
+        if (!profRes.ok) return errorResult(new Error(`HTTP ${profRes.status} fetching /.well-known/pact.json`));
+        const profile = await profRes.json() as { conformanceLevel?: string };
+        tier = (profile.conformanceLevel as 'core' | 'extended' | 'authorization-required' | undefined);
+        if (!tier) return errorResult(new Error('profile missing conformanceLevel — supply advertisedTier'));
+      }
+      const probeId = 'mcp-probe-' + Math.random().toString(16).slice(2, 14);
+      const requestedChecks = checks ?? [
+        'tombstoned_principal_rejected',
+        'revoked_credential_rejected',
+        'did_web_ct_check',
+        'alg_whitelist_enforced',
+        'verifier_id_equality_enforced',
+      ];
+      const res = await fetch(`${base}/api/pact/_probe/tier`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ probe_id: probeId, advertised_tier: tier, checks: requestedChecks }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) return errorResult(new Error(`HTTP ${res.status} from /api/pact/_probe/tier — server may not expose the v2.0.2 tier probe`));
+      const report = await res.json();
+      return jsonResult(report);
     } catch (err) { return errorResult(err); }
   },
 );

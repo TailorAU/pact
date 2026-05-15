@@ -8,8 +8,21 @@
   "properties": {
     "version": {
       "type": "string",
-      "description": "Registry format version.",
-      "const": "1.0"
+      "description": "Registry format version. `\"1.0\"` was the v2.0/v2.0.1 shape (no signed snapshot / no append-only log). `\"2.0\"` is the v2.0.2 shape with snapshot_root + snapshot_signature + log_uri per §17.8 (REQUIRED at Extended and Authorization-Required conformance).",
+      "enum": ["1.0", "2.0"]
+    },
+    "snapshot_root": {
+      "type": "string",
+      "description": "Base64url-encoded SHA-256 of the canonical encoding (RFC 8785) of the most recent entry in the append-only mutation log at `log_uri`. Commits the server to the registry's current state. REQUIRED when `version` is `\"2.0\"`."
+    },
+    "snapshot_signature": {
+      "type": "string",
+      "description": "Base64url-encoded signature over `snapshot_root` using the server's registry-signing key (advertised in the Implementation Profile as `endpoints.registrySigningKey`). REQUIRED when `version` is `\"2.0\"`."
+    },
+    "log_uri": {
+      "type": "string",
+      "format": "uri",
+      "description": "Absolute URL of the append-only mutation log (JSONL, one entry per registry mutation: `enroll` / `revoke` / `rotate` / `tombstone` / `untombstone`). Each entry carries `prev_hash` chaining back to a GENESIS entry — see §17.8. REQUIRED when `version` is `\"2.0\"`; consumers MAY validate the chain back to GENESIS to detect silent tampering."
     },
     "supported_types": {
       "type": "array",

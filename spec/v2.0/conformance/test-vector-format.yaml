@@ -70,6 +70,13 @@ test_vector_schema:
     verifier_clock: string?              # ISO 8601 — the verifier's "now"; for §17.7 step 4 (freshness / clock skew)
     issued_nonces: array?                # nonces the verifier has issued and not yet retired; for §17.7 step 5 (replay)
     operation_requires_uv: bool?         # for fido2-assertion: does the operation require the User Verification flag?
+    signature_check: enum?               # real (default) | structural. `real` runs §17.7 step 3
+                                         # cryptographic signature verification end-to-end — the proof MUST carry a real
+                                         # signature and the registry MUST carry the matching enrolled public key (e.g.
+                                         # base64url-encoded SPKI DER); `unverifiable` from the crypto verifier is treated
+                                         # as a non-pass. `structural` skips the cryptographic check (or accepts placeholder
+                                         # signature strings), exercising envelope / freshness / replay only — used by the
+                                         # v2.0.1 legacy vectors that pre-date the real WebAuthn verifier.
     expected:
       result: enum                       # verified | rejected | unverifiable
       failing_step: int?                 # 1..5 from §17.7 — set when result != verified. (Step 6 is "Result" in the spec — that's the outcome, not a failure mode, so it never appears here.)

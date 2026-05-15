@@ -65,7 +65,11 @@
     },
     "payloadJson": {
       "type": "string",
-      "description": "JSON payload with operation-specific data."
+      "description": "JSON payload with operation-specific data. For `pact.log.root` events, this contains the signed-root descriptor: `{ resource_id, window_start_seq, window_end_seq, window_end_hash, signature, signing_key }` per §6.4."
+    },
+    "prev_hash": {
+      "type": "string",
+      "description": "Base64url-encoded SHA-256 of the canonical JSON encoding (RFC 8785) of the immediately preceding event in the same resource's log. The first event uses the literal `\"GENESIS\"`. Implementations rejecting `prev_hash` mismatches detect silent tampering of past events. REQUIRED at Extended and Authorization-Required conformance levels per §6.4; RECOMMENDED at Core. Events emitted before v2.0.2 may lack this field; the first v2.0.2-emitted event after upgrade SHOULD use `\"GENESIS-v202\"` to mark the transition."
     }
   },
   "additionalProperties": false

@@ -104,13 +104,27 @@ function verify(proof: Record<string, unknown>, registry: Registry | null, nowMs
   if (typeof nonce !== 'string' || nonce.length === 0) {
     return { result: 'unverifiable', failing_step: 5, reason: 'challenge_nonce missing or empty', notes };
   }
-  // The §17.6 rule: nonce MUST be either verifier-signed (we can't check that locally) OR carry a matching verifier_id.
-  if (!verifierIdInProof && !verifierId) {
-    notes.push('challenge_nonce lacks a verifier_id and no --verifier was provided; the rule requires the nonce be either verifier-signed or accompanied by a verifier_id — assuming verifier-signed (cannot verify locally)');
-  } else if (verifierIdInProof && verifierId && verifierIdInProof !== verifierId) {
-    return { result: 'rejected', failing_step: 5, reason: `verifier_id mismatch: proof claims '${String(verifierIdInProof)}', --verifier said '${verifierId}'`, notes };
-  } else if (verifierIdInProof && !verifierId) {
-    notes.push(`proof's verifier_id is '${String(verifierIdInProof)}'; --verifier not supplied, accepting without binding check`);
+  // The §17.6 / §17.7-step-5 rule (v2.0.2): nonce MUST satisfy ONE of:
+  //   (a) be in the verifier's issued_nonces list
+  //   (b) be cryptographically verifier-signed (asserted via verifier_signed_nonce: true; we cannot
+  //       check the signature locally without the verifier's public key, but the assertion must be present)
+  //   (c) carry a verifier_id field WHOSE VALUE EXACTLY EQUALS the receiving verifier's identity.
+  // v2.0.2 sharpens this: with --verifier passed, equality is REQUIRED (not just hinted at).
+  // Without --verifier, the CLI cannot prove (c) is satisfied — it can only confirm verifier_id
+  // is present, which §17.6 marks as schema-valid-but-not-replay-safe.
+  const verifierSignedNonce = proof.verifier_signed_nonce === true;
+  if (verifierSignedNonce) {
+    notes.push('proof asserts verifier_signed_nonce: true; cryptographic check of nonce signature is type-defined and not performed locally — verifier MUST run that check at §17.7 step 5');
+  } else if (!verifierIdInProof) {
+    return { result: 'rejected', failing_step: 5, reason: 'challenge_nonce has neither verifier_signed_nonce: true nor a verifier_id field — §17.6 verifier-binding rule violated', notes };
+  } else if (verifierId) {
+    // Equality is the v2.0.2 requirement.
+    if (verifierIdInProof !== verifierId) {
+      return { result: 'rejected', failing_step: 5, reason: `verifier_id mismatch: proof claims '${String(verifierIdInProof)}', this verifier is '${verifierId}'. §17.7 step 5 requires exact equality (see also §17.6).`, notes };
+    }
+    notes.push(`verifier_id equality check passed: proof's verifier_id matches --verifier (${verifierId})`);
+  } else {
+    notes.push(`proof's verifier_id is '${String(verifierIdInProof)}'; --verifier not supplied so equality check was SKIPPED. In production, this is a §17.7 step 5 failure — run with --verifier <your-did> to enforce.`);
   }
 
   return { result: 'verified', notes };

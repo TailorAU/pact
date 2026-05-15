@@ -20,6 +20,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve as resolvePath } from 'node:path';
 import { load as yamlLoad } from 'js-yaml';
+import { verifyFido2Assertion } from './webauthn.js';
 
 // ─── types ──────────────────────────────────────────────────────────────
 
@@ -56,6 +57,22 @@ interface Vector {
     verifier_clock?: string;
     issued_nonces?: string[];
     operation_requires_uv?: boolean;
+    /**
+     * The receiving verifier's identity (DID), used to enforce the §17.6 / §17.7-step-5
+     * `verifier_id` EQUALITY rule. If the proof carries a `verifier_id`, it MUST equal
+     * this value; otherwise the runner rejects at step 5. Absent → equality check is
+     * skipped (presence-only, legacy v2.0.1 behaviour).
+     */
+    receiving_verifier_id?: string;
+    /**
+     * 'real' (default): the runner attempts real cryptographic signature
+     * verification for first-class attestation types (`fido2-assertion`). An
+     * `unverifiable` outcome from the verifier counts as a non-pass.
+     * 'structural': the runner skips cryptographic checks (or treats
+     * `unverifiable` placeholder signatures as a structural pass). Used for the
+     * legacy v2.0.1 vectors that exercise envelope / freshness / replay only.
+     */
+    signature_check?: 'real' | 'structural';
     expected: {
       result: 'verified' | 'rejected' | 'unverifiable';
       failing_step?: number;
@@ -69,14 +86,14 @@ interface Registry {
   version: string;
   principals: Array<{
     id: string;
-    credentials?: Array<{ id: string; revoked: boolean }>;
+    credentials?: Array<{ id: string; revoked: boolean; public_key?: string; type?: string }>;
     tombstoned_at?: string;
   }>;
 }
 
 type Outcome =
-  | { status: 'pass' }
-  | { status: 'fail'; reason: string }
+  | { status: 'pass'; verification_mode?: 'cryptographic' | 'structural' }
+  | { status: 'fail'; reason: string; verification_mode?: 'cryptographic' | 'structural' }
   | { status: 'skip'; reason: string };
 
 // ─── vector loading ─────────────────────────────────────────────────────
@@ -127,55 +144,110 @@ function parseTimeMs(s: unknown): number | null {
 interface VerificationResult {
   result: 'verified' | 'rejected' | 'unverifiable';
   failing_step?: number;
+  /** Reason string surfaced to the runner output (when result != 'verified'). */
+  reason?: string;
+  /**
+   * 'cryptographic' when the §17.7 step-3 signature check was performed with
+   * real crypto. 'structural' when the step-3 check was skipped (legacy
+   * structural vectors, voice-biometric — deferred to HMAN's #3 PR).
+   */
+  verification_mode?: 'cryptographic' | 'structural';
 }
 
 function runVerification(v: Vector['verification']): VerificationResult {
-  if (!v) return { result: 'unverifiable' };
+  if (!v) return { result: 'unverifiable', verification_mode: 'structural' };
   const proof = v.proof;
+  // Default signature_check is 'real' per the v2.0.2 hardening — vectors that
+  // want to keep the v2.0.1 envelope-only behaviour must opt into 'structural'.
+  const signatureCheck = v.signature_check ?? 'real';
 
   // Step 1: type dispatch + envelope shape
   const type = proof.type;
   const v20FirstClass = ['fido2-assertion', 'voice-biometric'];
-  if (typeof type !== 'string') return { result: 'unverifiable', failing_step: 1 };
-  if (!v20FirstClass.includes(type) && !isReverseDomain(type)) return { result: 'unverifiable', failing_step: 1 };
+  if (typeof type !== 'string') return { result: 'unverifiable', failing_step: 1, verification_mode: 'structural' };
+  if (!v20FirstClass.includes(type) && !isReverseDomain(type)) return { result: 'unverifiable', failing_step: 1, verification_mode: 'structural' };
   for (const f of ['principal_id', 'credential_id', 'challenge_nonce', 'asserted_at', 'signature']) {
-    if (proof[f] === undefined || proof[f] === null || proof[f] === '') return { result: 'unverifiable', failing_step: 1 };
+    if (proof[f] === undefined || proof[f] === null || proof[f] === '') return { result: 'unverifiable', failing_step: 1, verification_mode: 'structural' };
   }
-  if (!isDid(proof.principal_id)) return { result: 'rejected', failing_step: 2 };
+  if (!isDid(proof.principal_id)) return { result: 'rejected', failing_step: 2, verification_mode: 'structural' };
 
-  // Step 2 + 3: principal + credential resolution
+  // Step 2 + 3 (resolution half): principal + credential resolution
+  let resolvedPublicKey: string | undefined;
   if (v.registry) {
     const principal = v.registry.principals.find((p) => p.id === proof.principal_id);
-    if (!principal) return { result: 'rejected', failing_step: 2 };
-    if (principal.tombstoned_at) return { result: 'rejected', failing_step: 2 };
+    if (!principal) return { result: 'rejected', failing_step: 2, verification_mode: 'structural' };
+    if (principal.tombstoned_at) return { result: 'rejected', failing_step: 2, verification_mode: 'structural' };
     const cred = (principal.credentials ?? []).find((c) => c.id === proof.credential_id);
-    if (!cred) return { result: 'rejected', failing_step: 3 };
-    if (cred.revoked) return { result: 'rejected', failing_step: 3 };
-    // Step 3 signature verification proper is attestation-type-specific and out of
-    // scope for the structural runner. Test vectors that expect step-3 failure
-    // for non-revocation reasons must say so via expected.failing_step = 3 AND
-    // a specific failure mode the runner can detect (e.g. revoked).
+    if (!cred) return { result: 'rejected', failing_step: 3, verification_mode: 'structural' };
+    if (cred.revoked) return { result: 'rejected', failing_step: 3, reason: 'credential revoked (§17.8)', verification_mode: 'structural' };
+    resolvedPublicKey = cred.public_key;
   }
 
   // Step 4: freshness
   const assertedMs = parseTimeMs(proof.asserted_at);
-  if (assertedMs === null) return { result: 'unverifiable', failing_step: 4 };
+  if (assertedMs === null) return { result: 'unverifiable', failing_step: 4, verification_mode: 'structural' };
   const verifierClockMs = v.verifier_clock ? (parseTimeMs(v.verifier_clock) ?? Date.now()) : Date.now();
   const SKEW_MS = 5 * 60 * 1000;
-  if (Math.abs(verifierClockMs - assertedMs) > SKEW_MS) return { result: 'rejected', failing_step: 4 };
+  if (Math.abs(verifierClockMs - assertedMs) > SKEW_MS) return { result: 'rejected', failing_step: 4, verification_mode: 'structural' };
 
-  // Step 5: replay — nonce binding
+  // Step 5: replay — nonce binding (§17.6 / §17.7 step 5)
   const nonce = proof.challenge_nonce;
-  if (typeof nonce !== 'string' || nonce.length === 0) return { result: 'unverifiable', failing_step: 5 };
+  if (typeof nonce !== 'string' || nonce.length === 0) return { result: 'unverifiable', failing_step: 5, verification_mode: 'structural' };
   const issued = v.issued_nonces ?? [];
   const verifierIdInProof = proof.verifier_id;
-  // Rule: nonce MUST be either verifier-signed (we approximate: verifier_id present)
-  // OR present in `issued_nonces`. Otherwise rejected at step 5.
-  if (!verifierIdInProof && !issued.includes(nonce)) {
-    return { result: 'rejected', failing_step: 5 };
+  // v2.0.2 rule: nonce MUST satisfy ONE of:
+  //   (a) be in the verifier's issued_nonces list, OR
+  //   (b) carry verifier_signed_nonce: true (asserted — runtime crypto check is type-defined; we accept the assertion structurally), OR
+  //   (c) carry a verifier_id field that EQUALS the receiving verifier's identity (`receiving_verifier_id` in the vector).
+  // If the vector sets `receiving_verifier_id`, the runner enforces equality; otherwise (legacy
+  // vectors), presence-only is accepted as it was in v2.0.1.
+  const verifierSignedNonce = proof.verifier_signed_nonce === true;
+  if (issued.includes(nonce)) {
+    // (a) satisfied — fine
+  } else if (verifierSignedNonce) {
+    // (b) asserted — fine for the structural runner
+  } else if (verifierIdInProof) {
+    if (v.receiving_verifier_id !== undefined && verifierIdInProof !== v.receiving_verifier_id) {
+      return { result: 'rejected', failing_step: 5, verification_mode: 'structural' };
+    }
+    // verifier_id present and (no receiving_verifier_id to check against, OR equal): satisfied
+  } else {
+    return { result: 'rejected', failing_step: 5, verification_mode: 'structural' };
   }
 
-  return { result: 'verified' };
+  // Step 3 (cryptographic half): real signature verification for fido2-assertion.
+  // Voice-biometric and custom types defer to their own verifiers — HMAN's #3 PR
+  // for `voice-biometric`, implementation-defined for custom types — so the
+  // runner accepts them as structurally-verified here.
+  if (type === 'fido2-assertion' && resolvedPublicKey !== undefined) {
+    const fidoResult = verifyFido2Assertion({
+      publicKey: resolvedPublicKey,
+      signature: String(proof.signature ?? ''),
+      challengeNonce: String(proof.challenge_nonce ?? ''),
+      assertedAt: String(proof.asserted_at ?? ''),
+      payloadHash: typeof proof.payload_hash === 'string' ? proof.payload_hash : undefined,
+      alg: typeof proof.alg === 'string' ? proof.alg : '',
+      authenticatorData: typeof proof.authenticator_data === 'string' ? proof.authenticator_data : undefined,
+      clientDataJSON: typeof proof.client_data_json === 'string' ? proof.client_data_json : undefined,
+    });
+
+    if (fidoResult.result === 'verified-cryptographic') {
+      return { result: 'verified', verification_mode: 'cryptographic' };
+    }
+    if (fidoResult.result === 'rejected') {
+      return { result: 'rejected', failing_step: 3, reason: fidoResult.reason, verification_mode: 'cryptographic' };
+    }
+    // unverifiable: surface depending on signature_check policy.
+    if (signatureCheck === 'real') {
+      return { result: 'unverifiable', failing_step: 3, reason: fidoResult.reason, verification_mode: 'cryptographic' };
+    }
+    // structural: legacy v2.0.1 vector — accept the structural pass.
+    return { result: 'verified', verification_mode: 'structural' };
+  }
+
+  // No crypto check attempted (voice-biometric, custom type, or no registry).
+  // Pass as structural.
+  return { result: 'verified', verification_mode: 'structural' };
 }
 
 function checkVerification(vec: Vector): Outcome {
@@ -183,12 +255,13 @@ function checkVerification(vec: Vector): Outcome {
   const got = runVerification(vec.verification);
   const want = vec.verification.expected;
   if (got.result !== want.result) {
-    return { status: 'fail', reason: `expected result=${want.result}, got ${got.result}${got.failing_step ? ` (failing_step=${got.failing_step})` : ''}` };
+    const detail = got.reason ? ` [${got.reason}]` : '';
+    return { status: 'fail', reason: `expected result=${want.result}, got ${got.result}${got.failing_step ? ` (failing_step=${got.failing_step})` : ''}${detail}`, verification_mode: got.verification_mode };
   }
   if (want.failing_step !== undefined && got.failing_step !== want.failing_step) {
-    return { status: 'fail', reason: `expected failing_step=${want.failing_step}, got ${got.failing_step ?? '<none>'}` };
+    return { status: 'fail', reason: `expected failing_step=${want.failing_step}, got ${got.failing_step ?? '<none>'}`, verification_mode: got.verification_mode };
   }
-  return { status: 'pass' };
+  return { status: 'pass', verification_mode: got.verification_mode };
 }
 
 // ─── kind: http ─────────────────────────────────────────────────────────
@@ -324,24 +397,55 @@ async function main(): Promise<void> {
   const httpVectorCount = results.filter((r) => r.kind === 'http').length;
   const httpExecutedCount = results.filter((r) => r.kind === 'http' && r.outcome.status !== 'skip').length;
 
+  // Per-result JSON shape: surface verification_mode at the top level so JSON
+  // consumers (CI gates, badge generators) can branch on cryptographic vs
+  // structural without unpacking the discriminated `outcome` union. The same
+  // field also lives inside `outcome` for vector-level introspection.
+  const jsonResults = results.map((r) => {
+    const mode = (r.outcome.status === 'pass' || r.outcome.status === 'fail') ? r.outcome.verification_mode : undefined;
+    return {
+      path: r.path,
+      id: r.id,
+      kind: r.kind,
+      outcome: r.outcome,
+      ...(mode !== undefined ? { verification_mode: mode } : {}),
+    };
+  });
+
+  // Whether any verification PASS in this run was real crypto vs structural-only.
+  const sawCryptographic = results.some((r) => r.kind === 'verification' && r.outcome.status === 'pass' && r.outcome.verification_mode === 'cryptographic');
+  const sawStructural = results.some((r) => r.kind === 'verification' && r.outcome.status === 'pass' && r.outcome.verification_mode === 'structural');
+
   if (args.json) {
     console.log(JSON.stringify({
       counts,
-      results,
-      runner_disclaimer: 'kind:verification PASS results omit cryptographic signature verification (§17.7 step 3) — they are structural-only. Use a per-attestation-type verifier for end-to-end crypto.',
+      results: jsonResults,
+      runner_disclaimer: 'kind:verification PASS results carry verification_mode: "cryptographic" (real WebAuthn signature verified for fido2-assertion) or "structural" (envelope / freshness / replay only — legacy v2.0.1 vectors and non-fido2 types). Structural-only PASS does NOT prove the signature is cryptographically valid.',
       http_coverage: { total: httpVectorCount, executed: httpExecutedCount },
     }, null, 2));
   } else {
     for (const r of results) {
-      const tag = r.outcome.status === 'pass'
-        ? (r.kind === 'verification' ? '✓ verified-structural' : '✓')
-        : r.outcome.status === 'fail' ? '✗' : '·';
+      let tag: string;
+      if (r.outcome.status === 'pass') {
+        if (r.kind === 'verification') {
+          tag = r.outcome.verification_mode === 'cryptographic' ? '✓ verified-cryptographic' : '✓ verified-structural';
+        } else {
+          tag = '✓';
+        }
+      } else if (r.outcome.status === 'fail') {
+        tag = '✗';
+      } else {
+        tag = '·';
+      }
       const detail = r.outcome.status === 'pass' ? '' : ` — ${r.outcome.reason}`;
       console.log(`${tag} [${r.kind}] ${r.id}${detail}`);
     }
     console.log(`\n${counts.pass} pass · ${counts.fail} fail · ${counts.skip} skip`);
-    if (counts.pass > 0 && results.some((r) => r.kind === 'verification' && r.outcome.status === 'pass')) {
-      console.log(`\nNOTE: kind:verification "✓ verified-structural" PASSes omit cryptographic signature verification (§17.7 step 3 is attestation-type-specific and out of scope for this structural runner). A passing vector here proves the envelope, principal resolution, freshness and replay-binding rules — not that the signature is cryptographically valid.`);
+    if (sawStructural) {
+      console.log(`\nNOTE: kind:verification "✓ verified-structural" PASSes omit cryptographic signature verification (§17.7 step 3). They prove the envelope, principal resolution, freshness and replay-binding rules — not that the signature is cryptographically valid. Vectors that opt into real crypto must declare \`verification.signature_check: real\` and supply a real signature (see verify-fido2-real-signature.yaml).`);
+    }
+    if (sawCryptographic) {
+      console.log(`\nNOTE: kind:verification "✓ verified-cryptographic" PASSes additionally verified the FIDO2 / WebAuthn signature against the enrolled public key (§17.7 step 3, §18.2).`);
     }
     if (httpVectorCount > 0 && httpExecutedCount === 0) {
       console.error(`\nWARNING: ${httpVectorCount} kind:http vector(s) skipped (no --server). HTTP-runner regressions cannot be detected without a server target. Pass --server <url> for full coverage.`);

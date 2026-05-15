@@ -50,7 +50,12 @@
     },
     "alg": {
       "type": "string",
-      "description": "Algorithm identifier for this attestation's signature / match (e.g. `webauthn-es256`, `resemblyzer-v1`)."
+      "description": "Algorithm identifier for this attestation's signature / match. For `fido2-assertion`, MUST be one of the v2.0.2 whitelist below (HMAC / symmetric-key algs are explicitly disallowed — see §17.6). For `voice-biometric`, currently `resemblyzer-v1` (HMAN's #3 PR pins the normative set). Custom attestation types declare their own algs in reverse-domain notation (`com.example.alg-name`).",
+      "anyOf": [
+        { "enum": ["webauthn-es256", "webauthn-es384", "webauthn-eddsa"], "description": "v2.0.2 normative whitelist for fido2-assertion." },
+        { "enum": ["resemblyzer-v1"], "description": "voice-biometric reference algorithm (non-normative; HMAN's #3 PR pins the normative set)." },
+        { "pattern": "^[a-z0-9]+(\\.[a-z0-9-]+)+$", "description": "Custom attestation alg in reverse-domain notation." }
+      ]
     },
     "alg_version": {
       "type": "string",

@@ -12,13 +12,14 @@ import { registerLockCommands } from './commands/lock.js';
 import { registerNegotiateCommands } from './commands/negotiate.js';
 import { registerVerifyProofCommand } from './commands/verify-proof.js';
 import { registerProfileCommand } from './commands/profile.js';
+import { registerTierIntrospectCommand } from './commands/tier-introspect.js';
 
 const program = new Command();
 
 program
   .name('pact')
   .description('PACT v2.0 — Protocol for Agent Consensus and Truth. Coordination and consensus primitives for multi-agent collaboration on any resource type.')
-  .version('2.0.1')
+  .version('2.0.2')
   .option('--agent <key>', 'Override the API key for this invocation (simulate a specific agent)')
   .hook('preAction', (thisCommand) => {
     const opts = thisCommand.opts<{ agent?: string }>();
@@ -37,5 +38,6 @@ registerLockCommands(program);
 registerNegotiateCommands(program);
 registerVerifyProofCommand(program);
 registerProfileCommand(program);
+registerTierIntrospectCommand(program);
 
 program.parse();

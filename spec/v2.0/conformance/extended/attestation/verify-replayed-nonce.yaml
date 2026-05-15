@@ -36,6 +36,11 @@ verification:
   issued_nonces:
     - nonce-001-fresh                                  # this verifier's outstanding nonce — the proof's nonce is NOT this
   operation_requires_uv: false
+  # Structural vector: the rejection happens at step 5 (replay check) before
+  # the signature-verification step is reached. The placeholder `signature` is
+  # never inspected. `signature_check: structural` is set for consistency with
+  # the other v2.0.1 structural vectors.
+  signature_check: structural
   expected:
     result: rejected
     failing_step: 5

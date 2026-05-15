@@ -1,5 +1,84 @@
 # Changelog
 
+## v2.0.2 — 2026-05-15
+
+Second patch on v2.0. Response to the **adversarial / red-team cold-eye review**. Closes 10 named attacks (A1–A10) and three structural concerns (S1–S3) from that review. **Additive — no breaking changes to v2.0 / v2.0.1 clients.**
+
+### What the audit named, and how v2.0.2 addresses each
+
+| # | Attack | How v2.0.2 closes it |
+|---|---|---|
+| **A1** | Forged-signature pass via the reference runner | The conformance runner now performs **real cryptographic signature verification** for `fido2-assertion` proofs (`signature_check: real`; uses `@simplewebauthn/server`). PASS verdict now distinguishes `verified-cryptographic` from `verified-structural`. Mutation-tested: a flipped signature byte produces `rejected (failing_step=3)`. |
+| **A2** | Self-asserted conformance laundering | New §15.5 **`pact_introspect_tier`** behavioural probe: `POST /api/pact/_probe/tier` with a known set of checks; server returns a signed `tier_probe_report` describing which checks it actually enforces. New `pact tier-introspect` CLI + `pact_tier_introspect` MCP tool. MUST at `Authorization-Required` conformance. |
+| **A3** | `verifier_id` presence-vs-equality | §17.6 + §17.7 step 5 now require *equality*, not just presence. New `verifier_signed_nonce: boolean` annotation lets producers assert the (b) branch of the rule. New `--verifier <did>` enforcement in `pact verify-proof`. New runner field `verification.receiving_verifier_id` + new test vector `verify-cross-verifier-replay.yaml`. |
+| **A4** | Tombstone-then-resurrect (registry mutable) | §17.8 introduces an **append-only mutation log** at `log_uri`, hash-chained from a GENESIS entry. Snapshot at `/.well-known/pact-credentials.json` carries `snapshot_root` + `snapshot_signature` committing the server to the current state. Resurrection is itself a logged event, visible to every cache-respecting verifier. |
+| **A5** | Event-log tampering (no tamper-evidence) | New **§6.4 Event-log integrity**: every event MUST carry `prev_hash` (SHA-256 of RFC 8785 canonical encoding of prior event). Daily `pact.log.root` event commits the chain via signature. REQUIRED at Extended and Authorization-Required. Schema: `event.json` adds `prev_hash`. |
+| **A6** | `did:web` historical-authority rewrite via domain takeover | **§17.4 DID Document pinning** (REQUIRED at v2.0.2): verifiers MUST snapshot the resolved DID Document on first observation of a `principal_id` and reject any subsequent resolution that doesn't either match the pinned state or chain to it via a signed rotation event in the registry mutation log. Capability flag: `capabilities.didDocumentPinning`. |
+| **A7** | Multi-hop trust decay (delegation deferral) | Unchanged — delegation is correctly deferred to v2.1 per §17.11. The audit confirmed deferral is the right call; v2.0 verifiers MUST reject non-empty `attestation_chain` they cannot verify. |
+| **A8** | M-of-N dispute-window starvation | New **§23.5b**: implementations supporting recovery MUST emit `pact.agent.recovery-initiated` to ≥2 notification channels (heterogeneous transports). New `pact.agent.recovery-disputed` event lets the operator-of-record or non-co-signing quorum members suspend an in-flight recovery. External anchor URI for cross-checking. New `recoveryDispute` shape in `agent-identity.json`. |
+| **A9** | Unconstrained `alg` accepting HMAC | §17.6 introduces a normative **alg whitelist**: `webauthn-es256` / `webauthn-es384` / `webauthn-eddsa` for `fido2-assertion`; `resemblyzer-v1` for `voice-biometric`; reverse-domain for custom. Anything else (notably HMAC algs) MUST be rejected at §17.7 step 3. Schema enforces via `anyOf`. New test vector `verify-alg-disallowed.yaml` exercises HS256 rejection. |
+| **A10** | "Cryptographic erasure" that isn't | §17.10 rewritten to acknowledge cryptographic erasure is an **operational claim, not a cryptographic guarantee**. Implementations claiming `Authorization-Required` SHOULD document hardware-bound storage, backup policy, and the legal regime under which keys could be compelled. |
+
+| # | Structural concern | Resolution |
+|---|---|---|
+| **S1** | Cross-organisation boundary undefined | New §15.4 defines cross-org deterministically: different DID methods, or `did:web` differing at eTLD+1 (Public Suffix List), or unresolvable from the receiver's federated registry, or explicit `cross_org_assertion`. Determinations SHOULD be logged. |
+| **S2** | Salience as authority signal vs constraint | New §10.7: agents declaring salience ≥ 7 MUST respond within `abstention_ttl` (default 4× proposal TTL) or are auto-demoted to salience=5 for that proposal. Closes the "set salience=10 and abstain to block forever" abuse. New event: `pact.salience.auto-demoted`. |
+| **S3** | Trust model implicit | New §17.13 explicit non-normative trust-model section: what the protocol guarantees, what only the implementer can guarantee, and what a verifier should therefore assume. Trust floor = weakest implementation in the graph. |
+
+### Spec text changes
+
+`spec/v2.0/SPECIFICATION.md`:
+- §6.4 (NEW) — Event-log integrity (hash-chained + signed root)
+- §10.7 (NEW) — Salience abstention timeout
+- §15.1 — expanded `capabilities` set; added `endpoints.credentialsRegistry` + `registrySigningKey` + `logSigningKey` mentions
+- §15.4 (NEW) — Cross-organisation boundary definition
+- §15.5 (NEW) — `pact_introspect_tier` behavioural probe
+- §17.4 — DID Document pinning rule added
+- §17.6 — `alg` whitelist (normative), `verifier_signed_nonce` annotation, `verifier_id` equality wording
+- §17.7 — step 5 wording sharpened (equality, not presence)
+- §17.8 — append-only mutation log + snapshot_root + snapshot_signature + log_uri
+- §17.9 — Authorization-Required tier inherits the four-check rule from v2.0.1; clarified `pact_introspect_tier` is REQUIRED at this tier
+- §17.10 — cryptographic erasure honestly reframed as operational
+- §17.13 (NEW) — Trust model (non-normative framing)
+- §23.5b (NEW) — Multi-channel notification + `pact.agent.recovery-disputed` event
+
+### Schemas
+
+- `authorization-proof.json`: `alg` is now an `anyOf` whitelist; description tightened.
+- `event.json`: adds `prev_hash` for the §6.4 chain.
+- `principal-registry.json`: `version` accepts `"2.0"`; adds `snapshot_root` / `snapshot_signature` / `log_uri` (REQUIRED when `version == 2.0`).
+- `agent-identity.json`: adds `recoveryDispute` shape to the `oneOf`.
+
+### Runner
+
+- `@simplewebauthn/server@^13.3.0` added as a dependency.
+- `src/webauthn.ts` (NEW) — real signature verifier (ES256/ES384/Ed25519 via Node `crypto.verify` + SPKI-DER); alg whitelist enforced.
+- `src/index.ts` — wires the verifier in; `kind: verification` PASS now reports `verified-cryptographic` vs `verified-structural`; new `receiving_verifier_id` field for cross-verifier equality testing.
+- `package-lock.json` regenerated.
+- README "Honesty disclosure" expanded.
+
+### CLI / MCP
+
+- `pact verify-proof` — when `--verifier <did>` is supplied, EQUALITY against the proof's `verifier_id` is enforced (was: presence-only).
+- `pact tier-introspect <server-url>` (NEW) — behavioural probe of the server's advertised tier; outputs the signed report; `--require-pass` exits non-zero on any non-pass check.
+- `pact_tier_introspect` (NEW MCP tool) — same surface.
+
+### Test vectors
+
+- `extended/attestation/verify-fido2-real-signature.yaml` (NEW, from agent) — real Ed25519 signature, `signature_check: real`, expected `verified`.
+- `extended/attestation/verify-fido2-forged-signature.yaml` (NEW, from agent) — flipped-byte signature, expected `rejected (failing_step=3)`.
+- `extended/attestation/verify-cross-verifier-replay.yaml` (NEW) — `verifier_id: did:web:a.example` arriving at `did:web:b.example` → `rejected (failing_step=5)`.
+- `extended/attestation/verify-alg-disallowed.yaml` (NEW) — `alg: HS256` → `rejected (failing_step=3)`.
+- The three v2.0/v2.0.1 vectors are now flagged `signature_check: structural` to preserve their original intent.
+
+Final suite: **7 verification vectors pass · 0 fail · 1 HTTP skip** (no `--server`).
+
+### Migration from v2.0.1
+
+Fully additive. v2.0.1 clients work against v2.0.2 servers unchanged. New normative requirements (§6.4 hash chain, §17.8 append-only log, §17.4 pinning, alg whitelist) all gate at Extended or higher; Core impls continue with the v2.0.1 surface they already had. Implementations claiming `Authorization-Required` SHOULD audit their compliance against the new §17.9 checks + §15.5 probe.
+
+---
+
 ## v2.0.1 — 2026-05-15
 
 Patch release in response to the cold-eye audit (no breaking changes; additive clarifications, schema tightening, runner-honesty disclosures).

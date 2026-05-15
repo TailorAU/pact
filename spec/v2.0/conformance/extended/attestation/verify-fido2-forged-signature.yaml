@@ -1,0 +1,61 @@
+# Conformance test vector — Extended: a fido2-assertion proof carrying a FORGED
+# Ed25519 signature is rejected at §17.7 step 3 (signature verification).
+# kind: verification — pairs with verify-fido2-real-signature.yaml; same
+# principal / credential / nonce / asserted_at, but the first two bytes of the
+# signature are flipped so the cryptographic check fails.
+#
+# This vector exists to close the v2.0.1 "A1: forged-signature pass" attack:
+# under v2.0.1 the runner would PASS this vector because it only did structural
+# checks. Under v2.0.2 with the real WebAuthn verifier, this vector MUST be
+# rejected at step 3.
+
+kind: verification
+
+metadata:
+  id: extended/attestation/verify-fido2-forged-signature
+  description: A fido2-assertion proof whose signature is a byte-flipped (forged) version of a real Ed25519 signature. The runner MUST reject at §17.7 step 3 — failing to do so means the v2.0.1 "forged signature pass" attack is still open.
+  spec_section: "§17.6, §17.7, §18.2"
+  conformance_level: extended
+  track: T1
+
+verification:
+  proof:
+    type: fido2-assertion
+    principal_id: did:web:knox.example
+    credential_id: cred_real001
+    challenge_nonce: nonce-real-001
+    asserted_at: "2026-05-15T10:00:00Z"
+    # Forged: first two bytes of the real signature are XOR-flipped (^ 0xff).
+    # Same length, same shape, same alg — but does NOT verify against the
+    # enrolled public key.
+    signature: "VmRAkmSwAcUhqR8jkwkHBfD7iCBRkd15miQGQX4V_bxGmiGtOZjrTnm7s4C7_8CyPdpl1Lh5h7X_hNcHIuA3Cw"
+    alg: webauthn-eddsa
+    alg_version: "1"
+    attestation_chain: []
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:knox.example
+        display_name: Knox Hart
+        credentials:
+          - id: cred_real001
+            type: fido2-assertion
+            public_key: "MCowBQYDK2VwAyEAlsqQfe9gY5G3V4rFDCoimZ3BlxoBNYJ_wH6WPGmftsc"
+            enrolled_at: "2026-05-15T09:00:00Z"
+            revoked: false
+  verifier_clock: "2026-05-15T10:00:30Z"
+  issued_nonces:
+    - nonce-real-001
+  operation_requires_uv: false
+  signature_check: real
+  expected:
+    result: rejected
+    failing_step: 3
+    emits_trust_violation: true
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Runner does not perform real WebAuthn signature verification (the v2.0.1 A1 attack — forged signatures pass structural checks)
+    - Runner accepts a base64url-decodable string of the right length without verifying it against the public key
+    - Runner returns `unverifiable` instead of `rejected` for a real-shape signature that fails to verify

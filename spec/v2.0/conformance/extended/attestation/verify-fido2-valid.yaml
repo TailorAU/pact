@@ -36,6 +36,13 @@ verification:
   issued_nonces:
     - nonce-001-fresh                       # the verifier issued this and hasn't retired it
   operation_requires_uv: false
+  # Structural vector: the `signature` and `public_key` fields above are
+  # placeholders ("<valid-webauthn-…>" / "<es256-public-key-…>"), so the runner
+  # cannot perform real WebAuthn signature verification. `signature_check:
+  # structural` opts this vector into envelope / freshness / replay checks only.
+  # For a paired vector that exercises real crypto, see
+  # `verify-fido2-real-signature.yaml`.
+  signature_check: structural
   expected:
     result: verified
     emits_trust_violation: false

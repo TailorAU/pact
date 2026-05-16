@@ -33,7 +33,7 @@ jobs:
           node-version: '20'
 
       - name: Install YAML tooling
-        run: npm install -g js-yaml
+        run: npm install --no-save js-yaml
 
       - name: Conformance directory exists
         run: |

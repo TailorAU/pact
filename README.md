@@ -263,6 +263,11 @@ Building a PACT implementation? [Open a PR](https://github.com/TailorAU/pact/pul
 
 ## License
 
-**[MIT](LICENSE)** — Use PACT however you want. Build implementations, fork it, extend it.
+PACT is **dual-licensed** so implementers are protected on both copyright *and* patents:
+
+- **Software** (`cli/`, `mcp/`, `reference-server/`, the conformance runner, `tools/`) — **[MIT](LICENSE)**. Use it however you want.
+- **Specification** (`spec/**` — prose, schemas, conformance vectors) — **[Specification License](SPEC-LICENSE.md)**: a perpetual, worldwide, royalty-free copyright **and patent** grant to build Conformant Implementations, with an Apache-style defensive-termination clause. This follows the W3C / Model Context Protocol / A2A pattern — MIT alone is silent on patents, and for a protocol "anyone can implement it" must mean *without patent ambush*.
+
+Neither license grants rights in the **"PACT"** name or the **"PACT Conformant"** designation (see `SPEC-LICENSE.md` §4). You may always state factually that your software implements the PACT specification.
 
 PACT is maintained by [TailorAU](https://github.com/TailorAU). The specification is open and vendor-neutral — anyone can implement it.

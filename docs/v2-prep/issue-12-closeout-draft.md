@@ -9,7 +9,7 @@ Assessed against spec/v2.0/SPECIFICATION.md at v2.0.3 (CHANGELOG v2.0.3, 2026-05
 
 Triaged against `spec/v2.0/SPECIFICATION.md` as of **v2.0.3** (the current stable; v1.2-draft was collapsed into v2.0 on 2026-05-13 per `docs/v2-prep/d1-d6-decisions.yaml` D1=A, so this issue is now read against v2.0, not v1.2).
 
-This issue conflates two layers that v2.0.3 now separates cleanly. The honest answer is **"partly resolved, with one precisely-scoped residual gap"** — not a clean close. Detail below.
+This issue conflates two layers that v2.0.3 now separates cleanly: the portability need is **resolved**, and one precisely-scoped residual (caller-initiated §13.5.3 round-open) is **re-scoped and tracked by #14**. Closing on that basis — detail below.
 
 ### What v2.0.3 *does* resolve: opening the coordination envelope
 
@@ -32,15 +32,16 @@ The issue's literal `## Acceptance` criteria are scoped to **§13.5.3 Negotiatio
 
 `_onboard` does **not** cover this. Onboarding establishes the *fabric envelope before any substantive message* (§4.4.5: "This is the operation that establishes the negotiation envelope *before* any substantive message"). The §13.5.3 negotiation round is a substantive mediated primitive that happens *inside* an already-open fabric, typically in response to a conflict. They are different layers; one does not subsume the other.
 
-The closest forward-looking answer is **out of v2.0 core**: ephemeral caller-initiated negotiation is the v2.1 **Negotiation Session** work (RFC [#14](https://github.com/TailorAU/pact/issues/14)), whose draft *does* introduce a deliberate caller-opened operation (`POST /api/pact/sessions`, see `docs/v2-prep/rfc-sessions-mandate.md`). §19–20 are reserved in v2.0 for exactly this. (Naming note: the RFC #14 shepherd synthesis renames the bare "Session" to **"Negotiation Session"** to avoid collision with the shipped v2.0.3 §4.4 fabric *session-awareness* layer; the final noun is pending the maintainer's SOQ1 call on #14 — recommended "Negotiation Session".) That layer is the right home for "two agents deliberately open a bounded negotiation" — but it is v2.1, not a v2.0.3 resolution, so it cannot be claimed as closing #12 today.
+The closest forward-looking answer is **out of v2.0 core**: ephemeral caller-initiated negotiation is the v2.1 **Parley** work (RFC [#14](https://github.com/TailorAU/pact/issues/14)), whose draft *does* introduce a deliberate caller-opened operation (`POST /api/pact/parleys`, see `docs/v2-prep/rfc-sessions-mandate.md`). §19–20 are reserved in v2.0 for exactly this. (Naming note: the RFC #14 primitive is named **`Parley`** (SOQ1, maintainer decision). "Parley" was chosen because it is collision-free with BOTH the shipped v2.0.3 §4.4 fabric *session-awareness* layer AND the §13 mediated *negotiation* rounds — a distinct word avoids the double-collision a "Session"- or "Negotiation"-derived name would have caused.) That primitive is the right home for "two agents deliberately open a bounded negotiation" — but it is v2.1, not a v2.0.3 resolution, so it cannot be claimed as closing #12 today.
 
-### Recommended disposition (needs maintainer call)
+### Disposition: closing — resolved-by-design, re-scoped (maintainer decision)
 
-I am **not** closing this as "resolved by v2.0.3" because that would overstate it. Two clean options for the maintainer:
+**Decision (Knox, maintainer):** close #12 as **resolved-by-design, re-scoped**.
 
-1. **Close as resolved-by-design, re-scoped.** Accept that #12's underlying need — "a portable, caller-initiated, implementation-independent way to enter a negotiation context with your envelope declared up front" — is met by §4.4.5 `_onboard` + §15.6 + §6.5, and that deliberate *mediated-round* opening is intentionally deferred to the v2.1 Negotiation Session (#14). Update §13.5.3 / §13.6 with a one-line forward-reference ("deliberate negotiation opening: see Negotiation Session, §19–20 / RFC #14") via the normal reviewed-change path with maintainer sign-off, then mirrored out via `tools/mirror-spec.ps1` (AGENTS.md rule #5), then close #12 pointing at #14 for the residual.
-2. **Keep #12 open, re-labelled and re-scoped to the narrow gap.** Trim the issue to just the §13.5.3/§13.6 "no caller-initiated `negotiation.open`" item, drop the `cli` acceptance bullet (the fabric-entry CLI surface — `pact onboard` — already shipped in v2.0.3), and fold the remaining design choice (auto-open vs explicit-open `POST /negotiations` vs Sessions-only) into the #14 Sessions RFC so it is decided once.
+The need this issue actually raised — *a portable, caller-initiated, implementation-independent way to enter a negotiation context with your envelope declared up front* — is met today by **§4.4.5 `_onboard` + §15.6 + §6.5** (shipped in v2.0.3, conformance-tiered, schema-backed, exercised by the reference server's `two-agent-negotiation-smoke` vector). That is the portability concern closed.
 
-My recommendation: **option 1**, on the grounds that the v2.1 Negotiation Session is the deliberate-negotiation primitive and a second parallel `POST /negotiations` design (issue Option 1/3) would be redundant surface. But the auto-open-vs-explicit-open design choice is genuinely the maintainer's to call — that is why this issue carried the `rfc` label, and I will not pre-empt it.
+The narrow residual — a **deliberate, caller-initiated open of a §13.5.3 mediated negotiation round** (vs. the current Mediator-auto-trigger) — is **intentionally deferred to the v2.1 `Parley` primitive (RFC [#14](https://github.com/TailorAU/pact/issues/14), §19–20)**. A second parallel `POST /negotiations` design would be redundant surface against Parley, so it is deliberately *not* being added to v2.0 core. When v2.1 spec text is authored, §13.5.3 / §13.6 get a one-line forward-reference ("deliberate negotiation opening: see Parley, §19–20") via the normal reviewed-change path (AGENTS.md rule #5), mirrored out via `tools/mirror-spec.ps1`.
 
-— triage bot (draft for Knox / TailorAU review before posting)
+**Tracking:** the residual is carried by **#14**. Closing #12 as completed; follow #14 for the Parley work (comment-window decision by 2026-05-26).
+
+— TailorAU / PACT maintainers

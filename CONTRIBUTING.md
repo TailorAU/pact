@@ -50,7 +50,7 @@ A downstream mirror exists at `tailor-app/docs/architecture/PACT_SPECIFICATION.m
 
 ## Implementing PACT
 
-Anyone can implement the PACT protocol. The specification and schemas are MIT-licensed.
+Anyone can implement the PACT protocol, royalty-free. The **specification and schemas** (`spec/**`) are licensed under the [Specification License](SPEC-LICENSE.md) — a perpetual royalty-free copyright **and patent** grant for Conformant Implementations (with defensive termination). The **software** in this repo is [MIT](LICENSE). Contributions are inbound = outbound under both (see `SPEC-LICENSE.md` §6). Note: neither license grants the "PACT" / "PACT Conformant" marks (`SPEC-LICENSE.md` §4).
 
 If you've built an implementation:
 1. Open a PR to add it to the "Implementations" table in `README.md`

@@ -43,44 +43,48 @@ plan:
 # HEADLINE
 # ---------------------------------------------------------------------------
 headline: >
-  v2.1 adds PACT's second interaction mode — handler-mandated ephemeral
-  negotiation (the renamed RFC #14 concept, NOT bare "Session"; see naming
-  collision below) — together with the push-delivery and service-account
-  primitives that make it operationally usable, composed onto the v2.0.3
-  fabric/awareness machinery rather than duplicating it.
+  v2.1 adds PACT's second interaction mode — the handler-mandated ephemeral
+  Parley (the RFC #14 primitive, named to avoid the "Session"/"Negotiation"
+  double-collision; see naming collision below) — together with the
+  push-delivery and service-account primitives that make it operationally
+  usable, composed onto the v2.0.3 fabric/awareness machinery rather than
+  duplicating it.
 
 # ---------------------------------------------------------------------------
 # THE NAMING COLLISION — resolved at v2.1 scope level (synthesis M1 / SOQ1)
 # ---------------------------------------------------------------------------
 naming_collision:
   problem: >
-    "Session" is overloaded three ways: (1) v2.0.3 §4.4 "Active Session
-    Manifest Operations" — the session-AWARENESS layer over a long-lived
-    fabric, SHIPPED; (2) §17.6/§17.7 loose usage ("session mandate" in the
-    envelope list, "the life of a session" for cache lifetime); (3) RFC #14's
-    proposed NEW ephemeral negotiation mode. v2.0.3 §4.4 already minted the
-    noun "fabric" to free up "session," so re-colliding it in v2.1 would
-    re-break what v2.0.3 just fixed.
+    "Session" / "Negotiation" is overloaded three ways: (1) v2.0.3 §4.4
+    "Active Session Manifest Operations" — the session-AWARENESS layer over a
+    long-lived fabric, SHIPPED; (2) §13 mediated negotiation rounds (§13.5.3
+    negotiation.open, the Mediator-driven multi-round exchange), an existing
+    concept; (3) RFC #14's NEW ephemeral caller-initiated primitive. v2.0.3
+    §4.4 already minted the noun "fabric" to free up "session," so
+    re-colliding it in v2.1 would re-break what v2.0.3 just fixed — and a
+    "Negotiation"-derived name would collide instead with the §13 rounds.
   resolution:
     rule: >
       The bare unqualified word "Session" MUST NOT denote the #14 concept
       anywhere in spec/v2.1/. The v2.0.3 §4.4 layer is FROZEN (AGENTS.md
-      rule 4 — v2.0 is frozen for citation stability); v2.1 renames the NEW
-      concept, never the shipped layer.
-    recommended_term: "Negotiation Session"
-    alternative_terms_for_knox: ["Parley", "Negotiation"]   # SOQ1 — Knox's call
-    why_negotiation_session: >
-      Keeps continuity with §17.6's existing "session mandate" language and
-      the v2-plan T3 vocabulary while the qualifier "Negotiation" makes it
-      unmistakable against §4.4 fabric session-awareness. If Knox prefers a
-      sharper break, "Parley"/"Negotiation" drop the word entirely — also
-      acceptable; the requirement is unambiguity, not a specific noun.
+      rule 4 — v2.0 is frozen for citation stability); v2.1 names the NEW
+      concept with a distinct word, never renaming the shipped layer or the
+      §13 negotiation rounds.
+    decided_term: "Parley"   # SOQ1 — RESOLVED by the maintainer (Knox)
+    why_parley: >
+      "Parley" was chosen as the v2.1 primitive's noun because it is
+      collision-free with BOTH the shipped v2.0.3 §4.4 fabric
+      session-awareness layer AND the §13 mediated negotiation rounds — a
+      distinct word avoids the double-collision a "Session"- or
+      "Negotiation"-derived name would have caused. The requirement was
+      unambiguity against two existing concepts at once; a fresh noun is the
+      only thing that satisfies it cleanly.
     normative_consequences_for_v2_1_text:
-      - §19 section title is "Negotiation Sessions" (or Knox's chosen noun); the primitive is consistently "negotiation session" throughout.
-      - §19 carries a normative Terminology note distinguishing it from the §4.4 fabric session-awareness layer (same pattern v2.0.3 §4.4 used to introduce "fabric").
-      - The §17.6 "session mandate" reference is clarified (via the coordinated mirror PR touching v2.1, not v2.0 frozen text) to bind to §19, not §4.4.
-      - Schema filenames + $id paths track the chosen noun (see spec_directory_mechanics.schema_naming).
-  status: PROPOSED — final noun is SOQ1 (Knox). Everything downstream (schema names, $id paths, §19 title) keys off this; resolve first.
+      - §19 section title is "Parleys"; the primitive is consistently "Parley" throughout (a Parley; plural "Parleys").
+      - §19 carries a normative Terminology note distinguishing the Parley from the §4.4 fabric session-awareness layer AND from the §13 mediated negotiation rounds (same pattern v2.0.3 §4.4 used to introduce "fabric").
+      - The §17.6 "session mandate" reference is clarified (via the coordinated mirror PR touching v2.1, not v2.0 frozen text) to bind to §19 (the Parley), not §4.4.
+      - Schema filenames + $id paths track the Parley noun (see spec_directory_mechanics.schema_naming).
+  status: RESOLVED — final noun is "Parley" (SOQ1, maintainer decision). Everything downstream (schema names, $id paths, §19 title) keys off this.
 
 # ---------------------------------------------------------------------------
 # COMPOSITION CONTRACT WITH v2.0.3 (synthesis M2 — compose, do not duplicate)
@@ -88,7 +92,7 @@ naming_collision:
 composition_with_v2_0_3:
   principle: >
     v2.0.3 shipped the awareness + atomic-onboard machinery for the
-    long-lived mode. v2.1's negotiation mode REUSES it and adds only the
+    long-lived mode. v2.1's Parley mode REUSES it and adds only the
     genuinely-new surface (the Mandate primitive, the ephemeral lifecycle,
     the bilateral handshake). v2.1 normative text MUST make each reuse point
     explicit; leaving it to implementer guesswork is the defect.
@@ -98,27 +102,27 @@ composition_with_v2_0_3:
         same DID principal model (§17.4), same alg-whitelist discipline
         (§17.6), same fail-closed verification posture (§17.7). It generalises
         authorization_proof from "human authorized THIS message" to "human
-        authorized THIS agent within THESE bounds for THIS negotiation." NO
+        authorized THIS agent within THESE bounds for THIS Parley." NO
         parallel signature/identity model. This is the single most important
         compose rule.
     - state_reuses_manifest: >
-        Negotiation-session 'state' (GET /sessions/{id}/state) reuses the
+        Parley 'state' (GET /parleys/{id}/state) reuses the
         §4.4.2 caller-scoped manifest SHAPE and the §17.13 disclosure rules,
         scoped to the Mandate envelope instead of resource constraints.
     - rounds_are_section_6_5_obligations: >
         Round expectations are §6.5 pending obligations (kind: respond),
-        not a session-specific mechanism. If a kind is missing, EXTEND the
+        not a Parley-specific mechanism. If a kind is missing, EXTEND the
         §6.5 enum in v2.1 — do not shadow the concept.
     - liveness_is_section_4_4_3_heartbeat: >
-        Session liveness (driving deadlock/timeout) reuses §4.4.3 heartbeat /
+        Parley liveness (driving deadlock/timeout) reuses §4.4.3 heartbeat /
         attention_required semantics.
     - identity_is_section_23: >
-        Agents in a negotiation session are §23 agentIds (server-side,
+        Agents in a Parley are §23 agentIds (server-side,
         persistent, federation-portable URN/DID). T3 depends_on T7 (§23,
         SHIPPED in v2.0) — no new identity primitive.
   net: >
     New normative surface in v2.1 is bounded to: the Mandate primitive (§20),
-    the negotiation-session lifecycle + handshake (§19), push delivery (§21),
+    the Parley lifecycle + handshake (§19), push delivery (§21),
     service-account auth (§22). Everything else is a cross-reference into
     shipped v2.0.x text.
 
@@ -128,8 +132,8 @@ composition_with_v2_0_3:
 tracks:
 
   - id: T3
-    name: Negotiation Sessions + Mandate primitive  # name pending SOQ1
-    spec_sections: ["§19 Negotiation Sessions", "§20 Mandate primitive"]
+    name: Parleys + Mandate primitive  # SOQ1 RESOLVED — "Parley"
+    spec_sections: ["§19 Parleys", "§20 Mandate primitive"]
     decision_status: |
       D3=A — Mandate normative (NOT a v2.1 addendum-only; it is core v2.1
         normative text). v2.0 deferred it to v2.1 per AGENTS.md "Heading
@@ -155,24 +159,24 @@ tracks:
       - issue #13 Q1/Q6/Q7
       - spec/v2.0 §17 (Mandate generalises authorization_proof)
     scope_normative:
-      - "§19 Negotiation Sessions: lifecycle (open -> accept -> negotiate -> close{aligned|deadlocked|timeout}); the bilateral out-of-band handshake; the Terminology note distinguishing this from §4.4 fabric session-awareness (M1)."
-      - "§20 Mandate primitive: a §17-family handler-signed capability grant — identity_claim, constraint_envelope{may_publish,must_respect}, commitment_authority, disclosure_ceiling (1-4 per §10.3), escalation_hook, expires_at, signature, signing_key_id. Verified at session-open via the §17.7 flow applied to the broader-scope claim (M2)."
+      - "§19 Parleys: lifecycle (open -> accept -> negotiate -> close{aligned|deadlocked|timeout}); the bilateral out-of-band handshake; the Terminology note distinguishing the Parley from §4.4 fabric session-awareness AND §13 mediated negotiation rounds (M1)."
+      - "§20 Mandate primitive: a §17-family handler-signed capability grant — identity_claim, constraint_envelope{may_publish,must_respect}, commitment_authority, disclosure_ceiling (1-4 per §10.3), escalation_hook, expires_at, signature, signing_key_id. Verified at Parley-open via the §17.7 flow applied to the broader-scope claim (M2)."
       - "OQ1 mandate revocation -> immediate hang-up, outcome=mandate_revoked (ratified)."
       - "OQ2 mandate intersection -> open with explicit deadlock outcome (ratified)."
       - "OQ3 outcome binding -> advisory by default; opt-in commitment elevation MUST be witnessed by a per-handler §17 authorization_proof, not merely a Mandate flag (ratified + SOQ4 tightening)."
-      - "OQ4 carry-forward -> islanded by default; optional predecessor_session_id, predecessor existence itself subject to §17.13 disclosure (ratified)."
-      - "OQ6 clock skew -> server clock authoritative; Mandate expires_at in server time; skew window ALIGNED to §17.7 ±5min configurable UNLESS Knox sets a deliberate tighter session bound with stated rationale (SOQ2)."
-      - "Event types: pact.session.opened | .joined | .mandate-violation | .closed (names track the chosen noun per SOQ1)."
+      - "OQ4 carry-forward -> islanded by default; optional predecessor_parley_id, predecessor existence itself subject to §17.13 disclosure (ratified)."
+      - "OQ6 clock skew -> server clock authoritative; Mandate expires_at in server time; skew window RESOLVED to reuse §17.7 ±5min configurable (SOQ2 — maintainer accepted the consistency recommendation; the RFC's tighter 30s is NOT adopted)."
+      - "Event types: pact.parley.opened | .joined | .mandate-violation | .closed (stem tracks the resolved noun 'Parley' per SOQ1)."
       - "Mandate enforcement reference algorithm (the server-side envelope check on every operation)."
     scope_deferred:
       - "Always-mediated MediatedSession resource type — D5=A parks it as a v2.1 *candidate*; NOT in the §19-20 cut. If demand materialises it is a later resource type with §13 Mediator baked in, designed then."
       - "Outcome -> automatic downstream resource creation — explicit non-goal (handler decides)."
       - "Multi-party beyond small-N (2-5 agents) — larger negotiations use a long-lived resource."
-      - "Mandate delegation chains — follows §17.11 (delegation deferred to v2.1 generally; whether negotiation-session Mandates participate in attestation_chain is a v2.1 open question, see open_questions)."
+      - "Mandate delegation chains — follows §17.11 (delegation deferred to v2.1 generally; whether Parley Mandates participate in attestation_chain is a v2.1 open question, see open_questions)."
     conformance_vector_implications:
-      core: Negotiation Sessions OPTIONAL — Core implementations may run resource-only (unchanged from v2.0 conformance_levels_v2.core).
-      extended: SHOULD support Negotiation Sessions; MUST enforce Mandate envelopes if Sessions are advertised in the §15.1 Implementation Profile.
-      authorization_required: MUST require a valid handler signature on every Mandate (no anonymous cross-org negotiation sessions) — this is the §17.9 cross-org rule applied to the Mandate object.
+      core: Parleys OPTIONAL — Core implementations may run resource-only (unchanged from v2.0 conformance_levels_v2.core).
+      extended: SHOULD support Parleys; MUST enforce Mandate envelopes if Parleys are advertised in the §15.1 Implementation Profile.
+      authorization_required: MUST require a valid handler signature on every Mandate (no anonymous cross-org Parleys) — this is the §17.9 cross-org rule applied to the Mandate object.
       runner: >
         New conformance-runner kind for the Mandate-enforcement + lifecycle
         vectors (analogous to the v2.0.3 kind:session for §4.4, and following
@@ -181,12 +185,12 @@ tracks:
         Vectors land under spec/v2.1/conformance/.
       profile_flag: >
         Servers advertise support via a capabilities flag in the §15.1
-        Implementation Profile (e.g. capabilities.negotiationSessions:true),
+        Implementation Profile (e.g. capabilities.parleys:true),
         mirroring the v2.0.3 capabilities.atomicOnboard pattern. Name tracks
-        SOQ1.
+        the resolved SOQ1 noun.
     open_questions:
-      - "Do negotiation-session Mandates participate in §17.11 attestation_chain delegation, or are they always direct (1-hop) in v2.1? (Lean: direct-only in v2.1; delegation chains are already v2.1-deferred generally.)"
-      - "Schema noun (SOQ3) — keyed off SOQ1."
+      - "Do Parley Mandates participate in §17.11 attestation_chain delegation, or are they always direct (1-hop) in v2.1? (Lean: direct-only in v2.1; delegation chains are already v2.1-deferred generally.)"
+      - "Schema noun (SOQ3) — RESOLVED via SOQ1: schemas track the 'Parley' noun (parley-create-request.json etc.)."
 
   - id: T4
     name: Push-side delivery (webhooks + per-principal endpoints)
@@ -298,7 +302,7 @@ spec_directory_mechanics:
       new directory." v2.1 is a MINOR -> new directory. NEVER spec/v2.0.4/,
       NEVER spec/v2.1.0/.
     contents:
-      - spec/v2.1/SPECIFICATION.md   (v2.0 text carried forward + §19-22 normative + the §17.6 "session mandate" clarification + the renamed-noun terminology note)
+      - spec/v2.1/SPECIFICATION.md   (v2.0 text carried forward + §19-22 normative + the §17.6 "session mandate" clarification + the Parley terminology note)
       - spec/v2.1/schemas/           (v2.0 schemas carried forward + the new T3/T4/T5 schemas; $id paths MUST point to /v2.1/ not /v2.0/)
       - spec/v2.1/conformance/       (v2.0 vectors carried forward + new T3/T4/T5 vectors + the carried voice lockdown vectors if T2-vb contingency triggers)
       - spec/v2.1/resource-types.yaml (carried forward; +MediatedSession ONLY if D5 candidate later promotes — not in this cut)
@@ -308,7 +312,7 @@ spec_directory_mechanics:
       patched only via additive ERRATA.md or the already-shipped v2.0.x inline
       patches). v2.1 normative text is created in spec/v2.1/ by COPYING v2.0
       forward and adding §19-22 — NOT by editing spec/v2.0/SPECIFICATION.md.
-      The §17.6 "session mandate" clarification and the renamed-noun
+      The §17.6 "session mandate" clarification and the Parley
       terminology note land in the spec/v2.1/ copy ONLY; v2.0 §17.6 text
       stays frozen as-is.
   promotion_gate:
@@ -331,14 +335,14 @@ spec_directory_mechanics:
       authoritative in HMAN's coordinated #3 PR per the v2.0.4 lockdown.)
   schema_naming:
     rule: >
-      New schema filenames track the SOQ1 noun. If "Negotiation Session":
-      negotiation-session-create-request.json /
-      negotiation-session-accept-request.json / mandate.json /
-      negotiation-session-outcome.json plus subscription-create-request.json /
+      New schema filenames track the resolved SOQ1 noun "Parley":
+      parley-create-request.json /
+      parley-accept-request.json / mandate.json /
+      parley-outcome.json plus subscription-create-request.json /
       event-delivery.json (T4) and service-account-create-request.json (T5).
-      If Knox picks "Parley"/"Negotiation", rename accordingly. $id paths MUST
-      be /v2.1/. Listed in Appendix A.2 of the spec/v2.1/ SPECIFICATION.md.
-      RESOLVE SOQ1 BEFORE creating schemas to avoid a rename-after-the-fact.
+      $id paths MUST be /v2.1/. Listed in Appendix A.2 of the spec/v2.1/
+      SPECIFICATION.md. SOQ1 is RESOLVED ("Parley"), so schemas may be created
+      under these names without a rename-after-the-fact.
   changelog_and_release:
     rule: >
       v2.1 gets its own CHANGELOG.md section + git tag (v2.1.0) + GitHub
@@ -363,7 +367,7 @@ phases:
       - spec/v2.1/ directory mechanics agreed (this file's spec_directory_mechanics).
 
   - phase: 1
-    name: New primitives (Negotiation Sessions, push, service accounts)
+    name: New primitives (Parleys, push, service accounts)
     parallel: [T3, T4]   # T3+T4 ship together (SOQ5); T5 may join or trail
     gate: |
       - §19-22 normative text authored in spec/v2.1/ here (pact-repo canonical), maintainer-signed-off per reconciled AGENTS.md rule 5, then mirrored out via tools/mirror-spec.ps1.
@@ -402,12 +406,13 @@ risks:
       addendum") is already exercised — this IS that split. No further split;
       if T3 still cannot converge, the failure is design, escalate to Knox.
   - id: VR3
-    risk: The naming collision is under-fixed — a cosmetic rename that leaves §17.6 / §4.4 ambiguity.
+    risk: The naming collision is under-fixed — a cosmetic rename that leaves §17.6 / §4.4 / §13 ambiguity.
     mitigation: >
       M1 requires a normative §19 terminology note AND the §17.6 binding
       clarification in the spec/v2.1/ copy, not just a section-title swap.
-      VR3 closes only when a v2.1 reader cannot confuse "Negotiation Session"
-      (§19) with "Session Manifest" (§4.4 fabric awareness).
+      VR3 closes only when a v2.1 reader cannot confuse "Parley" (§19) with
+      "Session Manifest" (§4.4 fabric awareness) or §13 mediated negotiation
+      rounds — the distinct noun is what makes that confusion impossible.
   - id: VR4
     risk: Voice-biometric crypto lands in BOTH v2.0.4 and v2.1 (double-spec).
     mitigation: >
@@ -426,10 +431,10 @@ risks:
 # WHAT NEEDS KNOX
 # ---------------------------------------------------------------------------
 needs_maintainer:
-  - SOQ1 (the renamed noun — recommended "Negotiation Session"). Load-bearing for §19 title, schema filenames, $id paths, event-type names, capabilities flag. Resolve FIRST.
-  - SOQ2 (Mandate clock-skew threshold — recommended: reuse §17.7 ±5min configurable; a tighter session bound needs a stated rationale in the normative text).
+  - SOQ1 — RESOLVED: the noun is "Parley" (maintainer decision). Was load-bearing for §19 title, schema filenames, $id paths, event-type names, capabilities flag — all now key off "Parley".
+  - SOQ2 — RESOLVED: reuse §17.7 ±5min configurable for Mandate clock-skew; the RFC's tighter 30s session bound is NOT adopted.
   - SOQ4 (confirm the OQ3 tightening — binding outcome MUST carry a per-handler §17 authorization_proof — is in the v2.1 §19-20 cut, not a v2.2 follow-on).
   - SOQ5 (confirm T3 §19-20 and T4 §21 ship together in spec/v2.1/; whether T5 §22 joins the same cut or trails).
   - Ratify the v2.1 scope headline + the spec/v2.1/ directory mechanics before any coordinated normative PR is opened.
 
-status: SCOPED 2026-05-16. Phase 0 (convergence gate) BLOCKED on RFC #14; everything downstream gated on the synthesis verdict being ratified and SOQ1/SOQ2 resolved.
+status: SCOPED 2026-05-16. Phase 0 (convergence gate) BLOCKED on RFC #14; SOQ1 (noun = "Parley") and SOQ2 (reuse §17.7 ±5min) RESOLVED; remaining downstream gated on the synthesis verdict being ratified.

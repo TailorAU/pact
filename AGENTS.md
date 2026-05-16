@@ -2,7 +2,7 @@
 
 If you're an AI agent (Claude Code, Cursor, or any framework) opening this repo: **read this first.**
 
-This is the **public spec repo** for PACT — Protocol for Agent Consensus and Truth. MIT-licensed, vendor-neutral. Implementations live elsewhere; this repo holds the specification, reference CLI, and reference MCP server.
+This is the **public spec repo** for PACT — Protocol for Agent Consensus and Truth. Vendor-neutral and **dual-licensed**: software (`cli/`, `mcp/`, `reference-server/`, runner, `tools/`) is MIT ([`LICENSE`](LICENSE)); the specification (`spec/**`) is under [`SPEC-LICENSE.md`](SPEC-LICENSE.md) — a royalty-free copyright + patent implementation grant with defensive termination (W3C/MCP/A2A pattern). Neither grants the "PACT" / "PACT Conformant" marks. Implementations live elsewhere; this repo holds the specification, reference CLI, reference MCP server, and a minimal reference server.
 
 ---
 

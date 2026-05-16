@@ -48,13 +48,29 @@ expected_response:
   status: 200
   body_match:
     mode: subset
+    # RECONCILED to spec §4.4.1 (was authored against placeholder field
+    # names while §4.4 was still drafting):
+    #   - `fabricId` → `fabric_id` (the normative §4.4.1 response key).
+    #   - the `members` ARRAY assertion is restated against the additive
+    #     `members_by_principal` MAP because the runner's subset matcher
+    #     compares arrays by exact JSON equality (it cannot subset-match
+    #     array elements); a per-member liveness assertion needs a keyed
+    #     path. `members_by_principal` is additive (the normative shape is
+    #     the `members` array; the spec examples are non-exhaustive subsets).
+    #   - `liveness` / `evicted` / `heartbeat_timeout_seconds` are additive
+    #     fields the spec does not define but does not forbid; §4.1 line 183
+    #     references staleness/eviction. The conservative reading is retained:
+    #     B is FLAGGED stale, never auto-evicted (evicted: false).
     value:
-      fabricId: fab_hb_001
+      fabric_id: fab_hb_001
       heartbeat_timeout_seconds: 60
-      members:
-        - principalId: did:web:alice.example
+      members_by_principal:
+        "did:web:alice.example":
+          principal_id: did:web:alice.example
           liveness: live
-        - principalId: did:web:bob.example
+          evicted: false
+        "did:web:bob.example":
+          principal_id: did:web:bob.example
           liveness: stale                     # MUST be surfaced — past timeout
           # `evicted` MUST NOT be true in the conservative interpretation.
           # The strictest reading is "stale is a flag, eviction is a policy
@@ -63,7 +79,7 @@ expected_response:
   body_ignore_fields:
     - generated_at
     - last_event_seq
-    - last_seen                               # absolute timestamp varies per impl clock
+    - snapshot_at                             # absolute timestamp varies per impl clock
 
 expected_events:
   # A GET is non-mutating. The strictest reading is no events emitted by the

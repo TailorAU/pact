@@ -49,10 +49,80 @@ jobs:
       - name: Build & run the conformance runner (verification vectors)
         # Runs spec/v2.0/conformance/runner against all vectors under
         # spec/v2.0/conformance/. kind:verification vectors execute fully;
-        # kind:http vectors SKIP without --server (CI doesn't run a PACT server).
+        # kind:http + kind:session vectors SKIP here (no --server) — they
+        # are executed end-to-end in the `conformance-server` job below.
         # See spec/v2.0/conformance/runner/README.md for what's covered vs TODO.
         working-directory: spec/v2.0/conformance/runner
         run: |
           npm ci || npm install
           npm run build
           node dist/index.js run --vectors ..
+
+  conformance-server:
+    name: Conformance runner against the reference server
+    runs-on: ubuntu-latest
+    # Executes the server-bound vectors (kind:http + kind:session) against
+    # the in-memory @pact-protocol/reference-server so HTTP/session
+    # regressions are caught in CI (they were previously undetectable —
+    # the runner skipped every server-bound vector without a --server).
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the reference server
+        working-directory: reference-server
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: Build the conformance runner
+        working-directory: spec/v2.0/conformance/runner
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: Start the reference server (background) + wait for port
+        working-directory: reference-server
+        run: |
+          PACT_REF_PORT=4100
+          echo "PACT_REF_PORT=$PACT_REF_PORT" >> "$GITHUB_ENV"
+          # Background-start; capture pid for teardown; tee log so a
+          # failed start is visible in the workflow output.
+          nohup node dist/server.js --port "$PACT_REF_PORT" > server.log 2>&1 &
+          echo "REF_SERVER_PID=$!" >> "$GITHUB_ENV"
+          # Wait-for-port: poll /healthz for up to ~30s, fail LOUDLY if the
+          # server never comes up (don't let the runner skip silently).
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${PACT_REF_PORT}/healthz" > /dev/null 2>&1; then
+              echo "Reference server is up after ${i} attempt(s)."
+              curl -fsS "http://127.0.0.1:${PACT_REF_PORT}/healthz"; echo
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "::error::Reference server did not become healthy on port ${PACT_REF_PORT} within 30s."
+          echo "----- server.log -----"
+          cat server.log || true
+          exit 1
+
+      - name: Run the conformance suite against the reference server
+        working-directory: spec/v2.0/conformance/runner
+        # Expect every server-bound vector to EXECUTE and PASS. The runner
+        # exits non-zero on any failure; a server-bound vector that SKIPs
+        # (server unreachable) would surface as the scaffold's stderr
+        # WARNING and a non-green local run — here the wait-for-port step
+        # above already guarantees the server is reachable.
+        run: |
+          node dist/index.js run --vectors .. --server "http://127.0.0.1:${PACT_REF_PORT}"
+
+      - name: Stop the reference server
+        if: always()
+        run: |
+          if [ -n "${REF_SERVER_PID:-}" ]; then
+            kill "${REF_SERVER_PID}" 2>/dev/null || true
+          fi
+          echo "----- reference-server/server.log -----"
+          cat reference-server/server.log 2>/dev/null || true

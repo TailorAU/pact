@@ -44,6 +44,22 @@ preconditions:
     principal_id: did:web:bob.example
 
 steps:
+  # RECONCILED to spec §4.4.2 / §6.5 (authored against placeholder names
+  # while §4.4 was drafting):
+  #   - `fabricId` → `fabric_id`; `principalId` → `principal_id`.
+  #   - the `caller.obligations` ARRAY assertion is restated against the
+  #     additive `caller.obligations_by_ref` MAP (keyed by event_ref) —
+  #     the runner subset-matcher compares arrays by exact JSON equality
+  #     so a partial-object array assertion is not expressible. The
+  #     normative shape is still the `caller.obligations` array / top-level
+  #     `pending_obligations` (§4.4.2); the map is an additive index.
+  #   - step 2 path `/proposals/{id}/vote` → `/proposals/{id}/approve`:
+  #     there is no `/vote` endpoint in the §7.1 REST surface. §6.5 says a
+  #     `vote` obligation is discharged when the member emits
+  #     `proposal.approve | proposal.reject | proposal.object`; `approve`
+  #     is the canonical spec verb (§4.3 / §7.1).
+  #   - step 3 `cross_call_assertions` keeps `body_path: caller.obligations`
+  #     (the runner walks the array; post-discharge it is empty → passes).
   - id: pre-vote-manifest-shows-obligation
     request:
       method: GET
@@ -53,22 +69,24 @@ steps:
       body_match:
         mode: subset
         value:
-          fabricId: fab_obl_001
+          fabric_id: fab_obl_001
           caller:
-            principalId: did:web:bob.example
-            obligations:
-              - kind: vote
+            principal_id: did:web:bob.example
+            obligations_by_ref:
+              prop_xyz:
+                kind: vote
                 event_ref: prop_xyz
                 due_by: "2026-05-16T10:00:00Z"
                 status: pending
       body_ignore_fields:
         - generated_at
         - last_event_seq
+        - snapshot_at
 
   - id: cast-vote
     request:
       method: POST
-      path: /api/pact/fab_obl_001/proposals/prop_xyz/vote
+      path: /api/pact/fab_obl_001/proposals/prop_xyz/approve
       headers:
         Content-Type: application/json
       body:
@@ -93,12 +111,13 @@ steps:
       body_match:
         mode: subset
         value:
-          fabricId: fab_obl_001
+          fabric_id: fab_obl_001
           caller:
-            principalId: did:web:bob.example
+            principal_id: did:web:bob.example
       body_ignore_fields:
         - generated_at
         - last_event_seq
+        - snapshot_at
     cross_call_assertions:
       # The vote obligation MUST NOT appear in caller.obligations with
       # status: pending. The runner's `negative_obligation` assertion walks
@@ -165,10 +184,12 @@ notes: |
     extension: walks the named body_path and rejects if any entry matches
     ALL of the given keys in `match`. This is the negation form needed for
     "MUST NOT contain" assertions on collection bodies.
-  - The vote-cast endpoint is `POST /proposals/{id}/vote` — this mirrors
-    v1.1 conventions; spec text may converge on a different verb (e.g.
-    `/cast-vote`). If it does, only this vector's step 2 path needs an
-    update.
+  - RECONCILED: the vote-cast endpoint is `POST /proposals/{id}/approve`
+    (§4.3 / §7.1). The earlier draft assumed a `/proposals/{id}/vote`
+    verb that does not exist in the §7.1 REST surface. §6.5 specifies a
+    `vote` obligation is discharged when the member emits
+    `proposal.approve | proposal.reject | proposal.object`; `approve` is
+    the canonical spec verb for the affirmative case exercised here.
 
 failure_classification:
   severity: blocker

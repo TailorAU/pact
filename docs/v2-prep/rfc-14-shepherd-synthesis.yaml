@@ -1,0 +1,365 @@
+# RFC #14 — shepherd's synthesis
+#
+# NON-NORMATIVE working artifact. This is the shepherd's read of the state of
+# RFC TailorAU/pact#14 ("Ephemeral negotiation Sessions with handler-signed
+# Mandates"), produced to drive the open comment window to a decision before
+# it closes 2026-05-26.
+#
+# Authored 2026-05-16 by the PACT RFC shepherd (Claude, Opus 4.7) under Knox's
+# standing "you are the PACT lead / shepherd this RFC" authority. The
+# recommended verdict below is a shepherd recommendation; the maintainer
+# (Knox) makes the final call and the coordinator posts the public comment
+# (docs/v2-prep/rfc-14-comment-draft.md).
+#
+# Sources read: gh issue view 14 --comments; docs/v2-prep/rfc-sessions-mandate.md;
+# docs/v2-plan.yaml (T3/T4/T5, D3/D5); docs/v2-prep/d1-d6-decisions.yaml;
+# spec/v2.0/SPECIFICATION.md §4.4, §6.5, §15.6, §17 (incl. §17.6/§17.7/§17.13);
+# AGENTS.md ("Heading toward v2.1", rules 3/4/5, spec-versioning convention).
+
+meta:
+  rfc_issue: https://github.com/TailorAU/pact/issues/14
+  rfc_draft: docs/v2-prep/rfc-sessions-mandate.md
+  rfc_posted: 2026-05-13
+  comment_window_closes: 2026-05-26
+  shepherd: PACT RFC shepherd (Claude, Opus 4.7)
+  decision_owner: Knox Hart (maintainer)
+  related_decisions:
+    D3: "A — Mandate normative in v2 (demotable before freeze if T3 review finds it unstable). v2.0 SHIPPED without it; per AGENTS.md it now lands in spec/v2.1/."
+    D5: "A — Sessions peer-to-peer by default with opt-in facilitator role; always-mediated MediatedSession parked as a v2.1 candidate."
+  status: SYNTHESIS — recommended verdict below; awaiting maintainer call + coordinator post.
+
+# ---------------------------------------------------------------------------
+# 1. THE PROPOSAL, IN THE SHEPHERD'S WORDS
+# ---------------------------------------------------------------------------
+proposal_restated:
+  one_line: >
+    Add a second PACT interaction mode — an ephemeral, time-bounded, small-N
+    negotiation between agents, where each agent enters under a handler-signed
+    Mandate that cryptographically pins what it may say, must respect, may
+    commit to, and may disclose; the server enforces the Mandate on every
+    operation and reports the outcome back to each handler's registered hook.
+  what_it_adds:
+    - >
+      A new mode that complements (does not replace) the long-lived resource
+      model. Resource = persistent collaborative fabric many agents join over
+      time. The #14 concept = a bounded "phone call between agents" that opens,
+      runs to a verdict (aligned | deadlocked | timeout), and closes.
+    - >
+      The Mandate primitive — a new capability-grant object. It generalises
+      the §17 authorization_proof from "human authorized THIS message" to
+      "human authorized THIS agent to operate within THESE bounds for THIS
+      negotiation." Same trust chain (§17.2), broader temporal scope. §17.6
+      already name-drops "session mandate" in its envelope-bearing-message
+      list, so the spec text anticipates this primitive.
+    - >
+      Server-enforced negotiating envelopes: constraint_envelope
+      (may_publish / must_respect), commitment_authority (caps on
+      irreversible decisions), disclosure_ceiling (max graduated-disclosure
+      level from §10.3), escalation_hook (where outcomes + violations are
+      pushed — reuses T4 push delivery).
+  what_it_deliberately_does_NOT_add:
+    - Mediated negotiation as a separate resource type (D5=A parks MediatedSession as a v2.1 candidate, not in this RFC).
+    - Outcome -> automatic downstream resource creation (handler decides what to do with the outcome).
+    - Multi-party beyond small-N (2–5 agents; larger -> use a long-lived resource).
+  why_it_exists_motivating_gaps:
+    - "#13 Q1 (self-approval): the new mode has no approval step at all, so cross-agent self-approval simply does not arise. (T6 remains the legacy-resource fallback; this is the canonical answer for NEW agent-to-agent flows.)"
+    - "#13 Q6/Q7 (escalation routing): the handler's escalation_hook is a structural binding — the outcome flows to the URL the handler registered, not a generic resource inbox."
+    - "Bilateral shape: there is currently no PACT shape for 'have my agent talk to that agent for five minutes about this one thing.' This mode IS that shape."
+
+# ---------------------------------------------------------------------------
+# 2. POINTS OF CONTENTION (from the issue thread + design surface)
+# ---------------------------------------------------------------------------
+points_of_contention:
+  thread_state:
+    external_substantive_comments: 0
+    total_comments: 1
+    note: >
+      The only comment on #14 is the maintainer's own 2026-05-13 self-update:
+      v2.0 shipped WITHOUT §19-20; the concept moves to spec/v2.1/ once the
+      RFC converges; the 14-day window stays open to 2026-05-26. As of
+      2026-05-16 NO external reviewer (AloomU, HMAN, or other implementer)
+      has filed substantive feedback. So there is no community dispute on
+      record — the contention is design-internal, not adversarial. This is a
+      "silence, drive to a verdict" situation, not a "mediate a fight" one.
+  contention_1_NAMING_COLLISION:
+    severity: HIGH — the headline issue this synthesis exists to surface
+    summary: >
+      "Session" is now overloaded THREE ways and the RFC draft still uses the
+      bare word "Session" for the new mode. Shipping it as-named would put
+      three different protocol concepts under one noun in one spec.
+    the_three_meanings:
+      - meaning: v2.0.3 §4.4 "Active Session Manifest Operations"
+        what_it_is: >
+          The session-AWARENESS layer over a long-lived fabric — _status,
+          manifest, _heartbeat, mark-read, _onboard; §6.5 pending obligations;
+          §15.6 onboarding pattern; §17.13 manifest visibility; the
+          pact_session_announce MCP tool; runner kind:session. SHIPPED and
+          stable as of v2.0.3.
+        crucial_detail: >
+          v2.0.3 §4.4 ALREADY hit this ambiguity and resolved it by minting
+          the noun "fabric" for "a single resource's coordination context"
+          (§4.4 Terminology). v2.0.3 deliberately did NOT call the resource
+          context a "session" precisely to keep "session" free. The RFC #14
+          draft would re-collide the word that v2.0.3 just spent a paragraph
+          freeing up.
+      - meaning: §17.6 / §17.7 loose usage
+        what_it_is: >
+          "session mandate" appears in the §17.6 envelope-bearing-message list
+          (line ~1717) and "the life of a session" appears in §17.7 step 6 as
+          a resolution-cache lifetime. These are informal and forward-looking;
+          they anticipate the #14 primitive but are not normatively bound to a
+          named object yet.
+      - meaning: RFC #14 "PACT Session"
+        what_it_is: >
+          The proposed NEW ephemeral negotiation mode/resource. This is the
+          concept that needs an unambiguous name before normative text lands.
+    why_it_matters: >
+      A reader of spec/v2.1/ would see "Session Manifest" (§4.4, awareness over
+      a fabric) and "PACT Session" (§19, an ephemeral negotiation) and have no
+      way to tell them apart from the word. Worse: §17.6 already lists "session
+      mandate" as a message type — a v2.1 reader could reasonably bind that to
+      §4.4 instead of §19. Overloaded core nouns are the kind of defect the
+      v2.0.2 cold-eye audit (S-class) exists to catch; better to fix it before
+      §19-20 text exists than to patch it after.
+    shepherd_position: >
+      Resolve by RENAMING the #14 concept, not by renaming the shipped v2.0.3
+      §4.4 layer (renaming a stable, mirrored, conformance-vectored layer would
+      be a far larger and riskier change, and AGENTS.md rule 4 freezes v2.0
+      text). The negotiation mode should be named so it cannot be confused with
+      fabric-awareness. Recommended primary name: **Negotiation Session** as
+      the spec-of-record term, with the §19 section titled "Negotiation
+      Sessions" and the primitive consistently "negotiation session"
+      throughout, and a normative terminology note in §19 that explicitly
+      distinguishes it from the §4.4 fabric session-awareness layer and tells
+      readers that §17.6's "session mandate" binds to §19, not §4.4.
+      Acceptable alternative if Knox prefers a sharper break from the word
+      entirely: **Parley** (or "Negotiation") as the mode noun, "Mandate"
+      unchanged. Either way the deliverable is: the bare unqualified word
+      "Session" MUST NOT denote the #14 concept in spec/v2.1/.
+    naming_decision_is_for_KNOX: true
+  contention_2_OVERLAP_RISK_with_v2_0_3:
+    severity: MEDIUM — composition, not collision; must be designed, not deferred
+    summary: >
+      Beyond the noun, the #14 mode and the v2.0.3 fabric layer have real
+      functional overlap that must be composed deliberately so v2.1 does not
+      duplicate or contradict shipped v2.0.3 behaviour.
+    overlaps:
+      - area: "Onboarding"
+        v2_0_3: "§4.4.5 _onboard / §15.6 atomic join+constrain on a fabric."
+        rfc_14: "POST /sessions + /sessions/{id}/accept carrying a Mandate."
+        composition_rule: >
+          A negotiation session's open/accept handshake is the session-mode
+          analogue of _onboard, NOT a second generic onboarding path. v2.1
+          MUST state that session open/accept is its own atomic operation and
+          MUST NOT re-spec _onboard. The Mandate is the negotiation-mode
+          equivalent of the onboard's constraint bundle — same atomicity
+          property (either the agent is in with a verified Mandate, or not at
+          all), different object.
+      - area: "Manifest / 'where am I'"
+        v2_0_3: "§4.4.2 caller-scoped manifest; §4.4.1 fabric _status."
+        rfc_14: "GET /sessions/{id}/state."
+        composition_rule: >
+          Session state SHOULD reuse the §4.4 manifest SHAPE and the §17.13
+          disclosure rules rather than invent a parallel manifest. A session
+          is a (very short-lived, small-N) coordination context; its 'state'
+          view is conceptually the same caller-scoped manifest, scoped to the
+          Mandate envelope instead of resource constraints. Reuse, don't fork.
+      - area: "Pending obligations"
+        v2_0_3: "§6.5 first-class pending-obligation.json + obligation events."
+        rfc_14: "Implicit — 'agent owes a response in this round.'"
+        composition_rule: >
+          Negotiation-round expectations SHOULD be modelled as §6.5 pending
+          obligations (kind: respond) rather than a session-specific
+          mechanism, so one obligation model spans both modes. v2.1 should
+          extend §6.5's kind enum if a session needs an obligation kind §6.5
+          lacks — extend the existing concept, do not shadow it.
+      - area: "Liveness during negotiation"
+        v2_0_3: "§4.4.3 _heartbeat / attention_required."
+        rfc_14: "Session deadlock/timeout outcomes depend on peer liveness."
+        composition_rule: >
+          Reuse §4.4.3 heartbeat semantics for session liveness; a silent peer
+          driving a session to `timeout` is the same liveness signal §4.4.3
+          already defines. (This also intersects Open Question 16.8 about
+          mediator handling of silence — see open_questions.)
+      - area: "Authorization envelope"
+        v2_0_3: "§17.6 authorization_proof; §17.7 verification flow; §17.6 already lists 'session mandate' as an envelope-bearing message."
+        rfc_14: "Mandate as a handler-signed grant; server verifies at session-open."
+        composition_rule: >
+          The Mandate MUST be defined as a §17-family object (it generalises
+          authorization_proof; same trust chain §17.2, same DID principal
+          model §17.4, same alg-whitelist discipline §17.6, same fail-closed
+          verification posture §17.7). It MUST NOT introduce a parallel
+          signature/identity model. Mandate verification at session-open is
+          the §17.7 flow applied to a broader-scope claim. This is the single
+          most important "compose, don't duplicate" rule.
+    net: >
+      The right framing is: v2.0.3 shipped the AWARENESS and ATOMIC-ONBOARD
+      machinery for the long-lived mode; RFC #14 adds a SECOND mode that
+      should REUSE that machinery (manifest shape, obligations, heartbeat,
+      §17 trust chain) and add only what is genuinely new — the Mandate
+      primitive, the ephemeral lifecycle, and the bilateral handshake. v2.1
+      normative text must make these reuse points explicit, not leave them to
+      implementer guesswork.
+  contention_3_OPEN_DESIGN_QUESTIONS:
+    severity: MEDIUM — each has a maintainer proposal; none is formally ratified
+    note: >
+      The RFC's six open questions (rfc-sessions-mandate.md §"Open design
+      questions") all carry a maintainer proposal. None has been contested by
+      a reviewer (zero external comments). The shepherd's read is that the
+      proposals are sound and should be RATIFIED as the v2.1 design baseline,
+      not reopened — reopening unforced is how T3 becomes the 6-month track
+      risk R3 warns about.
+    questions:
+      - id: OQ1
+        topic: Mandate revocation mid-session
+        maintainer_proposal: "Immediate hang-up with outcome=mandate_revoked (not finish-current-round)."
+        shepherd: RATIFY. Finishing the round risks an agent committing under an authority that no longer exists — incoherent with the §17 trust model (a revoked authorization must not retroactively bless an in-flight commit).
+      - id: OQ2
+        topic: Mandate intersection at open
+        maintainer_proposal: "Open with explicit deadlock outcome attached (not refuse-to-open)."
+        shepherd: RATIFY. Surfacing the disagreement beats hiding it; agents can renegotiate scope or escalate. Consistent with PACT's event-sourced, make-the-state-visible design principle.
+      - id: OQ3
+        topic: Outcome binding
+        maintainer_proposal: "Advisory by default; opt-in outcome_binding:'commitment' requires both handlers to pre-authorize in the Mandate."
+        shepherd: RATIFY, with one normative note for v2.1 — a binding outcome MUST be witnessed by a §17 authorization_proof from each consenting handler (not merely a Mandate flag), so 'binding' is cryptographically grounded, not API-asserted. This is the line between "Sessions" and "we reinvented contracts over HTTP."
+      - id: OQ4
+        topic: Carry-forward
+        maintainer_proposal: "Islanded by default; optional predecessor_session_id."
+        shepherd: RATIFY. Privacy-preserving default + escape hatch is the right shape; predecessor linkage MUST itself respect §17.13 disclosure (a predecessor's existence is itself information).
+      - id: OQ5
+        topic: Mediator presence
+        status: RESOLVED at charter level — D5=A (peer-to-peer + opt-in facilitator). Not reopened by this RFC. MediatedSession remains a v2.1 *candidate*, explicitly out of scope for the §19-20 normative text.
+      - id: OQ6
+        topic: Clock skew
+        maintainer_proposal: "Server clock authoritative; Mandate expires_at in server time; drift > 30s -> session refusal."
+        shepherd: >
+          RATIFY the server-authoritative call, but ALIGN the threshold with
+          §17.7. §17.7 step 4 sets authorization-proof freshness skew at ±5
+          minutes (configurable). A 30s session-refusal threshold that is
+          tighter than the §17 proof-freshness window is an inconsistency a
+          cold-eye audit would flag. v2.1 should either (a) reuse the §17.7
+          configurable skew for Mandate expires_at, or (b) explicitly justify
+          why a negotiation session warrants a tighter bound than a single
+          message. Recommend (a) for consistency unless Knox wants the tighter
+          bound — flag for maintainer.
+    skew_threshold_alignment_is_for_KNOX: true
+
+# ---------------------------------------------------------------------------
+# 3. OPEN QUESTIONS THE SHEPHERD IS RAISING (beyond the RFC's own list)
+# ---------------------------------------------------------------------------
+shepherd_open_questions:
+  - id: SOQ1
+    question: >
+      Naming — "Negotiation Session" (keep the word, qualify it) vs "Parley" /
+      "Negotiation" (drop the word entirely). Shepherd recommends "Negotiation
+      Session" for continuity with §17.6's existing "session mandate" language
+      and the v2-plan T3 vocabulary; the bare word "Session" is retired as a
+      standalone term in v2.1. Knox decides the final noun.
+    owner: Knox
+  - id: SOQ2
+    question: >
+      Mandate clock-skew threshold — reuse §17.7's ±5min configurable window,
+      or set a tighter session-specific bound (RFC proposes 30s)? Consistency
+      argues for reuse; a deliberate tighter bound needs an explicit rationale
+      in the normative text. Knox decides.
+    owner: Knox
+  - id: SOQ3
+    question: >
+      Schema-naming under the AGENTS.md spec-versioning convention. RFC draft
+      and v2-plan T3 list schemas as session-create-request.json /
+      session-accept-request.json / mandate.json / session-outcome.json. If
+      the concept is renamed (SOQ1), the schema filenames and their $id paths
+      (which MUST point to /v2.1/) should track the new noun. Mechanical, but
+      decide the noun first (SOQ1) to avoid a rename-after-the-fact.
+    owner: Knox (after SOQ1)
+  - id: SOQ4
+    question: >
+      Binding-outcome witness. Shepherd recommends a binding outcome require a
+      per-handler §17 authorization_proof, not just a Mandate flag (OQ3). This
+      is a normative tightening beyond the RFC draft — confirm it is in scope
+      for the v2.1 §19-20 text rather than a v2.2 follow-on.
+    owner: Knox
+  - id: SOQ5
+    question: >
+      Dependency ordering. T3 depends_on T7 (§23 agent identity, SHIPPED in
+      v2.0) and reuses T4 (§21 push delivery, NOT yet designed) for
+      escalation_hook. Can §19-20 normative text reference §21 push delivery
+      before §21 itself is normative, or must T4 land in the same v2.1 cut?
+      Shepherd read: they should ship together in spec/v2.1/ (escalation_hook
+      is load-bearing for the Mandate's outcome path) — confirm.
+    owner: Knox
+
+# ---------------------------------------------------------------------------
+# 4. RECOMMENDED VERDICT
+# ---------------------------------------------------------------------------
+recommended_verdict:
+  verdict: ACCEPT-WITH-MODIFICATIONS
+  one_sentence_rationale: >
+    The design is sound and well-motivated (it cleanly closes #13 Q1/Q6/Q7),
+    the charter decisions it depends on are already resolved (D3=A, D5=A), and
+    zero external objections were filed in the comment window — but it must NOT
+    land as-drafted because the bare noun "Session" collides three ways with
+    the now-shipped v2.0.3 §4.4 fabric session-awareness layer, so accept the
+    primitive and lifecycle, ratify the six open-question proposals as the
+    design baseline, and require the modifications below before §19-20
+    normative text is written.
+  required_modifications:
+    M1: >
+      RENAME the concept so the bare word "Session" never denotes the #14 mode
+      in spec/v2.1/. Recommended: "Negotiation Session" with a normative §19
+      terminology note distinguishing it from §4.4 fabric session-awareness and
+      binding §17.6's "session mandate" to §19. (Final noun: Knox — SOQ1.)
+    M2: >
+      COMPOSE with v2.0.3, do not duplicate. v2.1 §19-20 normative text MUST
+      explicitly state the reuse points: Mandate is a §17-family object
+      (same trust chain / DID model / alg-whitelist / fail-closed posture);
+      session 'state' reuses the §4.4 manifest shape + §17.13 disclosure rules;
+      round expectations are §6.5 pending obligations; liveness is §4.4.3
+      heartbeat. New surface is limited to the Mandate primitive, the
+      ephemeral lifecycle, and the bilateral handshake.
+    M3: >
+      RATIFY OQ1–OQ4 and OQ6 as the v2.1 design baseline (per shepherd notes
+      in points_of_contention.contention_3). OQ5 is already D5-resolved.
+      Apply the OQ3 tightening (binding outcome witnessed by per-handler
+      §17 proof, SOQ4) and the OQ6 skew alignment (reuse §17.7 ±5min unless
+      Knox sets a deliberate tighter bound, SOQ2).
+    M4: >
+      Land §19-20 (T3) together with §21 push delivery (T4) in the same
+      spec/v2.1/ cut, because escalation_hook is load-bearing for the Mandate
+      outcome path (SOQ5). §22 service-account auth (T5) MAY land in the same
+      cut or trail it.
+  verdicts_considered_and_rejected:
+    accept_as_is: >
+      Rejected. The naming collision is a real defect against shipped v2.0.3
+      text; accepting as-is would knowingly write a three-way-overloaded core
+      noun into normative spec.
+    defer_further: >
+      Rejected. There is no unresolved design question that more comment time
+      would answer — zero external comments in ~3 days of a 13-day window;
+      the open questions have sound maintainer proposals; the charter decisions
+      (D3/D5) are locked; v2.0 already shipped with §19-22 reserved
+      specifically so this could land in v2.1. Deferring further is the R3
+      "T3 becomes a 6-month track" failure mode with no upside.
+    reject: >
+      Rejected. The motivating gaps (#13 Q1/Q6/Q7) are real production pain
+      from AloomU; the primitive generalises an already-normative §17 concept;
+      D3=A explicitly committed Mandate to normative track. Nothing on the
+      record argues for killing it.
+  conditions_to_close_the_window:
+    - Maintainer (Knox) ratifies the verdict and resolves SOQ1 (the name) and SOQ2 (skew threshold).
+    - The coordinator posts docs/v2-prep/rfc-14-comment-draft.md to #14 stating the verdict, the naming resolution, and a clear final-call deadline of 2026-05-26.
+    - >-
+      'No further substantive objection by 2026-05-26 23:59 AEST' is treated
+      as convergence; #14 moves to 'accepted, normative text pending' and the
+      v2.1 spec-directory work (docs/v2-prep/v2.1-scope.yaml) is unblocked.
+    - Normative §19-20 text is then drafted via the AGENTS.md rule-5 coordinated-PR pattern into a NEW spec/v2.1/ directory (never spec/v2.0.x/, never spec/vX.Y.Z/).
+
+# ---------------------------------------------------------------------------
+# 5. WHAT NEEDS KNOX (not the shepherd)
+# ---------------------------------------------------------------------------
+needs_maintainer:
+  - SOQ1 — the final noun for the renamed concept (shepherd recommends "Negotiation Session"; "Parley"/"Negotiation" are acceptable alternatives). Load-bearing: schema filenames, $id paths, §19 title, and the §17.6 cross-reference all key off it.
+  - SOQ2 — Mandate clock-skew threshold: reuse §17.7 ±5min (recommended) or a deliberate tighter session bound with stated rationale.
+  - SOQ4 — confirm the OQ3 tightening (binding outcome MUST carry a per-handler §17 authorization_proof) is in scope for the v2.1 §19-20 cut.
+  - SOQ5 — confirm T3 (§19-20) and T4 (§21) ship together in spec/v2.1/.
+  - Ratify ACCEPT-WITH-MODIFICATIONS and authorize the coordinator to post the comment draft (the shepherd does not post to GitHub).

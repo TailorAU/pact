@@ -32,25 +32,43 @@ request:
   body:
     agentName: test-bot
     role: contributor                      # one of: observer | contributor | proposer (impl-defined further roles allowed)
+    # RECONCILED to spec §4.4.5 onboard-request shape: constraints are
+    # { sectionId, boundary, category }, not the placeholder { name, value }.
     constraints:
-      - name: rate-limit-per-minute
-        value: 30
-      - name: disclosure-ceiling
-        value: 2
+      - sectionId: sec:risk
+        boundary: Must not name specific instruments
+        category: regulatory
+      - sectionId: sec:budget
+        boundary: Must not commit beyond Q3 forecast
+        category: commercial
 
 expected_response:
   status: 200
   body_match:
     mode: subset
+    # RECONCILED to spec §4.4.5 success response: the normative top-level
+    # shape is { status: "onboarded", fabric_id, registration,
+    # constraints[], onboarded_event_id, onboarded_at }. The earlier draft
+    # asserted a bare top-level `role` + `accepted_constraints[{name,value}]`
+    # that the §4.4.5 response does not define. We assert the normative
+    # `status` + `fabric_id`, and the constraint commitment via the additive
+    # `accepted_constraints` array ({sectionId,boundary} — the §4.4.5
+    # constraint shape). `role` is kept (the server echoes it additively so
+    # the "silent role downgrade" failure mode stays covered).
     value:
+      status: onboarded
+      fabric_id: fab_abc123
       role: contributor
       accepted_constraints:
-        - name: rate-limit-per-minute
-          value: 30
-        - name: disclosure-ceiling
-          value: 2
+        - sectionId: sec:risk
+          boundary: Must not name specific instruments
+        - sectionId: sec:budget
+          boundary: Must not commit beyond Q3 forecast
   body_ignore_fields:
     - membership_id                        # server-assigned
+    - registration                         # server-assigned join-response sub-object
+    - constraints                          # server-minted constraint_ids vary
+    - onboarded_event_id                   # server-assigned
     - apiKey                               # scoping key when issued (§22 service-account auth, OPTIONAL)
     - onboarded_at                         # server timestamp
     - last_seen                            # server timestamp seeded at onboard

@@ -554,6 +554,29 @@ async function main(): Promise<void> {
     vectors.push({ path, vec });
   }
 
+  // Best-effort state reset before server-bound vectors run. Several
+  // session vectors are stateful (an onboard adds a member, a vote
+  // discharges an obligation); re-running the suite against a long-lived
+  // server would otherwise see stale state. The reference server exposes
+  // `POST /__reset` to re-seed deterministic fixtures. A third-party PACT
+  // server that does not implement `/__reset` simply returns non-2xx and
+  // the runner continues — this is a convenience for deterministic re-runs,
+  // not a conformance requirement on the server under test.
+  if (args.server && vectors.some((v) => {
+    const k = v.vec.kind ?? (v.vec.verification ? 'verification' : (v.vec.steps ? 'session' : 'http'));
+    return k === 'http' || k === 'session';
+  })) {
+    try {
+      const resetUrl = new URL('/__reset', args.server).toString();
+      const r = await fetch(resetUrl, { method: 'POST', signal: AbortSignal.timeout(5_000) });
+      if (!r.ok) {
+        console.error(`NOTE: ${resetUrl} returned ${r.status}; server state not reset (re-runs may be non-deterministic if the server is stateful).`);
+      }
+    } catch {
+      console.error('NOTE: server /__reset unreachable; server state not reset (re-runs may be non-deterministic if the server is stateful).');
+    }
+  }
+
   const results: { path: string; id: string; kind: string; outcome: Outcome }[] = [];
   for (const { path, vec } of vectors) {
     const kind = vec.kind ?? (vec.verification ? 'verification' : (vec.steps ? 'session' : 'http'));

@@ -34,43 +34,57 @@ steps:
   - id: onboard-rejected
     request:
       method: POST
-      path: /api/pact/fab_abc123/_onboard
+      path: /api/pact/fab_pf_abc123/_onboard
       headers:
         Content-Type: application/json
       body:
         agentName: test-bot
         role: contributor
+        # RECONCILED to spec §4.4.5 onboard-request shape: constraints are
+        # { sectionId, boundary }, not the placeholder { name, value }.
+        # `disclosure-ceiling` carried as the sectionId; boundary "4"
+        # exceeds the fabric policy max of 2.
         constraints:
-          - name: rate-limit-per-minute
-            value: 30
-          - name: disclosure-ceiling
-            value: 4                       # exceeds fabric policy max of 2
+          - sectionId: rate-limit-per-minute
+            boundary: "30"
+          - sectionId: disclosure-ceiling
+            boundary: "4"                  # exceeds fabric policy max of 2
     expected_response:
       # 422 is the strictest reading ("the request body is well-formed but
-      # the policy refused"). Implementations MAY return 409 if they model
-      # the conflict as a state-conflict rather than a semantic-validation
-      # failure; both are documented as acceptable in `notes:`.
+      # the policy refused"). The spec §4.4.5 does not pin a numeric status
+      # for constraint rejection; 422 is consistent with its
+      # validation-failure framing. 409 would also conform.
       status: 422
       body_match:
         mode: subset
+        # RECONCILED to spec §4.4.5 rejection response: the normative shape
+        # is { status: "rejected", rejection_reason, rejected_constraint_index,
+        # errors[] }. The earlier draft asserted a placeholder
+        # { error, rejected_constraint:{name} }. The load-bearing assertion
+        # — the response names the offending constraint so the caller can
+        # self-correct — is preserved via `rejected_constraint_index: 1`
+        # plus the `errors[].code`.
         value:
-          error: constraint_rejected
-          rejected_constraint:
-            name: disclosure-ceiling
+          status: rejected
+          rejection_reason: constraint.incompatible
+          rejected_constraint_index: 1
       body_ignore_fields:
         - request_id
         - timestamp
+        - fabric_id
+        - errors
 
   - id: status-confirms-non-membership
     request:
       method: GET
-      path: /api/pact/fab_abc123/_status
+      path: /api/pact/fab_pf_abc123/_status
     expected_response:
       status: 200
       body_match:
         mode: subset
         value:
-          fabricId: fab_abc123
+          # RECONCILED: `fabricId` → `fabric_id` (the normative §4.4.1 key).
+          fabric_id: fab_pf_abc123
           # The caller's principal MUST NOT appear in members[]. This is
           # expressed structurally below via the assertion contract:
           # the runner walks `members` and rejects if any entry has

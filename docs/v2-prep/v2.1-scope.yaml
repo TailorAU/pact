@@ -1,0 +1,435 @@
+# PACT v2.1 — scope plan
+#
+# Machine-readable working plan. NON-NORMATIVE; not spec text. Follows the
+# structure and voice of docs/v2-plan.yaml (the v2.0 roadmap, now a historical
+# record) and docs/v2-prep/v2.0.4-voice-biometric-lockdown.yaml (the v2.0.4
+# contract). Normative v2.1 text lands in a NEW spec/v2.1/ directory via the
+# AGENTS.md rule-5 coordinated-PR pattern — this file is the design record,
+# not the spec.
+#
+# Authored 2026-05-16 by the PACT lead / RFC shepherd (Claude, Opus 4.7) under
+# Knox's standing authority. Gated on RFC #14 convergence
+# (docs/v2-prep/rfc-14-shepherd-synthesis.yaml; verdict
+# ACCEPT-WITH-MODIFICATIONS; comment window closes 2026-05-26).
+
+plan:
+  spec: PACT
+  version: "2.1"
+  status: >
+    SCOPED 2026-05-16 — NOT STARTED. v2.1 is the first minor after v2.0
+    stable. It picks up the tracks v2.0 deferred (T3/T4/T5) plus the
+    v2.0.x voice-biometric crypto if it has not already patched into v2.0.x.
+    Phase-1-gate dependency: RFC #14 must converge (synthesis recommends
+    ACCEPT-WITH-MODIFICATIONS; window closes 2026-05-26) before §19-20
+    normative text is written.
+  predecessor:
+    stable: v2.0.3
+    note: >
+      v2.0 shipped 14 May 2026 (tag v2.0.0) with §19-22 marked RESERVED
+      (SPECIFICATION.md line ~1966). v2.0.1/.2/.3 are inline patches against
+      stable v2.0 (cold-eye audit, adversarial A1-A10/S1-S3, fabric
+      onboarding & session awareness). v2.1 is the next NEW directory —
+      spec/v2.1/ — per AGENTS.md spec-versioning convention.
+  drafted: 2026-05-16
+  author: PACT lead (Claude, Opus 4.7) under Knox's standing authority
+  source:
+    - docs/v2-plan.yaml (T3/T4/T5 design records; D3=A, D5=A)
+    - docs/v2-prep/rfc-14-shepherd-synthesis.yaml (the #14 verdict + modifications M1-M4)
+    - docs/v2-prep/v2.0.4-voice-biometric-lockdown.yaml (the §18.3 contract)
+    - AGENTS.md "Heading toward v2.1"; rules 3 (no unsigned-off promotion), 4 (frozen-version freeze), 5 (coordinated-PR for normative text); Conventions (spec/vX.Y/ never spec/vX.Y.Z/)
+    - spec/v2.0/SPECIFICATION.md §4.4 / §6.5 / §15.6 / §17 / §23 (the shipped layers v2.1 composes with)
+
+# ---------------------------------------------------------------------------
+# HEADLINE
+# ---------------------------------------------------------------------------
+headline: >
+  v2.1 adds PACT's second interaction mode — handler-mandated ephemeral
+  negotiation (the renamed RFC #14 concept, NOT bare "Session"; see naming
+  collision below) — together with the push-delivery and service-account
+  primitives that make it operationally usable, composed onto the v2.0.3
+  fabric/awareness machinery rather than duplicating it.
+
+# ---------------------------------------------------------------------------
+# THE NAMING COLLISION — resolved at v2.1 scope level (synthesis M1 / SOQ1)
+# ---------------------------------------------------------------------------
+naming_collision:
+  problem: >
+    "Session" is overloaded three ways: (1) v2.0.3 §4.4 "Active Session
+    Manifest Operations" — the session-AWARENESS layer over a long-lived
+    fabric, SHIPPED; (2) §17.6/§17.7 loose usage ("session mandate" in the
+    envelope list, "the life of a session" for cache lifetime); (3) RFC #14's
+    proposed NEW ephemeral negotiation mode. v2.0.3 §4.4 already minted the
+    noun "fabric" to free up "session," so re-colliding it in v2.1 would
+    re-break what v2.0.3 just fixed.
+  resolution:
+    rule: >
+      The bare unqualified word "Session" MUST NOT denote the #14 concept
+      anywhere in spec/v2.1/. The v2.0.3 §4.4 layer is FROZEN (AGENTS.md
+      rule 4 — v2.0 is frozen for citation stability); v2.1 renames the NEW
+      concept, never the shipped layer.
+    recommended_term: "Negotiation Session"
+    alternative_terms_for_knox: ["Parley", "Negotiation"]   # SOQ1 — Knox's call
+    why_negotiation_session: >
+      Keeps continuity with §17.6's existing "session mandate" language and
+      the v2-plan T3 vocabulary while the qualifier "Negotiation" makes it
+      unmistakable against §4.4 fabric session-awareness. If Knox prefers a
+      sharper break, "Parley"/"Negotiation" drop the word entirely — also
+      acceptable; the requirement is unambiguity, not a specific noun.
+    normative_consequences_for_v2_1_text:
+      - §19 section title is "Negotiation Sessions" (or Knox's chosen noun); the primitive is consistently "negotiation session" throughout.
+      - §19 carries a normative Terminology note distinguishing it from the §4.4 fabric session-awareness layer (same pattern v2.0.3 §4.4 used to introduce "fabric").
+      - The §17.6 "session mandate" reference is clarified (via the coordinated mirror PR touching v2.1, not v2.0 frozen text) to bind to §19, not §4.4.
+      - Schema filenames + $id paths track the chosen noun (see spec_directory_mechanics.schema_naming).
+  status: PROPOSED — final noun is SOQ1 (Knox). Everything downstream (schema names, $id paths, §19 title) keys off this; resolve first.
+
+# ---------------------------------------------------------------------------
+# COMPOSITION CONTRACT WITH v2.0.3 (synthesis M2 — compose, do not duplicate)
+# ---------------------------------------------------------------------------
+composition_with_v2_0_3:
+  principle: >
+    v2.0.3 shipped the awareness + atomic-onboard machinery for the
+    long-lived mode. v2.1's negotiation mode REUSES it and adds only the
+    genuinely-new surface (the Mandate primitive, the ephemeral lifecycle,
+    the bilateral handshake). v2.1 normative text MUST make each reuse point
+    explicit; leaving it to implementer guesswork is the defect.
+  reuse_points:
+    - mandate_is_section_17_family: >
+        The Mandate MUST be a §17-family object — same trust chain (§17.2),
+        same DID principal model (§17.4), same alg-whitelist discipline
+        (§17.6), same fail-closed verification posture (§17.7). It generalises
+        authorization_proof from "human authorized THIS message" to "human
+        authorized THIS agent within THESE bounds for THIS negotiation." NO
+        parallel signature/identity model. This is the single most important
+        compose rule.
+    - state_reuses_manifest: >
+        Negotiation-session 'state' (GET /sessions/{id}/state) reuses the
+        §4.4.2 caller-scoped manifest SHAPE and the §17.13 disclosure rules,
+        scoped to the Mandate envelope instead of resource constraints.
+    - rounds_are_section_6_5_obligations: >
+        Round expectations are §6.5 pending obligations (kind: respond),
+        not a session-specific mechanism. If a kind is missing, EXTEND the
+        §6.5 enum in v2.1 — do not shadow the concept.
+    - liveness_is_section_4_4_3_heartbeat: >
+        Session liveness (driving deadlock/timeout) reuses §4.4.3 heartbeat /
+        attention_required semantics.
+    - identity_is_section_23: >
+        Agents in a negotiation session are §23 agentIds (server-side,
+        persistent, federation-portable URN/DID). T3 depends_on T7 (§23,
+        SHIPPED in v2.0) — no new identity primitive.
+  net: >
+    New normative surface in v2.1 is bounded to: the Mandate primitive (§20),
+    the negotiation-session lifecycle + handshake (§19), push delivery (§21),
+    service-account auth (§22). Everything else is a cross-reference into
+    shipped v2.0.x text.
+
+# ---------------------------------------------------------------------------
+# TRACKS
+# ---------------------------------------------------------------------------
+tracks:
+
+  - id: T3
+    name: Negotiation Sessions + Mandate primitive  # name pending SOQ1
+    spec_sections: ["§19 Negotiation Sessions", "§20 Mandate primitive"]
+    decision_status: |
+      D3=A — Mandate normative (NOT a v2.1 addendum-only; it is core v2.1
+        normative text). v2.0 deferred it to v2.1 per AGENTS.md "Heading
+        toward v2.1"; this is that landing.
+      D5=A — peer-to-peer by default with opt-in facilitator role.
+        Always-mediated MediatedSession remains a v2.1 *candidate* (a
+        possible later resource type), explicitly OUT of the §19-20 cut.
+      RFC #14 — verdict ACCEPT-WITH-MODIFICATIONS (synthesis M1-M4);
+        OQ1-OQ4/OQ6 ratified as the design baseline; OQ5 D5-resolved.
+    rationale: >
+      The second PACT interaction mode. Closes #13 Q1 (no approval step
+      exists, self-approval cannot arise), Q6/Q7 (escalation_hook is the
+      structural binding back to the handler). Canonical for NEW
+      agent-to-agent ephemeral flows; T6 allowSelfApproval is the legacy
+      long-lived-resource fallback (shipped in v2.0 §5).
+    depends_on:
+      - T7 (§23 agent identity) — SHIPPED in v2.0; satisfied.
+      - T4 (§21 push delivery) — escalation_hook is load-bearing for the
+        Mandate outcome path; T3 and T4 ship together in spec/v2.1/ (SOQ5).
+    inputs:
+      - docs/v2-prep/rfc-sessions-mandate.md (the RFC draft)
+      - docs/v2-prep/rfc-14-shepherd-synthesis.yaml (verdict + M1-M4)
+      - issue #13 Q1/Q6/Q7
+      - spec/v2.0 §17 (Mandate generalises authorization_proof)
+    scope_normative:
+      - "§19 Negotiation Sessions: lifecycle (open -> accept -> negotiate -> close{aligned|deadlocked|timeout}); the bilateral out-of-band handshake; the Terminology note distinguishing this from §4.4 fabric session-awareness (M1)."
+      - "§20 Mandate primitive: a §17-family handler-signed capability grant — identity_claim, constraint_envelope{may_publish,must_respect}, commitment_authority, disclosure_ceiling (1-4 per §10.3), escalation_hook, expires_at, signature, signing_key_id. Verified at session-open via the §17.7 flow applied to the broader-scope claim (M2)."
+      - "OQ1 mandate revocation -> immediate hang-up, outcome=mandate_revoked (ratified)."
+      - "OQ2 mandate intersection -> open with explicit deadlock outcome (ratified)."
+      - "OQ3 outcome binding -> advisory by default; opt-in commitment elevation MUST be witnessed by a per-handler §17 authorization_proof, not merely a Mandate flag (ratified + SOQ4 tightening)."
+      - "OQ4 carry-forward -> islanded by default; optional predecessor_session_id, predecessor existence itself subject to §17.13 disclosure (ratified)."
+      - "OQ6 clock skew -> server clock authoritative; Mandate expires_at in server time; skew window ALIGNED to §17.7 ±5min configurable UNLESS Knox sets a deliberate tighter session bound with stated rationale (SOQ2)."
+      - "Event types: pact.session.opened | .joined | .mandate-violation | .closed (names track the chosen noun per SOQ1)."
+      - "Mandate enforcement reference algorithm (the server-side envelope check on every operation)."
+    scope_deferred:
+      - "Always-mediated MediatedSession resource type — D5=A parks it as a v2.1 *candidate*; NOT in the §19-20 cut. If demand materialises it is a later resource type with §13 Mediator baked in, designed then."
+      - "Outcome -> automatic downstream resource creation — explicit non-goal (handler decides)."
+      - "Multi-party beyond small-N (2-5 agents) — larger negotiations use a long-lived resource."
+      - "Mandate delegation chains — follows §17.11 (delegation deferred to v2.1 generally; whether negotiation-session Mandates participate in attestation_chain is a v2.1 open question, see open_questions)."
+    conformance_vector_implications:
+      core: Negotiation Sessions OPTIONAL — Core implementations may run resource-only (unchanged from v2.0 conformance_levels_v2.core).
+      extended: SHOULD support Negotiation Sessions; MUST enforce Mandate envelopes if Sessions are advertised in the §15.1 Implementation Profile.
+      authorization_required: MUST require a valid handler signature on every Mandate (no anonymous cross-org negotiation sessions) — this is the §17.9 cross-org rule applied to the Mandate object.
+      runner: >
+        New conformance-runner kind for the Mandate-enforcement + lifecycle
+        vectors (analogous to the v2.0.3 kind:session for §4.4, and following
+        the fail-closed discipline of the v2.0.4 voice contract — an
+        unimplemented Mandate verifier MUST fail closed, never open).
+        Vectors land under spec/v2.1/conformance/.
+      profile_flag: >
+        Servers advertise support via a capabilities flag in the §15.1
+        Implementation Profile (e.g. capabilities.negotiationSessions:true),
+        mirroring the v2.0.3 capabilities.atomicOnboard pattern. Name tracks
+        SOQ1.
+    open_questions:
+      - "Do negotiation-session Mandates participate in §17.11 attestation_chain delegation, or are they always direct (1-hop) in v2.1? (Lean: direct-only in v2.1; delegation chains are already v2.1-deferred generally.)"
+      - "Schema noun (SOQ3) — keyed off SOQ1."
+
+  - id: T4
+    name: Push-side delivery (webhooks + per-principal endpoints)
+    spec_sections: ["§21 Push Delivery"]
+    rationale: >
+      Closes #13 Q6 (AloomU PagerDuty/Slack alerts) AND is the transport for
+      the T3 Mandate escalation_hook. Same primitive serves both: a
+      registered endpoint receives a signed event push when matching events
+      fire.
+    depends_on:
+      - T7 (§23 stable principal/agent IDs) — SHIPPED in v2.0; satisfied.
+      - Ships TOGETHER with T3 in spec/v2.1/ (escalation_hook is load-bearing) — SOQ5.
+    inputs:
+      - issue #13 Q6
+      - docs/v2-plan.yaml T4 design record (delivery semantics already specified there)
+    scope_normative:
+      - "§21 Push Delivery: subscription create/list/delete; the signed event-delivery envelope."
+      - "Delivery semantics (from v2-plan T4, ratified): at-least-once; signed with sender's principal key (§17/T1); idempotency key per event; exponential backoff with jitter, max 24h then dead-letter."
+      - "REST: POST/GET/DELETE /api/pact/{resourceId}/subscriptions[/{id}]."
+      - "The Mandate escalation_hook (T3 §20) is a per-Mandate webhook expressed in the §21 signed-delivery format — §20 references §21 for the wire format; they MUST be co-designed (SOQ5)."
+    scope_deferred:
+      - "Federated cross-server push (federation is a v2.1+ non-goal per v2-plan non_goals; §21 endpoints MUST NOT preclude it — federation_constraints rule 3, portable transcripts)."
+    conformance_vector_implications:
+      core: OPTIONAL.
+      extended: SHOULD support push delivery.
+      authorization_required: signed-delivery envelope MUST be signed with the sender's principal key (§17); a verifier of a pushed event applies the §17.7 flow to the envelope signature.
+      runner: kind:http delivery vectors (subscribe -> trigger -> assert signed envelope shape + idempotency); fail-closed on signature.
+
+  - id: T5
+    name: Service-account authentication (formalise BYOK scoped-key model)
+    spec_sections: ["§22 Service-Account Authentication"]
+    rationale: >
+      Closes #13 Q2. v1.1's invite-token flow already returns a scoped apiKey
+      suitable for daemons; v2.1 promotes it from "side effect of join-token"
+      to a named first-class auth mode with explicit lifecycle. Handlers can
+      mint Mandates programmatically via service-account credentials (T3 cross-
+      reference).
+    depends_on: []   # independent; MAY land in the same v2.1 cut as T3/T4 or trail it (SOQ5)
+    inputs:
+      - issue #13 Q2
+      - v1.1 join-token flow; docs/v2-plan.yaml T5 design record
+    scope_normative:
+      - "§22 Service-Account Authentication: create / rotate / revoke / scope-narrow lifecycle."
+      - "Scoping: per-resource, per-section, per-operation, per-mandate (the per-mandate scope is the T3 seam — a service account may be scoped to mint only Mandates within a bound)."
+      - "REST: POST /api/pact/service-accounts; POST .../{id}/rotate; DELETE .../{id}."
+    scope_deferred:
+      - "OAuth-based credential enrollment (that is §17.12 Q1, deferred to a reviewed PR; §22 is the scoped-key model, not the enrollment story)."
+    conformance_vector_implications:
+      core: OPTIONAL — implementations may continue with bearer/cookie auth.
+      extended: SHOULD support service-account auth for daemon agents.
+      authorization_required: a service-account-authenticated cross-org message still requires a valid §17 authorization_proof (service-account auth is transport identity, NOT a substitute for proof-of-human-intent — state this explicitly so §22 is not read as an authorization bypass).
+      runner: kind:http lifecycle vectors (create/rotate/revoke; scope-narrow enforcement).
+
+  - id: T2-vb
+    name: Voice-biometric crypto landing (conditional — only if it slips past v2.0.4)
+    spec_sections: ["§18.3 voice-biometric (crypto)", "§18.6 deferred-to-HMAN"]
+    decision_status: >
+      Governed by docs/v2-prep/v2.0.4-voice-biometric-lockdown.yaml (the
+      frozen §18.3 interface contract) and AGENTS.md "Heading toward v2.1":
+      "the voice-biometric crypto from HMAN's #3 PR slots into §18.3 / §18.6
+      — patches into v2.0.x if that lands before v2.1; otherwise lands
+      cleanly in v2.1."
+    rationale: >
+      v2.0.4 is the PLANNED home (it ships when HMAN's #3 PR fills the crypto
+      and flips the five fail-closed conformance vectors). This track exists
+      only as the CONTINGENCY: if HMAN's #3 PR has not landed by the time
+      spec/v2.1/ cuts, the voice-biometric crypto rolls into v2.1 instead of
+      a v2.0.4 patch.
+    contingency_rule:
+      if_hman_3_lands_before_v2_1_cut: >
+        It patches v2.0.x as v2.0.4 per the lockdown contract
+        (acceptance_criteria.v2_0_4_ships_when). v2.1 then inherits the
+        already-shipped §18.3 crypto by carrying v2.0's §18 forward into
+        spec/v2.1/ unchanged. This track becomes a no-op.
+      if_hman_3_slips_past_v2_1_cut: >
+        spec/v2.1/ §18.3 ships with the SAME frozen interface
+        (v2.0.4-voice-biometric-lockdown.yaml frozen_interface is the
+        contract — it does not change because the home version changed) and
+        the SAME fail-closed runner posture (an unimplemented voice verifier
+        MUST be `unverifiable`, never `verified` — lockdown fail_closed).
+        The five lockdown vectors ship in spec/v2.1/conformance/ as
+        fail-closed scaffolds with the same hman_3_flip annotations; HMAN's
+        #3 PR (whenever it lands) flips them in whichever version is current.
+    scope_normative:
+      - "ONLY IF contingency triggers: §18.3 voice-biometric crypto in spec/v2.1/, conforming exactly to v2.0.4-voice-biometric-lockdown.yaml frozen_interface (envelope, alg_whitelist, privacy_invariants, utterance_binding). No freehand crypto — HMAN's #3 PR is authoritative per §18.6 and AGENTS.md rule 5."
+    scope_deferred:
+      - "Inventing the signature suite / key wrapping / embedding-alg set — HMAN #3, unchanged regardless of home version."
+      - "Delegation / attestation_chain for voice proofs (§17.11, v2.1-deferred generally)."
+      - "Face/gait/keystroke modalities (the match sub-object is reused later; only voice is in scope)."
+    conformance_vector_implications:
+      - "The five lockdown vectors (verify-voice-valid / -forged-signature / -wrong-utterance / -alg-disallowed / -replayed-cross-verifier) ship wherever §18.3 crypto lands, fail-closed until HMAN #3 flips them."
+      - "verify-voice-alg-disallowed runs real today (whitelist enforcement needs no crypto) — unchanged in either home version."
+    note: >
+      This track is deliberately a CONDITIONAL contingency, not a planned
+      v2.1 deliverable. The lockdown contract's owner-split (PACT lead ships
+      contract+scaffolding; HMAN ships normative crypto) is unchanged by
+      which version is the home. Do NOT pre-emptively pull voice crypto into
+      v2.1 — let v2.0.4 be the home unless timing forces otherwise.
+
+# ---------------------------------------------------------------------------
+# SPEC-DIRECTORY MECHANICS (AGENTS.md conventions — load-bearing)
+# ---------------------------------------------------------------------------
+spec_directory_mechanics:
+  new_directory:
+    path: spec/v2.1/
+    rule: >
+      v2.1 gets its OWN directory. AGENTS.md Conventions: "spec/vX.Y/ — never
+      spec/vX.Y.Z/. Patch-level changes go inline; minor/major changes get a
+      new directory." v2.1 is a MINOR -> new directory. NEVER spec/v2.0.4/,
+      NEVER spec/v2.1.0/.
+    contents:
+      - spec/v2.1/SPECIFICATION.md   (v2.0 text carried forward + §19-22 normative + the §17.6 "session mandate" clarification + the renamed-noun terminology note)
+      - spec/v2.1/schemas/           (v2.0 schemas carried forward + the new T3/T4/T5 schemas; $id paths MUST point to /v2.1/ not /v2.0/)
+      - spec/v2.1/conformance/       (v2.0 vectors carried forward + new T3/T4/T5 vectors + the carried voice lockdown vectors if T2-vb contingency triggers)
+      - spec/v2.1/resource-types.yaml (carried forward; +MediatedSession ONLY if D5 candidate later promotes — not in this cut)
+  carry_forward_not_edit_in_place:
+    rule: >
+      spec/v2.0/ is FROZEN (AGENTS.md rule 4 — frozen for citation stability;
+      patched only via additive ERRATA.md or the already-shipped v2.0.x inline
+      patches). v2.1 normative text is created in spec/v2.1/ by COPYING v2.0
+      forward and adding §19-22 — NOT by editing spec/v2.0/SPECIFICATION.md.
+      The §17.6 "session mandate" clarification and the renamed-noun
+      terminology note land in the spec/v2.1/ copy ONLY; v2.0 §17.6 text
+      stays frozen as-is.
+  promotion_gate:
+    rule: >
+      Creating spec/v2.1/ as a DRAFT is allowed on a topic branch; promoting
+      it to STABLE requires explicit Knox sign-off (AGENTS.md rule 3 — "Do
+      not promote a draft spec/vX.Y/ to stable without explicit sign-off; the
+      next such promotion will be spec/v2.1/").
+  authoring_and_mirror_pattern:
+    rule: >
+      ALL v2.1 normative text (spec/v2.1/SPECIFICATION.md, schemas) is
+      authored HERE — pact-repo is canonical (AGENTS.md Source-of-truth note
+      + reconciled rule 5). It requires explicit maintainer sign-off (no
+      freehand agent invention); this scope file and the synthesis are the
+      design record only and do NOT authorize freehand normative text. Once a
+      reviewed change merges to main, the maintainer mirrors it OUT to the
+      tailor-app copy via tools/mirror-spec.ps1 -Version 2.1 -AutoMerge. The
+      old "draft in tailor-app, back-port here" direction is superseded — do
+      not reintroduce it. (Exception: the §18.3 voice-biometric crypto stays
+      authoritative in HMAN's coordinated #3 PR per the v2.0.4 lockdown.)
+  schema_naming:
+    rule: >
+      New schema filenames track the SOQ1 noun. If "Negotiation Session":
+      negotiation-session-create-request.json /
+      negotiation-session-accept-request.json / mandate.json /
+      negotiation-session-outcome.json plus subscription-create-request.json /
+      event-delivery.json (T4) and service-account-create-request.json (T5).
+      If Knox picks "Parley"/"Negotiation", rename accordingly. $id paths MUST
+      be /v2.1/. Listed in Appendix A.2 of the spec/v2.1/ SPECIFICATION.md.
+      RESOLVE SOQ1 BEFORE creating schemas to avoid a rename-after-the-fact.
+  changelog_and_release:
+    rule: >
+      v2.1 gets its own CHANGELOG.md section + git tag (v2.1.0) + GitHub
+      release + tailor-app mirror PR — same release ritual as v2.0.0 and the
+      v2.0.x patches (see CHANGELOG.md history; AGENTS.md "Open work").
+      NOT in scope for this shepherding task (Hard boundary: do not touch
+      CHANGELOG.md / do not commit). Recorded here so the release mechanics
+      are not forgotten when the v2.1 spec work lands.
+
+# ---------------------------------------------------------------------------
+# PHASES (mirrors docs/v2-plan.yaml phase structure)
+# ---------------------------------------------------------------------------
+phases:
+  - phase: 0
+    name: Convergence gate
+    status: >
+      BLOCKED on RFC #14. Synthesis recommends ACCEPT-WITH-MODIFICATIONS;
+      coordinator posts rfc-14-comment-draft.md; window closes 2026-05-26.
+    gate: |
+      - RFC #14 converged (verdict ratified by Knox; SOQ1 name + SOQ2 skew resolved).
+      - "No further substantive objection by 2026-05-26" treated as convergence.
+      - spec/v2.1/ directory mechanics agreed (this file's spec_directory_mechanics).
+
+  - phase: 1
+    name: New primitives (Negotiation Sessions, push, service accounts)
+    parallel: [T3, T4]   # T3+T4 ship together (SOQ5); T5 may join or trail
+    gate: |
+      - §19-22 normative text authored in spec/v2.1/ here (pact-repo canonical), maintainer-signed-off per reconciled AGENTS.md rule 5, then mirrored out via tools/mirror-spec.ps1.
+      - Composition contract honoured (Mandate is §17-family; state reuses §4.4 manifest; rounds are §6.5 obligations; liveness is §4.4.3).
+      - New conformance vectors pass; Mandate-enforcement runner kind fail-closed when verifier unimplemented.
+
+  - phase: 2
+    name: Voice-biometric reconciliation (conditional) + reference clients
+    parallel: [T2-vb-contingency, T11-followups]
+    gate: |
+      - If HMAN #3 has NOT landed: voice lockdown vectors carried into spec/v2.1/conformance/ as fail-closed scaffolds (T2-vb contingency).
+      - cli/ + mcp/ gain §19-22 coverage (T11 gaps G3/G4/G5 from t11-cli-mcp-gap.yaml — out of scope for THIS task; recorded for continuity).
+
+  - phase: 3
+    name: Promotion & release
+    gate: |
+      - Knox sign-off to promote spec/v2.1/ draft -> stable (AGENTS.md rule 3).
+      - CHANGELOG v2.1.0 + tag + GitHub release + tailor-app mirror PR.
+
+# ---------------------------------------------------------------------------
+# RISKS (mirrors docs/v2-plan.yaml risks block)
+# ---------------------------------------------------------------------------
+risks:
+  - id: VR1
+    risk: RFC #14 does not converge by 2026-05-26 (external objection arrives late).
+    mitigation: >
+      The comment draft sets an explicit final-call deadline and defines "no
+      further substantive objection = convergence." A late objection reopens
+      the specific point, not the whole RFC — the charter decisions (D3/D5)
+      and ratified OQ1-OQ4/OQ6 are not reopened.
+  - id: VR2
+    risk: T3 grows into a 6-month track (v2-plan R3, restated for v2.1).
+    mitigation: >
+      Scope is bounded by composition_with_v2_0_3 (reuse, do not duplicate)
+      and scope_deferred. The hard split valve (v2-plan R3 "split to spec/v2.1
+      addendum") is already exercised — this IS that split. No further split;
+      if T3 still cannot converge, the failure is design, escalate to Knox.
+  - id: VR3
+    risk: The naming collision is under-fixed — a cosmetic rename that leaves §17.6 / §4.4 ambiguity.
+    mitigation: >
+      M1 requires a normative §19 terminology note AND the §17.6 binding
+      clarification in the spec/v2.1/ copy, not just a section-title swap.
+      VR3 closes only when a v2.1 reader cannot confuse "Negotiation Session"
+      (§19) with "Session Manifest" (§4.4 fabric awareness).
+  - id: VR4
+    risk: Voice-biometric crypto lands in BOTH v2.0.4 and v2.1 (double-spec).
+    mitigation: >
+      T2-vb is explicitly a CONTINGENCY with a single-home rule: v2.0.4 is
+      the planned home; v2.1 only inherits (no-op) or hosts (slip), never
+      both. The frozen interface (lockdown frozen_interface) is identical
+      either way, so there is no divergence even in the slip case.
+  - id: VR5
+    risk: spec/v2.1/ created by editing v2.0 in place (violates AGENTS.md rule 4).
+    mitigation: >
+      spec_directory_mechanics.carry_forward_not_edit_in_place is explicit:
+      copy v2.0 forward into a new directory; v2.0 stays frozen; the §17.6
+      clarification + terminology note land in the v2.1 copy only.
+
+# ---------------------------------------------------------------------------
+# WHAT NEEDS KNOX
+# ---------------------------------------------------------------------------
+needs_maintainer:
+  - SOQ1 (the renamed noun — recommended "Negotiation Session"). Load-bearing for §19 title, schema filenames, $id paths, event-type names, capabilities flag. Resolve FIRST.
+  - SOQ2 (Mandate clock-skew threshold — recommended: reuse §17.7 ±5min configurable; a tighter session bound needs a stated rationale in the normative text).
+  - SOQ4 (confirm the OQ3 tightening — binding outcome MUST carry a per-handler §17 authorization_proof — is in the v2.1 §19-20 cut, not a v2.2 follow-on).
+  - SOQ5 (confirm T3 §19-20 and T4 §21 ship together in spec/v2.1/; whether T5 §22 joins the same cut or trails).
+  - Ratify the v2.1 scope headline + the spec/v2.1/ directory mechanics before any coordinated normative PR is opened.
+
+status: SCOPED 2026-05-16. Phase 0 (convergence gate) BLOCKED on RFC #14; everything downstream gated on the synthesis verdict being ratified and SOQ1/SOQ2 resolved.

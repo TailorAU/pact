@@ -64,25 +64,39 @@ expected_response:
   status: 200
   body_match:
     mode: subset
+    # RECONCILED to spec §4.4.2 / §17.13 (authored against placeholder
+    # field names while §4.4 was drafting):
+    #   - `fabricId` → `fabric_id`; `principalId` → `principal_id` (the
+    #     normative §4.4.2 keys).
+    #   - `peers` → `counterparties` (the normative §4.4.2 key). The
+    #     per-peer cross-org-reduction assertion is restated against the
+    #     additive `counterparties_by_principal` MAP because the runner
+    #     subset-matcher compares arrays by exact JSON equality.
+    #   - The caller's `constraints: [{name,value}]` array assertion is
+    #     dropped: the normative constraint shape is {constraint_id,
+    #     sectionId, boundary} (§4.4.5) and array exact-match would pin
+    #     the server-minted constraint_id. The load-bearing assertion —
+    #     caller sees its OWN contact in full — is retained via the
+    #     `caller.contact` object (subset-matched).
+    #   - `cross_org: true`, `contact_visible: false`, `*_summary{count}`
+    #     are additive §17.13 reduction markers (spec mandates the
+    #     reduction behaviour; the response example is non-exhaustive).
     value:
-      fabricId: fab_xorg_001
+      fabric_id: fab_xorg_001
       caller:
-        # Own record: full visibility.
-        principalId: did:web:org-a.example
+        # Own record: full visibility — caller sees its own contact.
+        principal_id: did:web:org-a.example
         role: contributor
-        constraints:
-          - name: rate-limit-per-minute
-            value: 30
-        obligations: []
         contact:
           email: alice@org-a.example
           escalation_hook: https://alerts.org-a.example/inbox
-      peers:
+      counterparties_by_principal:
         # Cross-org peer: display_name visible; contact hidden; constraints
         # and obligations summarised to counts, not enumerated. The strictest
         # §17.13 reading is "no enumeration of policy state across orgs
         # without consent" because constraint shape itself can leak strategy.
-        - principalId: did:web:org-b.example
+        "did:web:org-b.example":
+          principal_id: did:web:org-b.example
           display_name: bob-bot
           role: contributor
           cross_org: true
@@ -94,6 +108,7 @@ expected_response:
   body_ignore_fields:
     - generated_at
     - last_event_seq
+    - snapshot_at
 
 # The manifest endpoint is a read; no events emitted.
 expected_events:

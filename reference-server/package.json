@@ -1,0 +1,27 @@
+{
+  "name": "@pact-protocol/reference-server",
+  "version": "2.0.3",
+  "description": "Minimal in-memory reference server for the PACT protocol — a second independent implementation that makes the v2.0 conformance suite's server-bound vectors executable",
+  "license": "MIT",
+  "private": true,
+  "bin": { "pact-reference-server": "./dist/server.js" },
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/server.js"
+  },
+  "files": ["dist/"],
+  "engines": { "node": ">=20.0.0" },
+  "keywords": ["pact", "protocol", "reference-server", "conformance", "multi-agent"],
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TailorAU/pact",
+    "directory": "reference-server"
+  },
+  "homepage": "https://github.com/TailorAU/pact"
+}

@@ -6,29 +6,32 @@ Thank you for your interest in contributing to the PACT specification. Whether y
 
 | Contribution | Where | How |
 |-------------|-------|-----|
-| **Spec changes** | [tailor-app](https://github.com/TailorAU/tailor-app) repo | Fork, edit `docs/architecture/`, PR to `dev` |
+| **Spec changes** | This repo | Open an issue first (use the `rfc` label for protocol changes); on accept, PR `spec/vX.Y/SPECIFICATION.md` to `main`. Normative changes require maintainer sign-off. |
 | **README / docs / examples** | This repo | Fork, edit, PR to `main` |
 | **Bug reports** | [GitHub Issues](https://github.com/TailorAU/pact/issues) | Use the appropriate issue template |
 | **New implementation** | This repo | Add to the Implementations table in README.md |
-| **Schema improvements** | [tailor-app](https://github.com/TailorAU/tailor-app) repo | Fork, edit `docs/architecture/`, PR to `dev` |
+| **Schema improvements** | This repo | PR `spec/vX.Y/schemas/` to `main`; keep schemas in lock-step with the prose spec |
 
 ## How the Spec Is Maintained
 
-The canonical source of truth for the PACT specification lives in the [tailor-app](https://github.com/TailorAU/tailor-app) repository at:
+**This repository is the canonical source of truth for the PACT specification.** The spec lives here at:
 
-- `docs/architecture/PACT_SPECIFICATION.md`
-- `docs/architecture/PACT_GETTING_STARTED.md`
+- `spec/vX.Y/SPECIFICATION.md` (current stable: `spec/v2.0/`)
+- `spec/vX.Y/GETTING_STARTED.md`
+- `spec/vX.Y/schemas/`
 
-This repository (`pact`) is automatically synced from `tailor-app` on every push to the `dev` branch. Changes made directly to `spec/` in this repository will be overwritten by the next sync.
+A downstream mirror exists at `tailor-app/docs/architecture/PACT_SPECIFICATION.md` (a private monorepo). That copy is **generated from this repo** by `tools/mirror-spec.ps1` — it is never hand-edited and is not a place to contribute. (Historically the spec originated in tailor-app and was mirrored out; that direction reversed and is now automated. Do not propose changes there.)
 
 ## Contributing Changes
 
 ### For specification changes
 
-1. Fork [TailorAU/tailor-app](https://github.com/TailorAU/tailor-app)
-2. Edit the spec files under `docs/architecture/`
-3. Open a PR against the `dev` branch
-4. Changes will auto-publish here once merged
+1. **Open an issue first.** Use the `rfc` label for any change to protocol behaviour, wire format, or schemas. Substantive spec changes are discussed before code.
+2. On acceptance, fork this repository and edit the relevant `spec/vX.Y/SPECIFICATION.md` (and any `spec/vX.Y/schemas/` in lock-step).
+3. Open a PR against `main`. Normative changes require maintainer sign-off and must keep prose and schemas consistent.
+4. Once merged, the maintainer mirrors the change out to the downstream tailor-app copy via `tools/mirror-spec.ps1` — contributors do not need to touch the mirror.
+
+> Note: frozen spec versions (`spec/v0.3/`–`spec/v2.0/`) are immutable for citation stability; defects are handled via an additive `ERRATA.md`, and new work lands in a new `spec/vX.Y/` directory. See `AGENTS.md`.
 
 ### For README / docs / examples / meta changes
 
@@ -37,8 +40,6 @@ This repository (`pact`) is automatically synced from `tailor-app` on every push
 3. Make your changes
 4. Ensure Markdown links are valid
 5. Open a PR against `main`
-
-These changes will NOT be overwritten by the sync (which only touches `spec/`).
 
 ## Specification Versioning
 

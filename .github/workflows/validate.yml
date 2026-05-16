@@ -88,7 +88,8 @@ jobs:
       - name: Check for broken links in Markdown
         uses: gaurav-nelson/github-action-markdown-link-check@v1
         with:
-          use-quiet-mode: 'yes'
+          use-quiet-mode: 'no'
+          use-verbose-mode: 'yes'
           config-file: '.github/mlc_config.json'
 
   lint-markdown:

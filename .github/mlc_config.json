@@ -4,6 +4,9 @@
       "pattern": "^https://api.example.com"
     },
     {
+      "pattern": "^https://img\\.shields\\.io"
+    },
+    {
       "pattern": "^https://([a-z0-9-]+\\.)?tailor\\.au"
     },
     {

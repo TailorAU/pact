@@ -60,9 +60,21 @@ jobs:
         run: |
           if [ -d spec/v2.0/schemas ]; then
             echo "Validating v2.0 JSON schemas (draft 2020-12)..."
+            # v2.0.3 introduced cross-schema $refs (e.g. fabric-manifest ->
+            # pending-obligation, *-request -> authorization-proof). ajv-cli
+            # compiles one -s schema in isolation, so every sibling that a
+            # schema may $ref MUST be registered with -r or the ref is
+            # unresolvable. Register all OTHER v2.0 schemas as references
+            # (excluding self to avoid an ajv duplicate-$id error).
             for schema in spec/v2.0/schemas/*.json; do
               echo "  Checking $schema"
-              ajv compile -s "$schema" --spec=draft2020 -c ajv-formats || exit 1
+              refs=""
+              for other in spec/v2.0/schemas/*.json; do
+                if [ "$other" != "$schema" ]; then
+                  refs="$refs -r $other"
+                fi
+              done
+              ajv compile -s "$schema" $refs --spec=draft2020 -c ajv-formats || exit 1
             done
             echo "All v2.0 schemas valid."
           fi

@@ -4,7 +4,7 @@
       "pattern": "^https://api.example.com"
     },
     {
-      "pattern": "^https://tailor.au"
+      "pattern": "^https://([a-z0-9-]+\\.)?tailor\\.au"
     },
     {
       "pattern": "^http://localhost"

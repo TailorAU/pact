@@ -491,7 +491,7 @@ risks:
 needs_maintainer:
   - SOQ1 — RESOLVED: the noun is "Parley" (maintainer decision). Was load-bearing for §19 title, schema filenames, $id paths, event-type names, capabilities flag — all now key off "Parley".
   - SOQ2 — RESOLVED: reuse §17.7 ±5min configurable for Mandate clock-skew; the RFC's tighter 30s session bound is NOT adopted.
-  - SOQ4 (confirm the OQ3 tightening — binding outcome MUST carry a per-handler §17 authorization_proof — is in the v2.1 §19-20 cut, not a v2.2 follow-on).
+  - SOQ4 — RESOLVED 2026-05-17 (Knox): ADOPT. Binding Parley outcomes MUST carry a per-handler §17 authorization_proof (not a Mandate flag alone); in the v2.1 §19-20 cut, not a v2.2 follow-on. §19-20 normative text is authored this way.
   - SOQ5 (confirm T3 §19-20 and T4 §21 ship together in spec/v2.1/; whether T5 §22 joins the same cut or trails).
   - Ratify the v2.1 scope headline + the spec/v2.1/ directory mechanics before any coordinated normative PR is opened.
 

@@ -302,6 +302,13 @@ shepherd_open_questions:
       is a normative tightening beyond the RFC draft — confirm it is in scope
       for the v2.1 §19-20 text rather than a v2.2 follow-on.
     owner: Knox
+    resolution: >
+      RESOLVED 2026-05-17 (Knox): ADOPT the tightening. A binding Parley
+      outcome MUST carry a per-handler §17 authorization_proof — a Mandate
+      flag alone is insufficient. This is in the v2.1 §19-20 cut (not a
+      v2.2 follow-on). Consistent with the fail-closed posture and
+      defensive-termination stance applied throughout v2.0.x; this is the
+      line between "Parleys" and "contracts reinvented over HTTP."
   - id: SOQ5
     question: >
       Dependency ordering. T3 depends_on T7 (§23 agent identity, SHIPPED in
@@ -391,6 +398,6 @@ recommended_verdict:
 needs_maintainer:
   - SOQ1 — RESOLVED: the noun is "Parley" (maintainer decision). Was load-bearing for schema filenames, $id paths, §19 title, and the §17.6 cross-reference — all now key off "Parley".
   - SOQ2 — RESOLVED: reuse §17.7 ±5min configurable for Mandate clock-skew; the RFC's tighter 30s bound is NOT adopted.
-  - SOQ4 — confirm the OQ3 tightening (binding outcome MUST carry a per-handler §17 authorization_proof) is in scope for the v2.1 §19-20 cut.
-  - SOQ5 — confirm T3 (§19-20) and T4 (§21) ship together in spec/v2.1/.
-  - Ratify ACCEPT-WITH-MODIFICATIONS and authorize the coordinator to post the comment draft (the shepherd does not post to GitHub).
+  - SOQ4 — RESOLVED 2026-05-17 (Knox): ADOPT. Binding Parley outcomes MUST carry a per-handler §17 authorization_proof (not a Mandate flag alone); in the v2.1 §19-20 cut, not a v2.2 follow-on.
+  - SOQ5 — confirm T3 (§19-20) and T4 (§21) ship together in spec/v2.1/. (Shepherd M4 recommends together; no maintainer objection recorded — proceeds as recommended unless Knox says otherwise before the window closes.)
+  - Ratify ACCEPT-WITH-MODIFICATIONS and authorize the coordinator to post the comment draft — DONE: verdict ratified, #14 comment posted 2026-05-16; SOQ1/SOQ2/SOQ4 all resolved. Only remaining gate: the comment window closing 2026-05-26.

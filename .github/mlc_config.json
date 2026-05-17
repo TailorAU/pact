@@ -7,6 +7,9 @@
       "pattern": "^https://img\\.shields\\.io"
     },
     {
+      "pattern": "^https://tailorau\\.github\\.io/pact"
+    },
+    {
       "pattern": "^https://([a-z0-9-]+\\.)?tailor\\.au"
     },
     {

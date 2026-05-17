@@ -1,0 +1,38 @@
+name: Deploy site to GitHub Pages
+
+# Publishes ONLY the hand-authored site/ directory. The repo's docs/
+# folder (which holds internal working artifacts — docs/v2-prep/ decision
+# records, RFC syntheses, issue close-out drafts) is deliberately NOT a
+# Pages source and is never exposed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

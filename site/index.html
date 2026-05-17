@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PACT — Protocol for Agent Contexture and Trust</title>
+<meta name="description" content="PACT is an open, vendor-neutral protocol for multi-agent collaboration over a shared resource. The shared resource and the context that gives it meaning travel together — so agents negotiate with trust.">
+<meta property="og:title" content="PACT — Protocol for Agent Contexture and Trust">
+<meta property="og:description" content="An open, vendor-neutral protocol for multi-agent collaboration over a shared resource.">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3;
+    --muted:#9da7b3; --accent:#58a6ff; --accent2:#7ee787; --warn:#d29922;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
+    line-height:1.65;font-size:17px;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:860px;margin:0 auto;padding:0 24px}
+  header{border-bottom:1px solid var(--line);padding:64px 0 48px;
+    background:linear-gradient(180deg,#11161d,transparent)}
+  h1{font-size:2.5rem;margin:0 0 .3em;letter-spacing:-.5px;font-weight:700}
+  h1 .pact{color:var(--accent2)}
+  .tagline{font-size:1.3rem;color:var(--fg);margin:.2em 0 1em;font-weight:500}
+  .lede{color:var(--muted);font-size:1.05rem;max-width:62ch}
+  .badges{margin:24px 0 0;display:flex;gap:10px;flex-wrap:wrap}
+  .badge{font-family:var(--mono);font-size:.78rem;background:var(--panel);
+    border:1px solid var(--line);border-radius:6px;padding:4px 10px;color:var(--muted)}
+  .badge b{color:var(--accent2);font-weight:600}
+  nav{position:sticky;top:0;background:rgba(13,17,23,.92);
+    backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+    padding:12px 0;font-size:.92rem;z-index:10}
+  nav .wrap{display:flex;gap:22px;flex-wrap:wrap}
+  nav a{color:var(--muted)}
+  nav a:hover{color:var(--fg)}
+  section{padding:46px 0;border-bottom:1px solid var(--line)}
+  h2{font-size:1.5rem;margin:0 0 .6em;letter-spacing:-.3px}
+  h3{font-size:1.05rem;margin:1.6em 0 .4em;color:var(--accent2)}
+  p{margin:.7em 0}
+  ul{padding-left:1.2em}
+  li{margin:.35em 0}
+  code{font-family:var(--mono);font-size:.86em;background:var(--panel);
+    border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+  .note{background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--warn);border-radius:6px;padding:14px 18px;
+    font-size:.93rem;color:var(--muted);margin:20px 0}
+  .note b{color:var(--fg)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+  .card{background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;padding:18px 20px}
+  .card h3{margin-top:0}
+  .card p{font-size:.93rem;color:var(--muted);margin:.4em 0 0}
+  footer{padding:40px 0 64px;color:var(--muted);font-size:.9rem}
+  footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:16px}
+  .disclaim{font-size:.82rem;color:#6b7280;max-width:64ch;margin-top:8px}
+  @media(max-width:680px){.grid{grid-template-columns:1fr}h1{font-size:2rem}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1><span class="pact">PACT</span> — Protocol for Agent Contexture and Trust</h1>
+    <p class="tagline">The shared resource and the context that gives it meaning travel together — so agents negotiate with trust.</p>
+    <p class="lede">PACT is an open, vendor-neutral protocol for multi-agent
+      collaboration over a shared resource — documents, transactions,
+      knowledge claims, records, and beyond. It defines how independent
+      agents declare positions, surface conflicts, reach consensus, and
+      bind human authorization — without any agent having to trust another
+      agent's word for it.</p>
+    <div class="badges">
+      <span class="badge">stable <b>v2.0.3</b></span>
+      <span class="badge">spec license <b>RF copyright + patent</b></span>
+      <span class="badge">code <b>MIT</b></span>
+      <span class="badge">conformance <b>suite + runner</b></span>
+    </div>
+  </div>
+</header>
+
+<nav><div class="wrap">
+  <a href="#what">What it is</a>
+  <a href="#implement">Implement</a>
+  <a href="#conformance">Conformance</a>
+  <a href="#license">License</a>
+  <a href="#implementations">Implementations</a>
+  <a href="https://github.com/TailorAU/pact">GitHub ↗</a>
+</div></nav>
+
+<section id="what">
+  <div class="wrap">
+    <h2>What PACT is</h2>
+    <p>Most agent infrastructure connects agents to <em>tools</em> (MCP) or
+      to <em>each other</em> (A2A). PACT is the third thing: a structured
+      protocol for a set of agents to collaborate over <strong>one shared
+      resource</strong> with explicit consensus rules, information barriers,
+      and a human-authorization layer.</p>
+    <p>The protocol covers joining a resource, declaring intent and
+      constraints, proposing and objecting to changes, salience-weighted
+      attention, escalation to humans, and completion — with
+      <em>silence&nbsp;=&nbsp;acceptance</em> so only genuine disagreement
+      needs action. It adds a cryptographic human-authorization layer
+      (W3C DIDs, WebAuthn-class attestation) and a full agent-identity
+      lifecycle (cooperative transfer, M-of-N recovery).</p>
+    <p>This site is a front door, not the specification. The
+      <strong>normative</strong> requirements — every MUST and SHOULD,
+      the schemas, the verification flow — live in the spec itself:</p>
+    <ul>
+      <li><a href="https://github.com/TailorAU/pact/blob/main/spec/v2.0/SPECIFICATION.md">Specification v2.0</a> — the current stable normative text</li>
+      <li><a href="https://github.com/TailorAU/pact/blob/main/spec/v2.0/GETTING_STARTED.md">Getting Started</a> — the practical walkthrough</li>
+      <li><a href="https://github.com/TailorAU/pact/blob/main/CHANGELOG.md">Changelog</a> — what shipped in each version</li>
+    </ul>
+    <div class="note">
+      <b>On the name.</b> The acronym <b>PACT</b> and every identifier
+      (<code>@pact-protocol/*</code>, <code>pact-spec.dev</code>, the
+      <code>v2.0.x</code> tags) are unchanged. The expansion was refined
+      to <b>Protocol for Agent Contexture and Trust</b>: “Trust” reflects
+      what the protocol actually delivers — a trust model, fail-closed
+      conformance, a defensive-termination patent grant — rather than
+      adjudicating “Truth”; “Contexture” names the core idea that a shared
+      resource and its meaning move as one. This expansion is
+      <b>normative from v2.1</b>. Shipped <b>v2.0.x remains “Protocol for
+      Agent Consensus and Truth”</b> exactly as released, frozen for
+      citation stability.
+    </div>
+  </div>
+</section>
+
+<section id="implement">
+  <div class="wrap">
+    <h2>Implementing PACT</h2>
+    <p>Anyone can implement PACT, royalty-free. Start from the spec and the
+      machine-readable schemas; validate against the conformance suite.</p>
+    <ul>
+      <li><a href="https://github.com/TailorAU/pact/tree/main/spec/v2.0/schemas">JSON Schemas (2020-12)</a> — authorization-proof, principal-registry, agent-identity, the v2.0.3 session schemas, and more</li>
+      <li><a href="https://github.com/TailorAU/pact/blob/main/spec/v2.0/resource-types.yaml">Resource-type registry</a> — the §14.3 machine-readable registry</li>
+      <li><a href="https://github.com/TailorAU/pact/tree/main/cli">@pact-protocol/cli</a> · <a href="https://github.com/TailorAU/pact/tree/main/mcp">@pact-protocol/mcp</a> · <a href="https://github.com/TailorAU/pact/tree/main/reference-server">@pact-protocol/reference-server</a> — reference implementations</li>
+    </ul>
+    <div class="note">The reference packages are built and version-pinned at
+      <code>2.0.3</code> but are <b>not yet published to npm</b> — the
+      <code>pact-protocol</code> npm org does not exist yet
+      (<a href="https://github.com/TailorAU/pact/issues/5">tracking issue #5</a>).
+      Until then, install from source: clone the repo, build the package
+      you need.</div>
+  </div>
+</section>
+
+<section id="conformance">
+  <div class="wrap">
+    <h2>Conformance</h2>
+    <p>PACT conformance is first-class and independently checkable, not
+      self-asserted. The suite ships machine-readable test vectors and a
+      runner; the reference server is exercised against them in CI.</p>
+    <ul>
+      <li><a href="https://github.com/TailorAU/pact/tree/main/spec/v2.0/conformance">Conformance suite</a> — test vectors + <code>@pact-protocol/conformance-runner</code></li>
+      <li>Tiers — <strong>Core</strong>, <strong>Extended</strong>, and
+        <strong>Authorization-Required</strong> — are defined normatively
+        in the spec (§15.2, §17.9)</li>
+      <li>A behavioural tier probe (§15.5) lets a counterparty
+        <em>verify</em> a conformance claim rather than take it on faith;
+        proof verification fails closed</li>
+    </ul>
+    <p>Refer to the <a href="https://github.com/TailorAU/pact/blob/main/spec/v2.0/SPECIFICATION.md">specification</a>
+      for the normative tier requirements — this page intentionally does
+      not restate them.</p>
+  </div>
+</section>
+
+<section id="license">
+  <div class="wrap">
+    <h2>Licensing</h2>
+    <p>PACT is deliberately <strong>dual-licensed</strong> so implementers
+      are protected on both copyright and patents:</p>
+    <div class="grid">
+      <div class="card">
+        <h3>Software — MIT</h3>
+        <p>The CLI, MCP server, reference server, conformance runner and
+          tooling. Use it however you want.
+          <a href="https://github.com/TailorAU/pact/blob/main/LICENSE">LICENSE ↗</a></p>
+      </div>
+      <div class="card">
+        <h3>Specification — RF grant</h3>
+        <p>The spec, schemas and conformance vectors carry a perpetual,
+          royalty-free copyright <em>and patent</em> grant with an
+          Apache-style defensive-termination clause.
+          <a href="https://github.com/TailorAU/pact/blob/main/SPEC-LICENSE.md">SPEC-LICENSE ↗</a></p>
+      </div>
+    </div>
+    <div class="note">Neither license grants rights in the <b>“PACT”</b>
+      name or the <b>“PACT Conformant”</b> designation. You may always
+      state factually that your software implements the PACT specification.
+      Following the W3C / Model Context Protocol / A2A pattern — because
+      for a protocol, “anyone can implement it” must mean
+      <em>without patent ambush</em>.</div>
+  </div>
+</section>
+
+<section id="implementations">
+  <div class="wrap">
+    <h2>Implementations</h2>
+    <p>PACT defines the protocol; implementations provide the content
+      layer for their domain.</p>
+    <ul>
+      <li><strong><a href="https://github.com/Tailor-AUS/Human-Managed-Access-Network">HMAN</a></strong>
+        — the reference implementation of the §17 Human Authorization
+        Layer and §18 Attestation Format (public, MIT). The canonical
+        proof those sections are implementable on a sovereign,
+        local-first stack. Deliberately a <em>separate</em> artifact:
+        PACT is the neutral protocol; HMAN is one implementation of it.</li>
+      <li><strong>Reference server</strong> — the in-repo
+        <code>@pact-protocol/reference-server</code>, exercised against
+        the conformance suite in CI.</li>
+      <li><strong>Second independent implementation — invited.</strong>
+        The neutral-protocol claim becomes <em>demonstrably</em> true when
+        a non-Tailor implementation interoperates over a shared resource.
+        See <a href="https://github.com/TailorAU/pact/issues/13">issue #13</a>
+        and <a href="https://github.com/TailorAU/pact/blob/main/IMPLEMENTERS.md">IMPLEMENTERS.md</a>.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <a href="https://github.com/TailorAU/pact">Repository</a> ·
+      <a href="https://github.com/TailorAU/pact/issues">Issues</a> ·
+      <a href="https://github.com/TailorAU/pact/blob/main/CHANGELOG.md">Changelog</a> ·
+      <a href="https://github.com/TailorAU/pact/issues/14">RFC #14 (v2.1)</a>
+      <p class="disclaim">PACT is maintained by TailorAU. Copyright ©
+        2026 Tailor Intelligence Pty Ltd. This is a project front door;
+        the specification is the authoritative source for all normative
+        requirements.</p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

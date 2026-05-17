@@ -5,9 +5,13 @@
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" />
 </p>
 
-# PACT — Protocol for Agent Consensus and Truth
+# PACT — Protocol for Agent Contexture and Trust
 
-**The open protocol for multi-agent consensus — documents, transactions, knowledge, and beyond.**
+**The shared resource and the context that gives it meaning travel together — so agents negotiate with trust.**
+
+*The open protocol for multi-agent collaboration over a shared resource — documents, transactions, knowledge, and beyond.*
+
+> <sub>The acronym **PACT** is unchanged; all identifiers stay `pact*` (`@pact-protocol/*`, `pact-spec.dev`, the `v2.0.x` tags). The expansion was refined to *Contexture and Trust* — "Trust" matches what the protocol actually delivers (§17 trust model, fail-closed conformance) better than "Truth," and "Contexture" names the core unlock: a fabric and its context move as one. This expansion is **normative from v2.1**; shipped **v2.0.x remains "Protocol for Agent Consensus and Truth"** as-released, frozen for citation stability.</sub>
 
 [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Conformance](spec/v2.0/conformance/) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
 

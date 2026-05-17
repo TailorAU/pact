@@ -51,6 +51,64 @@ headline: >
   duplicating it.
 
 # ---------------------------------------------------------------------------
+# BACKRONYM REFINEMENT — PACT expansion (maintainer decision, 2026-05-17)
+# ---------------------------------------------------------------------------
+backronym:
+  decision: >
+    The acronym PACT is UNCHANGED. The expansion is refined from
+    "Protocol for Agent Consensus and Truth" to
+    "Protocol for Agent Contexture and Trust".
+  rationale:
+    - >
+      "Trust" replaces "Truth": the protocol establishes trust and
+      consensus over a shared context — it does not adjudicate truth.
+      "Trust" matches what actually shipped (the §17 trust model, the
+      cold-eye audits, fail-closed conformance, the SPEC-LICENSE
+      defensive-termination grant).
+    - >
+      "Contexture" names the core unlock: a shared resource (the fabric)
+      and the context that gives it meaning travel together, so agents
+      negotiate against the same picture.
+  zero_churn: >
+    No identifier changes. @pact-protocol/* package names, pact-spec.dev
+    $id base, the TailorAU/pact repo, and the v2.0.x git tags all stay
+    exactly as-is. This is a backronym swap, not a rename.
+  diligence: >
+    "Contexture" as a STANDALONE brand is NOT clear (npm `contexture` +
+    `@contexture` scope taken — SmartProcure; GitHub org `contexture`
+    taken; trustbit/Contexture 134★ is a DDD bounded-context tool at
+    contexture.domains — semantically adjacent; no registered TM on
+    either = used-but-unowned). Therefore: "Contexture" is used ONLY as
+    the C-word in the expansion and as a concept term — never as a
+    product/site/package/org/domain name. Any standalone public site
+    stays "PACT" (or a separately-vetted name), never "Contexture".
+  frozen_version_boundary:
+    rule: >
+      The acronym expansion is identity text, not a typo — AGENTS.md
+      rule 4 (frozen versions) applies. spec/v0.3..spec/v2.0 are NOT
+      re-backronymed; they stay "Consensus and Truth" as-shipped for
+      citation stability.
+    normative_from: >
+      "Protocol for Agent Contexture and Trust" is normative starting in
+      spec/v2.1/SPECIFICATION.md (authored here when the v2.1 directory
+      is created; mirrored out via tools/mirror-spec.ps1 per rule 5).
+    adopted_now: >
+      Non-frozen surfaces (README, AGENTS.md header, this design record)
+      adopt the new expansion immediately, each carrying the
+      "v2.0.x stays Consensus and Truth; normative from v2.1" note.
+  standard_one_liner: >
+    "PACT — Protocol for Agent Contexture and Trust: the shared resource
+    and the context that gives it meaning travel together — so agents
+    negotiate with trust." Use this gloss wherever the name is
+    introduced; never ship the name without it.
+  v2_1_action:
+    - spec/v2.1/SPECIFICATION.md title line uses the new expansion.
+    - §1/overview carries the standard one-liner + a one-paragraph
+      "why the backronym was refined" note pointing back here.
+    - CHANGELOG v2.1.0 entry records the backronym refinement and the
+      v2.0.x-stays-as-shipped boundary explicitly.
+
+# ---------------------------------------------------------------------------
 # THE NAMING COLLISION — resolved at v2.1 scope level (synthesis M1 / SOQ1)
 # ---------------------------------------------------------------------------
 naming_collision:

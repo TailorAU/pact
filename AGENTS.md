@@ -55,6 +55,7 @@ TailorAU/pact/
 | [#13](https://github.com/TailorAU/pact/issues/13) | AloomU v1.1 production feedback (8 questions) | Open — Q1/Q2/Q6/Q7/Q8 addressed by v2.0; Q3-Q5 deferred to a Tailor extension (D2=B). Can close once AloomU confirms. | AloomU + Knox |
 | [#14](https://github.com/TailorAU/pact/issues/14) | RFC: Sessions + Mandates | Open — comment window to 2026-05-26. §19-20 normative text DEFERRED to spec/v2.1/ (v2.0 ships with §19-22 reserved). | AI shepherds |
 | [#15](https://github.com/TailorAU/pact/issues/15) | v1.1 errata | Closed 2026-05-13 — `spec/v1.1/ERRATA.md` landed. | — |
+| [#16](https://github.com/TailorAU/pact/issues/16) | SPEC-LICENSE legal review | Open — `SPEC-LICENSE.md` drafted to standard form (W3C/MCP/A2A RF copyright+patent grant, defensive termination) but **not counsel-reviewed**. Scoped reviewer checklist in the issue. Instrument stands as the good-faith grant meanwhile; do not present it as lawyer-vetted until #16 closes. Licensor entity verified: Tailor Intelligence Pty Ltd, ABN 13 688 827 572 (ABN Lookup). | Knox + counsel |
 
 ### Heading toward v2.1
 

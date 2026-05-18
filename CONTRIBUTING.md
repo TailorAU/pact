@@ -14,6 +14,13 @@ Thank you for your interest in contributing to the PACT specification. Whether y
 
 ## How the Spec Is Maintained
 
+> PACT is a **vendor-neutral open standard under federated control** — no
+> customer, vendor, or implementer (including Tailor, the largest
+> customer) controls the spec or holds a veto. Roles, the change process,
+> and the honestly-stated structural gaps are defined in
+> [`GOVERNANCE.md`](GOVERNANCE.md). Read it before proposing a normative
+> change.
+
 **This repository is the canonical source of truth for the PACT specification.** The spec lives here at:
 
 - `spec/vX.Y/SPECIFICATION.md` (current stable: `spec/v2.0/`)

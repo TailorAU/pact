@@ -13,7 +13,7 @@
 
 > <sub>The acronym **PACT** is unchanged; all identifiers stay `pact*` (`@pact-protocol/*`, `pact-spec.dev`, the `v2.0.x` tags). The expansion was refined to *Contexture and Trust* — "Trust" matches what the protocol actually delivers (§17 trust model, fail-closed conformance) better than "Truth," and "Contexture" names the core unlock: a fabric and its context move as one. This expansion is **normative from v2.1**; shipped **v2.0.x remains "Protocol for Agent Consensus and Truth"** as-released, frozen for citation stability.</sub>
 
-[Site](https://tailorau.github.io/pact/) · [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Conformance](spec/v2.0/conformance/) · [Implementers](IMPLEMENTERS.md) · [Contributing](CONTRIBUTING.md)
+[Site](https://tailorau.github.io/pact/) · [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Conformance](spec/v2.0/conformance/) · [Governance](GOVERNANCE.md) · [Implementers](IMPLEMENTERS.md) · [Contributing](CONTRIBUTING.md)
 
 ---
 

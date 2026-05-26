@@ -31,6 +31,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { Store } from './store.js';
 import { isCrossOrg, reducePeerForManifest } from './disclosure.js';
+import { routeMatters } from './matters.js';
 
 const store = new Store();
 store.reset(); // seed deterministic fixtures
@@ -720,6 +721,22 @@ function route(parsed: ParsedReq, res: ServerResponse): void {
   if (method === 'POST' && pathSegs.length === 1 && pathSegs[0] === '__reset') {
     store.reset();
     sendJson(res, 200, { reset: true });
+    return;
+  }
+
+  // Matter endpoints (v2.2 draft): /api/pact/matters[/...].
+  // Dispatched BEFORE the fabric routing because the literal segment "matters"
+  // would otherwise be interpreted as a fabricId. See matters.ts for the
+  // complete endpoint table.
+  if (
+    pathSegs[0] === 'api' &&
+    pathSegs[1] === 'pact' &&
+    pathSegs[2] === 'matters'
+  ) {
+    const matterPathSegs = pathSegs.slice(3);
+    const handled = routeMatters(store, method, matterPathSegs, principal, body, res);
+    if (handled) return;
+    sendJson(res, 404, { error: 'not_found', path: '/' + pathSegs.join('/') });
     return;
   }
 

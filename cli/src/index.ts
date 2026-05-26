@@ -18,6 +18,7 @@ import { registerStatusCommand } from './commands/status.js';
 import { registerManifestCommand } from './commands/manifest.js';
 import { registerWhereCommand } from './commands/where.js';
 import { registerTranscriptCommand } from './commands/transcript.js';
+import { registerMatterCommands } from './commands/matter.js';
 
 const program = new Command();
 
@@ -49,5 +50,6 @@ registerStatusCommand(program);
 registerManifestCommand(program);
 registerWhereCommand(program);
 registerTranscriptCommand(program);
+registerMatterCommands(program);
 
 program.parse();

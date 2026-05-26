@@ -95,10 +95,83 @@ export interface Fabric {
   seq: number;
 }
 
+// ─── Matter (v2.2 draft — docs/v2-prep/matters-spec-draft.md) ──────────────
+// A Matter is a long-lived container that groups N peer fabrics under a
+// shared participant set, exposes a typed side-channel, and surfaces a
+// cross-fabric manifest. Per the RFC at docs/v2-prep/rfc-matters-multi-fabric.md
+// the leans implemented here:
+//   - a fabric MAY belong to multiple Matters (no exclusivity)
+//   - Matter membership is eligibility, NOT automatic fabric enrollment
+//   - closing a Matter does NOT close the attached fabrics
+// Identity and disclosure all reuse §17 / §23 / §17.13 — no new primitive.
+
+export type MatterPhase = 'open' | 'active' | 'closed';
+
+export interface MatterMember {
+  principal_id: string;
+  display_name: string;
+  /** owner = can attach/detach + add members + close; participant = can post + read. */
+  role: 'owner' | 'participant';
+  joined_at: string;
+  /** registrable-domain (eTLD+1) for §17.13 cross-org reduction. Cached for speed. */
+  org_eTLD_plus_1: string;
+}
+
+export interface MatterFabricAttachment {
+  resourceId: string;
+  attached_at: string;
+  attached_by: string;
+}
+
+/** A typed side-channel message — the wire shape for `pact.matter.message`.
+ * Per the RFC (maintainer call 2026-05-24): TYPED EVENTS ONLY, no chat-product
+ * surface. UIs MAY render as chat; the wire format is structured events. */
+export interface MatterMessage {
+  id: string;
+  sender_principal: string;
+  posted_at: string;
+  body: {
+    /** `text` is the v0.1 format; `proposal-ref` / `obligation-ref` etc. land later. */
+    format: 'text';
+    content: string;
+  };
+  /** optional cross-link to a section of an attached fabric. */
+  references?: { fabric_id: string; section_id?: string };
+}
+
+export interface Matter {
+  matter_id: string;
+  spec_version: string;
+  name: string;
+  phase: MatterPhase;
+  members: MatterMember[];
+  fabrics: MatterFabricAttachment[];
+  messages: MatterMessage[];
+  events: PactEvent[];
+  opened_at: string;
+  opened_by: string;
+  closes_at: string | null;
+  closed_at: string | null;
+  seq: number;
+}
+
 const SPEC_VERSION = '2.0.3';
+const MATTERS_DRAFT_VERSION = '2.2-draft';
+
+// Local re-implementation of the §15.4 registrable-domain helper, to avoid a
+// store.ts ↔ disclosure.ts circular dep. Same last-two-labels heuristic the
+// reference disclosure module uses (production needs the Public Suffix List).
+function registrableDomainFromPrincipal(principalId: string): string {
+  const m = /^did:web:([^/]+)/.exec(principalId);
+  const host = m ? m[1] : principalId;
+  const labels = host.split('.');
+  if (labels.length <= 2) return host;
+  return labels.slice(-2).join('.');
+}
 
 export class Store {
   private fabrics = new Map<string, Fabric>();
+  private matters = new Map<string, Matter>();
   private idCounter = 0;
 
   private nextId(prefix: string): string {
@@ -108,6 +181,75 @@ export class Store {
 
   getFabric(id: string): Fabric | undefined {
     return this.fabrics.get(id);
+  }
+
+  // ─── Matter accessors (v2.2 draft) ─────────────────────────────────────
+
+  getMatter(id: string): Matter | undefined {
+    return this.matters.get(id);
+  }
+
+  listMatters(): Matter[] {
+    return Array.from(this.matters.values());
+  }
+
+  createMatter(name: string, openedBy: string, openedByDisplay: string): Matter {
+    const id = this.nextId('mtr');
+    const now = new Date().toISOString();
+    const ownerOrgETLD = registrableDomainFromPrincipal(openedBy);
+    const m: Matter = {
+      matter_id: id,
+      spec_version: MATTERS_DRAFT_VERSION,
+      name,
+      phase: 'open',
+      members: [
+        {
+          principal_id: openedBy,
+          display_name: openedByDisplay,
+          role: 'owner',
+          joined_at: now,
+          org_eTLD_plus_1: ownerOrgETLD,
+        },
+      ],
+      fabrics: [],
+      messages: [],
+      events: [],
+      opened_at: now,
+      opened_by: openedBy,
+      closes_at: null,
+      closed_at: null,
+      seq: 0,
+    };
+    this.matters.set(id, m);
+    return m;
+  }
+
+  registerMatter(m: Matter): void {
+    this.matters.set(m.matter_id, m);
+  }
+
+  /** Emit an event on a Matter (analogous to Fabric `emit`, separate sequence
+   * domain so Matter and Fabric events do not collide on sequenceNumber). */
+  emitMatter(
+    m: Matter,
+    eventType: string,
+    actorPrincipal: string,
+    payload: Record<string, unknown>,
+    correlationId?: string,
+  ): PactEvent {
+    m.seq += 1;
+    const ev: PactEvent = {
+      id: this.nextId('evt'),
+      event_type: eventType,
+      epochMs: Date.now(),
+      sequenceNumber: m.seq,
+      actorId: actorPrincipal,
+      actorKind: 'AiAgent',
+      payloadJson: payload,
+      ...(correlationId ? { correlationId } : {}),
+    };
+    m.events.push(ev);
+    return ev;
   }
 
   /** Get or lazily create an empty fabric (the conformance vectors POST to
@@ -162,6 +304,7 @@ export class Store {
 
   reset(): void {
     this.fabrics.clear();
+    this.matters.clear();
     this.idCounter = 0;
     seedFixtures(this);
   }

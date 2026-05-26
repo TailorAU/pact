@@ -307,3 +307,89 @@ export async function getNegotiationSynthesis(
 ): Promise<unknown> {
   return request(`/api/pact/${docId}/negotiations/${negotiationId}/synthesis`);
 }
+
+// ── Matters (v2.2 draft — docs/v2-prep/rfc-matters-multi-fabric.md) ────
+
+export async function openMatter(name: string, openedByDisplay?: string): Promise<unknown> {
+  const body: Record<string, unknown> = { name };
+  if (openedByDisplay) body.opened_by_display = openedByDisplay;
+  return request('/api/pact/matters', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function listMatters(): Promise<unknown> {
+  return request('/api/pact/matters');
+}
+
+export async function getMatter(matterId: string): Promise<unknown> {
+  return request(`/api/pact/matters/${encodeURIComponent(matterId)}`);
+}
+
+export async function addMatterMember(
+  matterId: string,
+  principalId: string,
+  displayName?: string,
+  role?: 'owner' | 'participant',
+): Promise<unknown> {
+  const body: Record<string, unknown> = { principal_id: principalId };
+  if (displayName) body.display_name = displayName;
+  if (role) body.role = role;
+  return request(`/api/pact/matters/${encodeURIComponent(matterId)}/members`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function attachFabricToMatter(
+  matterId: string,
+  resourceId: string,
+): Promise<unknown> {
+  return request(`/api/pact/matters/${encodeURIComponent(matterId)}/fabrics`, {
+    method: 'POST',
+    body: JSON.stringify({ resourceId }),
+  });
+}
+
+export async function detachFabricFromMatter(
+  matterId: string,
+  resourceId: string,
+): Promise<unknown> {
+  return request(
+    `/api/pact/matters/${encodeURIComponent(matterId)}/fabrics/${encodeURIComponent(resourceId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export async function postMatterMessage(
+  matterId: string,
+  content: string,
+  fabricId?: string,
+  sectionId?: string,
+): Promise<unknown> {
+  const body: Record<string, unknown> = { content };
+  if (fabricId) body.fabric_id = fabricId;
+  if (sectionId) body.section_id = sectionId;
+  return request(`/api/pact/matters/${encodeURIComponent(matterId)}/messages`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function listMatterMessages(matterId: string): Promise<unknown> {
+  return request(`/api/pact/matters/${encodeURIComponent(matterId)}/messages`);
+}
+
+export async function getMatterManifest(matterId: string): Promise<unknown> {
+  return request(`/api/pact/matters/${encodeURIComponent(matterId)}/manifest`);
+}
+
+export async function closeMatter(matterId: string, outcome?: string): Promise<unknown> {
+  const body: Record<string, unknown> = {};
+  if (outcome) body.outcome = outcome;
+  return request(`/api/pact/matters/${encodeURIComponent(matterId)}/close`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}

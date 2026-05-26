@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.2-draft/matter-fabric-attachment.json",
+  "title": "Matter Fabric Attachment",
+  "description": "A cross-reference from a Matter to an existing fabric. Attachment is a LINK, not a merge — the fabric's own membership, constraints, proposals, and events are unaffected (§24.6).",
+  "type": "object",
+  "required": ["resourceId", "attached_at", "attached_by"],
+  "additionalProperties": false,
+  "properties": {
+    "resourceId": {
+      "type": "string",
+      "description": "ID of the attached fabric (resource). A fabric MAY be attached to multiple Matters simultaneously (§24.3)."
+    },
+    "attached_at": { "type": "string", "format": "date-time" },
+    "attached_by": {
+      "type": "string",
+      "description": "DID of the Matter owner who performed the attachment."
+    }
+  }
+}

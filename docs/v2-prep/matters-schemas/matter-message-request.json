@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.2-draft/matter-message-request.json",
+  "title": "Matter — Post Side-Channel Message Request",
+  "description": "Request body for POST /api/pact/matters/{id}/messages. Posts a typed-event message to the Matter side-channel (§24.8). Wire format is structured; UIs MAY render as chat but the protocol does NOT define presence, typing indicators, reactions, or threads.",
+  "type": "object",
+  "required": ["content"],
+  "additionalProperties": false,
+  "properties": {
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Textual payload of the message body.format=text envelope."
+    },
+    "fabric_id": {
+      "type": "string",
+      "description": "Optional cross-reference to an attached fabric — surfaces in `references.fabric_id` on the resulting `pact.matter.message` event."
+    },
+    "section_id": {
+      "type": "string",
+      "description": "Optional cross-reference to a section within `fabric_id`. Ignored if `fabric_id` is absent."
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.2-draft/matter-create-response.json",
+  "title": "Matter — Open Response",
+  "description": "Success response for POST /api/pact/matters. Per §24.5.",
+  "type": "object",
+  "required": ["matter_id", "spec_version", "name", "phase", "members", "fabrics", "opened_at", "opened_by", "opened_event_id"],
+  "additionalProperties": true,
+  "properties": {
+    "matter_id": {
+      "type": "string",
+      "description": "Server-minted Matter ID, prefix `mtr_`."
+    },
+    "spec_version": {
+      "type": "string",
+      "description": "Spec version this server implements for the Matter primitive (e.g., `2.2-draft`, `2.2`)."
+    },
+    "name": { "type": "string" },
+    "phase": {
+      "type": "string",
+      "enum": ["open", "active", "closed"]
+    },
+    "members": {
+      "type": "array",
+      "items": { "$ref": "https://pact-spec.dev/schemas/v2.2-draft/matter-member.json" }
+    },
+    "fabrics": {
+      "type": "array",
+      "items": { "$ref": "https://pact-spec.dev/schemas/v2.2-draft/matter-fabric-attachment.json" }
+    },
+    "opened_at": { "type": "string", "format": "date-time" },
+    "opened_by": {
+      "type": "string",
+      "description": "DID of the caller who opened the Matter (becomes first owner)."
+    },
+    "opened_event_id": {
+      "type": "string",
+      "description": "Event ID for the emitted `pact.matter.opened` event."
+    }
+  }
+}

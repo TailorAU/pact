@@ -11,11 +11,17 @@ on:
     branches: [main]
     paths:
       - 'spec/**'
+      - 'reference-server/**'
+      - 'tools/matter-smoke.sh'
+      - 'docs/v2-prep/matters-**'
       - '.github/workflows/conformance.yml'
   pull_request:
     branches: [main]
     paths:
       - 'spec/**'
+      - 'reference-server/**'
+      - 'tools/matter-smoke.sh'
+      - 'docs/v2-prep/matters-**'
       - '.github/workflows/conformance.yml'
 
 permissions:
@@ -126,3 +132,35 @@ jobs:
           fi
           echo "----- reference-server/server.log -----"
           cat reference-server/server.log 2>/dev/null || true
+
+  matter-smoke:
+    name: Matter primitive smoke test (v2.2 draft)
+    runs-on: ubuntu-latest
+    # tools/matter-smoke.sh exercises every §24 Matter endpoint end-to-end
+    # (20 assertions across 9 scenarios). The script starts and stops its
+    # own copy of the reference server, so this job is independent of the
+    # `conformance-server` job above. Drafts live under docs/v2-prep/
+    # matters-* until v2.2 is properly opened; the smoke test guards the
+    # implementation in the meantime.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the reference server
+        working-directory: reference-server
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: Ensure python3 + curl available
+        run: |
+          which python3 || (sudo apt-get update -qq && sudo apt-get install -y python3)
+          which curl    || (sudo apt-get update -qq && sudo apt-get install -y curl)
+
+      - name: Run tools/matter-smoke.sh
+        run: |
+          chmod +x tools/matter-smoke.sh
+          ./tools/matter-smoke.sh 4111

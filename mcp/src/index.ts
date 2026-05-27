@@ -683,6 +683,182 @@ server.tool(
   },
 );
 
+// ── Matters (v2.2 draft — docs/v2-prep/rfc-matters-multi-fabric.md) ──
+
+server.tool(
+  'pact_matter_open',
+  'Open a multi-fabric "deal-room" Matter. Caller becomes the owner. Matters group N peer fabrics under a shared participant set + typed side-channel + cross-fabric manifest. v2.2 draft.',
+  {
+    name: z.string().describe('Human-readable Matter name (e.g., "Project Atlas acquisition")'),
+    opened_by_display: z.string().optional().describe("Caller's display name within the Matter"),
+  },
+  async ({ name, opened_by_display }) => {
+    try {
+      const body: Record<string, unknown> = { name };
+      if (opened_by_display) body.opened_by_display = opened_by_display;
+      const result = await request('/api/pact/matters', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_matter_list',
+  'List all Matters known to the server (summary view).',
+  {},
+  async () => {
+    try {
+      const result = await request('/api/pact/matters');
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_matter_show',
+  "Show a Matter's caller-visible state.",
+  { matterId: z.string().describe('Matter ID (e.g., mtr_xxx)') },
+  async ({ matterId }) => {
+    try {
+      const result = await request(`/api/pact/matters/${encodeURIComponent(matterId)}`);
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_matter_add_member',
+  'Add a member to a Matter (owner-only). Matter membership is eligibility, NOT automatic fabric enrollment — members still need to join attached fabrics individually.',
+  {
+    matterId: z.string().describe('Matter ID'),
+    principal_id: z.string().describe('Member principal_id (e.g., did:web:counterparty.example)'),
+    display_name: z.string().optional().describe('Display name within the Matter'),
+    role: z.enum(['owner', 'participant']).optional().describe('Default: participant'),
+  },
+  async ({ matterId, principal_id, display_name, role }) => {
+    try {
+      const body: Record<string, unknown> = { principal_id };
+      if (display_name) body.display_name = display_name;
+      if (role) body.role = role;
+      const result = await request(
+        `/api/pact/matters/${encodeURIComponent(matterId)}/members`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_matter_attach',
+  'Attach an existing fabric to a Matter (owner-only). The fabric retains its own membership and obligations; this just registers the cross-reference. A fabric MAY belong to multiple Matters.',
+  {
+    matterId: z.string().describe('Matter ID'),
+    resourceId: z.string().describe('Fabric / resource ID to attach'),
+  },
+  async ({ matterId, resourceId }) => {
+    try {
+      const result = await request(
+        `/api/pact/matters/${encodeURIComponent(matterId)}/fabrics`,
+        { method: 'POST', body: JSON.stringify({ resourceId }) },
+      );
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_matter_detach',
+  'Detach a fabric from a Matter (owner-only). The fabric itself is NOT closed — it persists and continues to be queryable directly.',
+  {
+    matterId: z.string().describe('Matter ID'),
+    resourceId: z.string().describe('Fabric / resource ID to detach'),
+  },
+  async ({ matterId, resourceId }) => {
+    try {
+      const result = await request(
+        `/api/pact/matters/${encodeURIComponent(matterId)}/fabrics/${encodeURIComponent(resourceId)}`,
+        { method: 'DELETE' },
+      );
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_matter_message',
+  "Post a typed-event message to a Matter's side-channel. The wire format is a structured event (not free-form chat); UIs may render it as chat. Optional `fabric_id` cross-links the message to an attached fabric (and optional `section_id` to a section within it).",
+  {
+    matterId: z.string().describe('Matter ID'),
+    content: z.string().describe('Message content (free text within a structured event)'),
+    fabric_id: z.string().optional().describe('Optional: reference an attached fabric'),
+    section_id: z.string().optional().describe('Optional: reference a section within the fabric'),
+  },
+  async ({ matterId, content, fabric_id, section_id }) => {
+    try {
+      const body: Record<string, unknown> = { content };
+      if (fabric_id) body.fabric_id = fabric_id;
+      if (section_id) body.section_id = section_id;
+      const result = await request(
+        `/api/pact/matters/${encodeURIComponent(matterId)}/messages`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_matter_messages',
+  "List a Matter's side-channel messages.",
+  { matterId: z.string().describe('Matter ID') },
+  async ({ matterId }) => {
+    try {
+      const result = await request(
+        `/api/pact/matters/${encodeURIComponent(matterId)}/messages`,
+      );
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_matter_manifest',
+  'Get the caller-scoped cross-fabric manifest for a Matter — §4.4.2 extended to Matter scope. Aggregates attached-fabric phase, open-proposal counts, caller-specific pending obligations across all attached fabrics, and side-channel summary. Cross-org peers are filtered per §17.13.',
+  { matterId: z.string().describe('Matter ID') },
+  async ({ matterId }) => {
+    try {
+      const result = await request(
+        `/api/pact/matters/${encodeURIComponent(matterId)}/manifest`,
+      );
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
+server.tool(
+  'pact_matter_close',
+  'Close a Matter (owner-only). Per the RFC: closing does NOT cascade to attached fabrics — they persist independently and continue to be queryable directly. Use --outcome to record a free-form close reason ("deal-signed", "walked-away", etc.).',
+  {
+    matterId: z.string().describe('Matter ID'),
+    outcome: z.string().optional().describe('Free-form outcome label'),
+  },
+  async ({ matterId, outcome }) => {
+    try {
+      const body: Record<string, unknown> = {};
+      if (outcome) body.outcome = outcome;
+      const result = await request(
+        `/api/pact/matters/${encodeURIComponent(matterId)}/close`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+      return jsonResult(result);
+    } catch (err) { return errorResult(err); }
+  },
+);
+
 // ── Start ────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {

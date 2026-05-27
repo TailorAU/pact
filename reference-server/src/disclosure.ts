@@ -11,7 +11,7 @@
 
 import type { Member } from './store.js';
 
-function registrableDomain(principalId: string): string {
+export function registrableDomain(principalId: string): string {
   // did:web:org-a.example → org-a.example
   const m = /^did:web:([^/]+)/.exec(principalId);
   const host = m ? m[1] : principalId;

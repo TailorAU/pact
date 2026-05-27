@@ -1,0 +1,78 @@
+# Conformance test vector — attach an existing fabric to a Matter (v2.2 draft).
+# kind: http — POST to /api/pact/matters/{id}/fabrics; asserts the fabric is
+# attached as a link (NOT merged) and pact.matter.fabric-attached is emitted.
+
+kind: http
+
+metadata:
+  id: matters/matter-attach-fabric
+  description: A Matter owner attaches an existing fabric. The fabric is referenced by resourceId; its own state is unaffected.
+  spec_section: "§24.6"
+  conformance_level: extended
+  track: T-matters
+
+preconditions:
+  server_state:
+    matter:
+      matter_id: mtr_atlas
+      phase: open
+      members:
+        - principal_id: did:web:knox.example
+          role: owner
+      fabrics: []
+    fabric:
+      fabric_id: fab_term_sheet              # the fabric being attached; pre-exists
+  request_context:
+    principal_id: did:web:knox.example
+
+request:
+  method: POST
+  path: /api/pact/matters/mtr_atlas/fabrics
+  headers:
+    Content-Type: application/json
+    X-Pact-Principal: did:web:knox.example
+  body:
+    resourceId: fab_term_sheet
+
+expected_response:
+  status: 200
+  body_match:
+    mode: subset
+    value:
+      matter_id: mtr_atlas
+      attached: true
+      attachment:
+        resourceId: fab_term_sheet
+        attached_by: did:web:knox.example
+  body_ignore_fields:
+    - attachment.attached_at
+    - event_id
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.matter.fabric-attached
+      match:
+        mode: subset
+        value:
+          matter_id: mtr_atlas
+          resourceId: fab_term_sheet
+          attached_by: did:web:knox.example
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - actorId
+
+postconditions:
+  server_state:
+    matter_fabric_count: 1
+    fabric_unchanged: true                   # attaching to a Matter MUST NOT mutate the fabric
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Attachment treated as a merge (fabric state altered — members/constraints added)
+    - Non-owner caller succeeded (auth gate missing)
+    - pact.matter.fabric-attached event not emitted
+    - Attachment to a closed Matter accepted (409 expected)

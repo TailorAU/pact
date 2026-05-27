@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.2-draft/matter-message.json",
+  "title": "Matter Side-Channel Message",
+  "description": "A single side-channel message — the wire shape carried by `pact.matter.message` events (§24.8).",
+  "type": "object",
+  "required": ["id", "sender_principal", "posted_at", "body"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Server-minted message ID, prefix `msg_`."
+    },
+    "sender_principal": {
+      "type": "string",
+      "description": "DID of the posting member. MUST be a current member of the Matter at the time of posting."
+    },
+    "posted_at": { "type": "string", "format": "date-time" },
+    "body": {
+      "type": "object",
+      "required": ["format", "content"],
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["text"],
+          "description": "v0.1 supports `text` only. Future formats (`proposal-ref`, `obligation-ref`, etc.) extend without changing the envelope."
+        },
+        "content": { "type": "string" }
+      }
+    },
+    "references": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fabric_id": { "type": "string" },
+        "section_id": { "type": "string" }
+      },
+      "required": ["fabric_id"],
+      "description": "Optional cross-link to an attached fabric (and section within it)."
+    }
+  }
+}

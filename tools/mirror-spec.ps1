@@ -32,6 +32,15 @@
   The PACT version being mirrored, e.g. "2.0.3". Drives the branch name,
   commit message, PR title, and the CHANGELOG anchor link.
 
+.PARAMETER SourceVersion
+  The spec directory to mirror FROM, e.g. "2.0" or "2.2". Defaults to
+  "2.0" for backward compatibility with the v2.0.x mirror cadence —
+  every previous mirror run (PRs #1616 / #1673 / #1679 / #1701) implicitly
+  used "2.0". Pass an explicit value when mirroring a new minor (e.g.,
+  -SourceVersion 2.2 for the Matter primitive landing).
+
+  The source file is derived as `spec/v<SourceVersion>/SPECIFICATION.md`.
+
 .PARAMETER PactRepo
   Path to the pact-repo working tree. Defaults to the repo this script
   lives in (two levels up from tools/).
@@ -54,16 +63,24 @@
   before a real run.
 
 .EXAMPLE
+  # v2.0.x cadence — implicit -SourceVersion 2.0
   ./tools/mirror-spec.ps1 -Version 2.0.3 -AutoMerge
 
 .EXAMPLE
   ./tools/mirror-spec.ps1 -Version 2.0.4 -DryRun
+
+.EXAMPLE
+  # v2.2 minor — explicit source version
+  ./tools/mirror-spec.ps1 -Version 2.2.0 -SourceVersion 2.2 -AutoMerge
 #>
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
   [ValidatePattern('^\d+\.\d+\.\d+$')]
   [string]$Version,
+
+  [ValidatePattern('^\d+\.\d+$')]
+  [string]$SourceVersion = '2.0',
 
   [string]$PactRepo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
 
@@ -80,7 +97,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 # ---- Derived constants -----------------------------------------------------
-$specRel      = 'spec/v2.0/SPECIFICATION.md'
+$specRel      = "spec/v$SourceVersion/SPECIFICATION.md"
 $mirrorRel    = 'docs/architecture/PACT_SPECIFICATION.md'
 $branch       = "spec-mirror-v$Version"
 $worktreeRel  = ".claude/worktrees/$branch"
@@ -101,8 +118,9 @@ if (-not $SourceCommit) {
   $SourceCommit = (git -C $PactRepo rev-parse --short HEAD).Trim()
 }
 
-Write-Host "Mirroring PACT v$Version" -ForegroundColor Cyan
+Write-Host "Mirroring PACT v$Version (from spec/v$SourceVersion/)" -ForegroundColor Cyan
 Write-Host "  pact-repo : $PactRepo @ $SourceCommit"
+Write-Host "  source    : $specRel"
 Write-Host "  tailor-app: $TailorApp"
 Write-Host "  branch    : $branch"
 if ($DryRun)    { Write-Host "  mode      : DRY RUN (no push / PR / merge)" -ForegroundColor Yellow }

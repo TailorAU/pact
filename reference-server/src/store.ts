@@ -156,7 +156,7 @@ export interface Matter {
 }
 
 const SPEC_VERSION = '2.0.3';
-const MATTERS_DRAFT_VERSION = '2.2-draft';
+const MATTERS_DRAFT_VERSION = '2.2';
 
 // Local re-implementation of the §15.4 registrable-domain helper, to avoid a
 // store.ts ↔ disclosure.ts circular dep. Same last-two-labels heuristic the

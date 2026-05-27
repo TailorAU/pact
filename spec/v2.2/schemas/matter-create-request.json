@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.2/matter-create-request.json",
+  "title": "Matter — Open Request",
+  "description": "Request body for POST /api/pact/matters. Opens a new Matter (multi-fabric deal-room container). Caller becomes the first member with role=owner. See docs/v2-prep/matters-spec-draft.md §24.5.",
+  "type": "object",
+  "required": ["name"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Human-readable Matter name. Free-form; implementations MAY enforce additional uniqueness."
+    },
+    "opened_by_display": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "Caller's display name within the Matter. Defaults to the caller's principal_id if omitted."
+    }
+  }
+}

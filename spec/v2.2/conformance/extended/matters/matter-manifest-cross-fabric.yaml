@@ -1,0 +1,102 @@
+# Conformance test vector — cross-fabric manifest (§24.7).
+# The load-bearing feature of Matters: aggregates pending obligations across
+# attached fabrics into one caller-scoped view. Without this, Matters degrade
+# to "a list of fabric IDs."
+
+kind: http
+
+metadata:
+  id: extended/matters/matter-manifest-cross-fabric
+  description: A Matter member queries the cross-fabric manifest. The response aggregates attached-fabric phase + open-proposal counts + caller-specific pending obligations across all attached fabrics. §17.13 reduction applies to counterparties.
+  spec_section: "§24.7"
+  conformance_level: extended
+  track: T-matters
+
+preconditions:
+  server_state:
+    matter:
+      matter_id: mtr_atlas
+      phase: open
+      members:
+        - principal_id: did:web:knox.example
+          role: owner
+        - principal_id: did:web:counterparty.example
+          role: participant
+      fabrics:
+        - resourceId: fab_term_sheet
+        - resourceId: fab_diligence
+    fabrics:
+      - fabric_id: fab_term_sheet
+        phase: negotiating
+        proposals_open: 1
+        obligations_pending_for_knox: 1     # vote owed
+      - fabric_id: fab_diligence
+        phase: forming
+        proposals_open: 0
+        obligations_pending_for_knox: 0
+  request_context:
+    principal_id: did:web:knox.example
+
+request:
+  method: GET
+  path: /api/pact/matters/mtr_atlas/manifest
+  headers:
+    X-Pact-Principal: did:web:knox.example
+
+expected_response:
+  status: 200
+  body_match:
+    mode: subset
+    value:
+      matter_id: mtr_atlas
+      phase: open
+      caller:
+        principal_id: did:web:knox.example
+        role: owner
+      counterparties:
+        - principal_id: did:web:counterparty.example
+          role: participant
+          cross_org: true                     # different eTLD+1 from knox.example
+      fabrics:
+        - resourceId: fab_term_sheet
+          phase: negotiating
+          open_proposals: 1
+        - resourceId: fab_diligence
+          phase: forming
+          open_proposals: 0
+      pending_obligations_across_fabrics:
+        - fabric_id: fab_term_sheet
+          kind: vote
+  body_ignore_fields:
+    - spec_version
+    - caller.display_name
+    - counterparties.*.display_name
+    - counterparties.*.joined_at
+    - counterparties.*.org_eTLD_plus_1
+    - fabrics.*.attached_at
+    - fabrics.*.attached_by
+    - fabrics.*.member_count
+    - fabrics.*.pending_obligation_count_for_caller
+    - fabrics.*.caller_is_fabric_member
+    - pending_obligations_across_fabrics.*.obligation_id
+    - pending_obligations_across_fabrics.*.event_ref
+    - pending_obligations_across_fabrics.*.due_by
+    - side_channel
+    - snapshot_at
+
+expected_events:
+  ordered: true
+  sequence: []                                # GET — no events emitted
+
+postconditions:
+  server_state:
+    matter_unchanged: true                    # manifest is read-only
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - cross-fabric obligation aggregation missing — caller can't see what's owed across the engagement
+    - Cross-org reduction not applied to counterparties (PII leak)
+    - Non-member caller accepted (403 expected on auth gate)
+    - pending_obligation_count_for_caller not per-caller (privacy / scope leak)
+    - Manifest mutates state (any event emitted = bug)

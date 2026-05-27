@@ -1,0 +1,86 @@
+# Conformance test vector — post a typed-event side-channel message.
+# Per the maintainer call 2026-05-24: the wire format is TYPED EVENTS, not
+# chat. The body is structured {format, content} inside a structured envelope.
+
+kind: http
+
+metadata:
+  id: extended/matters/matter-message-post
+  description: A Matter member posts to the side-channel. The wire format is a typed `pact.matter.message` event with structured body; UIs MAY render as chat but the protocol does NOT define presence/typing/reactions.
+  spec_section: "§24.8"
+  conformance_level: extended
+  track: T-matters
+
+preconditions:
+  server_state:
+    matter:
+      matter_id: mtr_atlas
+      phase: open
+      members:
+        - principal_id: did:web:knox.example
+          role: owner
+      fabrics:
+        - resourceId: fab_diligence
+  request_context:
+    principal_id: did:web:knox.example
+
+request:
+  method: POST
+  path: /api/pact/matters/mtr_atlas/messages
+  headers:
+    Content-Type: application/json
+    X-Pact-Principal: did:web:knox.example
+  body:
+    content: Can we get the financials by Friday?
+    fabric_id: fab_diligence
+
+expected_response:
+  status: 200
+  body_match:
+    mode: subset
+    value:
+      matter_id: mtr_atlas
+      message:
+        sender_principal: did:web:knox.example
+        body:
+          format: text
+          content: Can we get the financials by Friday?
+        references:
+          fabric_id: fab_diligence
+  body_ignore_fields:
+    - message.id
+    - message.posted_at
+    - event_id
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.matter.message
+      match:
+        mode: subset
+        value:
+          matter_id: mtr_atlas
+          sender: did:web:knox.example
+          body:
+            format: text
+            content: Can we get the financials by Friday?
+          references:
+            fabric_id: fab_diligence
+      body_ignore_fields:
+        - message_id
+        - id
+        - epochMs
+        - sequenceNumber
+        - actorId
+
+postconditions:
+  server_state:
+    matter_message_count: 1
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - body.format omitted (loses the "typed events not chat" discipline)
+    - sender_principal not set from caller principal (impersonation risk)
+    - references.fabric_id dropped from the event payload (cross-link lost)
+    - Non-member caller accepted (403 expected on auth gate)

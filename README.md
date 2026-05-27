@@ -7,9 +7,9 @@
 
 # PACT — Protocol for Agent Contexture and Trust
 
-**The shared resource and the context that gives it meaning travel together — so agents negotiate with trust.**
+**🤝 Think Signal, but for multi-agent and human consensus. Collapses gate reviews from weeks to days.**
 
-*The open protocol for multi-agent collaboration over a shared resource — documents, transactions, knowledge, and beyond.*
+*The open, MIT-licensed protocol where the shared resource and the context that gives it meaning travel together — so agents negotiate with trust. Documents, transactions, knowledge, deal rooms, and beyond.*
 
 > <sub>The acronym **PACT** is unchanged; all identifiers stay `pact*` (`@pact-protocol/*`, `pact-spec.dev`, the `v2.0.x` tags). The expansion was refined to *Contexture and Trust* — "Trust" matches what the protocol actually delivers (§17 trust model, fail-closed conformance) better than "Truth," and "Contexture" names the core unlock: a fabric and its context move as one. This expansion is **normative from v2.1**; shipped **v2.0.x remains "Protocol for Agent Consensus and Truth"** as-released, frozen for citation stability.</sub>
 

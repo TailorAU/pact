@@ -2,61 +2,6 @@
   "$schema": "https://github.com/tailorau/tailor-app/blob/main/sites/source/docs/SUPPLY_CHAIN.md#allowlist-format",
   "_comment": "Documented exceptions to the npm audit gate. Each entry MUST have a justification + expiry. Past-expiry entries fail the build. See SUPPLY_CHAIN.md § Allowlist for the policy.",
   "_policy": "An entry exists because the fix is non-trivial (major-version bump with breaking changes, transitive in a build-only path, or no upstream fix yet). Each entry is a written commitment to revisit by the expiry date. The CI gate prints the days-to-expiry for every active entry as a forcing function.",
-  "exceptions": [
-    {
-      "advisory": "GHSA-ggv3-7p47-pfv8",
-      "package": "next",
-      "severity": "high",
-      "title": "Next.js: HTTP request smuggling in rewrites + 5 related advisories",
-      "advisories": [
-        "GHSA-ggv3-7p47-pfv8",
-        "GHSA-3x4c-7xq6-9pq8",
-        "GHSA-h27x-g6w4-24gq",
-        "GHSA-mq59-m269-xvcx",
-        "GHSA-jcc7-9wpm-mj36",
-        "GHSA-q4gf-8mx6-v5v3"
-      ],
-      "current_version": "16.1.6",
-      "fixed_version": "16.2.6",
-      "justification": "Fix requires `npm audit fix --force` which moves outside the stated dependency range and risks Next.js 16.2 regressions on `next start` standalone output. Requires a dedicated PR with full /api smoke verification per SECURITY.md § Fix SLAs (30 days for HIGH). Not bundled into WS6 supply-chain hardening to keep the gate-installation diff isolated and reviewable.",
-      "tracking_issue": "TBD — file follow-up `chore(source): bump next 16.1.6 -> 16.2.6 for CVE GHSA-ggv3-7p47-pfv8` after WS6 lands",
-      "added": "2026-05-09",
-      "expires": "2026-06-08",
-      "owner": "Knox"
-    },
-    {
-      "advisory": "GHSA-r5fr-rjxr-66jc",
-      "package": "lodash-es",
-      "severity": "high",
-      "title": "lodash vulnerable to Code Injection via `_.template` imports key names",
-      "advisories": [
-        "GHSA-r5fr-rjxr-66jc",
-        "GHSA-f23m-r3pf-42rh"
-      ],
-      "current_version": "<=4.17.23 (transitive)",
-      "fixed_version": "fix available via `npm audit fix`",
-      "justification": "Transitive dependency. Source does not call `_.template` directly. Will be cleared in the same follow-up PR as the next bump via `npm audit fix` (non-force).",
-      "tracking_issue": "TBD — covered by follow-up `chore(source): npm audit fix transitive HIGH/moderate vulns` after WS6 lands",
-      "added": "2026-05-09",
-      "expires": "2026-06-08",
-      "owner": "Knox"
-    },
-    {
-      "advisory": "GHSA-3v7f-55p6-f55p",
-      "package": "picomatch",
-      "severity": "high",
-      "title": "Picomatch: Method Injection in POSIX Character Classes + ReDoS via extglob quantifiers",
-      "advisories": [
-        "GHSA-3v7f-55p6-f55p",
-        "GHSA-c2c7-rcm5-vvqj"
-      ],
-      "current_version": "<=2.3.1 || 4.0.0 - 4.0.3 (transitive)",
-      "fixed_version": "fix available via `npm audit fix`",
-      "justification": "Transitive dependency reachable only from build tooling (vitest, eslint glob expansion). Not on the request path of the running container. Will be cleared in the same follow-up PR via `npm audit fix` (non-force).",
-      "tracking_issue": "TBD — covered by follow-up `chore(source): npm audit fix transitive HIGH/moderate vulns` after WS6 lands",
-      "added": "2026-05-09",
-      "expires": "2026-06-08",
-      "owner": "Knox"
-    }
-  ]
+  "_cleared_2026-05-25_scan": "The three 2026-05-09 baseline entries (next GHSA-ggv3-7p47-pfv8, lodash-es GHSA-r5fr-rjxr-66jc, picomatch GHSA-3v7f-55p6-f55p) were the fix-vs-allowlist commitments behind the recurring [cve-scan] Source HIGH findings cluster (#1374 / #1555 / #1964 / #2265). They were CLEARED — not snoozed — by the dedicated remediation PR for #2265: next 16.1.6 -> 16.2.6 (semver-minor) plus a non-force `npm audit fix` for the lodash-es / picomatch transitives. `npm audit --audit-level=high` now exits 0, so no allowlist entry is required. Per SUPPLY_CHAIN.md § 3 the fix lands with its allowlist entries removed in the same commit.",
+  "exceptions": []
 }

@@ -3,9 +3,17 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # ── Install dependencies ─────────────────────────────────
+# Install the FULL dependency graph (incl. devDependencies). `next build`
+# needs build-time-only packages such as `@tailwindcss/postcss` and
+# `tailwindcss` to compile `globals.css` — Next 16.2's Turbopack PostCSS
+# transform hard-`require()`s them, so an `--omit=dev` install fails the
+# build with "Cannot find module '@tailwindcss/postcss'". This costs the
+# runtime image nothing: `output: "standalone"` (next.config.ts) means the
+# runner stage copies only `.next/standalone` — these node_modules are not
+# carried into the final image.
 FROM base AS deps
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
+RUN npm ci 2>/dev/null || npm install
 
 # ── Build ─────────────────────────────────────────────────
 FROM base AS builder

@@ -21,6 +21,30 @@ export function setAgentOverride(apiKey: string | null): void {
   agentOverride = apiKey;
 }
 
+let principalOverride: string | null = null;
+
+/** Set by the `--as <did>` global flag. Lets one CLI install act as a specific
+ * principal — the load-bearing affordance for multi-agent flows where two
+ * agents share a machine but must post under distinct identities. */
+export function setPrincipalOverride(principal: string | null): void {
+  principalOverride = principal;
+}
+
+/**
+ * The caller principal to assert via the `X-Pact-Principal` header.
+ * Resolution order: `--as` flag → `PACT_PRINCIPAL` env → none.
+ *
+ * NOTE: a *self-asserted* principal header is honoured by dev/test servers
+ * (the @pact-protocol/reference-server) so multiple local agents can be told
+ * apart. A production server MUST derive the principal from the authenticated
+ * credential (bearer/api-key → server-side principal mapping) and ignore or
+ * reject a client-claimed principal. Treat `--as` / `PACT_PRINCIPAL` as a
+ * dev affordance, not a production auth path.
+ */
+export function getPrincipal(): string | null {
+  return principalOverride ?? process.env.PACT_PRINCIPAL ?? null;
+}
+
 export function getBaseUrl(): string {
   const url = process.env.PACT_BASE_URL ?? config.get('baseUrl');
   if (!url) {

@@ -1,4 +1,4 @@
-import { getBaseUrl, getAuthHeader } from './config.js';
+import { getBaseUrl, getAuthHeader, getPrincipal } from './config.js';
 
 async function request<T = unknown>(
   path: string,
@@ -17,6 +17,11 @@ async function request<T = unknown>(
     headers['Content-Type'] = 'application/json';
   }
   if (auth) headers[auth.key] = auth.value;
+
+  // Assert the caller principal (dev/test affordance — see config.getPrincipal).
+  // Lets two agents on one machine post under distinct DIDs.
+  const principal = getPrincipal();
+  if (principal && !headers['X-Pact-Principal']) headers['X-Pact-Principal'] = principal;
 
   const url = `${baseUrl}${path}`;
   let res: Response;

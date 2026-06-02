@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { setAgentOverride } from './config.js';
+import { setAgentOverride, setPrincipalOverride } from './config.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerJoinCommand } from './commands/join.js';
 import { registerAgentsCommand } from './commands/agents.js';
@@ -27,9 +27,11 @@ program
   .description('PACT — Like Signal, but for multi-agent and human consensus. Collapses gate reviews from weeks to days. Open, MIT-licensed protocol for multi-agent collaboration on any resource type (documents, transactions, knowledge, deal rooms, and beyond).')
   .version('2.0.3')
   .option('--agent <key>', 'Override the API key for this invocation (simulate a specific agent)')
+  .option('--as <did>', 'Act as a specific principal DID (dev/test: asserts X-Pact-Principal; honoured by the reference server, ignored by production servers that map principal from the credential)')
   .hook('preAction', (thisCommand) => {
-    const opts = thisCommand.opts<{ agent?: string }>();
+    const opts = thisCommand.opts<{ agent?: string; as?: string }>();
     if (opts.agent) setAgentOverride(opts.agent);
+    if (opts.as) setPrincipalOverride(opts.as);
   });
 
 registerConfigCommand(program);

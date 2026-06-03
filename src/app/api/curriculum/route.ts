@@ -2,6 +2,24 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
+// CORS — curriculum is free, unauthenticated, GET-only public data, designed to
+// be read browser-side from other origins (the Spark PLG at spark.tailor.au
+// resolves step-2 topics from here cross-origin). No credentials, so `*` is the
+// correct, safe allow-origin. (#2609 — without this the browser blocks the
+// cross-origin fetch and the PLG silently falls back to its curated topic map.)
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Accept",
+  "Access-Control-Max-Age": "86400",
+};
+
+// Preflight (sent by browsers for non-simple requests). A simple GET with
+// `Accept: application/json` won't preflight, but handle OPTIONS for hygiene.
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+}
+
 // GET /api/curriculum — Authoritative Australian curriculum descriptors (#2520)
 //
 // Free, unauthenticated. Australian curriculum (ACARA v9 / EYLF) is a public
@@ -140,6 +158,7 @@ export async function GET(req: NextRequest) {
     },
     {
       headers: {
+        ...CORS_HEADERS,
         // Curriculum is authoritative + slow-changing — cache like legislation.
         "Cache-Control": "public, max-age=86400",
         "X-Total-Results": String(total),

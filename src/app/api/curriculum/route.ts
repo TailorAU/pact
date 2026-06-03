@@ -10,7 +10,11 @@ import { getDb } from "@/lib/db";
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Accept",
+  // `*` (not an explicit list) so non-safelisted request headers the browser
+  // attaches — e.g. the frontend's OpenTelemetry `traceparent`/`tracestate` —
+  // pass preflight. Valid because this API sends no credentials (ACAO is `*`).
+  // An explicit list silently breaks the moment the client adds a trace header.
+  "Access-Control-Allow-Headers": "*",
   "Access-Control-Max-Age": "86400",
 };
 

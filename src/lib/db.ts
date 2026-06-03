@@ -54,6 +54,13 @@ const _legislationSyncLogAugmentStatements: string[] = _loadSqlStatements(
 // see sql/spending-cap.sql header for the cap-enforcement contract.
 const _spendingCapStatements: string[] = _loadSqlStatements("spending-cap.sql");
 
+// #2520 — authoritative curriculum graph (ACARA v9 + EYLF). Same extraction
+// pattern as legislation-schema.sql: DDL in sql/curriculum-schema.sql, loaded
+// at module init and applied by initSchema(). Idempotent (CREATE ... IF NOT
+// EXISTS). The representative ACARA/EYLF slice is seeded by seedCurriculum()
+// at the end of initSchema (idempotent, ON CONFLICT DO NOTHING).
+const _curriculumStatements: string[] = _loadSqlStatements("curriculum-schema.sql");
+
 // Return TIMESTAMP / TIMESTAMPTZ as ISO strings (not JS Date objects)
 // so existing code that casts date columns to string keeps working.
 pg.types.setTypeParser(1114, (val: string) => val);
@@ -347,6 +354,11 @@ async function initSchema(db: DbClient) {
     // See sql/spending-cap.sql header for the contract.
     ..._spendingCapStatements,
 
+    // ── Curriculum graph (#2520) ─────────────────────────────────────
+    // ACARA v9 + EYLF descriptors. DDL extracted to sql/curriculum-schema.sql,
+    // same loader pattern as legislation. Seeded below via seedCurriculum().
+    ..._curriculumStatements,
+
     // ── Indexes ─────────────────────────────────────────────────────
     `CREATE INDEX IF NOT EXISTS idx_proposals_topic_status ON proposals(topic_id, status)`,
     `CREATE INDEX IF NOT EXISTS idx_proposals_agent_id ON proposals(agent_id)`,
@@ -516,6 +528,19 @@ async function initSchema(db: DbClient) {
     await db.execute("INSERT INTO agents (id, name, api_key, model, framework, description) VALUES ('hub-protocol', 'Hub Protocol', 'system-no-key', 'system', 'internal', 'System wallet for protocol fees and subsidies') ON CONFLICT (id) DO NOTHING");
     await db.execute("INSERT INTO agent_wallets (agent_id, balance) VALUES ('hub-protocol', 0) ON CONFLICT (agent_id) DO NOTHING");
   } catch { /* Already exists */ }
+
+  // Seed the authoritative ACARA v9 / EYLF curriculum slice (#2520). Idempotent
+  // (ON CONFLICT DO NOTHING), so it ships the slice live on first boot and
+  // back-fills new descriptors added to curriculum-seed.ts on redeploy. Unlike
+  // topics (seeded out-of-band via Python scripts), curriculum is authoritative
+  // and version-controlled, so it bootstraps with the app — the same way it
+  // would if it were a Python seed run as a CD step, but with no manual step.
+  try {
+    const { seedCurriculum } = await import("./curriculum-seed");
+    await seedCurriculum(db);
+  } catch (e) {
+    console.error("Curriculum seed failed:", e);
+  }
 }
 
 type SeedTopic = {

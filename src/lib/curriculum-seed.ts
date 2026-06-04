@@ -136,6 +136,73 @@ const FOUNDATION: CurriculumDescriptor[] = [
   },
 ];
 
+// ── ACARA v9 — Year 1 ───────────────────────────────────────────────────────
+const ACARA_Y1_URL =
+  "https://v9.australiancurriculum.edu.au/f-10-curriculum/learning-areas?subjects-start-index=0";
+
+const YEAR_1: CurriculumDescriptor[] = [
+  {
+    frameworkId: "acara-v9",
+    code: "AC9E1LY10",
+    level: "1",
+    levelName: "Year 1",
+    subject: "English",
+    learningArea: "English",
+    strand: "Literacy — Phonic and word knowledge",
+    title: "Sounding out and blending to read",
+    descriptor:
+      "use short vowels, common long vowels, consonant blends and digraphs to write words, and blend these to read one- and two-syllable words",
+    blurb: "Blend letter-sounds to read and write short words.",
+    sourceRef: "ACARA Australian Curriculum v9.0 — English, Year 1 (Literacy)",
+    sourceUrl: ACARA_Y1_URL,
+  },
+  {
+    frameworkId: "acara-v9",
+    code: "AC9E1LE05",
+    level: "1",
+    levelName: "Year 1",
+    subject: "English",
+    learningArea: "English",
+    strand: "Literature — Creating literature",
+    title: "Retell or adapt a familiar story",
+    descriptor:
+      "orally retell or adapt a familiar story using plot and characters, language features including vocabulary, and structure of a familiar text, through role-play, writing, drawing or digital tools",
+    blurb: "Retell a favourite story your own way — characters, plot, ending.",
+    sourceRef: "ACARA Australian Curriculum v9.0 — English, Year 1 (Literature)",
+    sourceUrl: ACARA_Y1_URL,
+  },
+  {
+    frameworkId: "acara-v9",
+    code: "AC9M1N01",
+    level: "1",
+    levelName: "Year 1",
+    subject: "Maths",
+    learningArea: "Mathematics",
+    strand: "Number",
+    title: "Numbers to 120",
+    descriptor:
+      "recognise, represent and order numbers to at least 120 using physical and virtual materials, numerals, number lines and charts",
+    blurb: "Read, write and order numbers all the way to 120.",
+    sourceRef: "ACARA Australian Curriculum v9.0 — Mathematics, Year 1 (Number)",
+    sourceUrl: ACARA_Y1_URL,
+  },
+  {
+    frameworkId: "acara-v9",
+    code: "AC9M1N04",
+    level: "1",
+    levelName: "Year 1",
+    subject: "Maths",
+    learningArea: "Mathematics",
+    strand: "Number",
+    title: "Add and subtract within 20",
+    descriptor:
+      "add and subtract numbers within 20, using physical and virtual materials, part-part-whole knowledge to 10 and a variety of calculation strategies",
+    blurb: "Add and take away numbers up to 20.",
+    sourceRef: "ACARA Australian Curriculum v9.0 — Mathematics, Year 1 (Number)",
+    sourceUrl: ACARA_Y1_URL,
+  },
+];
+
 // ── ACARA v9 — Year 3 ───────────────────────────────────────────────────────
 const ACARA_Y3_URL =
   "https://v9.australiancurriculum.edu.au/f-10-curriculum/learning-areas?subjects-start-index=0";
@@ -350,6 +417,7 @@ const EYLF: CurriculumDescriptor[] = [
 export const CURRICULUM_DESCRIPTORS: CurriculumDescriptor[] = [
   ...EYLF,
   ...FOUNDATION,
+  ...YEAR_1,
   ...YEAR_3,
   ...YEAR_6,
 ];

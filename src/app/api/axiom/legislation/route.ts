@@ -2,10 +2,14 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { formatLegislation, type LegislationDoc, type LegislationSection } from "@/lib/legislation-format";
+import { corsPreflight, withCors } from "@/lib/cors";
+
+export const OPTIONS = corsPreflight;
 
 // GET /api/axiom/legislation — List legislation documents with structured sections
 //
-// Free, unauthenticated. Australian legislation is a public good.
+// Free, unauthenticated, cross-origin (CORS `*` via lib/cors.ts, #2738).
+// Australian legislation is a public good.
 //
 // Query params:
 //   jurisdiction  — Filter: "QLD", "CTH", "NSW", etc. Prefix matching (QLD matches QLD-*)
@@ -143,16 +147,16 @@ export async function GET(req: NextRequest) {
   const { body, contentType } = formatLegislation(docs, format);
 
   if (contentType === "text/plain" || contentType === "text/markdown") {
-    return new NextResponse(body as string, {
+    return withCors(new NextResponse(body as string, {
       headers: {
         "Content-Type": `${contentType}; charset=utf-8`,
         "Cache-Control": "public, max-age=86400",
         "X-Total-Results": String(total),
       },
-    });
+    }));
   }
 
-  return NextResponse.json({
+  return withCors(NextResponse.json({
     ...(body as Record<string, unknown>),
     total,
     limit,
@@ -162,5 +166,5 @@ export async function GET(req: NextRequest) {
       self: `/api/axiom/legislation?limit=${limit}&offset=${offset}`,
       next: offset + limit < total ? `/api/axiom/legislation?limit=${limit}&offset=${offset + limit}` : null,
     },
-  });
+  }));
 }

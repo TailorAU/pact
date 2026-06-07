@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { formatLegislation, type LegislationDoc } from "@/lib/legislation-format";
+import { corsPreflight, withCors } from "@/lib/cors";
+
+export const OPTIONS = corsPreflight;
 
 // GET /api/axiom/legislation/:id — Get a single legislation document with all sections
 //
-// Free, unauthenticated. Australian legislation is a public good.
+// Free, unauthenticated, cross-origin (CORS `*` via lib/cors.ts, #2738).
+// Australian legislation is a public good.
 //
 // The :id is the legislation_docs.id (e.g. "qld/act-1899-009")
 //
@@ -33,10 +37,10 @@ export async function GET(
   });
 
   if (docResult.rows.length === 0) {
-    return NextResponse.json({
+    return withCors(NextResponse.json({
       error: `Legislation document not found: ${docId}`,
       hint: "Use GET /api/axiom/legislation to list available documents",
-    }, { status: 404 });
+    }, { status: 404 }));
   }
 
   const row = docResult.rows[0];
@@ -110,12 +114,12 @@ export async function GET(
   const { body, contentType } = formatLegislation([doc], format);
 
   if (contentType === "text/plain" || contentType === "text/markdown") {
-    return new NextResponse(body as string, {
+    return withCors(new NextResponse(body as string, {
       headers: {
         "Content-Type": `${contentType}; charset=utf-8`,
         "Cache-Control": "public, max-age=86400",
       },
-    });
+    }));
   }
 
   // For single-doc JSON, unwrap the array
@@ -128,9 +132,9 @@ export async function GET(
         ? { citation: (jsonBody.citations as unknown[])[0] }
         : jsonBody;
 
-  return NextResponse.json({
+  return withCors(NextResponse.json({
     ...unwrapped,
     sectionCount: doc.sections.length,
     free: true,
-  });
+  }));
 }

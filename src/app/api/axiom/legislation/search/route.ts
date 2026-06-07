@@ -3,10 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { debitIfAuthenticated } from "@/lib/wallet-debit";
 import { log } from "@/lib/logger";
+import { corsPreflight, withCors } from "@/lib/cors";
+
+export const OPTIONS = corsPreflight;
 
 // GET /api/axiom/legislation/search — Full-text search across all legislation
 //
-// Free, unauthenticated. Australian legislation is a public good.
+// Free, unauthenticated, cross-origin (CORS `*` via lib/cors.ts, #2738).
+// Australian legislation is a public good.
 // When an agent supplies `x-source-agent-key`, we debit 1 credit per call
 // (reason `read.legislation`) — anonymous reads stay free.
 //
@@ -57,17 +61,17 @@ export async function GET(req: NextRequest) {
       params.set(key, value);
     });
     const qs = params.toString();
-    return new Response(null, {
+    return withCors(new Response(null, {
       status: 303,
       headers: {
         Location: qs ? `/search?${qs}` : "/search",
       },
-    });
+    }));
   }
 
   const debit = await debitIfAuthenticated(req, 1, "read.legislation");
   if (!debit.ok) {
-    return NextResponse.json(debit.body, { status: debit.status });
+    return withCors(NextResponse.json(debit.body, { status: debit.status }));
   }
   const query = searchParams.get("q");
   const jurisdiction = searchParams.get("jurisdiction");
@@ -80,19 +84,19 @@ export async function GET(req: NextRequest) {
   // masks misuse). Default 50, max 200.
   const rawLimit = parseInt(searchParams.get("limit") || "50");
   if (rawLimit > 200) {
-    return NextResponse.json(
+    return withCors(NextResponse.json(
       { error: "limit_too_high", message: "limit must be ≤ 200", maxLimit: 200 },
       { status: 400 }
-    );
+    ));
   }
   const limit = rawLimit;
   const offset = parseInt(searchParams.get("offset") || "0");
 
   if (!query) {
-    return NextResponse.json({
+    return withCors(NextResponse.json({
       error: "Missing required query parameter: q",
       example: "/api/axiom/legislation/search?q=assault&jurisdiction=QLD",
-    }, { status: 400 });
+    }, { status: 400 }));
   }
 
   // Tokenize query into keywords (3+ chars)
@@ -102,9 +106,9 @@ export async function GET(req: NextRequest) {
     .filter(w => w.length >= 3);
 
   if (keywords.length === 0) {
-    return NextResponse.json({
+    return withCors(NextResponse.json({
       error: "Query too short. Please provide at least one word with 3+ characters.",
-    }, { status: 400 });
+    }, { status: 400 }));
   }
 
   // ── #1250 — signal-driven ranking helpers ───────────────────────────
@@ -430,7 +434,7 @@ export async function GET(req: NextRequest) {
   const merged = [...results, ...topicHits];
   merged.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
-  return NextResponse.json({
+  return withCors(NextResponse.json({
     results: merged,
     query,
     keywords,
@@ -473,5 +477,5 @@ export async function GET(req: NextRequest) {
         return p.toString();
       })()}`,
     },
-  });
+  }));
 }

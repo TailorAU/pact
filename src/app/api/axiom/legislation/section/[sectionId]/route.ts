@@ -1,10 +1,14 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { CORS_HEADERS, corsPreflight, withCors } from "@/lib/cors";
+
+export const OPTIONS = corsPreflight;
 
 // GET /api/axiom/legislation/section/:sectionId — Global section-level retrieval
 //
-// Free, unauthenticated. Returns matching sections across all legislation documents.
+// Free, unauthenticated, cross-origin (CORS `*` via lib/cors.ts, #2738).
+// Returns matching sections across all legislation documents.
 // Agents can request exactly "s 19" of the WHS Act without downloading the whole act.
 //
 // Path param:
@@ -86,7 +90,7 @@ export async function GET(
       }
     }
 
-    return NextResponse.json({
+    return withCors(NextResponse.json({
       sections: [],
       query: decoded,
       total: 0,
@@ -94,7 +98,7 @@ export async function GET(
     }, {
       status: 404,
       headers: { "Cache-Control": "public, max-age=3600" },
-    });
+    }));
   }
 
   return formatResponse(result.rows, decoded, format);
@@ -129,6 +133,7 @@ function formatResponse(rows: Record<string, unknown>[], query: string, format: 
 
     return new Response(text, {
       headers: {
+        ...CORS_HEADERS,
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "public, max-age=86400",
       },
@@ -141,6 +146,9 @@ function formatResponse(rows: Record<string, unknown>[], query: string, format: 
     total: sections.length,
     free: true,
   }, {
-    headers: { "Cache-Control": "public, max-age=86400" },
+    headers: {
+      ...CORS_HEADERS,
+      "Cache-Control": "public, max-age=86400",
+    },
   });
 }

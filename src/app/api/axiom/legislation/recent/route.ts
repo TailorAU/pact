@@ -1,10 +1,14 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { corsPreflight, withCors } from "@/lib/cors";
+
+export const OPTIONS = corsPreflight;
 
 // GET /api/axiom/legislation/recent — Recently amended legislation
 //
-// Free, unauthenticated. Australian legislation is a public good.
+// Free, unauthenticated, cross-origin (CORS `*` via lib/cors.ts, #2738).
+// Australian legislation is a public good.
 //
 // "Recent" = last_amended_date within the last N days (default 30, max 365).
 //
@@ -82,7 +86,7 @@ export async function GET(req: NextRequest) {
     },
   }));
 
-  return NextResponse.json({
+  return withCors(NextResponse.json({
     legislation,
     total,
     daysWindow: days,
@@ -97,5 +101,5 @@ export async function GET(req: NextRequest) {
         : null,
       html: `/legislation/recent?days=${days}${jurisdiction ? `&jurisdiction=${encodeURIComponent(jurisdiction)}` : ""}`,
     },
-  });
+  }));
 }

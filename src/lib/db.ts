@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import pg from "pg";
 import { v4 as uuid } from "uuid";
+import { dependencyGateOk } from "./consensus-gate";
 
 // Load DDL from sql/<filename>. Splits on ";\n" to recover individual
 // statement strings that initSchema passes to db.execute(), matching the
@@ -1043,7 +1044,7 @@ export async function updateConsensusStatuses(db: DbClient) {
       (SELECT COUNT(*) FROM topic_dependencies td
         JOIN topics dep ON dep.id = td.depends_on
         WHERE td.topic_id = t.id
-        AND dep.status NOT IN ('consensus', 'stable')) as unmetDependencies
+        AND dep.status NOT IN ('consensus', 'stable', 'locked')) as unmetDependencies
     FROM topics t
     WHERE t.status IN ('open', 'challenged')
   `);
@@ -1062,7 +1063,7 @@ export async function updateConsensusStatuses(db: DbClient) {
 
     const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
 
-    const depsOk = true; // TODO: Re-enable after bootstrap: tier === "axiom" || unmetDeps === 0;
+    const depsOk = dependencyGateOk(tier, unmetDeps); // #2888 — re-enabled post-bootstrap (blast radius zero)
 
     if (
       pending === 0 &&
@@ -1127,7 +1128,7 @@ export async function updateConsensusStatuses(db: DbClient) {
       (SELECT COUNT(*) FROM topic_dependencies td
         JOIN topics dep ON dep.id = td.depends_on
         WHERE td.topic_id = t.id
-        AND dep.status NOT IN ('consensus', 'stable')) as unmetDependencies
+        AND dep.status NOT IN ('consensus', 'stable', 'locked')) as unmetDependencies
     FROM topics t
     WHERE t.status = 'consensus'
   `);
@@ -1144,7 +1145,7 @@ export async function updateConsensusStatuses(db: DbClient) {
     const consensusSince = t.consensus_since as string;
     const unmetDeps = t.unmetDependencies as number;
 
-    const depsOkForBreaking = true; // TODO: Re-enable: tier === "axiom" || unmetDeps === 0;
+    const depsOkForBreaking = dependencyGateOk(tier, unmetDeps); // #2888 — re-enabled post-bootstrap
 
     const wasForced = totalVoters === 0;
     if (!wasForced && (alignmentRatio < CONSENSUS_RATIO || aligned < requiredAgents || pending > 0 || !depsOkForBreaking)) {

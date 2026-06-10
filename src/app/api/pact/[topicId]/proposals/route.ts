@@ -6,6 +6,7 @@ import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { sanitizeContent, sanitizeSummary, validateTTL } from "@/lib/sanitize";
 import { transfer, ensureWallet } from "@/lib/economy";
 import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 export async function GET(
   req: NextRequest,
@@ -81,8 +82,10 @@ export async function POST(
   }
 
   let body;
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }

@@ -4,6 +4,7 @@ import { requireAgent } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { sanitizeReason } from "@/lib/sanitize";
 import { transfer } from "@/lib/economy";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 export async function POST(
   req: NextRequest,
@@ -18,7 +19,10 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await req.json().catch(() => ({}));
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
+  let body: unknown;
+  try { body = JSON.parse(bounded.text); } catch { body = {}; }
   const { reason, confidential, publicSummary } = body as { reason?: string; confidential?: boolean; publicSummary?: string };
   const isConfidential = confidential ? 1 : 0;
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AzureOpenAI } from "openai";
 import { log } from "@/lib/logger";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 let _client: AzureOpenAI | null = null;
 function getClient(): AzureOpenAI {
@@ -28,8 +29,10 @@ Rules:
 Respond ONLY with JSON, no markdown fences.`;
 
 export async function POST(req: Request) {
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    const { query } = await req.json();
+    const { query } = JSON.parse(bounded.text);
     if (!query || typeof query !== "string" || query.trim().length < 2) {
       return NextResponse.json({ error: "Vehicle query too short" }, { status: 400 });
     }

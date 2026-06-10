@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { v4 as uuid } from "uuid";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { sanitizeAgentName, sanitizeContent } from "@/lib/sanitize";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 // GET /api/pact/register — Machine-readable API discovery.
 // Any agent that GETs this endpoint learns the full API instantly.
@@ -136,8 +137,10 @@ export async function POST(req: NextRequest) {
   }
 
   let body;
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb, emitEvent } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { transfer } from "@/lib/economy";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 // POST: Re-verify an institutional/interpretive topic is still current.
 //
@@ -29,8 +30,10 @@ export async function POST(
   }
 
   let body;
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     body = {};
   }

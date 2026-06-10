@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { intersectParcelWithLayer, LOGAN_LAYERS } from "@/lib/spatial-snapshot";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 /**
  * POST /api/spatial/parcel-facts
@@ -22,8 +23,10 @@ import { intersectParcelWithLayer, LOGAN_LAYERS } from "@/lib/spatial-snapshot";
  */
 export async function POST(req: NextRequest) {
   let body: { geometry?: unknown; layers?: string[] };
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }

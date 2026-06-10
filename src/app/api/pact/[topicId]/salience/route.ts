@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, emitEvent } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 export async function GET(
   req: NextRequest,
@@ -26,8 +27,10 @@ export async function POST(
   try { agent = await requireAgent(req); } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
 
   let body;
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }

@@ -3,6 +3,7 @@ import { getLatestPrices, searchProducts } from "@/lib/market/queries";
 import { solveCart } from "@/lib/market/cart-solver";
 import type { CartItem, PriceCandidate } from "@/lib/market/types";
 import { log } from "@/lib/logger";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +28,10 @@ function latestToCandidates(
 export async function POST(request: NextRequest) {
   try {
     let body: unknown;
+    const bounded = await readBodyBounded(request);
+    if (!bounded.ok) return bounded.response;
     try {
-      body = await request.json();
+      body = JSON.parse(bounded.text);
     } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }

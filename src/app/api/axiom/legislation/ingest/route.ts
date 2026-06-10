@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { randomUUID } from "crypto";
 import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
+import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bounded";
 
 // POST /api/axiom/legislation/ingest — Bulk-ingest legislation documents with sections
 //
@@ -48,7 +49,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized. Requires X-Admin-Key header." }, { status: 401 });
   }
 
-  const body = await req.json();
+  const bounded = await readBodyBounded(req, ADMIN_INGEST_MAX_BODY_BYTES);
+  if (!bounded.ok) return bounded.response;
+  const body = JSON.parse(bounded.text);
   const documents = body.documents;
   if (!Array.isArray(documents) || documents.length === 0) {
     return NextResponse.json({ error: "Body must contain a non-empty 'documents' array." }, { status: 400 });

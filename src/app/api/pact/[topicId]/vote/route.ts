@@ -5,6 +5,7 @@ import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { v4 as uuid } from "uuid";
 import { sanitizeReason, sanitizeContent } from "@/lib/sanitize";
 import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 const TOPIC_APPROVAL_THRESHOLD = 3;
 
@@ -74,8 +75,10 @@ export async function POST(
   }
 
   let body;
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }

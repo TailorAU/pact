@@ -15,6 +15,7 @@ import { matchScenarios } from "@/lib/scenarios/predicate-match";
 import { llmMatch } from "@/lib/scenarios/llm-match";
 import { debitIfAuthenticated } from "@/lib/wallet-debit";
 import { resolveAgentFromKey } from "@/lib/work/auth";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +26,10 @@ export async function POST(req: Request) {
   }
 
   let body: unknown;
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }

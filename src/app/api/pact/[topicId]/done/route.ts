@@ -3,6 +3,7 @@ import { getDb, emitEvent, updateConsensusStatuses } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { processAssumptions, type AssumptionEntry } from "@/lib/assumptions";
 import { transfer } from "@/lib/economy";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 const VALID_DONE_STATUSES = ["aligned", "dissenting", "abstain"];
 
@@ -22,8 +23,10 @@ export async function POST(
   try { agent = await requireAgent(req); } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
 
   let body;
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     body = {};
   }

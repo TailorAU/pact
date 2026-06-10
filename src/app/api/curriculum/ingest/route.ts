@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
+import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bounded";
 
 // POST /api/curriculum/ingest — Bulk-ingest authoritative curriculum descriptors (#2520)
 //
@@ -46,7 +47,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized. Requires X-Admin-Key header." }, { status: 401 });
   }
 
-  const body = await req.json();
+  const bounded = await readBodyBounded(req, ADMIN_INGEST_MAX_BODY_BYTES);
+  if (!bounded.ok) return bounded.response;
+  const body = JSON.parse(bounded.text);
   const frameworks = Array.isArray(body.frameworks) ? body.frameworks : [];
   const descriptors = body.descriptors;
   if (!Array.isArray(descriptors) || descriptors.length === 0) {

@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { v4 as uuid } from "uuid";
 import { createHash, randomBytes } from "crypto";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 // POST /api/axiom/keys — Self-service API key creation
 // Free tier: 100 queries. Rate limited to 3/hour per IP.
@@ -21,8 +22,10 @@ export async function POST(req: NextRequest) {
   }
 
   let body;
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }

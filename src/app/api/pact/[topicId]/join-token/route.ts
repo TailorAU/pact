@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, emitEvent } from "@/lib/db";
 import { v4 as uuid } from "uuid";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ topicId: string }> }
 ) {
   const { topicId } = await params;
-  const body = await req.json();
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
+  const body = JSON.parse(bounded.text);
   const { agentName, token } = body;
 
   if (!agentName || !token) {

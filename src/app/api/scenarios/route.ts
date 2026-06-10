@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { listScenarios } from "@/lib/scenarios/queries";
 import { recordAudit } from "@/lib/audit";
+import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bounded";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,9 @@ export async function POST(req: Request) {
   }
 
   let body: unknown;
-  try { body = await req.json(); } catch {
+  const bounded = await readBodyBounded(req, ADMIN_INGEST_MAX_BODY_BYTES);
+  if (!bounded.ok) return bounded.response;
+  try { body = JSON.parse(bounded.text); } catch {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
   if (!body || typeof body !== "object") {

@@ -3,12 +3,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { v4 as uuid } from "uuid";
 import { createHash, randomBytes } from "crypto";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 // POST: Create a new commercial API key for the Axiom Toll Road
 export async function POST(req: NextRequest) {
   let body;
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }

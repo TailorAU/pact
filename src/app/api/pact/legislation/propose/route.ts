@@ -5,6 +5,7 @@ import { requireAgent } from "@/lib/auth";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { sanitizeContent } from "@/lib/sanitize";
 import { v4 as uuid } from "uuid";
+import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bounded";
 
 /**
  * POST /api/pact/legislation/propose — Agent-contributed legislation.
@@ -45,8 +46,10 @@ export async function POST(req: NextRequest) {
   }
 
   let body;
+  const bounded = await readBodyBounded(req, ADMIN_INGEST_MAX_BODY_BYTES);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }

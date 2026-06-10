@@ -9,6 +9,7 @@ import { sanitizeContent } from "@/lib/sanitize";
 import { wouldCreateCycle, VALID_RELATIONSHIPS } from "@/lib/db";
 import { transfer } from "@/lib/economy";
 import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 // List all topics — filterable by tier and status, with pagination.
 // No auth required. Anyone can browse.
@@ -86,8 +87,10 @@ export async function POST(req: NextRequest) {
   }
 
   let body;
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }

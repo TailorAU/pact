@@ -22,6 +22,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getDb } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 export const dynamic = "force-dynamic";
 
@@ -40,8 +41,10 @@ export async function POST(
   }
 
   let body: { decision?: string; note?: string };
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = (await req.json()) as { decision?: string; note?: string };
+    body = JSON.parse(bounded.text) as { decision?: string; note?: string };
   } catch {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }

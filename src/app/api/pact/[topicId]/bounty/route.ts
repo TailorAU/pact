@@ -3,6 +3,7 @@ import { getDb, emitEvent } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { transfer, ensureWallet } from "@/lib/economy";
 import { v4 as uuid } from "uuid";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 // GET: View bounty info for a topic (no auth required)
 export async function GET(
@@ -54,8 +55,10 @@ export async function POST(
   }
 
   let body;
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }

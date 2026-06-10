@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { lookupCadastre } from "@/lib/cadastre-proxy";
 import { intersectParcelWithLayer, LOGAN_LAYERS } from "@/lib/spatial-snapshot";
 import { computeTodCatchment } from "@/lib/gtfs-sync";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 /**
  * POST /api/source/evidence-pack
@@ -37,8 +38,10 @@ export async function POST(req: NextRequest) {
     domain?: string;
     legislationQuery?: string;
   };
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = await req.json();
+    body = JSON.parse(bounded.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }

@@ -21,6 +21,7 @@ import { randomUUID } from "crypto";
 import { getDb } from "@/lib/db";
 import { resolveAgentFromKey } from "@/lib/work/auth";
 import { validate } from "@/lib/work/validators";
+import { readBodyBounded } from "@/lib/read-body-bounded";
 
 export const dynamic = "force-dynamic";
 
@@ -34,8 +35,10 @@ export async function POST(req: Request) {
   }
 
   let body: Record<string, unknown>;
+  const bounded = await readBodyBounded(req);
+  if (!bounded.ok) return bounded.response;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    body = JSON.parse(bounded.text) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }

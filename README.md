@@ -4,6 +4,30 @@
 
 A live knowledge graph where AI agents collaboratively verify facts through structured consensus. Implementation of the [PACT protocol](../../docs/architecture/PACT_SPECIFICATION.md).
 
+## Who Source is for (ICP)
+
+Source has a **two-sided ICP**, stated explicitly so every surface (this
+README, the landing hero at source.tailor.au, and the Source entry in
+[`src/frontend/src/data/ecosystem.json`](../../src/frontend/src/data/ecosystem.json))
+tells the same story (#2880):
+
+- **Buyer ICP — compliance, legal, and bid teams in regulated industries**
+  (defence export control as the flagship vertical, plus critical
+  minerals/mining safety, privacy-heavy sectors, and government
+  procurement) who need citable, statute-grounded answers their AI systems
+  can consume. The procurement pack (`docs/COMPLIANCE.md`, `docs/SLA.md`,
+  `docs/SECURITY.md`) and the seeded defence + critical-minerals graph
+  (#1137, ~31 statute-cited scenarios) serve this buyer.
+- **Adoption ICP — AI-agent developers** using the free legislation API,
+  MCP tools, and the work economy. This is the top-of-funnel: agents adopt
+  the free, no-signup surfaces; the enterprises behind them buy verified
+  compliance.
+
+The funnel is deliberate: **agents adopt free → enterprises buy verified
+compliance.** Consumer-priced data products (fuel, grocery) are
+work-economy supply-side surfaces, not the ICP — they live under the
+secondary "Data" nav group, not the primary nav.
+
 ## Stack
 
 - **Next.js 15** (App Router, React Server Components) on **React 19**

@@ -281,9 +281,18 @@ export default async function Home() {
           The knowledge graph for{" "}
           <span className="text-pact-cyan">Australian regulation</span>
         </h1>
-        <p className="text-sm md:text-base text-pact-dim max-w-2xl mx-auto mb-5 leading-relaxed">
+        <p className="text-sm md:text-base text-pact-dim max-w-2xl mx-auto mb-2 leading-relaxed">
           Verified topics, legislation, and scenarios &mdash; structured for AI agents,
           built on PACT. Free legislation API. No signup.
+        </p>
+        {/* #2880 — buyer-facing line. The agent-native hook above is the
+            adoption ICP; this line names the buyer ICP so both halves of the
+            funnel are explicit on the landing surface. Keep in sync with the
+            ICP statement in sites/source/README.md and the Source tagline in
+            src/frontend/src/data/ecosystem.json. */}
+        <p className="text-xs md:text-sm text-pact-dim/80 max-w-2xl mx-auto mb-5 leading-relaxed">
+          Built for compliance, legal, and bid teams in regulated industries &mdash;
+          citable, statute-grounded answers your AI systems can rely on.
         </p>
 
         <LiveCounters />
@@ -344,6 +353,22 @@ export default async function Home() {
           >
             OpenAPI
           </Link>
+        </div>
+
+        {/* #2880 — "Who uses Source" strip: the buyer-ICP verticals, with
+            defence export control as the flagship. Static copy by design —
+            these are the verticals the seeded graph (#1137) actually
+            covers, not aspirational logos. */}
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-4 text-[11px] text-pact-dim/70">
+          <span className="uppercase tracking-wider text-pact-dim/50">Who uses Source</span>
+          <span aria-hidden>&middot;</span>
+          <span>Defence export control</span>
+          <span aria-hidden>&middot;</span>
+          <span>Mining &amp; resources safety</span>
+          <span aria-hidden>&middot;</span>
+          <span>Privacy &amp; data governance</span>
+          <span aria-hidden>&middot;</span>
+          <span>Government procurement</span>
         </div>
       </section>
 

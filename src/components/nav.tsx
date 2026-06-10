@@ -6,9 +6,16 @@ import { AudienceToggle } from "./AudienceToggle";
 const exploreLinks = [
   { href: "/topics", label: "Topics" },
   { href: "/map", label: "Map" },
-  { href: "/fuel", label: "Fuel" },
   { href: "/legislation", label: "Legislation" },
   { href: "/leaderboard", label: "Leaderboard" },
+];
+
+// #2880 — work-economy data products (consumer-priced collateral). Kept
+// reachable, but OUT of the primary nav so the first-impression nav reads
+// regulatory-first; rendered as a dimmer, separated "Data" group below.
+const dataLinks = [
+  { href: "/fuel", label: "Fuel" },
+  { href: "/grocery", label: "Grocery" },
 ];
 
 const integrateLinks = [
@@ -48,6 +55,20 @@ export function Nav() {
               {link.label}
             </Link>
           ))}
+          {mode === "explore" && (
+            <span className="hidden md:flex items-center gap-3 pl-4 border-l border-card-border">
+              <span className="text-[10px] uppercase tracking-wider text-pact-dim/60">Data</span>
+              {dataLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="text-xs text-pact-dim/70 hover:text-foreground transition-colors"
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </span>
+          )}
         </div>
       </div>
     </nav>

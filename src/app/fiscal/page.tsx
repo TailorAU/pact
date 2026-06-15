@@ -21,6 +21,9 @@ type ForecastLine = {
   confidence: number | null;
   actualValue: number | null;
   accuracyScore: number | null;
+  lockHash?: string;
+  lockedAt?: string | null;
+  confidenceHistory?: { at: string; confidence: number | null; note?: string }[];
 };
 
 type Summary = {
@@ -149,6 +152,28 @@ export default function FiscalPage() {
       {forecast.length > 0 && (
         <section style={{ marginBottom: "2rem" }}>
           <h2 style={{ fontSize: "1.2rem" }}>FY2026-27 — pre-registered forecast</h2>
+          {(() => {
+            const stamped = forecast.find((f) => f.lockHash || f.lockedAt);
+            if (!stamped) return null;
+            const hist = stamped.confidenceHistory ?? [];
+            const updates = hist.length;
+            const latest = hist[hist.length - 1];
+            return (
+              <div style={{ fontSize: ".8rem", color: "#666", margin: ".25rem 0 .75rem" }}>
+                <p style={{ margin: "0 0 .2rem" }}>
+                  {stamped.lockHash && <>Lock-hash <code>{stamped.lockHash}</code> · </>}
+                  {stamped.lockedAt && <>locked {new Date(stamped.lockedAt).toLocaleDateString()} · </>}
+                  {updates} timestamped review{updates === 1 ? "" : "s"} as public signal lands ·
+                  scored against reality on 23 Jun 2026
+                </p>
+                {latest?.note && latest.at && (
+                  <p style={{ margin: 0, fontStyle: "italic" }}>
+                    Latest ({new Date(latest.at).toLocaleString()}): {latest.note}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
           <FiscalTable
             head={["Line", "Forecast", "Actual", "Accuracy"]}
             rows={forecast.map((f) => [

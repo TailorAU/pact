@@ -175,8 +175,12 @@ export async function runFiscalSync(
     }
 
     // ── Forecast lines (FY2026-27, pre-registered) ────────────────────
+    // Each run appends a timestamped stamp to confidence_history. `note`
+    // records the outcome of the latest public-signal review (e.g. held vs
+    // re-priced), so the history is a meaningful audit trail, not bare ticks.
     const confidence = (seedData.confidence as number | undefined) ?? null;
-    const confEntry = JSON.stringify([{ at: startedAt, confidence }]);
+    const stampNote = (seedData.stamp_note as string | undefined) ?? "nightly refresh";
+    const confEntry = JSON.stringify([{ at: startedAt, confidence, note: stampNote }]);
     for (const line of forecast) {
       try {
         await db.execute({

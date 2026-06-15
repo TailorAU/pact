@@ -26,6 +26,8 @@ export interface FiscalForecastRow {
   accuracyScore: number | null;
   modelVersion: string;
   lockHash: string;
+  lockedAt: string | null;
+  confidenceHistory: { at: string; confidence: number | null; note?: string }[];
 }
 
 // Human-readable titles, keyed by line_key, so the forecast year renders labels
@@ -49,6 +51,22 @@ const LINE_TITLES: Record<string, string> = {
   "qld.gg.purch_nfa": "Purchases of non-financial assets",
   "qld.gg.nob": "Net operating balance",
 };
+
+function parseHistory(v: unknown): { at: string; confidence: number | null }[] {
+  if (v === null || v === undefined) return [];
+  let arr: unknown = v;
+  if (typeof v === "string") {
+    try { arr = JSON.parse(v); } catch { return []; }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null)
+    .map((e) => ({
+      at: String(e.at ?? ""),
+      confidence: typeof e.confidence === "number" ? e.confidence : null,
+      ...(typeof e.note === "string" ? { note: e.note } : {}),
+    }));
+}
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined) return null;
@@ -125,7 +143,8 @@ export async function getFiscalForecast(options: {
 
   const res = await db.execute({
     sql: `SELECT line_key, fiscal_year, forecast_value, confidence, actual_value,
-                 accuracy_score, model_version, lock_hash, retrieved_at
+                 accuracy_score, model_version, lock_hash, locked_at,
+                 confidence_history, retrieved_at
           FROM fiscal_forecast ${whereSql}
           ORDER BY line_key ASC
           LIMIT ${limit} OFFSET ${offset}`,
@@ -142,6 +161,8 @@ export async function getFiscalForecast(options: {
     accuracyScore: num(r.accuracy_score),
     modelVersion: String(r.model_version),
     lockHash: String(r.lock_hash),
+    lockedAt: r.locked_at ? String(r.locked_at) : null,
+    confidenceHistory: parseHistory(r.confidence_history),
   }));
 
   const freshRes = await db.execute("SELECT MAX(retrieved_at) AS m FROM fiscal_forecast");

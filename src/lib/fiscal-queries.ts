@@ -19,6 +19,7 @@ export interface FiscalLineRow {
 export interface FiscalForecastRow {
   lineKey: string;
   fiscalYear: string;
+  title: string;
   forecastValue: number;
   confidence: number | null;
   actualValue: number | null;
@@ -26,6 +27,28 @@ export interface FiscalForecastRow {
   modelVersion: string;
   lockHash: string;
 }
+
+// Human-readable titles, keyed by line_key, so the forecast year renders labels
+// even before any fiscal_line row for that year exists to join against.
+const LINE_TITLES: Record<string, string> = {
+  "qld.gg.taxation": "Taxation revenue",
+  "qld.gg.grants_rev": "Grants revenue",
+  "qld.gg.sales_gs": "Sales of goods and services",
+  "qld.gg.interest_inc": "Interest income",
+  "qld.gg.dividends": "Dividend & ITE income",
+  "qld.gg.other_rev": "Other revenue",
+  "qld.gg.total_rev": "Total revenue",
+  "qld.gg.employee": "Employee expenses",
+  "qld.gg.super_int": "Superannuation interest cost",
+  "qld.gg.other_super": "Other superannuation expenses",
+  "qld.gg.other_oper": "Other operating expenses",
+  "qld.gg.dep_amort": "Depreciation and amortisation",
+  "qld.gg.interest_exp": "Other interest expenses",
+  "qld.gg.grants_exp": "Grants expenses",
+  "qld.gg.total_exp": "Total expenses",
+  "qld.gg.purch_nfa": "Purchases of non-financial assets",
+  "qld.gg.nob": "Net operating balance",
+};
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined) return null;
@@ -112,6 +135,7 @@ export async function getFiscalForecast(options: {
   const lines: FiscalForecastRow[] = (res.rows ?? []).map((r) => ({
     lineKey: String(r.line_key),
     fiscalYear: String(r.fiscal_year),
+    title: LINE_TITLES[String(r.line_key)] ?? String(r.line_key),
     forecastValue: num(r.forecast_value) ?? 0,
     confidence: num(r.confidence),
     actualValue: num(r.actual_value),

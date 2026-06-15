@@ -62,6 +62,11 @@ const _spendingCapStatements: string[] = _loadSqlStatements("spending-cap.sql");
 // at the end of initSchema (idempotent, ON CONFLICT DO NOTHING).
 const _curriculumStatements: string[] = _loadSqlStatements("curriculum-schema.sql");
 
+// #3053 — fiscal reconstruction (QLD Budget temporal graph node). DDL in
+// sql/fiscal-reconstruction-schema.sql, same loader pattern as legislation.
+// fiscal_line / fiscal_forecast / fiscal_sync_log; idempotent CREATE IF NOT EXISTS.
+const _fiscalStatements: string[] = _loadSqlStatements("fiscal-reconstruction-schema.sql");
+
 // Return TIMESTAMP / TIMESTAMPTZ as ISO strings (not JS Date objects)
 // so existing code that casts date columns to string keeps working.
 pg.types.setTypeParser(1114, (val: string) => val);
@@ -359,6 +364,11 @@ async function initSchema(db: DbClient) {
     // ACARA v9 + EYLF descriptors. DDL extracted to sql/curriculum-schema.sql,
     // same loader pattern as legislation. Seeded below via seedCurriculum().
     ..._curriculumStatements,
+
+    // ── Fiscal reconstruction (#3053) ────────────────────────────────
+    // QLD Budget temporal graph node: fiscal_line / fiscal_forecast /
+    // fiscal_sync_log. DDL in sql/fiscal-reconstruction-schema.sql.
+    ..._fiscalStatements,
 
     // ── Indexes ─────────────────────────────────────────────────────
     `CREATE INDEX IF NOT EXISTS idx_proposals_topic_status ON proposals(topic_id, status)`,

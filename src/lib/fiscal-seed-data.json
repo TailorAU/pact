@@ -1,0 +1,184 @@
+{
+ "model_version": "calibration@v2",
+ "lock_hash": "6ac7303218e00fba",
+ "confidence": 88.0,
+ "reconstruction_FY2024-25": [
+  {
+   "line_key": "qld.gg.taxation",
+   "title": "Taxation revenue",
+   "reconstructed_value": 22662,
+   "audited_value": 25033,
+   "err_pct": -9.5,
+   "method": "administered+controlled Taxes",
+   "source_feed": "SDS",
+   "verdict": "automate"
+  },
+  {
+   "line_key": "qld.gg.sales_gs",
+   "title": "Sales of goods and services",
+   "reconstructed_value": 7588,
+   "audited_value": 7590,
+   "err_pct": -0.0,
+   "method": "controlled user-charges / 2.6 internal-billing factor",
+   "source_feed": "SDS",
+   "verdict": "automate"
+  },
+  {
+   "line_key": "qld.gg.royalties",
+   "title": "Royalties and land rents",
+   "reconstructed_value": 8108,
+   "audited_value": 7936,
+   "err_pct": 2.2,
+   "method": "SDS royalties (QAO+Argus corroborate)",
+   "source_feed": "SDS",
+   "verdict": "automate"
+  },
+  {
+   "line_key": "qld.gg.employee",
+   "title": "Employee expenses",
+   "reconstructed_value": 36829,
+   "audited_value": 36147,
+   "err_pct": 1.9,
+   "method": "sum of Controlled employee expenses",
+   "source_feed": "SDS",
+   "verdict": "automate"
+  },
+  {
+   "line_key": "qld.gg.dep_amort",
+   "title": "Depreciation and amortisation",
+   "reconstructed_value": 6185,
+   "audited_value": 5890,
+   "err_pct": 5.0,
+   "method": "reporting-entity-preferred consolidation",
+   "source_feed": "SDS",
+   "verdict": "automate"
+  },
+  {
+   "line_key": "qld.gg.grants_rev",
+   "title": "Grants revenue",
+   "reconstructed_value": 42392,
+   "audited_value": 41258,
+   "err_pct": 2.7,
+   "method": "federal FBO Total payments to Qld",
+   "source_feed": "FBO",
+   "verdict": "feed"
+  },
+  {
+   "line_key": "qld.gg.interest_exp",
+   "title": "Other interest expenses",
+   "reconstructed_value": 2624,
+   "audited_value": 2594,
+   "err_pct": 1.2,
+   "method": "avg GG borrowing (balance sheet) x QTC cost-of-funds",
+   "source_feed": "QTC",
+   "verdict": "feed"
+  },
+  {
+   "line_key": "qld.gg.other_oper",
+   "title": "Other operating expenses",
+   "reconstructed_value": 26396,
+   "audited_value": 25961,
+   "err_pct": 1.7,
+   "method": "SDS supplies - inter-agency elimination, ABS GFS sales anchor",
+   "source_feed": "GFS",
+   "verdict": "anchor"
+  },
+  {
+   "line_key": "qld.gg.grants_exp",
+   "title": "Grants expenses",
+   "reconstructed_value": null,
+   "audited_value": 17611,
+   "err_pct": null,
+   "method": "counterparty field needed (grant ledger)",
+   "source_feed": "GAP",
+   "verdict": "feed"
+  }
+ ],
+ "forecast_FY2026-27": [
+  {
+   "line_key": "qld.gg.taxation",
+   "title": "Taxation revenue",
+   "forecast_value": 29747
+  },
+  {
+   "line_key": "qld.gg.grants_rev",
+   "title": "Grants revenue",
+   "forecast_value": 44361
+  },
+  {
+   "line_key": "qld.gg.sales_gs",
+   "title": "Sales of goods and services",
+   "forecast_value": 8662
+  },
+  {
+   "line_key": "qld.gg.interest_inc",
+   "title": "Interest income",
+   "forecast_value": 3452
+  },
+  {
+   "line_key": "qld.gg.dividends",
+   "title": "Dividend & ITE income",
+   "forecast_value": 1620
+  },
+  {
+   "line_key": "qld.gg.other_rev",
+   "title": "Other revenue",
+   "forecast_value": 9823
+  },
+  {
+   "line_key": "qld.gg.total_rev",
+   "title": "Total revenue",
+   "forecast_value": 97665
+  },
+  {
+   "line_key": "qld.gg.employee",
+   "title": "Employee expenses",
+   "forecast_value": 40274
+  },
+  {
+   "line_key": "qld.gg.super_int",
+   "title": "Superannuation interest cost",
+   "forecast_value": 679
+  },
+  {
+   "line_key": "qld.gg.other_super",
+   "title": "Other superannuation expenses",
+   "forecast_value": 4807
+  },
+  {
+   "line_key": "qld.gg.other_oper",
+   "title": "Other operating expenses",
+   "forecast_value": 27367
+  },
+  {
+   "line_key": "qld.gg.dep_amort",
+   "title": "Depreciation and amortisation",
+   "forecast_value": 7362
+  },
+  {
+   "line_key": "qld.gg.interest_exp",
+   "title": "Other interest expenses",
+   "forecast_value": 4576
+  },
+  {
+   "line_key": "qld.gg.grants_exp",
+   "title": "Grants expenses",
+   "forecast_value": 21330
+  },
+  {
+   "line_key": "qld.gg.total_exp",
+   "title": "Total expenses",
+   "forecast_value": 106395
+  },
+  {
+   "line_key": "qld.gg.purch_nfa",
+   "title": "Purchases of non-financial assets",
+   "forecast_value": 18312
+  },
+  {
+   "line_key": "qld.gg.nob",
+   "title": "Net operating balance",
+   "forecast_value": -8730
+  }
+ ]
+}

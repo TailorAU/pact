@@ -212,3 +212,57 @@ export async function getFiscalSummary(fiscalYear = "FY2024-25"): Promise<{
     lastUpdated,
   };
 }
+
+export interface FiscalComputeCost {
+  totalTokens: number;
+  measuredTokens: number;
+  costUsd: number;
+  kwh: number;
+  kwhLow: number | null;
+  kwhHigh: number | null;
+  cronRuns: number;
+  cronTokens: number;
+  basis: string;
+  assumptions: Record<string, unknown>;
+  humanCompare: Record<string, unknown>;
+  updatedAt: string | null;
+}
+
+// The cost of establishing the QLD 2026-27 AI forecast: the one-time exercise
+// ledger (subagent tokens measured, main-thread + energy estimated) plus the
+// cumulative MEASURED token cost of the nightly cron runs.
+export async function getFiscalComputeCost(): Promise<FiscalComputeCost> {
+  const db = await getDb();
+  const led = await db.execute({
+    sql: `SELECT total_tokens, measured_tokens, cost_usd, kwh, kwh_low, kwh_high,
+                 basis, assumptions, human_compare, updated_at
+          FROM fiscal_compute_ledger WHERE id = 'qld-2026-27-exercise'`,
+    args: [],
+  });
+  const r = led.rows?.[0];
+  const cron = await db.execute(
+    "SELECT COUNT(*) AS c, COALESCE(SUM(input_tokens + output_tokens),0) AS t FROM fiscal_sync_log"
+  );
+  const cr = cron.rows?.[0];
+
+  function obj(v: unknown): Record<string, unknown> {
+    if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
+    if (typeof v === "string") { try { return JSON.parse(v); } catch { /* ignore */ } }
+    return {};
+  }
+
+  return {
+    totalTokens: num(r?.total_tokens) ?? 0,
+    measuredTokens: num(r?.measured_tokens) ?? 0,
+    costUsd: num(r?.cost_usd) ?? 0,
+    kwh: num(r?.kwh) ?? 0,
+    kwhLow: num(r?.kwh_low),
+    kwhHigh: num(r?.kwh_high),
+    cronRuns: num(cr?.c) ?? 0,
+    cronTokens: num(cr?.t) ?? 0,
+    basis: r?.basis ? String(r.basis) : "estimated",
+    assumptions: obj(r?.assumptions),
+    humanCompare: obj(r?.human_compare),
+    updatedAt: r?.updated_at ? String(r.updated_at) : null,
+  };
+}

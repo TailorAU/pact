@@ -52,6 +52,50 @@ interface ForecastLine {
 const RECON_FISCAL_YEAR = "FY2024-25";
 const FORECAST_FISCAL_YEAR = "FY2026-27";
 
+// ── Compute ledger (#3053 follow-up) — the cost of establishing this forecast ──
+// Subagent/workflow tokens are MEASURED (exact, from usage blocks). Main-thread
+// tokens + energy are ESTIMATES (no per-call meter), flagged via basis='estimated'.
+// Energy uses a transparent blended 0.4 Wh/1k-token midpoint with a sensitivity band.
+const EXERCISE_MEASURED_TOKENS = 1_271_753; // subagents + workflows, exact
+const EXERCISE_TOTAL_TOKENS = 4_171_753;    // + ~2.9M estimated main-thread
+const WH_PER_1K = 0.4;
+const exerciseKwh = (EXERCISE_TOTAL_TOKENS / 1000) * WH_PER_1K / 1000;
+const exerciseCostUsd =
+  ((EXERCISE_MEASURED_TOKENS * 0.7 + 2_500_000) / 1e6) * 5 +
+  ((EXERCISE_MEASURED_TOKENS * 0.3 + 400_000) / 1e6) * 25;
+
+async function upsertExerciseLedger(db: DbClient): Promise<void> {
+  await db.execute({
+    sql: `INSERT INTO fiscal_compute_ledger
+            (id, label, kind, basis, total_tokens, measured_tokens, cost_usd, kwh,
+             kwh_low, kwh_high, assumptions, human_compare, recorded_at, updated_at)
+          VALUES ('qld-2026-27-exercise',
+                  'Compute to establish the QLD 2026-27 AI forecast', 'exercise',
+                  'estimated', ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            total_tokens = EXCLUDED.total_tokens,
+            measured_tokens = EXCLUDED.measured_tokens,
+            cost_usd = EXCLUDED.cost_usd,
+            kwh = EXCLUDED.kwh,
+            updated_at = NOW()`,
+    args: [
+      EXERCISE_TOTAL_TOKENS, EXERCISE_MEASURED_TOKENS,
+      Math.round(exerciseCostUsd * 100) / 100, Math.round(exerciseKwh * 1000) / 1000,
+      Math.round((EXERCISE_TOTAL_TOKENS / 1000) * 0.2 / 1000 * 1000) / 1000,
+      Math.round((EXERCISE_TOTAL_TOKENS / 1000) * 1.0 / 1000 * 1000) / 1000,
+      JSON.stringify({
+        pricing: "Opus 4.8 list $5/$25 per Mtok",
+        energy: `blended ${WH_PER_1K} Wh per 1k tokens (sensitivity 0.2–1.0)`,
+        measured: "subagent + workflow tokens exact; main-thread + energy estimated",
+      }),
+      JSON.stringify({
+        treasury_process: "~6 months, ~200–400 FTE-months",
+        energy_order: "AI ~1.7 kWh vs Treasury process ~tens of thousands of kWh",
+      }),
+    ],
+  });
+}
+
 // ── Graph nodes (#3053): one institutional-tier topic per fiscal year ──
 // The temporal chain: 2024-25 (reconstructed/verified) → 2025-26 (released) →
 // 2026-27 (forecast, confidence rising to release). Edges in topic_dependencies.
@@ -232,6 +276,14 @@ export async function runFiscalSync(
       errors.length, silentZero, JSON.stringify(errors),
     ],
   });
+
+  // ── Compute ledger (#3053 follow-up) ──────────────────────────────
+  // Keep the one-time exercise cost row present + current on every run.
+  try {
+    await upsertExerciseLedger(db);
+  } catch (e) {
+    errors.push(`ledger: ${String(e)}`);
+  }
 
   return {
     jurisdiction,

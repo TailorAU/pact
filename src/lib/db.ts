@@ -67,6 +67,11 @@ const _curriculumStatements: string[] = _loadSqlStatements("curriculum-schema.sq
 // fiscal_line / fiscal_forecast / fiscal_sync_log; idempotent CREATE IF NOT EXISTS.
 const _fiscalStatements: string[] = _loadSqlStatements("fiscal-reconstruction-schema.sql");
 
+// #3053 follow-up — fiscal compute meter (cost side of EV/AV story). Idempotent
+// ALTERs on fiscal_sync_log + fiscal_compute_ledger. Must load AFTER the base
+// fiscal schema (depends on fiscal_sync_log existing).
+const _fiscalMeterStatements: string[] = _loadSqlStatements("fiscal-compute-meter.sql");
+
 // Return TIMESTAMP / TIMESTAMPTZ as ISO strings (not JS Date objects)
 // so existing code that casts date columns to string keeps working.
 pg.types.setTypeParser(1114, (val: string) => val);
@@ -369,6 +374,11 @@ async function initSchema(db: DbClient) {
     // QLD Budget temporal graph node: fiscal_line / fiscal_forecast /
     // fiscal_sync_log. DDL in sql/fiscal-reconstruction-schema.sql.
     ..._fiscalStatements,
+
+    // ── Fiscal compute meter (#3053 follow-up) ───────────────────────
+    // Per-run token columns on fiscal_sync_log + fiscal_compute_ledger.
+    // Loaded after the base fiscal schema (ALTERs depend on it).
+    ..._fiscalMeterStatements,
 
     // ── Indexes ─────────────────────────────────────────────────────
     `CREATE INDEX IF NOT EXISTS idx_proposals_topic_status ON proposals(topic_id, status)`,

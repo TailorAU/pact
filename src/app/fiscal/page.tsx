@@ -87,9 +87,11 @@ export default function FiscalPage() {
         Queensland 2026-27 Budget — AI forecast
       </h1>
       <p style={{ color: "#555", marginBottom: "1.5rem", maxWidth: 720 }}>
-        A pre-registered, AI-generated forecast of the State&apos;s General Government
-        operating statement — built from public data alone, locked before the official
-        release (23 June 2026), and scored against the real budget when it lands.
+        An AI-maintained forecast of the State&apos;s General Government operating
+        statement — re-anchored on 21 June 2026 to Queensland Treasury&apos;s latest
+        published forward estimate (the December 2025 MYFER), and scored against the
+        real budget when it lands (23 June 2026). The lock-hash and review trail below
+        record every re-price.
       </p>
 
       {loading && <p>Loading…</p>}
@@ -100,8 +102,8 @@ export default function FiscalPage() {
         <section style={{ display: "flex", gap: "1rem", flexWrap: "wrap", marginBottom: "1.5rem" }}>
           <Big label="Total revenue" value={fmtM(totalRev?.forecastValue ?? null)} />
           <Big label="Total expenses" value={fmtM(totalExp?.forecastValue ?? null)} />
-          <Big label="Net operating balance" value={fmtM(nob?.forecastValue ?? null)} accent="#b00" />
-          <Big label="Confidence" value={conf !== null ? `${conf}%` : "—"} sub="lines within ±10% (backtested)" />
+          <Big label="Net operating balance" value={fmtM(nob?.forecastValue ?? null)} accent="#b00" sub="operating balance only — the fiscal/cash deficit (incl. capital) is larger" />
+          <Big label="Method backtest" value={conf !== null ? `${conf}%` : "—"} sub="FY24-25 reconstruction within ±10% — not a confidence in the anchored figure" />
         </section>
       )}
 
@@ -146,6 +148,49 @@ export default function FiscalPage() {
           {nob && <Table title="Balance" lines={[nob]} />}
         </section>
       )}
+
+      {/* How the deficit closes — Treasury's own stated path, not commentary */}
+      <section style={{
+        border: "1px solid #e2e2e2", borderRadius: 10, padding: "1.1rem 1.3rem", marginBottom: "2rem",
+      }}>
+        <h2 style={{ fontSize: "1.2rem", marginTop: 0, marginBottom: ".5rem" }}>
+          How the deficit closes — and what to watch
+        </h2>
+        <p style={{ color: "#555", fontSize: ".9rem", marginTop: 0 }}>
+          This is Queensland Treasury&apos;s own stated path back toward balance, from the
+          December 2025 MYFER — not our commentary. The 23 June budget tests whether these
+          assumptions still hold.
+        </p>
+        <ul style={{ color: "#444", fontSize: ".9rem", lineHeight: 1.55, paddingLeft: "1.1rem", margin: ".5rem 0" }}>
+          <li>
+            <strong>The glide path.</strong> Treasury projects the operating deficit narrowing
+            each year: −$8.97B (2025-26) → <strong>−$6.32B (2026-27)</strong> → −$4.76B (2027-28)
+            → −$1.05B (2028-29), approaching balance.
+          </li>
+          <li>
+            <strong>The mechanism (the testable claim).</strong> Revenue growth outpacing expense
+            restraint — taxation growing ~5.8%/yr to 2028-29 on property &amp; labour-market
+            strength, while 2025-26 expense growth was held to 0.2% Budget-to-MYFER (Treasury&apos;s
+            stated &ldquo;lowest in five years&rdquo;). If the budget loosens expenses, the path slips.
+          </li>
+          <li>
+            <strong>The revenue tension.</strong> Royalties rise slightly in 2026-27 as coal
+            recovers, then decline to 2028-29 as the A$ normalises toward US$0.72 — so the recovery
+            leans increasingly on <em>non-royalty</em> revenue (payroll &amp; land tax, GST) holding up.
+          </li>
+          <li>
+            <strong>The caveat (operating ≠ fiscal).</strong> A recovering <em>operating</em> balance
+            is not a balanced budget. The 2026-27 <strong>fiscal</strong> balance is −$17.8B once the
+            $18.3B capital program is counted, and Non-financial Public Sector borrowing climbs from
+            $146.9B (Jun 2026) to $204.9B (2028-29). The operating deficit closes while debt keeps
+            rising to fund capital.
+          </li>
+        </ul>
+        <p style={{ fontSize: ".75rem", color: "#888", margin: ".5rem 0 0" }}>
+          Source: QLD Treasury 2025-26 Mid-Year Fiscal &amp; Economic Review (Dec 2025), Table 4
+          (General Government Operating Statement) + Uniform Presentation Framework tables.
+        </p>
+      </section>
     </main>
   );
 }

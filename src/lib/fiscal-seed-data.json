@@ -1,6 +1,6 @@
 {
- "model_version": "calibration@v2",
- "lock_hash": "6ac7303218e00fba",
+ "model_version": "myfer-anchored@v3",
+ "lock_hash": "8c699df085d5c318",
  "confidence": 88.0,
  "reconstruction_FY2024-25": [
   {
@@ -98,22 +98,22 @@
   {
    "line_key": "qld.gg.taxation",
    "title": "Taxation revenue",
-   "forecast_value": 29747
+   "forecast_value": 29095
   },
   {
    "line_key": "qld.gg.grants_rev",
    "title": "Grants revenue",
-   "forecast_value": 44361
+   "forecast_value": 43922
   },
   {
    "line_key": "qld.gg.sales_gs",
    "title": "Sales of goods and services",
-   "forecast_value": 8662
+   "forecast_value": 8310
   },
   {
    "line_key": "qld.gg.interest_inc",
    "title": "Interest income",
-   "forecast_value": 3452
+   "forecast_value": 3327
   },
   {
    "line_key": "qld.gg.dividends",
@@ -123,17 +123,17 @@
   {
    "line_key": "qld.gg.other_rev",
    "title": "Other revenue",
-   "forecast_value": 9823
+   "forecast_value": 9445
   },
   {
    "line_key": "qld.gg.total_rev",
    "title": "Total revenue",
-   "forecast_value": 97665
+   "forecast_value": 95719
   },
   {
    "line_key": "qld.gg.employee",
    "title": "Employee expenses",
-   "forecast_value": 40274
+   "forecast_value": 39679
   },
   {
    "line_key": "qld.gg.super_int",
@@ -143,17 +143,17 @@
   {
    "line_key": "qld.gg.other_super",
    "title": "Other superannuation expenses",
-   "forecast_value": 4807
+   "forecast_value": 4799
   },
   {
    "line_key": "qld.gg.other_oper",
    "title": "Other operating expenses",
-   "forecast_value": 27367
+   "forecast_value": 26259
   },
   {
    "line_key": "qld.gg.dep_amort",
    "title": "Depreciation and amortisation",
-   "forecast_value": 7362
+   "forecast_value": 6919
   },
   {
    "line_key": "qld.gg.interest_exp",
@@ -163,12 +163,12 @@
   {
    "line_key": "qld.gg.grants_exp",
    "title": "Grants expenses",
-   "forecast_value": 21330
+   "forecast_value": 19126
   },
   {
    "line_key": "qld.gg.total_exp",
    "title": "Total expenses",
-   "forecast_value": 106395
+   "forecast_value": 102037
   },
   {
    "line_key": "qld.gg.purch_nfa",
@@ -178,8 +178,8 @@
   {
    "line_key": "qld.gg.nob",
    "title": "Net operating balance",
-   "forecast_value": -8730
+   "forecast_value": -6318
   }
  ],
- "stamp_note": "Reviewed vs public pre-budget signal (CopperString +$420M, Bruce Hwy, Cairns Hospital, Tourism Fund, DRFA, power cuts) on 2026-06-15 \u2014 all items below 0.5% line threshold or already in baseline; forecast HELD, no line moved."
+ "stamp_note": "Re-priced 2026-06-21 against the QLD Treasury 2025-26 Mid-Year Fiscal & Economic Review (Dec 2025) General Government operating-statement forward estimate for FY2026-27. Every line is now anchored to the MYFER forward-estimate column, cross-validated against its FY2024-25 audited column (which matches this node's audited values exactly). Net operating balance moved -$8.73B → -$6.32B: Treasury's latest published FY2026-27 estimate (the 2025-26 Budget had -$5.864B; the Dec-2025 MYFER revised it to -$6.318B). Largest single correction: grants expenses 21,330 → 19,126 — the line that was never backtest-validated, previously overstated by $2.2B. Supersedes the original lock 6ac7303218e00fba (model calibration@v2)."
 }

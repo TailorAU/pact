@@ -413,7 +413,7 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
               const nodeKind: NodeKind = topic.kind ?? "topic";
               const edgeKind: EdgeKind = topic.edgeFromParent ?? "depends_on";
               // Legislation uses a neutral slate palette (awaiting per-jurisdiction palette
-              // from Chief of Source); scenarios use orange; topics keep the tier palette.
+              // from the Source owner); scenarios use orange; topics keep the tier palette.
               const color =
                 nodeKind === "legislation" ? "#94a3b8" :
                 nodeKind === "scenario"    ? "#fb923c" :

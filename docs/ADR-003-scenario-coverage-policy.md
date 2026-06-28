@@ -116,7 +116,7 @@ ADR-002 introduced `scenarios` as predicate containers that emit `applies_when` 
 ## 3. Consequences
 
 - Seed scripts under `sites/source/scripts/seed_scenarios_*.py` share `_scenario_seed_helpers.py` and enforce the id pattern, the `source_ref` rule, and the audit-write (Round 6.1).
-- The `chief-source.mdc` rule links to this ADR and to the Round 6 runbook (`docs/operations/source-scenario-lifecycle.md`) as the canonical operational reference.
+- The Round 6 runbook (`docs/operations/source-scenario-lifecycle.md`) is the canonical operational reference for this policy.
 - The predicate vocabulary doc (Round 6.3) polices predicate keys; this ADR polices scenario identity and citation discipline. They are complementary.
 - The `scenario_revisions` audit table (Round 6.1) captures every change per ADR decision with a `trigger_code` matching the Round 6.2 taxonomy.
 - The two-customer test from Decision A is embedded in the runbook intake template so future curators apply it consistently.

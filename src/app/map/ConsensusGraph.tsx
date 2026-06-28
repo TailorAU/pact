@@ -191,7 +191,7 @@ const DEPENDENCY_GOLD = "#d97706";
 const ASSUMPTION_PURPLE = "#a855f7";
 
 // #1152 Round 5a — tri-entity palette. Neutral slate for legislation (per-jurisdiction
-// palette TBD by Chief of Source), orange for scenarios (matches /scenarios detail
+// palette TBD by the Source owner), orange for scenarios (matches /scenarios detail
 // accents and InteractiveTree scenario rows), indigo for co_applies cross-links.
 const LEGISLATION_SLATE = "#94a3b8";
 const SCENARIO_ORANGE = "#fb923c";

@@ -171,7 +171,7 @@ Against a different env: `export BASE=https://source-dev.tailor.au` (default `ht
 
 ### Top-up cadence
 
-**Rule: never pitch an empty graph.** Every new vertical pitch triggers a content audit. If the prospect's regulatory regime is not already in `topics`, it gets seeded before the first meeting. See `.cursor/rules/chief-source.mdc`.
+**Rule: never pitch an empty graph.** Every new vertical pitch triggers a content audit. If the prospect's regulatory regime is not already in `topics`, it gets seeded before the first meeting.
 
 ## Documentation
 

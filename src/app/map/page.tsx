@@ -2,6 +2,7 @@ import InteractiveTree, { type TreeTopic } from "./InteractiveTree";
 import GraphLegend from "./GraphLegend";
 import Graph3DSection from "./Graph3DSection";
 import { getDb } from "@/lib/db";
+import { warrantKindFromTier, type WarrantKind } from "@/lib/epistemic";
 
 export const metadata = {
   title: "Consensus Map — PACT",
@@ -10,8 +11,12 @@ export const metadata = {
 
 export const revalidate = 15;
 
-const TIER_ORDER_MAP: Record<string, number> = {
-  axiom: 0, convention: 1, practice: 2, policy: 3, frontier: 4,
+// Deterministic grouping tie-break applied AFTER dependency depth (#3724).
+// The four warrant kinds are UNORDERED peers — this is a stable sort key,
+// NOT a certainty ranking, and it contains no "axiom" (that rank was
+// retired; legacy tiers normalise via warrantKindFromTier).
+const WARRANT_TIEBREAK: Record<WarrantKind, number> = {
+  empirical: 0, institutional: 1, interpretive: 2, conjectural: 3,
 };
 
 // #1152 Round 5a — pseudo-tier order for the non-topic node types.
@@ -173,8 +178,8 @@ export default async function MapPage() {
       const da = depthMap.get(a.id) ?? 99;
       const db2 = depthMap.get(b.id) ?? 99;
       if (da !== db2) return da - db2;
-      const ta = TIER_ORDER_MAP[a.tier] ?? 99;
-      const tb = TIER_ORDER_MAP[b.tier] ?? 99;
+      const ta = WARRANT_TIEBREAK[warrantKindFromTier(a.tier)] ?? 99;
+      const tb = WARRANT_TIEBREAK[warrantKindFromTier(b.tier)] ?? 99;
       if (ta !== tb) return ta - tb;
       return a.title.localeCompare(b.title);
     })

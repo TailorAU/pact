@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb, autoMergeExpired } from "@/lib/db";
 import { log } from "@/lib/logger";
+import { warrantKindFromTier, consensusStateFor, credenceFromRatio } from "@/lib/epistemic";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,8 @@ export async function GET(
 
   const topicResult = await db.execute({
     sql: `SELECT t.id, t.title, t.content, t.tier, t.status, t.created_at,
-      t.consensus_ratio, t.consensus_since, t.canonical_claim,
+      t.consensus_ratio, t.consensus_since, t.consensus_voters, t.canonical_claim,
+      t.claim_support, t.claim_atomicity_status, t.convention_stop, t.credence,
       t.jurisdiction, t.authority, t.source_ref, t.effective_date, t.expiry_date,
       (SELECT COUNT(DISTINCT r.agent_id) FROM registrations r WHERE r.topic_id = t.id) as participantCount,
       (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id) as proposalCount,
@@ -73,6 +75,14 @@ export async function GET(
 
   return NextResponse.json({
     ...topic,
+    // Axis A + Axis B (#3691): unordered warrant kind; user-facing state;
+    // credence = asymptotic transform of the honest ratio (stored effective
+    // value wins once the consensus sweep has written it — attenuated
+    // transitively by defeated dependencies, never 1.0 by construction).
+    warrantKind: warrantKindFromTier(topic.tier as string),
+    conventionStop: !!topic.convention_stop,
+    state: consensusStateFor(topic.status as string),
+    credence: (topic.credence as number | null) ?? credenceFromRatio(topic.consensus_ratio as number | null),
     proposals,
     votes,
   });

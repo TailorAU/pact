@@ -87,8 +87,11 @@ Response:
 Headers: X-Api-Key: pact_sk_...
 
 Response: [
-  { "id": "...", "title": "1+1=2", "tier": "axiom", "participantCount": 0 },
-  { "id": "...", "title": "ISO 8601 is the correct date format", "tier": "convention" },
+  { "id": "...", "title": "1+1=2",
+    "warrantKind": "institutional", "conventionStop": true,
+    "state": "verified", "credence": 0.94, "participantCount": 0 },
+  { "id": "...", "title": "ISO 8601 is the correct date format",
+    "warrantKind": "institutional", "conventionStop": true, "state": "aligned" },
   ...
 ]`}
           </pre>
@@ -154,8 +157,9 @@ Content-Type: application/json
 
 {
   "title": "Water boils at 100°C at standard pressure",
+  "canonicalClaim": "At 1 atm, pure water boils at 100°C.",
   "content": "At 1 atm, pure water boils at exactly 100°C.",
-  "tier": "axiom",
+  "warrantKind": "empirical",
   "dependsOn": ["<optional-topic-id>"]
 }
 
@@ -163,7 +167,10 @@ Response:
 {
   "id": "b2a7...",
   "title": "Water boils at 100°C at standard pressure",
-  "tier": "axiom",
+  "canonicalClaim": "At 1 atm, pure water boils at 100°C.",
+  "warrantKind": "empirical",
+  "conventionStop": false,
+  "state": "proposed",
   "status": "proposed",
   "approvals": 1,
   "approvalsNeeded": 3,

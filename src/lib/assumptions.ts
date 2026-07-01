@@ -16,6 +16,11 @@ function canonicalizeTier(tier: string): string {
     practice: "empirical",
     policy: "institutional",
     frontier: "conjecture",
+    // #3691 W1: "axiom" was a privileged rank, not a warrant kind — it
+    // canonicalizes to institutional warrant + the Axis-B convention_stop
+    // flag (createTopicRecord stamps the flag when the caller asked for
+    // the legacy value).
+    axiom: "institutional",
   };
   return map[tier] || tier;
 }
@@ -36,12 +41,20 @@ export async function createTopicRecord(
   db: DbClient,
   opts: { title: string; content: string; tier: string; canonicalClaim?: string }
 ): Promise<CreateTopicResult> {
-  const topicTier = canonicalizeTier(VALID_TIERS.includes(opts.tier) ? opts.tier : "axiom");
+  const requestedTier = VALID_TIERS.includes(opts.tier) ? opts.tier : "empirical";
+  // Legacy "axiom" requests become institutional warrant + the Axis-B
+  // convention_stop flag (#3691 W1).
+  const isConventionStop = requestedTier === "axiom";
+  const topicTier = canonicalizeTier(requestedTier);
 
+  // Internal helper path (assumption QA gate): the claim falls back to the
+  // title; rows without a linted claim are tagged for the legacy-split
+  // bounty rather than truncated or rejected (#3691 W6 forward-only rule).
+  const claim = opts.canonicalClaim ?? opts.title;
   const topicId = uuid();
   await db.execute({
-    sql: "INSERT INTO topics (id, title, content, tier, status, canonical_claim) VALUES (?, ?, ?, ?, 'proposed', ?)",
-    args: [topicId, opts.title, opts.content, topicTier, opts.canonicalClaim ?? null],
+    sql: "INSERT INTO topics (id, title, content, tier, status, canonical_claim, claim_atomicity_status, convention_stop) VALUES (?, ?, ?, ?, 'proposed', ?, 'legacy_unchecked', ?)",
+    args: [topicId, opts.title, opts.content, topicTier, claim, isConventionStop ? 1 : 0],
   });
 
   // Create standard sections
@@ -90,7 +103,7 @@ export interface AssumptionEntry {
   topicId?: string;
   /** Create a new assumption topic with this title */
   title?: string;
-  /** Tier for a new topic (default: "axiom") */
+  /** Tier for a new topic (default: legacy "axiom" → institutional warrant + convention_stop flag, #3691) */
   tier?: string;
 }
 
@@ -243,8 +256,11 @@ export async function processAssumptions(
           continue;
         }
 
-        // Create new assumption topic
-        const tier = canonicalizeTier(entry.tier && VALID_TIERS.includes(entry.tier) ? entry.tier : "axiom");
+        // Create new assumption topic. The raw requested tier is passed
+        // through — createTopicRecord canonicalizes it and stamps the
+        // Axis-B convention_stop flag for the legacy "axiom" default
+        // (an undeclared assumption is a place the chain stopped digging).
+        const tier = entry.tier && VALID_TIERS.includes(entry.tier) ? entry.tier : "axiom";
         const created = await createTopicRecord(db, {
           title: cleanTitle,
           content: `This assumption was identified during consensus on a parent topic and needs independent verification.`,

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent, wouldCreateCycle, VALID_RELATIONSHIPS } from "@/lib/db";
+import { getDb, emitEvent, wouldCreateCycle, VALID_RELATIONSHIPS, requiredReopenVotes } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { readBodyBounded } from "@/lib/read-body-bounded";
+import { warrantKindFromTier, consensusStateFor, credenceFromRatio, DEFEATER_TYPES } from "@/lib/epistemic";
 
 export async function GET(
   req: NextRequest,
@@ -11,7 +12,8 @@ export async function GET(
   const db = await getDb();
 
   const deps = await db.execute({
-    sql: `SELECT td.depends_on, td.relationship, td.justification, t.title, t.status, t.tier
+    sql: `SELECT td.depends_on, td.relationship, td.justification, t.title, t.status, t.tier,
+        t.convention_stop, t.credence, t.consensus_ratio
       FROM topic_dependencies td
       JOIN topics t ON t.id = td.depends_on
       WHERE td.topic_id = ?`,
@@ -19,24 +21,80 @@ export async function GET(
   });
 
   const dependents = await db.execute({
-    sql: `SELECT td.topic_id, td.relationship, td.justification, t.title, t.status, t.tier
+    sql: `SELECT td.topic_id, td.relationship, td.justification, t.title, t.status, t.tier,
+        t.convention_stop, t.credence, t.consensus_ratio
       FROM topic_dependencies td
       JOIN topics t ON t.id = td.topic_id
       WHERE td.depends_on = ?`,
     args: [topicId],
   });
 
+  const enrich = (r: Record<string, unknown>) => ({
+    ...r,
+    warrantKind: warrantKindFromTier(r.tier as string),
+    conventionStop: !!r.convention_stop,
+    state: consensusStateFor(r.status as string),
+    credence: (r.credence as number | null) ?? credenceFromRatio(r.consensus_ratio as number | null),
+  });
+
   // Split by relationship type
-  const assumptions = deps.rows.filter((r) => r.relationship === "assumes");
-  const buildsOn = deps.rows.filter((r) => r.relationship !== "assumes");
-  const assumedBy = dependents.rows.filter((r) => r.relationship === "assumes");
-  const usedBy = dependents.rows.filter((r) => r.relationship !== "assumes");
+  const assumptions = deps.rows.filter((r) => r.relationship === "assumes").map(enrich);
+  const buildsOn = deps.rows.filter((r) => r.relationship !== "assumes").map(enrich);
+  const assumedBy = dependents.rows.filter((r) => r.relationship === "assumes").map(enrich);
+  const usedBy = dependents.rows.filter((r) => r.relationship !== "assumes").map(enrich);
+
+  // ── Consensus frontier (#3691 W4) ─────────────────────────────────
+  // A drill never bottoms out at bedrock. A node with no outgoing
+  // dependencies is a FRONTIER: the place the community currently agrees
+  // to stop digging — annotated with who agreed, when, on what warrant,
+  // and a live reopen path. Epistemically identical to every other node.
+  let frontier: Record<string, unknown> | null = null;
+  const anchorResult = await db.execute({
+    sql: `SELECT t.id, t.title, t.status, t.tier, t.convention_stop, t.credence,
+        t.consensus_ratio, t.consensus_since, t.consensus_voters,
+        (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'challenge') as standingChallenges
+      FROM topics t WHERE t.id = ?`,
+    args: [topicId],
+  });
+  const anchor = anchorResult.rows[0];
+  if (anchor) {
+    const isFrontier = deps.rows.length === 0;
+    const alignedAgents = await db.execute({
+      sql: `SELECT a.name FROM registrations r JOIN agents a ON a.id = r.agent_id
+        WHERE r.topic_id = ? AND r.done_status = 'aligned' ORDER BY r.done_at ASC LIMIT 25`,
+      args: [topicId],
+    });
+    frontier = {
+      isFrontier,
+      warrantKind: warrantKindFromTier(anchor.tier as string),
+      conventionStop: !!anchor.convention_stop,
+      state: consensusStateFor(anchor.status as string),
+      credence: (anchor.credence as number | null) ?? credenceFromRatio(anchor.consensus_ratio as number | null),
+      heldBy: alignedAgents.rows.map((r) => r.name),
+      consensusVoters: anchor.consensus_voters,
+      consensusSince: anchor.consensus_since,
+      standingChallenges: anchor.standingChallenges,
+      reopen: {
+        path: `POST /api/pact/${topicId}/proposals`,
+        proposalType: "challenge",
+        defeaterTypes: DEFEATER_TYPES,
+        requiredSupportVotes: requiredReopenVotes(dependents.rows.length),
+      },
+      ...(isFrontier
+        ? {
+            note:
+              "Consensus frontier: this chain terminates here not because bedrock was reached, but because this is where the community currently agrees to stop. Held by convention · challengeable — like every other node.",
+          }
+        : {}),
+    };
+  }
 
   return NextResponse.json({
     assumptions,
     buildsOn,
     assumedBy,
     usedBy,
+    frontier,
   });
 }
 

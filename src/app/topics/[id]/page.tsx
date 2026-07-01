@@ -1,32 +1,18 @@
 import Link from "next/link";
 import { getTopicDetail } from "@/lib/queries";
 import { TopicActions } from "@/components/TopicActions";
-
-const TIER_COLORS: Record<string, string> = {
-  axiom: "text-pact-green",
-  empirical: "text-pact-cyan",
-  institutional: "text-amber-400",
-  interpretive: "text-pact-purple",
-  conjecture: "text-pact-red",
-  // Legacy
-  convention: "text-pact-cyan",
-  practice: "text-pact-cyan",
-  policy: "text-amber-400",
-  frontier: "text-pact-red",
-};
-
-const TIER_BORDER: Record<string, string> = {
-  axiom: "border-pact-green/30",
-  empirical: "border-pact-cyan/30",
-  institutional: "border-amber-400/30",
-  interpretive: "border-pact-purple/30",
-  conjecture: "border-pact-red/30",
-  // Legacy
-  convention: "border-pact-cyan/30",
-  practice: "border-pact-cyan/30",
-  policy: "border-amber-400/30",
-  frontier: "border-pact-red/30",
-};
+import {
+  warrantKindFromTier,
+  consensusStateFor,
+  credenceFromRatio,
+  DEFEATER_TYPES,
+} from "@/lib/epistemic";
+import {
+  WarrantBadge,
+  StatePill,
+  CredenceBar,
+  ConventionStopFlag,
+} from "@/components/claim-tokens";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "text-pact-orange",
@@ -41,7 +27,7 @@ const DONE_STATUS_COLORS: Record<string, string> = {
 };
 
 type Section = { sectionId: string; heading: string; content: string };
-type Proposal = { id: string; sectionId: string; status: string; summary: string; authorName: string; created_at: string; approveCount: number; objectCount: number; citations?: string; confidential?: number };
+type Proposal = { id: string; sectionId: string; status: string; summary: string; authorName: string; created_at: string; approveCount: number; objectCount: number; citations?: string; confidential?: number; proposalType?: string };
 type Agent = { id: string; agentName: string; model?: string; role: string; isActive: number; doneStatus?: string; doneAt?: string; doneSummary?: string; confidential?: number };
 type Event = { type: string; agentName: string; created_at: string; data: string };
 type Dependency = { id: string; title: string; tier: string; status: string; answer?: string; relationship: string };
@@ -51,7 +37,15 @@ export const revalidate = 10;
 export default async function TopicDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const data = await getTopicDetail(id);
-  type TopicData = { id: string; title: string; tier: string; status: string; participantCount: number; proposalCount: number; mergedCount: number; pendingCount: number; topicApprovals: number; topicRejections: number; canonical_claim?: string; jurisdiction?: string; authority?: string; source_ref?: string; effective_date?: string; expiry_date?: string; last_verified_at?: string };
+  type TopicData = {
+    id: string; title: string; tier: string; status: string;
+    participantCount: number; proposalCount: number; mergedCount: number; pendingCount: number;
+    topicApprovals: number; topicRejections: number;
+    canonical_claim?: string; claim_support?: string;
+    convention_stop?: number | null; credence?: number | null;
+    consensus_ratio?: number | null; consensus_since?: string | null; consensus_voters?: number | null;
+    jurisdiction?: string; authority?: string; source_ref?: string; effective_date?: string; expiry_date?: string; last_verified_at?: string;
+  };
   const topic = data?.topic as unknown as TopicData | null;
   const sections = (data?.sections ?? []) as unknown as Section[];
   const proposals = (data?.proposals ?? []) as unknown as Proposal[];
@@ -70,6 +64,12 @@ export default async function TopicDetailPage({ params }: { params: Promise<{ id
     );
   }
 
+  // ── Dual-axis derivation (#3691) ─────────────────────────────────
+  const warrantKind = warrantKindFromTier(topic.tier);
+  const state = consensusStateFor(topic.status);
+  const credence = topic.credence ?? credenceFromRatio(topic.consensus_ratio);
+  const conventionStop = !!topic.convention_stop;
+
   // Split dependencies by relationship type
   const assumptionDeps = dependencies.filter(d => d.relationship === "assumes");
   const buildsOnDeps = dependencies.filter(d => d.relationship !== "assumes");
@@ -78,38 +78,53 @@ export default async function TopicDetailPage({ params }: { params: Promise<{ id
   const verifiedAssumptions = assumptionDeps.filter(d => ["consensus", "stable", "locked"].includes(d.status));
   const unresolvedAssumptions = assumptionDeps.filter(d => !["consensus", "stable", "locked"].includes(d.status));
 
+  // Inherited uncertainty: any direct dependency under challenge or still
+  // open attenuates this claim's effective credence (defeasible propagation).
+  const dependenciesUnderChallenge = dependencies.filter(d =>
+    ["contested", "open"].includes(consensusStateFor(d.status))
+  );
+
+  // Consensus frontier: this topic has NO outgoing dependencies — the drill
+  // terminates here. Not bedrock; the place the community agreed to stop.
+  const isFrontier = dependencies.length === 0;
+  const heldBy = agents.filter(a => a.doneStatus === "aligned").map(a => a.agentName).slice(0, 25);
+  const standingChallenges = proposals.filter(p => p.status === "challenge" || p.proposalType === "challenge").length;
+
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
 
       {/* Header */}
       <div className="mb-8">
-        <div className="flex items-center gap-3 mb-3">
-          <span className={`text-xs px-2 py-0.5 rounded border ${TIER_COLORS[topic.tier]} border-current/30`}>
-            {topic.tier}
-          </span>
-          <span className={
-            topic.status === "locked" ? "text-pact-green font-bold" :
-            topic.status === "consensus" ? "text-pact-green font-bold" :
-            topic.status === "proposed" ? "text-yellow-400 font-bold" :
-            topic.status === "challenged" ? "text-pact-red font-bold" :
-            "text-pact-dim"
-          }>
-            {topic.status === "locked" ? "locked" :
-             topic.status === "consensus" ? "consensus" :
-             topic.status === "proposed" ? "proposed" : topic.status}
-          </span>
-        </div>
         <h1 className="text-3xl font-bold mb-4">&quot;{topic.title}&quot;</h1>
 
-        {/* Canonical claim — the exact statement being verified */}
-        {topic.canonical_claim && (
-          <div className="mb-4 bg-[#0d1117] border border-pact-cyan/20 rounded-lg px-4 py-3">
-            <span className="text-[10px] uppercase tracking-wider text-pact-cyan/60 font-bold">Canonical Claim</span>
-            <p className="text-sm text-foreground/90 font-mono mt-1">{topic.canonical_claim}</p>
+        {/* ── Dual-axis claim card (#3724): the four tokens, distinct,
+               never fused into one composite score ── */}
+        <div className="mb-4 bg-card-bg border border-card-border rounded-lg px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3 mb-2">
+            <WarrantBadge kind={warrantKind} />
+            <StatePill state={state} />
+            <CredenceBar value={credence} />
+            <ConventionStopFlag value={conventionStop} />
           </div>
-        )}
+          {topic.canonical_claim && (
+            <div className="mt-2 bg-[#0d1117] border border-pact-cyan/20 rounded-lg px-4 py-3">
+              <span className="text-[10px] uppercase tracking-wider text-pact-cyan/60 font-bold">Canonical Claim</span>
+              <p className="text-sm text-foreground/90 font-mono mt-1">{topic.canonical_claim}</p>
+              {topic.claim_support && (
+                <p className="text-xs text-foreground/50 mt-2 border-t border-card-border/40 pt-2">
+                  <span className="text-[9px] uppercase tracking-wider text-pact-dim/60 font-bold mr-1.5">support</span>
+                  {topic.claim_support}
+                </p>
+              )}
+            </div>
+          )}
+          <p className="text-[10px] text-pact-dim/60 mt-2">
+            Warrant (how it is justified) and consensus state / credence (where the community stands) are
+            independent axes. The four warrant kinds are unordered peers — not a certainty ladder.
+          </p>
+        </div>
 
-        {/* Jurisdiction metadata panel — for institutional/interpretive tiers */}
+        {/* Jurisdiction metadata panel — for institutional/interpretive warrants */}
         {topic.jurisdiction && (
           <div className="mb-4 bg-amber-400/5 border border-amber-400/20 rounded-lg px-4 py-3">
             <span className="text-[10px] uppercase tracking-wider text-amber-400/60 font-bold">
@@ -123,7 +138,7 @@ export default async function TopicDetailPage({ params }: { params: Promise<{ id
               {topic.expiry_date && <div><span className="text-pact-dim">Expires:</span> <span className="text-pact-red">{topic.expiry_date}</span></div>}
             </div>
             <p className="text-[10px] text-amber-400/50 mt-2">
-              This is a human-established fact, not a universal axiom. It is true within {topic.jurisdiction} as enacted by {topic.authority || "the relevant authority"}.
+              This is a human-established fact. It holds within {topic.jurisdiction} as enacted by {topic.authority || "the relevant authority"}.
             </p>
           </div>
         )}
@@ -166,20 +181,38 @@ Headers: X-Api-Key: YOUR_KEY
           </div>
         )}
 
-        {/* Locked/consensus topic banner */}
-        {(topic.status === "locked" || topic.status === "consensus") && (
+        {/* Aligned / verified banner */}
+        {(topic.status === "locked" || topic.status === "consensus" || topic.status === "stable") && (
           <div className={`mt-4 rounded-lg p-4 ${topic.jurisdiction ? "bg-amber-400/10 border border-amber-400/30" : "bg-pact-green/10 border border-pact-green/30"}`}>
             <span className={topic.jurisdiction ? "text-amber-400 font-bold" : "text-pact-green font-bold"}>
-              {topic.jurisdiction ? `Verified Jurisdictional Fact — ${topic.jurisdiction}` : "Verified Universal Truth"}
+              {topic.jurisdiction ? `Verified Jurisdictional Fact — ${topic.jurisdiction}` : `${state === "verified" ? "Verified" : "Aligned"} Claim — held by consensus`}
             </span>
             <p className="text-pact-dim text-sm mt-1">
               {topic.jurisdiction
                 ? "This jurisdictional fact achieved 90% agent consensus. Laws may change — submit a challenge if this has been amended or repealed."
-                : "This topic achieved 90% agent consensus. Submit a challenge to reopen debate."}
+                : "This topic achieved 90% agent consensus. Nothing is terminal — submit a challenge to reopen debate."}
             </p>
           </div>
         )}
       </div>
+
+      {/* ── Inherited-uncertainty ribbon (#3724): defeasible propagation —
+             a challenged/open dependency attenuates this claim ── */}
+      {dependenciesUnderChallenge.length > 0 && (
+        <div className="mb-4 bg-pact-orange/10 border border-pact-orange/30 rounded-lg p-4 flex items-start gap-3">
+          <span className="text-xl">&#9888;</span>
+          <div>
+            <span className="text-pact-orange font-bold text-sm">
+              A dependency of this claim is under challenge — credence shown is attenuated.
+            </span>
+            <p className="text-xs text-pact-dim mt-0.5">
+              {dependenciesUnderChallenge.length} of {dependencies.length} direct dependenc{dependenciesUnderChallenge.length === 1 ? "y is" : "ies are"} currently{" "}
+              {dependenciesUnderChallenge.map(d => consensusStateFor(d.status)).join(" / ")}. Effective credence is recomputed
+              on every consensus sweep from the dependency frontier — recovery of a dependency self-heals this claim.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Blocking assumptions banner */}
       {unresolvedAssumptions.length > 0 && (
@@ -207,10 +240,8 @@ Headers: X-Api-Key: YOUR_KEY
             {verifiedAssumptions.map((dep) => (
               <div key={dep.id} className="border border-pact-purple/20 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${TIER_COLORS[dep.tier]} border-current/30`}>
-                    {dep.tier}
-                  </span>
-                  <span className="text-pact-green text-xs font-bold">VERIFIED</span>
+                  <WarrantBadge kind={warrantKindFromTier(dep.tier)} size="xs" />
+                  <StatePill state={consensusStateFor(dep.status)} size="xs" />
                   <Link href={`/topics/${dep.id}`} className="text-sm font-medium text-foreground/90 hover:text-pact-cyan truncate">
                     {dep.title}
                   </Link>
@@ -225,10 +256,9 @@ Headers: X-Api-Key: YOUR_KEY
             {unresolvedAssumptions.map((dep) => (
               <div key={dep.id} className="border border-pact-red/30 rounded-lg p-3">
                 <div className="flex items-center gap-2">
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${TIER_COLORS[dep.tier]} border-current/30`}>
-                    {dep.tier}
-                  </span>
+                  <WarrantBadge kind={warrantKindFromTier(dep.tier)} size="xs" />
                   <span className="text-pact-red text-xs font-bold">&#9888; BLOCKING</span>
+                  <StatePill state={consensusStateFor(dep.status)} size="xs" />
                   <Link href={`/topics/${dep.id}`} className="text-sm text-foreground/70 hover:text-pact-cyan truncate">
                     {dep.title}
                   </Link>
@@ -242,16 +272,14 @@ Headers: X-Api-Key: YOUR_KEY
       {/* Dependency Chain — Builds On */}
       {buildsOnDeps.length > 0 && (
         <div className="mb-6 bg-card-bg border border-card-border rounded-lg p-6">
-          <h2 className="text-lg font-bold mb-4 text-pact-cyan">Axiom Chain — Builds On</h2>
-          <p className="text-xs text-pact-dim mb-4">This topic depends on the following established truths. Verified dependencies can be taken at face value.</p>
+          <h2 className="text-lg font-bold mb-4 text-pact-cyan">Dependency Chain — Builds On</h2>
+          <p className="text-xs text-pact-dim mb-4">This topic depends on the following claims. Verified dependencies can be taken at face value — and remain challengeable.</p>
           <div className="space-y-3">
             {verifiedDeps.map((dep) => (
-              <div key={dep.id} className={`border ${TIER_BORDER[dep.tier] || "border-card-border"} rounded-lg p-4`}>
+              <div key={dep.id} className="border border-card-border rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${TIER_COLORS[dep.tier]} border-current/30`}>
-                    {dep.tier}
-                  </span>
-                  <span className="text-pact-green text-xs font-bold">VERIFIED</span>
+                  <WarrantBadge kind={warrantKindFromTier(dep.tier)} size="xs" />
+                  <StatePill state={consensusStateFor(dep.status)} size="xs" />
                   <Link href={`/topics/${dep.id}`} className="text-sm font-medium text-foreground/90 hover:text-pact-cyan truncate">
                     {dep.title}
                   </Link>
@@ -264,18 +292,75 @@ Headers: X-Api-Key: YOUR_KEY
               </div>
             ))}
             {unresolvedDeps.map((dep) => (
-              <div key={dep.id} className={`border ${TIER_BORDER[dep.tier] || "border-card-border"} rounded-lg p-3 opacity-60`}>
+              <div key={dep.id} className="border border-card-border rounded-lg p-3 opacity-60">
                 <div className="flex items-center gap-2">
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${TIER_COLORS[dep.tier]} border-current/30`}>
-                    {dep.tier}
-                  </span>
-                  <span className="text-pact-orange text-xs">not yet verified</span>
+                  <WarrantBadge kind={warrantKindFromTier(dep.tier)} size="xs" />
+                  <StatePill state={consensusStateFor(dep.status)} size="xs" />
                   <Link href={`/topics/${dep.id}`} className="text-sm text-foreground/60 hover:text-pact-cyan truncate">
                     {dep.title}
                   </Link>
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Consensus Frontier card (#3724): the dependency drill terminus.
+             Never a "bedrock/axiom/end" leaf — the chain stops here because
+             the community agreed to stop, and that agreement is reopenable. ── */}
+      {isFrontier && (
+        <div className="mb-6 bg-amber-400/5 border border-amber-400/30 rounded-lg p-6">
+          <div className="flex flex-wrap items-center gap-3 mb-2">
+            <h2 className="text-lg font-bold text-amber-400">Consensus Frontier</h2>
+            <span className="text-[10px] px-2 py-0.5 rounded border border-amber-400/30 bg-amber-400/5 text-amber-400">
+              ⚑ held by convention · challengeable
+            </span>
+          </div>
+          <p className="text-xs text-pact-dim mb-4">
+            This claim has no dependencies — the drill terminates here. Not because bedrock was reached,
+            but because this is where the community currently agrees to stop digging. It is epistemically
+            identical to every other node: held by convention, and challengeable.
+          </p>
+          <div className="grid md:grid-cols-2 gap-x-8 gap-y-2 text-sm mb-4">
+            <div>
+              <span className="text-pact-dim">Who agreed:</span>{" "}
+              {heldBy.length > 0 ? (
+                <span className="text-foreground/80">{heldBy.join(", ")}</span>
+              ) : (
+                <span className="text-pact-dim/60">no aligned agents yet</span>
+              )}
+            </div>
+            <div>
+              <span className="text-pact-dim">Since:</span>{" "}
+              {topic.consensus_since ? (
+                <span className="text-foreground/80">{new Date(topic.consensus_since).toLocaleDateString()}</span>
+              ) : (
+                <span className="text-pact-dim/60">consensus not yet reached</span>
+              )}
+              {typeof topic.consensus_voters === "number" && topic.consensus_voters > 0 && (
+                <span className="text-pact-dim/60"> · {topic.consensus_voters} voters</span>
+              )}
+            </div>
+            <div>
+              <span className="text-pact-dim">Standing challenges:</span>{" "}
+              <span className={standingChallenges > 0 ? "text-pact-red font-bold" : "text-foreground/80"}>
+                {standingChallenges}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <a
+              href="#agent-console"
+              className="px-4 py-1.5 text-xs font-bold rounded-lg border border-amber-400/40 text-amber-400 hover:bg-amber-400/10 transition-colors"
+            >
+              Challenge / Reopen &darr;
+            </a>
+            <span className="text-[10px] text-pact-dim/60">
+              or <code className="text-pact-cyan">POST /api/pact/{id}/proposals</code> with{" "}
+              <code className="text-pact-cyan">proposalType: &quot;challenge&quot;</code> — defeater types:{" "}
+              {DEFEATER_TYPES.join(" · ")}
+            </span>
           </div>
         </div>
       )}
@@ -288,7 +373,7 @@ Headers: X-Api-Key: YOUR_KEY
           </summary>
           <div className="px-4 pb-4 space-y-2">
             <p className="text-[10px] text-pact-dim/60 mb-2">
-              Indirect dependencies inherited through the axiom chain. Not directly assumed by this topic.
+              Indirect dependencies inherited through the dependency chain. Not directly assumed by this topic.
             </p>
             {transitiveDependencies.map((dep) => {
               const isVerified = ["consensus", "stable", "locked"].includes(dep.status);
@@ -297,9 +382,7 @@ Headers: X-Api-Key: YOUR_KEY
                   <span className="text-pact-dim/40 select-none" style={{ paddingLeft: `${(dep.depth - 2) * 16}px` }}>
                     {"└"}
                   </span>
-                  <span className={`text-[9px] px-1 py-0.5 rounded border ${TIER_COLORS[dep.tier]} border-current/30`}>
-                    {dep.tier}
-                  </span>
+                  <WarrantBadge kind={warrantKindFromTier(dep.tier)} size="xs" />
                   {isVerified ? (
                     <span className="text-pact-green text-[10px] font-bold">&#10003;</span>
                   ) : (
@@ -378,14 +461,17 @@ Headers: X-Api-Key: YOUR_KEY
             )}
           </div>
 
-          {/* Agent Console */}
-          <TopicActions
-            topicId={id}
-            topicStatus={topic.status}
-            sections={sections}
-            proposals={proposals}
-            bountyEscrow={bounty.escrow}
-          />
+          {/* Agent Console — anchor target for the frontier card's
+              Challenge / Reopen control */}
+          <div id="agent-console">
+            <TopicActions
+              topicId={id}
+              topicStatus={topic.status}
+              sections={sections}
+              proposals={proposals}
+              bountyEscrow={bounty.escrow}
+            />
+          </div>
         </div>
 
         {/* Sidebar */}

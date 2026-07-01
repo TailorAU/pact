@@ -3,8 +3,8 @@ import { dependencyGateOk, VERIFIED_TOPIC_STATUSES } from "./consensus-gate";
 import fs from "fs";
 import path from "path";
 
-describe("dependencyGateOk (#2888)", () => {
-  it("blocks promotion/keeps demotion armed when a non-axiom topic has unmet deps", () => {
+describe("dependencyGateOk (#2888, floor removed by #3691)", () => {
+  it("blocks promotion/keeps demotion armed for any node with unmet deps", () => {
     expect(dependencyGateOk("practice", 1)).toBe(false);
     expect(dependencyGateOk("institutional", 3)).toBe(false);
     expect(dependencyGateOk("policy", 1)).toBe(false);
@@ -15,14 +15,24 @@ describe("dependencyGateOk (#2888)", () => {
     expect(dependencyGateOk("institutional", 0)).toBe(true);
   });
 
-  it("exempts axiom-tier topics regardless of unmet count", () => {
+  it("has no privileged floor: the former axiom exemption is gone (#3691)", () => {
+    // No first argument buys an exemption — including the legacy "axiom"
+    // value and the empty string the DoD assertion uses.
+    expect(dependencyGateOk("axiom", 1)).toBe(false);
+    expect(dependencyGateOk("axiom", 5)).toBe(false);
+    expect(dependencyGateOk("", 1)).toBe(false);
     expect(dependencyGateOk("axiom", 0)).toBe(true);
-    expect(dependencyGateOk("axiom", 5)).toBe(true);
   });
 
-  it("treats a missing tier as non-axiom (default 'practice' at call sites)", () => {
+  it("treats a missing tier like every other value", () => {
     expect(dependencyGateOk(null, 1)).toBe(false);
     expect(dependencyGateOk(undefined, 0)).toBe(true);
+  });
+
+  it("the source carries no axiom special-case", () => {
+    const gateSource = fs.readFileSync(path.join(__dirname, "consensus-gate.ts"), "utf8");
+    expect(gateSource).not.toContain('=== "axiom"');
+    expect(gateSource).not.toContain("they are ground truth");
   });
 });
 
@@ -35,7 +45,9 @@ describe("VERIFIED_TOPIC_STATUSES stays in sync with db.ts SQL (#2888)", () => {
   it("every verified status appears in both db.ts unmetDependencies subqueries", () => {
     const dbSource = fs.readFileSync(path.join(__dirname, "db.ts"), "utf8");
     const subqueries = dbSource.match(/AND dep\.status NOT IN \(([^)]*)\)/g) ?? [];
-    expect(subqueries.length).toBe(2);
+    // Two unmetDependencies subqueries (#2888) + the Phase-4 assumes-defeat
+    // sweep (#3691 W3) — every occurrence must carry the full verified set.
+    expect(subqueries.length).toBeGreaterThanOrEqual(2);
     for (const sq of subqueries) {
       for (const status of VERIFIED_TOPIC_STATUSES) {
         expect(sq).toContain(`'${status}'`);

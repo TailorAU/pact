@@ -10,11 +10,24 @@ import { wouldCreateCycle, VALID_RELATIONSHIPS } from "@/lib/db";
 import { transfer } from "@/lib/economy";
 import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
 import { readBodyBounded } from "@/lib/read-body-bounded";
+import { CANONICAL_CLAIM_MAX, CLAIM_SUPPORT_MAX, lintAtomicClaim } from "@/lib/claim";
+import { WARRANT_KINDS, warrantKindFromTier, tierFromWarrantKind, consensusStateFor, credenceFromRatio } from "@/lib/epistemic";
 
-// List all topics — filterable by tier and status, with pagination.
-// No auth required. Anyone can browse.
+// List all topics — filterable by warrant kind (Axis A), status, and tier
+// (legacy alias), with pagination. No auth required. Anyone can browse.
 export async function GET(req: NextRequest) {
-  const tier = req.nextUrl.searchParams.get("tier") || undefined;
+  let tier = req.nextUrl.searchParams.get("tier") || undefined;
+  const warrant = req.nextUrl.searchParams.get("warrant") || undefined;
+  if (warrant) {
+    const mapped = tierFromWarrantKind(warrant);
+    if (!mapped) {
+      return NextResponse.json(
+        { error: `Unknown warrant kind '${warrant}'. Valid kinds (unordered): ${WARRANT_KINDS.join(", ")}` },
+        { status: 400 }
+      );
+    }
+    tier = mapped;
+  }
   const status = req.nextUrl.searchParams.get("status") || undefined;
   const jurisdiction = req.nextUrl.searchParams.get("jurisdiction") || undefined;
   const q = req.nextUrl.searchParams.get("q") || undefined;
@@ -30,6 +43,13 @@ export async function GET(req: NextRequest) {
   const baseUrl = isLocal ? "https://source.tailor.au" : origin;
   const enriched = (topics as Record<string, unknown>[]).map((t) => ({
     ...t,
+    // Axis A + Axis B (#3691): warrant kind is unordered; credence is the
+    // asymptotic transform of the honest ratio (stored effective value wins
+    // once the sweep has written it); state is the user-facing lifecycle.
+    warrantKind: warrantKindFromTier(t.tier as string),
+    conventionStop: !!t.convention_stop,
+    state: consensusStateFor(t.status as string),
+    credence: (t.credence as number | null) ?? credenceFromRatio(t.consensus_ratio as number | null),
     url: `${baseUrl}/topics/${t.id}`,
     apiUrl: `${baseUrl}/api/pact/topics/${t.id}`,
   }));
@@ -54,6 +74,10 @@ function canonicalizeTier(tier: string): string {
     practice: "empirical",
     policy: "institutional",
     frontier: "conjecture",
+    // #3691 W1: "axiom" was a privileged rank, not a warrant kind. It
+    // canonicalizes to institutional warrant; the caller carries the
+    // convention_stop flag on Axis B.
+    axiom: "institutional",
   };
   return map[tier] || tier;
 }
@@ -95,14 +119,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { title, content, tier, dependsOn, assumptions, canonicalClaim,
+  const { title, content, tier, warrantKind, conventionStop, dependsOn, assumptions, canonicalClaim, claimSupport,
           jurisdiction, authority, sourceRef, effectiveDate, expiryDate } = body;
 
   if (!title || typeof title !== "string" || title.trim().length < 3) {
     return NextResponse.json({ error: "title is required (min 3 characters)" }, { status: 400 });
   }
-  if (!content || typeof content !== "string" || content.trim().length < 10) {
-    return NextResponse.json({ error: "content is required (min 10 characters) — describe the claim or question" }, { status: 400 });
+  // #3691 W2: the atomic canonical claim is the unit; free-prose content is
+  // now an OPTIONAL supporting body.
+  if (content !== undefined && content !== null && content !== "" && (typeof content !== "string" || content.trim().length < 10)) {
+    return NextResponse.json({ error: "content, when provided, must be a string of at least 10 characters (optional supporting body)" }, { status: 400 });
   }
 
   // Sanitize title and content — strip HTML/XSS, null bytes
@@ -110,27 +136,63 @@ export async function POST(req: NextRequest) {
   if (!titleResult.valid) {
     return NextResponse.json({ error: `title: ${titleResult.error}` }, { status: 400 });
   }
-  const contentResult = sanitizeContent(content);
-  if (!contentResult.valid) {
-    return NextResponse.json({ error: `content: ${contentResult.error}` }, { status: 400 });
+  let cleanContent: string | null = null;
+  if (content && typeof content === "string" && content.trim().length > 0) {
+    const contentResult = sanitizeContent(content);
+    if (!contentResult.valid) {
+      return NextResponse.json({ error: `content: ${contentResult.error}` }, { status: 400 });
+    }
+    cleanContent = contentResult.sanitized;
   }
   const cleanTitle = titleResult.sanitized;
-  const cleanContent = contentResult.sanitized;
 
-  // Sanitize optional canonical claim — the exact statement being verified
-  let cleanCanonicalClaim: string | null = null;
-  if (canonicalClaim && typeof canonicalClaim === "string" && canonicalClaim.trim().length > 0) {
-    const ccResult = sanitizeContent(canonicalClaim, 2000);
-    if (!ccResult.valid) {
-      return NextResponse.json({ error: `canonicalClaim: ${ccResult.error}` }, { status: 400 });
+  // Canonical claim — REQUIRED (#3691 W2): the exact atomic statement being
+  // verified, capped at CANONICAL_CLAIM_MAX. Atomicity is linted below,
+  // AFTER the framing guard (sibling 422s with distinct errors).
+  if (!canonicalClaim || typeof canonicalClaim !== "string" || canonicalClaim.trim().length === 0) {
+    return NextResponse.json({
+      error: `canonicalClaim is required — one atomic, checkable proposition of at most ${CANONICAL_CLAIM_MAX} characters.`,
+      hint: "Conditions belong on the graph, not in the prose: use `assumes` edges, jurisdiction/authority scope fields, and sourceRef. Optional plain context goes in claimSupport (no conditions).",
+    }, { status: 422 });
+  }
+  const ccResult = sanitizeContent(canonicalClaim, 2000);
+  if (!ccResult.valid) {
+    return NextResponse.json({ error: `canonicalClaim: ${ccResult.error}` }, { status: 400 });
+  }
+  const cleanCanonicalClaim: string = ccResult.sanitized;
+
+  // Optional supporting line — plain context, no conditions, excluded from
+  // all validators.
+  let cleanClaimSupport: string | null = null;
+  if (claimSupport && typeof claimSupport === "string" && claimSupport.trim().length > 0) {
+    const csResult = sanitizeContent(claimSupport, CLAIM_SUPPORT_MAX);
+    if (!csResult.valid) {
+      return NextResponse.json({ error: `claimSupport: ${csResult.error}` }, { status: 400 });
     }
-    cleanCanonicalClaim = ccResult.sanitized;
+    cleanClaimSupport = csResult.sanitized;
   }
 
-  const topicTier = canonicalizeTier(tier && VALID_TIERS.includes(tier) ? tier : "empirical");
+  // Axis A (warrant kind) + Axis B convention-stop flag (#3691 W1).
+  // warrantKind is preferred; legacy `tier` still accepted. The legacy
+  // "axiom" value is a category error — it canonicalizes to institutional
+  // warrant + the convention_stop flag.
+  let requestedTier = tier;
+  if (warrantKind !== undefined) {
+    if (typeof warrantKind !== "string" || !WARRANT_KINDS.includes(warrantKind as (typeof WARRANT_KINDS)[number])) {
+      return NextResponse.json(
+        { error: `Unknown warrantKind '${warrantKind}'. Valid kinds (unordered): ${WARRANT_KINDS.join(", ")}` },
+        { status: 400 }
+      );
+    }
+    requestedTier = tierFromWarrantKind(warrantKind);
+  }
+  const isConventionStop = conventionStop === true || requestedTier === "axiom";
+  const topicTier = canonicalizeTier(requestedTier && VALID_TIERS.includes(requestedTier) ? requestedTier : "empirical");
 
-  // Jurisdiction metadata — required for institutional and interpretive tiers
-  if (JURISDICTION_TIERS.includes(topicTier)) {
+  // Jurisdiction metadata — required for institutional and interpretive
+  // tiers. Convention-stop nodes are exempt: "we agreed to stop digging
+  // here" (e.g. a standard reference condition) needs no enacting authority.
+  if (JURISDICTION_TIERS.includes(topicTier) && !isConventionStop) {
     if (!jurisdiction || typeof jurisdiction !== "string" || jurisdiction.trim().length < 2) {
       return NextResponse.json({
         error: "jurisdiction is required for institutional/interpretive topics (e.g., 'AU', 'AU-QLD', 'US-CA', 'EU', 'INTERNATIONAL')",
@@ -189,7 +251,12 @@ export async function POST(req: NextRequest) {
   // Reject topics that cherry-pick a time window or comparison to imply
   // causation, rather than presenting the full context of a phenomenon.
   // Truth-seeking requires complete context, not selective framing.
-  const combined = `${cleanTitle} ${cleanContent}`.toLowerCase();
+  // #3691 W2 repoint: the checkable proposition now lives in
+  // canonical_claim (content is optional), so the guard runs over
+  // title + canonical claim + content-if-present — otherwise making
+  // content optional would silently disable framing detection on the
+  // field that carries the claim.
+  const combined = `${cleanTitle} ${cleanCanonicalClaim} ${cleanContent ?? ""}`.toLowerCase();
 
   // Pattern 1: "X since Y" with a cherry-picked start date (e.g., "since pre-industrial", "since 1900")
   const sincePattern = /\b(increased|decreased|risen|fallen|grown|dropped|changed|shifted|declined)\b.*\b(since|from)\b.*\b(\d{4}|pre-industrial|industrial|revolution|medieval|ancient)\b/;
@@ -202,6 +269,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       error: "Framing bias detected: this topic selects a specific time window or trend to frame a claim. Truth-seeking requires full context, not cherry-picked comparisons. Reframe as a complete, context-neutral statement — or provide the full dataset as an empirical observation without implying causation.",
       hint: "Instead of 'X increased since Y', state the full measurable phenomenon. Example: 'Earth surface temperature data from ice cores, satellite, and ground stations from 800,000 BCE to present' rather than 'Temperature increased 1.1C since pre-industrial times'.",
+    }, { status: 422 });
+  }
+
+  // ── Atomic-claim lint (#3691 W2) ─────────────────────────────────
+  // Sibling 422 guard, running AFTER the framing guard. Universal — no
+  // jurisdiction-tier exemption: atomicity is a property of the
+  // proposition, not of how it is warranted.
+  const claimLint = lintAtomicClaim(cleanCanonicalClaim);
+  if (!claimLint.ok) {
+    return NextResponse.json({
+      error: claimLint.error,
+      ...(claimLint.hint ? { hint: claimLint.hint } : {}),
     }, { status: 422 });
   }
 
@@ -229,13 +308,16 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Create the topic as "proposed" — it needs community approval before opening
+  // Create the topic as "proposed" — it needs community approval before opening.
+  // content falls back to the canonical claim (schema column is NOT NULL and
+  // seeds the Answer section); the claim passed the lint, so it is 'atomic'.
   const topicId = uuid();
+  const effectiveContent = cleanContent ?? cleanCanonicalClaim;
   await db.execute({
-    sql: `INSERT INTO topics (id, title, content, tier, status, canonical_claim,
+    sql: `INSERT INTO topics (id, title, content, tier, status, canonical_claim, claim_support, claim_atomicity_status, convention_stop,
            jurisdiction, authority, source_ref, effective_date, expiry_date, last_verified_at)
-          VALUES (?, ?, ?, ?, 'proposed', ?, ?, ?, ?, ?, ?, NOW())`,
-    args: [topicId, cleanTitle, cleanContent, topicTier, cleanCanonicalClaim,
+          VALUES (?, ?, ?, ?, 'proposed', ?, ?, 'atomic', ?, ?, ?, ?, ?, ?, NOW())`,
+    args: [topicId, cleanTitle, effectiveContent, topicTier, cleanCanonicalClaim, cleanClaimSupport, isConventionStop ? 1 : 0,
            cleanJurisdiction, cleanAuthority, cleanSourceRef, cleanEffectiveDate, cleanExpiryDate],
   });
 
@@ -246,7 +328,7 @@ export async function POST(req: NextRequest) {
 
   await db.execute({
     sql: "INSERT INTO sections (id, topic_id, heading, level, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
-    args: [answerId, topicId, "Answer", 2, cleanContent, 0],
+    args: [answerId, topicId, "Answer", 2, effectiveContent, 0],
   });
   await db.execute({
     sql: "INSERT INTO sections (id, topic_id, heading, level, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
@@ -348,7 +430,12 @@ export async function POST(req: NextRequest) {
     id: topicId,
     title: cleanTitle,
     canonicalClaim: cleanCanonicalClaim,
+    ...(cleanClaimSupport ? { claimSupport: cleanClaimSupport } : {}),
     tier: topicTier,
+    warrantKind: warrantKindFromTier(topicTier),
+    conventionStop: isConventionStop,
+    state: consensusStateFor("proposed"),
+    ...(claimLint.warnings.length > 0 ? { claimWarnings: claimLint.warnings } : {}),
     status: "proposed",
     note: "Topic proposed. It needs approval from 3+ agents before it opens for debate. Share the topic ID so others can vote.",
     approvals: 1,

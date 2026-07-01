@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { WARRANT_KINDS, warrantKindFromTier } from "@/lib/epistemic";
 
 // ── Types ──────────────────────────────────────────────────────────
 type TopicNode = {
@@ -38,14 +39,19 @@ type TreeNode = {
 };
 
 // ── Colors ─────────────────────────────────────────────────────────
-const TIER_COLORS: Record<string, string> = {
-  axiom: "#4ade80",
+// Keyed by the four canonical warrant kinds (#3724) — four UNORDERED
+// peers, one distinct hue each. Rows resolve their kind via
+// warrantKindFromTier (the retired "axiom" reads as institutional).
+const WARRANT_HEX: Record<string, string> = {
   empirical: "#22d3ee",
   institutional: "#fbbf24",
   interpretive: "#a78bfa",
-  conjecture: "#f472b6",
-  convention: "#22d3ee", practice: "#a78bfa", policy: "#f97316", frontier: "#f472b6",
+  conjectural: "#f472b6",
 };
+
+function colorForTier(tier: string | undefined): string {
+  return WARRANT_HEX[warrantKindFromTier(tier)] ?? "#6b7280";
+}
 
 const STATUS_COLORS: Record<string, string> = {
   locked: "#fbbf24",
@@ -259,7 +265,7 @@ export default function ConsensusTree() {
     // Draw node cards
     for (const node of flat) {
       const topic = node.topic;
-      const tierColor = TIER_COLORS[topic.tier] ?? "#6b7280";
+      const tierColor = colorForTier(topic.tier);
       const statusColor = STATUS_COLORS[topic.status] ?? "#6b7280";
       const isVerified = ["locked", "stable", "consensus"].includes(topic.status);
       const hasChildren = (collapsedSetRef.current.has(topic.id)) || node.children.length > 0;
@@ -294,11 +300,11 @@ export default function ConsensusTree() {
       ctx.fillRect(2, 16, 6, canvas.height - 32);
       ctx.globalAlpha = 1;
 
-      // Tier badge
+      // Warrant badge (unordered kind — not a rank)
       ctx.font = "bold 18px system-ui";
       ctx.fillStyle = tierColor;
       ctx.globalAlpha = 0.9;
-      const tierText = topic.tier.toUpperCase();
+      const tierText = warrantKindFromTier(topic.tier).toUpperCase();
       ctx.fillText(tierText, 24, 34);
       ctx.globalAlpha = 1;
 
@@ -655,12 +661,15 @@ export default function ConsensusTree() {
       {/* Legend overlay */}
       <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between text-xs text-white/50 gap-y-2 pointer-events-none">
         <div className="flex items-center gap-3 flex-wrap">
-          {["axiom", "empirical", "institutional", "interpretive", "conjecture"].map((tier) => (
-            <span key={tier} className="flex items-center gap-1 capitalize">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: TIER_COLORS[tier] }} />
-              <span style={{ color: TIER_COLORS[tier] }}>{tier}</span>
+          <span className="text-white/30 uppercase text-[10px] tracking-wider">warrant (unordered)</span>
+          {WARRANT_KINDS.map((kind) => (
+            <span key={kind} className="flex items-center gap-1 capitalize">
+              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: WARRANT_HEX[kind] }} />
+              <span style={{ color: WARRANT_HEX[kind] }}>{kind}</span>
             </span>
           ))}
+          <span className="text-white/20">|</span>
+          <span className="text-white/30">position = dependency depth, not certainty</span>
           <span className="text-white/20">|</span>
           <span className="flex items-center gap-1">
             <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: SHARED_COLOR }} />

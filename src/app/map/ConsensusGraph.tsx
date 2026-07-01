@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { WARRANT_KINDS, warrantKindFromTier } from "@/lib/epistemic";
 
 // Dynamic import — Three.js can't SSR
 const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), { ssr: false });
@@ -93,6 +94,8 @@ type GraphNode = {
   tier?: string;
   status?: string;
   domain?: string;
+  /** Dependency depth (0 = no outgoing dependencies). Drives Y layout. */
+  depth?: number;
   val: number;
   color: string;
   emissive: string;
@@ -120,26 +123,32 @@ type GraphLink = {
 };
 
 // ── Color maps ─────────────────────────────────────────────────────
-const TIER_COLORS: Record<string, string> = {
-  axiom: "#4ade80",
+// Keyed by the four canonical warrant kinds (#3724) — four UNORDERED
+// peers, one distinct hue each, no ordering cues. Nodes resolve their
+// kind via warrantKindFromTier (the retired "axiom" reads as
+// institutional).
+const WARRANT_HEX: Record<string, string> = {
   empirical: "#22d3ee",
   institutional: "#fbbf24",
   interpretive: "#a78bfa",
-  conjecture: "#f472b6",
-  convention: "#22d3ee", practice: "#a78bfa", policy: "#f97316", frontier: "#f472b6",
+  conjectural: "#f472b6",
 };
 
-const TIER_ORDER = ["axiom", "empirical", "institutional", "interpretive", "conjecture"];
+function colorForTier(tier: string | undefined): string {
+  return WARRANT_HEX[warrantKindFromTier(tier)] ?? "#6b7280";
+}
 
-// Y axis: tier → vertical position (axioms at top, conjectures at bottom)
-const TIER_Y: Record<string, number> = {
-  axiom: 120,
-  empirical: 60,
-  institutional: 0,
-  interpretive: -60,
-  conjecture: -120,
-  convention: 60, practice: 0, policy: -60, frontier: -120,
-};
+// Y axis (#3724): vertical position encodes DEPENDENCY DEPTH only —
+// never certainty. Roots (topics with no outgoing dependencies — the
+// current consensus frontier) sit at the top; each dependency hop steps
+// dependents downward. Computed at load time by BFS over the
+// dependency edges.
+const DEPTH_Y_TOP = 120;
+const DEPTH_Y_STEP = 55;
+const DEPTH_Y_MAX_LEVELS = 5;
+function depthY(depth: number): number {
+  return DEPTH_Y_TOP - Math.min(depth, DEPTH_Y_MAX_LEVELS) * DEPTH_Y_STEP;
+}
 
 // Domain detection: keyword → domain cluster
 const DOMAIN_KEYWORDS: Record<string, string[]> = {
@@ -199,12 +208,13 @@ const CITES_GREY = "#64748b";
 const APPLIES_ORANGE = "#fb923c";
 const COAPPLIES_INDIGO = "#a5b4fc";
 
+// Consensus thresholds keyed by warrant kind (display heuristic only —
+// the server owns the real gate).
 const THRESHOLDS: Record<string, { ratio: number; minVoters: number }> = {
-  axiom: { ratio: 90, minVoters: 2 },
-  convention: { ratio: 90, minVoters: 3 },
-  practice: { ratio: 90, minVoters: 3 },
-  policy: { ratio: 90, minVoters: 4 },
-  frontier: { ratio: 90, minVoters: 5 },
+  empirical: { ratio: 90, minVoters: 3 },
+  institutional: { ratio: 90, minVoters: 4 },
+  interpretive: { ratio: 90, minVoters: 4 },
+  conjectural: { ratio: 90, minVoters: 5 },
 };
 
 const DOMAIN_COLORS: Record<string, string> = {
@@ -259,11 +269,38 @@ export default function ConsensusGraph() {
         // Count topics per domain for offset within cluster
         const domainCounts: Record<string, number> = {};
 
+        // ── Dependency-depth map (#3724): Y position encodes dependency
+        // depth ONLY, never certainty. Roots = topics with no outgoing
+        // dependencies (the current consensus frontier), depth 0; each
+        // dependent sits one hop below the deepest thing it depends on.
+        const depRows = ((data.dependencies ?? []) as DepData[]);
+        const dependsOnSomething = new Set(depRows.map((d) => d.topic_id));
+        const dependentsOf = new Map<string, string[]>();
+        for (const d of depRows) {
+          const list = dependentsOf.get(d.depends_on) ?? [];
+          list.push(d.topic_id);
+          dependentsOf.set(d.depends_on, list);
+        }
+        const depthMap = new Map<string, number>();
+        const depthQueue: { id: string; depth: number }[] = (data.topics as TopicNode[])
+          .filter((t) => !dependsOnSomething.has(t.id))
+          .map((t) => ({ id: t.id, depth: 0 }));
+        while (depthQueue.length > 0) {
+          const { id, depth } = depthQueue.shift()!;
+          if (depth > 50) continue; // belt-and-braces cycle guard
+          const existing = depthMap.get(id);
+          if (existing !== undefined && existing >= depth) continue;
+          depthMap.set(id, depth);
+          for (const childId of dependentsOf.get(id) ?? []) {
+            depthQueue.push({ id: childId, depth: depth + 1 });
+          }
+        }
+
         const topicNodes: GraphNode[] = (data.topics as TopicNode[]).map((t) => {
           const isVerified = ["locked", "stable", "consensus"].includes(t.status);
           const isChallenged = t.status === "challenged";
-          const tierColor = TIER_COLORS[t.tier] ?? "#6b7280";
-          const baseColor = isChallenged ? CHALLENGED_RED : tierColor;
+          const warrantColor = colorForTier(t.tier);
+          const baseColor = isChallenged ? CHALLENGED_RED : warrantColor;
           const hasBounty = (t.bountyEscrow ?? 0) > 0;
           const domain = detectDomain(t.title);
 
@@ -275,7 +312,8 @@ export default function ConsensusGraph() {
           // Spread within cluster: spiral pattern
           const angle = domainIdx * 2.4; // golden angle in radians
           const spread = 15 + domainIdx * 4;
-          const tierY = TIER_Y[t.tier] ?? 0;
+          const depth = depthMap.get(t.id) ?? 0;
+          const layerY = depthY(depth);
 
           // Consensus strength pushes nodes slightly forward (Z)
           const consensusZ = isVerified ? 10 : 0;
@@ -287,6 +325,7 @@ export default function ConsensusGraph() {
             tier: t.tier,
             status: t.status,
             domain,
+            depth,
             val: 3 + Math.min(t.participantCount * 1.5, 12) + (hasBounty ? 3 : 0),
             color: baseColor,
             emissive: baseColor,
@@ -294,7 +333,7 @@ export default function ConsensusGraph() {
             data: t,
             // Set initial positions — force sim will nudge from here
             x: domainPos.x + Math.cos(angle) * spread,
-            y: tierY + Math.sin(angle) * spread * 0.5,
+            y: layerY + Math.sin(angle) * spread * 0.5,
             z: domainPos.z + Math.sin(angle) * spread + consensusZ,
           };
         });
@@ -322,7 +361,7 @@ export default function ConsensusGraph() {
         const scenarioList = (data.scenarios ?? []) as ScenarioNodeData[];
 
         const legislationNodes: GraphNode[] = legislationList.map((l, idx) => {
-          // Distribute below the institutional tier plane in a loose ring.
+          // Distribute below the deepest dependency layer in a loose ring.
           const angle = idx * 2.4;
           const ringR = 140 + (idx % 5) * 8;
           return {
@@ -341,7 +380,7 @@ export default function ConsensusGraph() {
         });
 
         const scenarioNodes: GraphNode[] = scenarioList.map((s, idx) => {
-          // Scenarios sit above the axiom plane (pseudo-tier "scenario").
+          // Scenarios sit above every topic layer (they are the entry points).
           const angle = idx * 2.4;
           const ringR = 90 + (idx % 4) * 10;
           return {
@@ -489,13 +528,14 @@ export default function ConsensusGraph() {
       pointLight.position.set(100, 200, 300);
       scene.add(pointLight);
 
-      // Add faint grid lines to show tier planes
+      // Add faint grid rings to show the dependency-depth layers
+      // (position = dependency depth, not certainty)
       const gridMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.03 });
-      for (const [tier, y] of Object.entries(TIER_Y)) {
-        if (["convention", "practice", "policy", "frontier"].includes(tier)) continue;
+      for (let depth = 0; depth <= DEPTH_Y_MAX_LEVELS; depth++) {
+        const y = depthY(depth);
         const points = [];
         const size = 200;
-        // Circular ring at each tier level
+        // Circular ring at each depth level
         for (let i = 0; i <= 64; i++) {
           const a = (i / 64) * Math.PI * 2;
           points.push(new THREE.Vector3(Math.cos(a) * size, y, Math.sin(a) * size));
@@ -521,15 +561,17 @@ export default function ConsensusGraph() {
       link.type === "dependency" ? 80 : 40
     );
 
-    // Custom Y force: pull nodes toward their tier's Y level
+    // Custom Y force: pull nodes toward their dependency-depth layer
     import("d3-force-3d").then((d3: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-      // Y force: tier stratification (axioms top, conjectures bottom)
-      // Scenarios sit above axioms; legislation sits below conjectures.
+      // Y force: dependency-depth stratification (#3724) — frontier roots
+      // at the top, each dependency hop one layer down. Position encodes
+      // dependency depth ONLY, never certainty. Scenarios sit above every
+      // topic layer; legislation sits below.
       fg.d3Force("y", d3.forceY((node: GraphNode) => {
         if (node.type === "scenario") return 200;
         if (node.type === "legislation") return -160;
         if (node.type !== "topic") return 0;
-        return TIER_Y[node.tier ?? "empirical"] ?? 0;
+        return depthY(node.depth ?? 0);
       }).strength(0.15));
 
       // X force: domain clustering
@@ -637,9 +679,9 @@ export default function ConsensusGraph() {
     });
     group.add(new THREE.Mesh(geo, mat));
 
-    // Verified: subtle wireframe halo in the tier's own color
+    // Verified: subtle wireframe halo in the warrant's own color
     if (isVerified) {
-      const tierCol = TIER_COLORS[(node.data as TopicNode).tier] ?? "#6b7280";
+      const tierCol = colorForTier((node.data as TopicNode).tier);
       const haloGeo = new THREE.SphereGeometry(radius + 2, 12, 12);
       const haloMat = new THREE.MeshBasicMaterial({
         color: tierCol,
@@ -719,9 +761,10 @@ export default function ConsensusGraph() {
 
     const t = node.data as TopicNode;
     const ratio = t.totalProposals > 0 ? Math.round((t.mergedCount / t.totalProposals) * 100) : 0;
-    const tierColor = TIER_COLORS[t.tier] ?? "#6b7280";
+    const warrant = warrantKindFromTier(t.tier);
+    const tierColor = colorForTier(t.tier);
     const domainColor = DOMAIN_COLORS[node.domain ?? "other"] ?? "#6b7280";
-    const threshold = THRESHOLDS[t.tier] ?? THRESHOLDS.practice;
+    const threshold = THRESHOLDS[warrant] ?? THRESHOLDS.empirical;
     const isVerified = ["locked", "stable", "consensus"].includes(t.status);
     const statusLabel = isVerified ? "VERIFIED" : t.status === "challenged" ? "CHALLENGED" : t.status.toUpperCase();
     const statusColor = isVerified ? LOCKED_GOLD : t.status === "challenged" ? CHALLENGED_RED : tierColor;
@@ -730,7 +773,7 @@ export default function ConsensusGraph() {
     return `<div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px 16px;font-size:12px;color:#e2e8f0;max-width:320px;font-family:system-ui;line-height:1.5">
       <div style="font-weight:700;font-size:14px;margin-bottom:6px;color:${statusColor}">${t.title}</div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <span style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid ${tierColor};color:${tierColor};text-transform:uppercase;font-weight:600">${t.tier}</span>
+        <span title="warrant — one of four unordered kinds" style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid ${tierColor};color:${tierColor};text-transform:uppercase;font-weight:600">${warrant}</span>
         <span style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid ${domainColor};color:${domainColor};text-transform:uppercase;font-weight:600">${node.domain ?? "other"}</span>
         <span style="font-size:11px;font-weight:700;color:${statusColor}">${statusLabel}</span>
       </div>
@@ -819,7 +862,7 @@ export default function ConsensusGraph() {
             style={{
               width: r * 2,
               height: r * 2,
-              borderColor: `${Object.values(TIER_COLORS)[i]}15`,
+              borderColor: `${Object.values(WARRANT_HEX)[i % WARRANT_KINDS.length]}15`,
               animationDirection: i % 2 === 0 ? "normal" : "reverse",
               animationDuration: `${40 + i * 15}s`,
             }}
@@ -881,7 +924,7 @@ export default function ConsensusGraph() {
       <div className="absolute top-3 left-3 flex flex-col gap-1 text-[10px] text-white/30 pointer-events-none">
         <div className="flex items-center gap-1.5">
           <span className="text-white/50 font-semibold">Y</span>
-          <span>Axioms (top) → Conjectures (bottom)</span>
+          <span>Dependency depth — position = dependency depth, not certainty</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-white/50 font-semibold">XZ</span>
@@ -889,12 +932,14 @@ export default function ConsensusGraph() {
         </div>
       </div>
 
-      {/* ── Tier labels on the right ── */}
-      <div className="absolute top-1/2 right-3 -translate-y-1/2 flex flex-col gap-6 text-[10px] pointer-events-none">
-        {TIER_ORDER.map((tier) => (
-          <div key={tier} className="flex items-center gap-1.5 capitalize">
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: TIER_COLORS[tier] }} />
-            <span style={{ color: TIER_COLORS[tier], opacity: 0.7 }}>{tier}</span>
+      {/* ── Warrant legend (color only): four UNORDERED peers — the
+             vertical stacking here is incidental, not a ranking ── */}
+      <div className="absolute top-3 right-3 flex flex-col gap-1.5 text-[10px] pointer-events-none">
+        <span className="text-white/40 uppercase tracking-wider font-semibold">Warrant · unordered</span>
+        {WARRANT_KINDS.map((kind) => (
+          <div key={kind} className="flex items-center gap-1.5 capitalize">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: WARRANT_HEX[kind] }} />
+            <span style={{ color: WARRANT_HEX[kind], opacity: 0.7 }}>{kind}</span>
           </div>
         ))}
       </div>

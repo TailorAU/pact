@@ -38,7 +38,8 @@ export async function getTopicsList(options?: { tier?: string; status?: string; 
 
   const result = await db.execute({
     sql: `SELECT t.id, t.title, t.content, t.tier, t.status, t.created_at,
-      t.consensus_ratio, t.consensus_since, t.canonical_claim,
+      t.consensus_ratio, t.consensus_since, t.canonical_claim, t.claim_support, t.claim_atomicity_status,
+      t.convention_stop, t.credence,
       t.jurisdiction, t.authority, t.source_ref, t.effective_date, t.expiry_date, t.last_verified_at,
       (SELECT COUNT(*) FROM topic_dependencies td JOIN topics dep ON dep.id = td.depends_on WHERE td.topic_id = t.id AND td.relationship = 'assumes' AND dep.status NOT IN ('consensus','stable','locked')) as blockingAssumptions,
       (SELECT COUNT(DISTINCT r.agent_id) FROM registrations r WHERE r.topic_id = t.id) as participantCount,
@@ -214,6 +215,8 @@ export async function getTopicDetail(topicId: string) {
 
   const topicResult = await db.execute({
     sql: `SELECT t.id, t.title, t.content, t.tier, t.status, t.created_at, t.canonical_claim,
+      t.claim_support, t.claim_atomicity_status, t.convention_stop, t.credence,
+      t.consensus_ratio, t.consensus_since, t.consensus_voters,
       t.jurisdiction, t.authority, t.source_ref, t.effective_date, t.expiry_date, t.last_verified_at,
       (SELECT COUNT(DISTINCT r.agent_id) FROM registrations r WHERE r.topic_id = t.id AND r.left_at IS NULL) as participantCount,
       (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id) as proposalCount,

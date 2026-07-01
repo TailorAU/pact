@@ -17,10 +17,29 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { WARRANT_KINDS } from "@/lib/epistemic";
+import {
+  WarrantBadge,
+  StatePill,
+  CredenceBar,
+  ConventionStopFlag,
+} from "@/components/claim-tokens";
 
 const JURISDICTIONS = ["All", "QLD", "NSW", "CTH"] as const;
 const DOC_TYPES = ["All", "act", "regulation", "standard", "guidance"] as const;
 const STATUSES = ["All", "in_force", "repealed", "not_yet_commenced"] as const;
+
+// ── Lexicon facets (#3724, dual-axis epistemic model) ────────────────
+// Type = warrant kind (Axis A, four UNORDERED peers), State + Credence =
+// Axis B. All compose via URL search params alongside the legislation
+// facets above.
+const WARRANT_FACETS = ["All", ...WARRANT_KINDS] as const;
+const STATE_FACETS = ["All", "open", "contested", "aligned", "verified"] as const;
+const CREDENCE_FACETS = [
+  { label: "Any", value: "" },
+  { label: "≥0.5", value: "0.5" },
+  { label: "≥0.8", value: "0.8" },
+] as const;
 const PAGE_SIZE = 25;
 const MAX_CONTENT_PREVIEW = 280;
 
@@ -67,6 +86,21 @@ interface SearchErrorResponse {
   example?: string;
 }
 
+// Enriched topic row from GET /api/pact/topics — carries the dual-axis
+// fields (warrantKind / state / credence / conventionStop) alongside the
+// legacy tier/status.
+interface TopicClaim {
+  id: string;
+  title: string;
+  warrantKind: string;
+  state: string;
+  credence: number | null;
+  conventionStop: boolean;
+  canonical_claim: string | null;
+  jurisdiction: string | null;
+  participantCount: number;
+}
+
 const JURISDICTION_COLOR: Record<string, string> = {
   CTH: "text-pact-cyan border-pact-cyan/30",
   QLD: "text-pact-purple border-pact-purple/30",
@@ -111,10 +145,17 @@ function SearchPageInner() {
   const urlPreferJurisdiction = searchParams.get("preferJurisdiction") ?? "";
   const urlOffset = parseInt(searchParams.get("offset") ?? "0", 10) || 0;
 
+  // Lexicon facets (dual-axis) — compose via URL search params.
+  const urlWarrant = (searchParams.get("warrant") ?? "All") as (typeof WARRANT_FACETS)[number];
+  const urlState = (searchParams.get("state") ?? "All") as (typeof STATE_FACETS)[number];
+  const urlMinCredence = searchParams.get("minCredence") ?? "";
+
   const [query, setQuery] = useState(urlQuery);
   const [data, setData] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [claims, setClaims] = useState<TopicClaim[] | null>(null);
+  const [claimsLoading, setClaimsLoading] = useState(false);
 
   // Sync local query state when URL changes (e.g. browser back).
   useEffect(() => {
@@ -183,6 +224,51 @@ function SearchPageInner() {
     return () => ctrl.abort();
   }, [urlQuery, urlJurisdiction, urlDocType, urlStatus, urlPreferJurisdiction, urlOffset]);
 
+  // Fetch topic claims from the dual-axis lexicon (/api/pact/topics) when a
+  // query or any lexicon facet is active. Warrant filters server-side via
+  // ?warrant=; state + credence compose client-side over the enriched rows.
+  const lexiconActive =
+    !!urlQuery.trim() || urlWarrant !== "All" || urlState !== "All" || !!urlMinCredence;
+  useEffect(() => {
+    if (!lexiconActive) {
+      setClaims(null);
+      setClaimsLoading(false);
+      return;
+    }
+    const apiParams = new URLSearchParams();
+    if (urlQuery.trim()) apiParams.set("q", urlQuery.trim());
+    if (urlWarrant !== "All") apiParams.set("warrant", urlWarrant);
+    apiParams.set("limit", "100");
+
+    setClaimsLoading(true);
+    const ctrl = new AbortController();
+    fetch(`/api/pact/topics?${apiParams}`, {
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Topics lookup failed (${res.status})`);
+        const rows = (await res.json()) as TopicClaim[];
+        const minCredence = parseFloat(urlMinCredence);
+        setClaims(
+          rows
+            .filter((t) => (urlState !== "All" ? t.state === urlState : true))
+            .filter((t) =>
+              Number.isFinite(minCredence) && urlMinCredence
+                ? (t.credence ?? 0) >= minCredence
+                : true
+            )
+        );
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setClaims(null); // Lexicon lookup is best-effort; legislation search still renders.
+      })
+      .finally(() => setClaimsLoading(false));
+
+    return () => ctrl.abort();
+  }, [lexiconActive, urlQuery, urlWarrant, urlState, urlMinCredence]);
+
   // Submit handler — push the typed query into the URL.
   const onSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -231,7 +317,7 @@ function SearchPageInner() {
         </div>
       </form>
 
-      <div className="flex flex-wrap gap-2 mb-8 text-xs">
+      <div className="flex flex-wrap gap-2 mb-3 text-xs">
         <FilterPill
           label="Jurisdiction"
           options={JURISDICTIONS as readonly string[]}
@@ -251,6 +337,82 @@ function SearchPageInner() {
           onChange={(v) => updateUrl({ status: v === "All" ? null : v })}
         />
       </div>
+
+      {/* ── Lexicon facets (dual-axis): warrant kind is a row of four
+             unordered PEERS, state is the consensus lifecycle, credence
+             is asymptotic (never 1.0) ── */}
+      <div className="flex flex-wrap gap-2 mb-8 text-xs">
+        <FilterPill
+          label="Warrant"
+          options={WARRANT_FACETS as readonly string[]}
+          value={urlWarrant}
+          onChange={(v) => updateUrl({ warrant: v === "All" ? null : v })}
+        />
+        <FilterPill
+          label="State"
+          options={STATE_FACETS as readonly string[]}
+          value={urlState}
+          onChange={(v) => updateUrl({ state: v === "All" ? null : v })}
+        />
+        <div className="flex items-center gap-2">
+          <span className="text-pact-dim">Credence:</span>
+          <div className="flex items-center bg-background/80 border border-card-border rounded-full p-0.5">
+            {CREDENCE_FACETS.map((opt) => (
+              <button
+                key={opt.label}
+                type="button"
+                onClick={() => updateUrl({ minCredence: opt.value || null })}
+                className={`px-3 py-1 rounded-full transition-all ${
+                  urlMinCredence === opt.value
+                    ? "bg-pact-cyan text-background font-bold"
+                    : "text-pact-dim hover:text-foreground"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Claim (topic) results from the lexicon — rendered above the
+          federated legislation hits when the lexicon facets are active */}
+      {lexiconActive && (claimsLoading || (claims && claims.length > 0)) && (
+        <div className="mb-8">
+          <p className="text-xs text-pact-dim mb-3">
+            {claimsLoading
+              ? "Searching claims…"
+              : `${claims!.length} claim${claims!.length === 1 ? "" : "s"} in the lexicon`}
+          </p>
+          {!claimsLoading && claims && (
+            <div className="space-y-2">
+              {claims.slice(0, 20).map((c) => (
+                <Link
+                  key={c.id}
+                  href={`/topics/${encodeURIComponent(c.id)}`}
+                  className="block bg-card-bg border border-card-border rounded-xl px-5 py-3 hover:border-pact-cyan/30 transition-colors"
+                >
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <WarrantBadge kind={c.warrantKind} size="xs" />
+                    <StatePill state={c.state} size="xs" />
+                    <CredenceBar value={c.credence} compact />
+                    <ConventionStopFlag value={c.conventionStop} size="xs" />
+                    {c.jurisdiction && (
+                      <span className="text-[9px] px-1.5 py-px rounded border border-amber-400/30 text-amber-400">
+                        {c.jurisdiction}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm font-medium">{c.title}</div>
+                  {c.canonical_claim && (
+                    <p className="text-xs text-pact-dim font-mono truncate mt-0.5">{c.canonical_claim}</p>
+                  )}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {!urlQuery.trim() ? (
         <EmptyPrompt />

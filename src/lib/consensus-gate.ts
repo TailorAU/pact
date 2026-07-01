@@ -1,28 +1,32 @@
 /**
- * First-principles dependency gate for PACT consensus (#2888).
+ * First-principles dependency gate for PACT consensus (#2888, reshaped by
+ * #3691 Wave 1).
  *
- * A topic may only be PROMOTED to consensus when every topic it
- * `builds_on` is itself verified — and a consensus topic whose
- * dependency later loses verification must be DEMOTED back to open.
- * Axiom-tier topics are exempt: they are ground truth and do not build
- * on other topics.
+ * A topic may only be PROMOTED to consensus when every topic it depends on
+ * is itself verified — and a consensus topic whose dependency later loses
+ * verification must be DEMOTED back to open.
  *
- * Both call sites in db.ts (auto-merge promotion loop + consensus
- * re-evaluation loop) were bootstrap-disabled with hardcoded `true`
- * from the graph's first seeding until #2888 re-enabled them
- * (pre-flight blast radius: zero affected topics).
+ * #3691 removed the former axiom-tier exemption: no node is ground truth,
+ * so no node reaches consensus over an unmet dependency. A convention-stop
+ * node (the Axis-B flag marking where a community agreed to stop digging)
+ * is gated exactly like every other node; foundational nodes are protected
+ * by blast-radius-scaled reopen quorum and staking, never by immunity.
  */
 
 /**
  * Topic statuses that count as "verified" when resolving whether a
  * dependency is met. Must stay in sync with the SQL `NOT IN (...)`
  * lists in db.ts's unmetDependencies subqueries AND the verified-set
- * used by the facts API (db.ts ~line 1242) — `locked` is the terminal
- * verified state and was missing from the dependency subqueries until
- * #2888.
+ * used by the facts API — `locked` is the terminal verified state and
+ * was missing from the dependency subqueries until #2888.
  */
 export const VERIFIED_TOPIC_STATUSES = ["consensus", "stable", "locked"] as const;
 
-export function dependencyGateOk(tier: string | null | undefined, unmetDeps: number): boolean {
-  return tier === "axiom" || unmetDeps === 0;
+/**
+ * The first parameter is retained for call-site stability and so the
+ * floor-removal is directly assertable: dependencyGateOk(anything, 1) is
+ * false for EVERY first argument. It no longer influences the result.
+ */
+export function dependencyGateOk(_warrantOrTier: string | null | undefined, unmetDeps: number): boolean {
+  return unmetDeps === 0;
 }

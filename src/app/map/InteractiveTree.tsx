@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
+import { WARRANT_KINDS, warrantKindFromTier } from "@/lib/epistemic";
 
 // ── Types ──────────────────────────────────────────────────────────
 // #1152 Round 5a — TreeTopic is now a discriminated union over three node
@@ -47,32 +48,30 @@ function glyphFor(kind: NodeKind) {
   return kind; // circle | rectangle | diamond — resolved inline in render
 }
 
-// ── Tier colors (hex for SVG, tailwind for text) ──────────────────
-const TIER_HEX: Record<string, string> = {
-  axiom: "#4ade80",
+// ── Warrant colors (hex for SVG, tailwind for text) ────────────────
+// Keyed by the four canonical warrant kinds (#3724) — four UNORDERED
+// peers, distinct hue each, no ordering cues. Rows resolve their kind
+// via warrantKindFromTier so legacy tier values (incl. the retired
+// "axiom", which reads as institutional) render consistently.
+const WARRANT_HEX: Record<string, string> = {
   empirical: "#22d3ee",
   institutional: "#fbbf24",
   interpretive: "#c084fc",
-  conjecture: "#f87171",
-  convention: "#22d3ee", practice: "#fb923c", policy: "#c084fc", frontier: "#f87171",
+  conjectural: "#f87171",
 };
 
-const TIER_COLORS: Record<string, string> = {
-  axiom: "text-pact-green",
+const WARRANT_COLORS: Record<string, string> = {
   empirical: "text-pact-cyan",
   institutional: "text-amber-400",
   interpretive: "text-pact-purple",
-  conjecture: "text-pact-red",
-  convention: "text-pact-cyan", practice: "text-pact-orange", policy: "text-pact-purple", frontier: "text-pact-red",
+  conjectural: "text-pact-red",
 };
 
-const TIER_BG: Record<string, string> = {
-  axiom: "bg-pact-green/10 border-pact-green/20 hover:bg-pact-green/15",
+const WARRANT_BG: Record<string, string> = {
   empirical: "bg-pact-cyan/10 border-pact-cyan/20 hover:bg-pact-cyan/15",
   institutional: "bg-amber-400/10 border-amber-400/20 hover:bg-amber-400/15",
   interpretive: "bg-pact-purple/10 border-pact-purple/20 hover:bg-pact-purple/15",
-  conjecture: "bg-pact-red/10 border-pact-red/20 hover:bg-pact-red/15",
-  convention: "bg-pact-cyan/10 border-pact-cyan/20 hover:bg-pact-cyan/15", practice: "bg-pact-orange/10 border-pact-orange/20 hover:bg-pact-orange/15", policy: "bg-pact-purple/10 border-pact-purple/20 hover:bg-pact-purple/15", frontier: "bg-pact-red/10 border-pact-red/20 hover:bg-pact-red/15",
+  conjectural: "bg-pact-red/10 border-pact-red/20 hover:bg-pact-red/15",
 };
 
 const STATUS_ICON: Record<string, { char: string; cls: string }> = {
@@ -172,9 +171,11 @@ function getChildren(topic: TreeTopic, topicMap: Map<string, TreeTopic>): TreeTo
     .map(id => topicMap.get(id))
     .filter((t): t is TreeTopic => !!t)
     .sort((a, b) => {
-      const order: Record<string, number> = { axiom: 0, convention: 1, practice: 2, policy: 3, frontier: 4 };
-      const ta = order[a.tier] ?? 99;
-      const tb = order[b.tier] ?? 99;
+      // Deterministic grouping tie-break only — warrant kinds are
+      // unordered peers, NOT a certainty ranking (#3724).
+      const order: Record<string, number> = { empirical: 0, institutional: 1, interpretive: 2, conjectural: 3 };
+      const ta = order[warrantKindFromTier(a.tier)] ?? 99;
+      const tb = order[warrantKindFromTier(b.tier)] ?? 99;
       return ta !== tb ? ta - tb : a.title.localeCompare(b.title);
     });
 }
@@ -243,7 +244,7 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
   }, [search, topics, parentLookup]);
 
   const isVisible = useCallback((topic: TreeTopic): boolean => {
-    if (tierFilter && topic.tier !== tierFilter) return false;
+    if (tierFilter && warrantKindFromTier(topic.tier) !== tierFilter) return false;
     if (statusFilter) {
       const isVerified = ["locked", "stable", "consensus"].includes(topic.status);
       if (statusFilter === "verified" && !isVerified) return false;
@@ -326,7 +327,8 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
   }, [rows]);
 
   const svgW = GRAPH_PAD + (maxLane + 1) * LANE_W + 8;
-  const tiers = ["axiom", "empirical", "institutional", "interpretive", "conjecture"];
+  // Four unordered warrant kinds — a horizontal row of peers, not a ladder.
+  const warrants = [...WARRANT_KINDS];
   const statuses = ["verified", "open", "proposed", "challenged"];
 
   return (
@@ -354,21 +356,22 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
           </div>
           <div className="text-[11px] text-pact-dim/60 ml-auto">
             {stats.total} topics &middot; {stats.verified} verified &middot; {stats.maxDepth + 1} levels
+            &middot; <span className="text-pact-dim/40">position = dependency depth, not certainty</span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] text-pact-dim/40 uppercase tracking-wider font-bold mr-1">Tier</span>
-          {tiers.map(tier => (
+          <span className="text-[10px] text-pact-dim/40 uppercase tracking-wider font-bold mr-1">Warrant</span>
+          {warrants.map(kind => (
             <button
-              key={tier}
-              onClick={() => setTierFilter(prev => prev === tier ? null : tier)}
+              key={kind}
+              onClick={() => setTierFilter(prev => prev === kind ? null : kind)}
               className={`text-[10px] px-2 py-0.5 rounded-full border uppercase font-bold transition-all ${
-                tierFilter === tier
-                  ? `${TIER_BG[tier]} ${TIER_COLORS[tier]}`
+                tierFilter === kind
+                  ? `${WARRANT_BG[kind]} ${WARRANT_COLORS[kind]}`
                   : "border-card-border/30 text-pact-dim/40 hover:text-pact-dim/70"
               }`}
             >
-              {tier}
+              {kind}
             </button>
           ))}
           <span className="text-white/10 mx-1">|</span>
@@ -414,16 +417,17 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
               const edgeKind: EdgeKind = topic.edgeFromParent ?? "depends_on";
               // Legislation uses a neutral slate palette (awaiting per-jurisdiction palette
               // from the Source owner); scenarios use orange; topics keep the tier palette.
+              const warrant = warrantKindFromTier(topic.tier);
               const color =
                 nodeKind === "legislation" ? "#94a3b8" :
                 nodeKind === "scenario"    ? "#fb923c" :
-                (TIER_HEX[topic.tier] || "#666");
+                (WARRANT_HEX[warrant] || "#666");
               const badge = STATUS_BADGE[topic.status] || { text: topic.status, cls: "text-pact-dim" };
               const statusIcon = STATUS_ICON[topic.status] || { char: "·", cls: "text-pact-dim" };
               const tierColor =
                 nodeKind === "legislation" ? "text-slate-300" :
                 nodeKind === "scenario"    ? "text-pact-orange" :
-                (TIER_COLORS[topic.tier] || "text-pact-dim");
+                (WARRANT_COLORS[warrant] || "text-pact-dim");
               const isExpanded = expanded.has(topic.id);
               const isSearchMatch = searchMatches?.matches.has(topic.id);
               const cx = GRAPH_PAD + lane * LANE_W + LANE_W / 2;
@@ -549,13 +553,13 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
                     {/* Status icon */}
                     <span className={`shrink-0 text-xs w-4 text-center ${statusIcon.cls}`}>{statusIcon.char}</span>
 
-                    {/* Tier / jurisdiction / industry badge */}
+                    {/* Warrant / jurisdiction / industry badge */}
                     <span className={`text-[9px] px-1.5 py-px rounded border border-current/20 uppercase font-bold shrink-0 ${tierColor}`}>
                       {nodeKind === "legislation"
                         ? ((topic.jurisdiction || "LEG").slice(0, 4))
                         : nodeKind === "scenario"
                           ? ((topic.industry || "SCN").slice(0, 4))
-                          : topic.tier.slice(0, 4)}
+                          : warrant.slice(0, 4)}
                     </span>
 
                     {/* Title — route per node kind. IDs arrive prefixed (leg: / scn:)

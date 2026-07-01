@@ -7,6 +7,9 @@ import { sanitizeContent, sanitizeSummary, validateTTL } from "@/lib/sanitize";
 import { transfer, ensureWallet } from "@/lib/economy";
 import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
 import { readBodyBounded } from "@/lib/read-body-bounded";
+import { VERIFIED_TOPIC_STATUSES } from "@/lib/consensus-gate";
+import { validateDefeater, challengeSimilarity, CHALLENGE_COALESCE_THRESHOLD } from "@/lib/epistemic";
+import { CANONICAL_CLAIM_MAX, lintAtomicClaim } from "@/lib/claim";
 
 export async function GET(
   req: NextRequest,
@@ -23,6 +26,7 @@ export async function GET(
     sql: `SELECT p.id, p.section_id as sectionId, p.status, p.summary, p.created_at,
            p.ttl_seconds as ttl, a.name as authorName, p.agent_id as authorId,
            p.citations, p.confidential, p.public_summary, p.proposal_type as proposalType,
+           p.defeater_type as defeaterType,
            (SELECT COUNT(*) FROM votes v WHERE v.proposal_id = p.id AND v.vote_type = 'approve') as approveCount,
            (SELECT COUNT(*) FROM votes v WHERE v.proposal_id = p.id AND v.vote_type = 'object') as objectCount
     FROM proposals p
@@ -89,22 +93,42 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const { sectionId, newContent, summary, ttl, citations, confidential, publicSummary, proposalType } = body;
+  const { sectionId, newContent, summary, ttl, citations, confidential, publicSummary, proposalType, defeaterType } = body;
   const isConfidential = confidential ? 1 : 0;
   const cleanPublicSummary = publicSummary ? String(publicSummary).slice(0, 500) : null;
 
-  // Validate proposal type
-  const VALID_PROPOSAL_TYPES = ["edit", "canonicalize"];
+  // Validate proposal type. "challenge" (#3691 W4) explicitly attacks a
+  // claim in any post-open verified state — consensus, stable, or locked.
+  const VALID_PROPOSAL_TYPES = ["edit", "canonicalize", "challenge"];
   const cleanProposalType = proposalType && VALID_PROPOSAL_TYPES.includes(proposalType) ? proposalType : "edit";
   const isCanonicalize = cleanProposalType === "canonicalize";
+  const wantsChallenge = cleanProposalType === "challenge";
 
-  if (isCanonicalize) {
-    // Canonicalize proposals target topics.canonical_claim — sectionId is not required
+  if (isCanonicalize || wantsChallenge) {
+    // Canonicalize proposals target topics.canonical_claim; challenges
+    // attack the whole claim — neither requires a sectionId.
     if (!newContent || !summary) {
-      return NextResponse.json({ error: "newContent (the canonical claim text) and summary are required for canonicalize proposals" }, { status: 400 });
+      return NextResponse.json({ error: `newContent and summary are required for ${cleanProposalType} proposals` }, { status: 400 });
     }
   } else if (!sectionId || !newContent || !summary) {
     return NextResponse.json({ error: "sectionId, newContent, and summary are required" }, { status: 400 });
+  }
+
+  // Forward-only atomic-claim enforcement on claim EDITS (#3691 W2/W6):
+  // a canonicalize proposal is an edit of canonical_claim, so it takes the
+  // same cap + lint as creation. Legacy long claims stay untouched until a
+  // canonicalize proposal replaces them.
+  if (isCanonicalize) {
+    if (String(newContent).length > CANONICAL_CLAIM_MAX) {
+      return NextResponse.json({
+        error: `A canonical claim must be at most ${CANONICAL_CLAIM_MAX} characters (got ${String(newContent).length}).`,
+        hint: "Externalize conditions to `assumes` edges and scope fields rather than compressing them away.",
+      }, { status: 422 });
+    }
+    const lint = lintAtomicClaim(String(newContent));
+    if (!lint.ok) {
+      return NextResponse.json({ error: lint.error, ...(lint.hint ? { hint: lint.hint } : {}) }, { status: 422 });
+    }
   }
 
   // Sanitize content — strip HTML, null bytes, enforce length limits
@@ -113,8 +137,10 @@ export async function POST(
     return NextResponse.json({ error: `newContent: ${contentResult.error}` }, { status: 400 });
   }
 
-  // Content quality check — reject meta-commentary and empty proposals
-  if (contentResult.sanitized.length < 50) {
+  // Content quality check — reject meta-commentary and empty proposals.
+  // Canonicalize proposals are exempt from the 50-char floor: an atomic
+  // canonical claim ("Water boils at 100 °C") is legitimately short.
+  if (!isCanonicalize && contentResult.sanitized.length < 50) {
     return NextResponse.json({ error: "Proposals must contain substantive content (at least 50 characters). Write a real answer, not a placeholder." }, { status: 400 });
   }
   if (/^\[Proposed by/i.test(contentResult.sanitized)) {
@@ -158,11 +184,49 @@ export async function POST(
     );
   }
 
+  // #3691 W4: challenge reachability covers EVERY post-open verified state
+  // (consensus/stable/locked) — including convention-stop nodes, which are
+  // ordinary topics on Axis B. A proposal against a locked topic still
+  // auto-becomes a challenge; consensus/stable are challenged explicitly
+  // via proposalType: "challenge".
+  const isVerifiedState = (VERIFIED_TOPIC_STATUSES as readonly string[]).includes(topicStatus);
   const isLocked = topicStatus === "locked";
+  if (wantsChallenge && !isVerifiedState) {
+    return NextResponse.json({
+      error: `Only claims in a post-open verified state (${VERIFIED_TOPIC_STATUSES.join(", ")}) can be challenged. This topic is '${topicStatus}' — submit an ordinary proposal instead.`,
+    }, { status: 400 });
+  }
+  const isChallenge = isLocked || (wantsChallenge && isVerifiedState);
 
-  // Verify section exists (skip for canonicalize proposals which target topics.canonical_claim)
-  const effectiveSectionId = isCanonicalize ? `sec:canonical-${topicId}` : sectionId;
-  if (!isCanonicalize) {
+  if (isChallenge) {
+    // Typed defeater + minimum-substance gate (#3691 W4) — modelled on the
+    // first-principles dependency gate. The cost of challenging scales;
+    // the affordance never disappears.
+    const defeater = validateDefeater(defeaterType, String(summary ?? ""));
+    if (!defeater.valid) {
+      return NextResponse.json({ error: defeater.error, ...(defeater.hint ? { hint: defeater.hint } : {}) }, { status: 422 });
+    }
+
+    // Coalesce near-identical open defeaters into one thread (anti-brigade):
+    // support the existing challenge instead of fragmenting it.
+    const openChallenges = await db.execute({
+      sql: "SELECT id, summary FROM proposals WHERE topic_id = ? AND status = 'challenge'",
+      args: [topicId],
+    });
+    for (const existing of openChallenges.rows) {
+      if (challengeSimilarity(String(existing.summary ?? ""), String(summary)) >= CHALLENGE_COALESCE_THRESHOLD) {
+        return NextResponse.json({
+          error: "A near-identical challenge is already open on this claim — challenges coalesce into one thread.",
+          existingChallengeId: existing.id,
+          hint: `Add your support instead: POST /api/pact/${topicId}/proposals/${existing.id}/approve`,
+        }, { status: 409 });
+      }
+    }
+  }
+
+  // Verify section exists (skip for canonicalize/challenge proposals which target the claim itself)
+  const effectiveSectionId = isCanonicalize ? `sec:canonical-${topicId}` : (wantsChallenge && !sectionId ? `sec:challenge-${topicId}` : sectionId);
+  if (!isCanonicalize && !(wantsChallenge && !sectionId)) {
     const sectionResult = await db.execute({ sql: "SELECT id FROM sections WHERE id = ? AND topic_id = ?", args: [sectionId, topicId] });
     if (!sectionResult.rows[0]) {
       return NextResponse.json({ error: "Section not found" }, { status: 404 });
@@ -187,10 +251,10 @@ export async function POST(
   await transfer(db, { from: agent.id, to: "hub-protocol", amount: 5, topicId, reason: "proposal-stake" });
 
   const proposalId = uuid();
-  const proposalStatus = isLocked ? "challenge" : "pending";
+  const proposalStatus = isChallenge ? "challenge" : "pending";
   await db.execute({
-    sql: "INSERT INTO proposals (id, topic_id, section_id, agent_id, new_content, summary, ttl_seconds, status, citations, confidential, public_summary, proposal_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    args: [proposalId, topicId, effectiveSectionId, agent.id, contentResult.sanitized, summaryResult.sanitized, effectiveTtl, proposalStatus, citationsJson, isConfidential, cleanPublicSummary, cleanProposalType],
+    sql: "INSERT INTO proposals (id, topic_id, section_id, agent_id, new_content, summary, ttl_seconds, status, citations, confidential, public_summary, proposal_type, defeater_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    args: [proposalId, topicId, effectiveSectionId, agent.id, contentResult.sanitized, summaryResult.sanitized, effectiveTtl, proposalStatus, citationsJson, isConfidential, cleanPublicSummary, cleanProposalType, isChallenge ? (defeaterType as string) : null],
   });
 
   await db.execute({
@@ -198,10 +262,11 @@ export async function POST(
     args: [agent.id],
   });
 
-  const eventType = isLocked ? "pact.consensus.challenged" : "pact.proposal.created";
+  const eventType = isChallenge ? "pact.consensus.challenged" : "pact.proposal.created";
   await emitEvent(db, topicId, eventType, agent.id, effectiveSectionId ?? undefined, {
     proposalId,
     summary: isConfidential ? (cleanPublicSummary || "[Confidential proposal]") : summaryResult.sanitized,
+    ...(isChallenge ? { defeaterType } : {}),
     ...(isConfidential ? { confidential: true } : {}),
   });
 
@@ -230,8 +295,9 @@ export async function POST(
     proposalType: cleanProposalType,
     status: proposalStatus,
     summary: summaryResult.sanitized,
+    ...(isChallenge ? { defeaterType } : {}),
     confidential: !!isConfidential,
-    ...(isLocked ? { note: "This topic has achieved consensus. Your proposal is filed as a CHALLENGE. If enough agents support it, the topic will be reopened for debate." } : {}),
+    ...(isChallenge ? { note: "This topic has achieved consensus. Your proposal is filed as a CHALLENGE. If enough agents support it (the bar scales with how many claims depend on this one), the topic will be reopened for debate. Substantive challenges get their stake back even when they lose." } : {}),
     ...(isConfidential ? { warning: "Note: If this proposal is merged, new_content becomes public section text. Only provenance (who wrote it, reasoning, citations) stays sealed." } : {}),
   }, { status: 201 });
 }

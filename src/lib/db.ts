@@ -2,7 +2,8 @@ import fs from "fs";
 import path from "path";
 import pg from "pg";
 import { v4 as uuid } from "uuid";
-import { dependencyGateOk } from "./consensus-gate";
+import { dependencyGateOk, VERIFIED_TOPIC_STATUSES } from "./consensus-gate";
+import { computeEffectiveCredences, credenceFromRatio } from "./epistemic";
 
 // Load DDL from sql/<filename>. Splits on ";\n" to recover individual
 // statement strings that initSchema passes to db.execute(), matching the
@@ -525,6 +526,27 @@ async function initSchema(db: DbClient) {
     `CREATE INDEX IF NOT EXISTS idx_topics_domain ON topics(domain)`,
     `CREATE INDEX IF NOT EXISTS idx_legdoc_domain ON legislation_docs(domain)`,
     `CREATE INDEX IF NOT EXISTS idx_legsec_domain ON legislation_sections(domain)`,
+
+    // ── Two-axis epistemic model (#3691 W1) ────────────────────────────────
+    // convention_stop: Axis-B flag — this node is where the community agreed
+    //   to stop digging (a consensus role, NOT a fifth warrant kind).
+    // credence: effective credence recomputed each consensus sweep from the
+    //   dependency frontier (see epistemic.ts) — derived, self-healing state.
+    `ALTER TABLE topics ADD COLUMN IF NOT EXISTS convention_stop INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE topics ADD COLUMN IF NOT EXISTS credence DOUBLE PRECISION`,
+    // Atomic-claim discipline (#3691 W2/W6): optional supporting line +
+    // read-only atomicity classification ('atomic' | 'needs_split' |
+    // 'legacy_unchecked'); legacy rows are never truncated or auto-split.
+    `ALTER TABLE topics ADD COLUMN IF NOT EXISTS claim_support TEXT`,
+    `ALTER TABLE topics ADD COLUMN IF NOT EXISTS claim_atomicity_status TEXT`,
+    // Typed defeaters on challenge proposals (#3691 W4).
+    `ALTER TABLE proposals ADD COLUMN IF NOT EXISTS defeater_type TEXT`,
+    // Legacy axiom-tier migration (#3691 W1): "axiom" was a privileged rank;
+    // it becomes institutional warrant + the convention_stop flag, with
+    // provenance kept in tier_migrated_from. Idempotent — the second UPDATE
+    // leaves no 'axiom' rows for the first to match on re-run.
+    `UPDATE topics SET convention_stop = 1 WHERE tier = 'axiom'`,
+    `UPDATE topics SET tier_migrated_from = COALESCE(tier_migrated_from, 'axiom'), tier = 'institutional' WHERE tier = 'axiom'`,
   ];
 
   for (const stmt of statements) {
@@ -1025,8 +1047,12 @@ export async function evaluateTopicProposals(db: DbClient) {
 const CONSENSUS_RATIO = 0.90;
 const STABLE_DAYS = 30;
 
+// Per-warrant-kind ratification quorums. Keys are tier column values;
+// #3691 W1 removed the privileged "axiom" rank — its quorum of 2 survives
+// ONLY as CONVENTION_STOP_BASE_AGENTS below: a convention-stop needs fewer
+// parties to ratify the agreement-to-stop, not because it is more certain
+// or terminal. Axis A carries no ordering; these are participation floors.
 export const TIER_BASE_AGENTS: Record<string, number> = {
-  axiom: 2,
   empirical: 3,
   institutional: 3,
   interpretive: 4,
@@ -1039,15 +1065,19 @@ export const TIER_BASE_AGENTS: Record<string, number> = {
 
 const DEFAULT_BASE = 3;
 
-function getRequiredAgents(tier: string, uniqueProposers: number): number {
-  const base = TIER_BASE_AGENTS[tier] ?? DEFAULT_BASE;
+// Fewer parties ratify a convention-stop (the agreement to stop digging);
+// the stop stays exactly as challengeable as everything else.
+export const CONVENTION_STOP_BASE_AGENTS = 2;
+
+function getRequiredAgents(tier: string, conventionStop: boolean, uniqueProposers: number): number {
+  const base = conventionStop ? CONVENTION_STOP_BASE_AGENTS : (TIER_BASE_AGENTS[tier] ?? DEFAULT_BASE);
   return Math.max(base, uniqueProposers);
 }
 
 export async function updateConsensusStatuses(db: DbClient) {
   // --- Phase 1: Check open/challenged topics for NEW consensus ---
   const openTopics = await db.execute(`
-    SELECT t.id, t.status, t.tier, t.consensus_since,
+    SELECT t.id, t.status, t.tier, t.convention_stop, t.consensus_since,
       (SELECT COUNT(DISTINCT p.agent_id) FROM proposals p
         WHERE p.topic_id = t.id AND p.status != 'rejected') as uniqueProposers,
       (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'pending') as pendingCount,
@@ -1078,7 +1108,7 @@ export async function updateConsensusStatuses(db: DbClient) {
     const aligned = t.alignedCount as number;
     const dissenting = t.dissentingCount as number;
     const totalVoters = aligned + dissenting;
-    const requiredAgents = getRequiredAgents(tier, uniqueProposers);
+    const requiredAgents = getRequiredAgents(tier, !!t.convention_stop, uniqueProposers);
     const unmetDeps = t.unmetDependencies as number;
 
     const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
@@ -1137,7 +1167,7 @@ export async function updateConsensusStatuses(db: DbClient) {
 
   // --- Phase 2: Check existing consensus topics ---
   const consensusTopics = await db.execute(`
-    SELECT t.id, t.tier, t.consensus_since,
+    SELECT t.id, t.tier, t.convention_stop, t.consensus_since,
       (SELECT COUNT(DISTINCT p.agent_id) FROM proposals p
         WHERE p.topic_id = t.id AND p.status != 'rejected') as uniqueProposers,
       (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'pending') as pendingCount,
@@ -1160,7 +1190,7 @@ export async function updateConsensusStatuses(db: DbClient) {
     const aligned = t.alignedCount as number;
     const dissenting = t.dissentingCount as number;
     const totalVoters = aligned + dissenting;
-    const requiredAgents = getRequiredAgents(tier, uniqueProposers);
+    const requiredAgents = getRequiredAgents(tier, !!t.convention_stop, uniqueProposers);
     const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
     const consensusSince = t.consensus_since as string;
     const unmetDeps = t.unmetDependencies as number;
@@ -1245,6 +1275,68 @@ export async function updateConsensusStatuses(db: DbClient) {
     }
   }
 
+  // --- Phase 4 (#3691 W3): a defeated *necessary* premise re-opens contention ---
+  // Consensus topics with unmet deps are already demoted in Phase 2; stable
+  // and locked topics were previously immune. An `assumes` dependency that
+  // has left the verified statuses forces the dependent to `challenged`
+  // (contested). `builds_on` weakness flows through credence only (Phase 5).
+  const assumesDefeated = await db.execute(`
+    SELECT DISTINCT t.id FROM topics t
+    JOIN topic_dependencies td ON td.topic_id = t.id AND td.relationship = 'assumes'
+    JOIN topics dep ON dep.id = td.depends_on
+    WHERE t.status IN ('stable', 'locked')
+      AND dep.status NOT IN ('consensus', 'stable', 'locked')
+  `);
+  for (const t of assumesDefeated.rows) {
+    await db.execute({
+      sql: "UPDATE topics SET status = 'challenged', locked_at = NULL, consensus_since = NULL WHERE id = ?",
+      args: [t.id as string],
+    });
+    await emitEvent(db, t.id as string, "pact.dependency.assumption-defeated", "", "", {
+      reason: "A necessary (assumes) dependency left verified status — claim re-opened for contention",
+    });
+    updated++;
+  }
+
+  // --- Phase 5 (#3691 W3): recompute effective credence for every topic ---
+  // Derived, never latched: recomputed from the current dependency frontier
+  // on every sweep, so dependents attenuate transitively on a defeat (P1),
+  // are floored rather than zeroed or deleted (P2), and self-heal when the
+  // dependency recovers (P3).
+  try {
+    const all = await db.execute(`
+      SELECT t.id, t.status, t.consensus_ratio, t.credence,
+        (SELECT COUNT(*) FROM registrations r WHERE r.topic_id = t.id AND r.done_status = 'aligned') as alignedCount,
+        (SELECT COUNT(*) FROM registrations r WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as dissentingCount
+      FROM topics t
+    `);
+    const edgesResult = await db.execute(`SELECT topic_id, depends_on, relationship FROM topic_dependencies`);
+    const verified = new Set<string>(VERIFIED_TOPIC_STATUSES);
+    const nodes = all.rows.map((r) => {
+      const aligned = (r.alignedCount as number) || 0;
+      const dissenting = (r.dissentingCount as number) || 0;
+      const live = aligned + dissenting > 0 ? aligned / (aligned + dissenting) : 0;
+      const ratio = (r.consensus_ratio as number | null) ?? live;
+      return { id: r.id as string, base: credenceFromRatio(ratio), defeated: !verified.has(r.status as string) };
+    });
+    const edges = edgesResult.rows.map((r) => ({
+      topicId: r.topic_id as string,
+      dependsOn: r.depends_on as string,
+      relationship: r.relationship as string,
+    }));
+    const effective = computeEffectiveCredences(nodes, edges);
+    const priorCredence = new Map(all.rows.map((r) => [r.id as string, r.credence as number | null]));
+    for (const n of nodes) {
+      const value = effective.get(n.id);
+      if (value === undefined) continue;
+      const prior = priorCredence.get(n.id);
+      if (typeof prior === "number" && Math.abs(prior - value) < 1e-9) continue;
+      await db.execute({ sql: "UPDATE topics SET credence = ? WHERE id = ?", args: [value, n.id] });
+    }
+  } catch (e) {
+    console.error("Credence recompute failed (non-fatal):", e);
+  }
+
   return updated;
 }
 
@@ -1252,11 +1344,29 @@ export async function updateConsensusStatuses(db: DbClient) {
 
 const CHALLENGE_REOPEN_VOTES = 3;
 
+// #3691 W4: the reopen bar scales with blast radius — the more claims
+// depend on a node, the more support a challenge needs to reopen it.
+// Protection raises COST; it never removes the challenge affordance.
+export function requiredReopenVotes(dependentCount: number): number {
+  return CHALLENGE_REOPEN_VOTES + Math.floor(Math.sqrt(Math.max(0, dependentCount)));
+}
+
+// A challenge that gathers neither reopen quorum nor traction lapses after
+// this window. Substantive challenges get their stake back even when they
+// lose; only quorum-judged vexatious ones (objections, zero support) forfeit.
+const CHALLENGE_LAPSE_SECONDS = 7 * 24 * 3600;
+const CHALLENGE_VEXATIOUS_OBJECTIONS = 3;
+const PROPOSAL_STAKE = 5;
+
 export async function evaluateChallenges(db: DbClient) {
   const challenges = await db.execute(`
     SELECT p.id as challengeId, p.topic_id, p.summary, p.agent_id,
       (SELECT COUNT(DISTINCT v.agent_id) FROM votes v
-        WHERE v.proposal_id = p.id AND v.vote_type = 'approve') as supportCount
+        WHERE v.proposal_id = p.id AND v.vote_type = 'approve') as supportCount,
+      (SELECT COUNT(DISTINCT v.agent_id) FROM votes v
+        WHERE v.proposal_id = p.id AND v.vote_type = 'object') as objectCount,
+      (SELECT COUNT(*) FROM topic_dependencies td WHERE td.depends_on = p.topic_id) as dependentCount,
+      (p.created_at + ${CHALLENGE_LAPSE_SECONDS} * INTERVAL '1 second' <= NOW()) as lapsed
     FROM proposals p
     JOIN topics t ON t.id = p.topic_id
     WHERE p.status = 'challenge'
@@ -1268,9 +1378,36 @@ export async function evaluateChallenges(db: DbClient) {
 
   for (const c of challenges.rows) {
     const support = (c.supportCount as number) || 0;
+    const objections = (c.objectCount as number) || 0;
+    const dependents = (c.dependentCount as number) || 0;
     const topicId = c.topic_id as string;
+    const required = requiredReopenVotes(dependents);
 
-    if (support >= CHALLENGE_REOPEN_VOTES && !reopenedTopics.has(topicId)) {
+    if (support < required && c.lapsed) {
+      const vexatious = objections >= CHALLENGE_VEXATIOUS_OBJECTIONS && support === 0;
+      await db.execute({
+        sql: "UPDATE proposals SET status = 'rejected', resolved_at = NOW() WHERE id = ?",
+        args: [c.challengeId as string],
+      });
+      if (!vexatious) {
+        try {
+          const { transfer } = await import("./economy");
+          await transfer(db, { from: null, to: c.agent_id as string, amount: PROPOSAL_STAKE, topicId, reason: "challenge-stake-refund" });
+        } catch (e) {
+          console.error(`Challenge stake refund failed for ${c.agent_id}:`, e);
+        }
+      }
+      await emitEvent(db, topicId, vexatious ? "pact.challenge.dismissed-vexatious" : "pact.challenge.lapsed", c.agent_id as string, "", {
+        challengeId: c.challengeId as string,
+        supportVotes: support,
+        objections,
+        requiredVotes: required,
+        stakeRefunded: !vexatious,
+      });
+      continue;
+    }
+
+    if (support >= required && !reopenedTopics.has(topicId)) {
       await db.execute({
         sql: "UPDATE topics SET status = 'challenged', locked_at = NULL, consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
         args: [topicId],

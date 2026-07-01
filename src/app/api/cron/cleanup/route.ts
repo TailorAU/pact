@@ -1,12 +1,16 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, autoMergeExpired } from "@/lib/db";
+import { classifyClaimAtomicity } from "@/lib/claim";
+import { ensureLegacySplitBounty } from "@/lib/economy";
 
 /**
  * Cron job: runs daily at 3am UTC (triggered by GitHub Actions).
  * - Purges events older than 30 days
  * - Purges resolved proposals older than 90 days
  * - Cleans up stale registrations (left > 90 days ago)
+ * - #3691 W6: read-only atomicity backfill (classify, NEVER truncate or
+ *   auto-split) + seeds the legacy-split bounty on needs_split claims
  *
  * Protected by CRON_SECRET.
  */
@@ -45,6 +49,34 @@ export async function GET(req: NextRequest) {
   // 5. Auto-merge expired proposals (Silence=Consent)
   const autoMerged = await autoMergeExpired(db);
 
+  // 6. #3691 W6 — read-only atomicity backfill. Classifies unclassified
+  // canonical claims in bounded batches; rows keep their full text
+  // untouched (splitting a bundled claim is a consensus judgement paid via
+  // the legacy-split bounty, never a migration script). Rows without a
+  // claim stay NULL (= legacy_unchecked).
+  let claimsClassified = 0;
+  let splitBountiesSeeded = 0;
+  const unclassified = await db.execute(
+    `SELECT id, canonical_claim FROM topics
+     WHERE canonical_claim IS NOT NULL AND claim_atomicity_status IS NULL
+     LIMIT 200`
+  );
+  for (const row of unclassified.rows) {
+    const status = classifyClaimAtomicity(row.canonical_claim as string);
+    await db.execute({
+      sql: "UPDATE topics SET claim_atomicity_status = ? WHERE id = ?",
+      args: [status, row.id as string],
+    });
+    claimsClassified++;
+    if (status === "needs_split") {
+      try {
+        if (await ensureLegacySplitBounty(db, row.id as string)) splitBountiesSeeded++;
+      } catch (e) {
+        console.error(`legacy-split bounty seed failed for ${row.id}:`, e);
+      }
+    }
+  }
+
   const summary = {
     message: "Cleanup complete",
     timestamp: new Date().toISOString(),
@@ -53,6 +85,8 @@ export async function GET(req: NextRequest) {
     registrationsDeleted: regsResult.rowsAffected ?? 0,
     tokensDeleted: tokensResult.rowsAffected ?? 0,
     autoMerged,
+    claimsClassified,
+    splitBountiesSeeded,
   };
 
   return NextResponse.json(summary);

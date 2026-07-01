@@ -58,6 +58,44 @@ export async function transfer(
   });
 }
 
+// ─── Legacy-split bounty class (#3691 W6) ────────────────────────────
+// Splitting a bundled legacy claim is a consensus judgement, never a
+// migration script — so it is PAID work. Every topic the backfill
+// classifier tags `needs_split` gets a standing hub-protocol bounty; the
+// agent whose canonicalize/split proposals bring it to an atomic claim
+// collects via the normal consensus distribution.
+
+export const LEGACY_SPLIT_BOUNTY = 10;
+
+/**
+ * Seed the legacy-split bounty for a needs_split topic exactly once.
+ * Idempotency marker: the 'legacy-split-bounty' ledger tx for the topic.
+ */
+export async function ensureLegacySplitBounty(db: DbClient, topicId: string): Promise<boolean> {
+  const existing = await db.execute({
+    sql: "SELECT 1 FROM ledger_txs WHERE topic_id = ? AND reason = 'legacy-split-bounty' LIMIT 1",
+    args: [topicId],
+  });
+  if (existing.rows.length > 0) return false;
+
+  await db.batch([
+    {
+      sql: "INSERT INTO topic_bounties (id, topic_id, sponsor_id, amount, status) VALUES (?, ?, 'hub-protocol', ?, 'escrow')",
+      args: [uuid(), topicId, LEGACY_SPLIT_BOUNTY],
+    },
+    {
+      sql: "INSERT INTO ledger_txs (id, from_wallet, to_wallet, amount, topic_id, reason) VALUES (?, 'hub-protocol', 'escrow', ?, ?, 'legacy-split-bounty')",
+      args: [uuid(), LEGACY_SPLIT_BOUNTY, topicId],
+    },
+  ]);
+
+  await emitEvent(db, topicId, "pact.bounty.legacy-split-seeded", "", "", {
+    amount: LEGACY_SPLIT_BOUNTY,
+    reason: "Claim predates the atomic-claim discipline and bundles multiple propositions — splitting it is paid consensus work.",
+  });
+  return true;
+}
+
 // ─── Bounty Distribution ─────────────────────────────────────────────
 // Split: 40% Proposer, 40% Voters (harmonic decay), 20% Assumption Subsidy
 //

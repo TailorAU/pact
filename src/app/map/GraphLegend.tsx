@@ -1,9 +1,20 @@
+import { WARRANT_KINDS } from "@/lib/epistemic";
+
+// Four unordered warrant kinds (#3724) — peers, one hue each, no ranking.
+const WARRANT_HEX: Record<string, string> = {
+  empirical: "#22d3ee",
+  institutional: "#fbbf24",
+  interpretive: "#c084fc",
+  conjectural: "#f87171",
+};
+
 /**
  * #1152 Round 5a — /map graph legend.
  *
- * Explains the three node shapes (topic / legislation / scenario) and the
- * four edge types (depends_on / cites / applies_when / co_applies) so the
- * SVG is self-explanatory without hover affordances.
+ * Explains the three node shapes (topic / legislation / scenario), the
+ * four edge types (depends_on / cites / applies_when / co_applies), and —
+ * since #3724 — the four unordered warrant kinds, so the SVG is
+ * self-explanatory without hover affordances.
  */
 export default function GraphLegend() {
   return (
@@ -61,6 +72,20 @@ export default function GraphLegend() {
           <line x1={2} y1={7} x2={22} y2={7} stroke="#a5b4fc" strokeWidth={1} />
         </svg>
         <span>co_applies (scenario-scoped)</span>
+      </span>
+
+      <span className="mx-2 text-white/10">|</span>
+      <span className="uppercase tracking-wider text-[10px] font-bold text-pact-dim/60">Warrant · unordered</span>
+
+      {WARRANT_KINDS.map((kind) => (
+        <span key={kind} className="flex items-center gap-1.5 capitalize">
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: WARRANT_HEX[kind] }} />
+          <span style={{ color: WARRANT_HEX[kind] }}>{kind}</span>
+        </span>
+      ))}
+
+      <span className="w-full text-[10px] text-pact-dim/50">
+        Position = dependency depth, not certainty. The four warrant kinds are unordered peers — how a claim is justified, not how certain it is.
       </span>
     </div>
   );

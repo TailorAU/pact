@@ -6,11 +6,16 @@ import type { Scenario } from "@/lib/scenarios/types";
 import GraphLegend from "./map/GraphLegend";
 import Graph3DSection from "./map/Graph3DSection";
 import InteractiveTree, { type TreeTopic } from "./map/InteractiveTree";
+import { warrantKindFromTier, type WarrantKind } from "@/lib/epistemic";
 
 export const revalidate = 30;
 
-const TIER_ORDER_MAP: Record<string, number> = {
-  axiom: 0, convention: 1, practice: 2, policy: 3, frontier: 4,
+// Deterministic grouping tie-break applied AFTER dependency depth (#3724).
+// The four warrant kinds are UNORDERED peers — this is a stable sort key,
+// NOT a certainty ranking, and contains no "axiom" (rank retired; legacy
+// tiers normalise via warrantKindFromTier).
+const WARRANT_TIEBREAK: Record<WarrantKind, number> = {
+  empirical: 0, institutional: 1, interpretive: 2, conjectural: 3,
 };
 
 // Pseudo-tier order for non-topic node types — matches /map page.
@@ -193,8 +198,8 @@ async function buildTreeTopics(): Promise<TreeTopic[]> {
       const da = depthMap.get(a.id) ?? 99;
       const db2 = depthMap.get(b.id) ?? 99;
       if (da !== db2) return da - db2;
-      const ta = TIER_ORDER_MAP[a.tier] ?? 99;
-      const tb = TIER_ORDER_MAP[b.tier] ?? 99;
+      const ta = WARRANT_TIEBREAK[warrantKindFromTier(a.tier)] ?? 99;
+      const tb = WARRANT_TIEBREAK[warrantKindFromTier(b.tier)] ?? 99;
       if (ta !== tb) return ta - tb;
       return a.title.localeCompare(b.title);
     })

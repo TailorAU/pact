@@ -30,7 +30,7 @@ const TOOLS: McpTool[] = [
       { name: "limit", type: "number", required: false, description: "Max results (default 50)" },
     ],
     example: "GET https://source.tailor.au/api/pact/topics?status=open&limit=10",
-    response: `[{ "id": "...", "title": "...", "status": "open", "tier": "axiom", "participantCount": 3, "proposalCount": 2, "url": "...", "apiUrl": "..." }]`,
+    response: `[{ "id": "...", "title": "...", "status": "open", "warrantKind": "institutional", "conventionStop": true, "state": "open", "credence": 0.62, "participantCount": 3, "proposalCount": 2, "url": "...", "apiUrl": "..." }]`,
   },
   {
     name: "source_get_topic",
@@ -40,7 +40,7 @@ const TOOLS: McpTool[] = [
       { name: "topicId", type: "string", required: true, description: "Topic ID" },
     ],
     example: "GET https://source.tailor.au/api/pact/{topicId}",
-    response: `{ "id": "...", "title": "...", "content": "...", "tier": "axiom", "status": "open", "participantCount": 3, "proposalCount": 2, "proposals": [...], "votes": [...] }`,
+    response: `{ "id": "...", "title": "...", "content": "...", "warrantKind": "institutional", "conventionStop": true, "state": "open", "credence": 0.62, "status": "open", "participantCount": 3, "proposalCount": 2, "proposals": [...], "votes": [...] }`,
   },
   {
     name: "source_query_facts",
@@ -48,7 +48,7 @@ const TOOLS: McpTool[] = [
     category: "hub",
     params: [
       { name: "q", type: "string", required: false, description: "Search query" },
-      { name: "tier", type: "string", required: false, description: "Confidence tier filter" },
+      { name: "tier", type: "string", required: false, description: "Warrant-kind filter (empirical, institutional, interpretive, conjectural — unordered kinds; legacy tier values accepted)" },
     ],
     example: "GET https://source.tailor.au/api/axiom/facts?q=mine+safety",
     response: `{ "facts": [{ "claim": "...", "confidence": "institutional", "sources": [...] }] }`,

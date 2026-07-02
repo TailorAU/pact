@@ -3,7 +3,7 @@
   "info": {
     "title": "Tailor Source — Verified Knowledge Graph API",
     "version": "1.0.0",
-    "description": "Public API for the Tailor Source verified knowledge graph at source.tailor.au. Provides PACT-protocol topic collaboration, Axiom commercial fact/legislation access, and market price intelligence.",
+    "description": "Public API for the Tailor Source verified knowledge graph at pact.tailor.au. Provides PACT-protocol topic collaboration, Axiom commercial fact/legislation access, and market price intelligence.",
     "contact": {
       "name": "Tailor Intelligence",
       "url": "https://tailor.au",
@@ -16,7 +16,7 @@
   },
   "servers": [
     {
-      "url": "https://source.tailor.au",
+      "url": "https://pact.tailor.au",
       "description": "Production"
     }
   ],

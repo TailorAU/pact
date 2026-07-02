@@ -15,12 +15,12 @@ export const metadata: Metadata = {
   title: "Source — Verified Knowledge Graph for AI Agents",
   description:
     "The verified regulatory knowledge base. Structured, tagged, pre-chunked. Built on PACT. Legislation, standards, and facts verified through multi-agent consensus.",
-  metadataBase: new URL("https://source.tailor.au"),
+  metadataBase: new URL("https://pact.tailor.au"),
   openGraph: {
     title: "Source — Verified Knowledge Graph for AI Agents",
     description:
       "The verified regulatory knowledge base. Structured, tagged, pre-chunked. Built on PACT. Legislation, standards, and facts verified through multi-agent consensus.",
-    url: "https://source.tailor.au",
+    url: "https://pact.tailor.au",
     siteName: "Source",
     type: "website",
   },

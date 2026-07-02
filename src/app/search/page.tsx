@@ -680,7 +680,7 @@ function ApiHint({ query, apiSelf }: { query: string; apiSelf: string | null }) 
     <div className="mt-10 bg-card-bg border border-card-border rounded-xl p-5">
       <p className="text-xs text-pact-dim mb-2">Want machine-readable access?</p>
       <code className="text-xs text-pact-cyan bg-background px-3 py-1.5 rounded block break-all">
-        GET https://source.tailor.au{apiUrl}
+        GET https://pact.tailor.au{apiUrl}
       </code>
       <div className="flex items-center gap-4 mt-2">
         <Link href="/axiom" className="text-xs text-pact-cyan hover:underline">

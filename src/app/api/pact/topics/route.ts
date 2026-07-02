@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   // Use the request's origin so it works in both dev and production
   const origin = req.nextUrl.origin;
   const isLocal = origin.includes("localhost") || origin.includes("0.0.0.0") || origin.includes("127.0.0.1");
-  const baseUrl = isLocal ? "https://source.tailor.au" : origin;
+  const baseUrl = isLocal ? "https://pact.tailor.au" : origin;
   const enriched = (topics as Record<string, unknown>[]).map((t) => ({
     ...t,
     // Axis A + Axis B (#3691): warrant kind is unordered; credence is the

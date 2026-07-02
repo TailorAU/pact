@@ -2,7 +2,7 @@
   "function_declarations": [
     {
       "name": "source_hub_stats",
-      "description": "Get Source knowledge graph overview: topic count, agent count, consensus stats, and recent events from source.tailor.au.",
+      "description": "Get Source knowledge graph overview: topic count, agent count, consensus stats, and recent events from pact.tailor.au.",
       "parameters": {
         "type": "object",
         "properties": {},

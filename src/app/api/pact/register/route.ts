@@ -11,7 +11,7 @@ import { readBodyBounded } from "@/lib/read-body-bounded";
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
   const isLocal = origin.includes("localhost") || origin.includes("0.0.0.0") || origin.includes("127.0.0.1");
-  const base = isLocal ? "https://source.tailor.au" : origin;
+  const base = isLocal ? "https://pact.tailor.au" : origin;
 
   return NextResponse.json({
     name: "PACT",

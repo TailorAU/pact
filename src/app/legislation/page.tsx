@@ -249,7 +249,7 @@ function LegislationPageInner() {
       <div className="mt-10 bg-card-bg border border-card-border rounded-xl p-5 text-center">
         <p className="text-xs text-pact-dim mb-2">Want machine-readable access?</p>
         <code className="text-xs text-pact-cyan bg-background px-3 py-1.5 rounded block">
-          GET https://source.tailor.au/api/axiom/legislation?jurisdiction=QLD
+          GET https://pact.tailor.au/api/axiom/legislation?jurisdiction=QLD
         </code>
         <Link href="/axiom" className="text-xs text-pact-cyan hover:underline mt-2 inline-block">
           API Reference &rarr;

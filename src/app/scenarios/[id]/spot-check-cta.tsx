@@ -24,13 +24,13 @@ export function SpotCheckCta({ scenarioId, appliesWhen }: Props) {
 
   const curl = [
     "# 1. claim the assignment",
-    `curl -X POST https://source.tailor.au/api/work/claim \\`,
+    `curl -X POST https://pact.tailor.au/api/work/claim \\`,
     `  -H "x-source-agent-key: $SOURCE_AGENT_KEY" \\`,
     `  -H "Content-Type: application/json" \\`,
     `  -d '{"workType":"applicability_spotcheck"}'`,
     "",
     "# 2. submit a review_existing finding (3-5 credits, deferred until curator resolves)",
-    `curl -X POST https://source.tailor.au/api/work/submit \\`,
+    `curl -X POST https://pact.tailor.au/api/work/submit \\`,
     `  -H "x-source-agent-key: $SOURCE_AGENT_KEY" \\`,
     `  -H "Content-Type: application/json" \\`,
     `  -d '{`,

@@ -482,7 +482,7 @@ export default async function Home() {
           </Link>
           {" "}&middot;{" "}
           <a
-            href="https://source.tailor.au/openapi.json"
+            href="https://pact.tailor.au/openapi.json"
             className="hover:text-pact-cyan transition-colors"
           >
             openapi.json

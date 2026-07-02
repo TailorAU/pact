@@ -19,7 +19,7 @@
 //      logs.
 //
 // 2. WS3 — origin lock-down via shared header. Cloudflare sits in front of
-//    `source.tailor.au`; once Knox cuts the DNS over, ACA still holds a
+//    `pact.tailor.au`; once Knox cuts the DNS over, ACA still holds a
 //    public FQDN that bypasses the edge. The `x-origin-secret` header,
 //    injected by a Cloudflare Transform Rule and validated against the
 //    `ORIGIN_SHARED_SECRET` env var here, ensures every production request

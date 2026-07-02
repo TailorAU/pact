@@ -60,7 +60,7 @@ export function ExploreDemos() {
       <LiveDemoCard
         title="Live Fuel Prices"
         question="Where's the cheapest fuel in QLD?"
-        apiUrl="https://source.tailor.au/api/market/fuel/cheapest?fuelType=U91&state=QLD&limit=3"
+        apiUrl="https://pact.tailor.au/api/market/fuel/cheapest?fuelType=U91&state=QLD&limit=3"
         renderResult={FuelResults}
         cta="Your agent can do this. Just ask: 'Find me the cheapest U91 in QLD'"
         accent="green-500"
@@ -68,7 +68,7 @@ export function ExploreDemos() {
       <LiveDemoCard
         title="Verified Legislation"
         question="What does the mining safety law say?"
-        apiUrl="https://source.tailor.au/api/axiom/legislation/search?q=coal+mining+safety&jurisdiction=QLD&limit=3"
+        apiUrl="https://pact.tailor.au/api/axiom/legislation/search?q=coal+mining+safety&jurisdiction=QLD&limit=3"
         renderResult={LegislationResults}
         cta="Verified statutory text — not LLM memory."
         accent="pact-cyan"

@@ -5,7 +5,7 @@
 // No credentials are ever sent on these surfaces, so `*` is the correct,
 // safe allow-origin per the CORS spec.
 //
-// Without these headers a browser-side `fetch("https://source.tailor.au/...")`
+// Without these headers a browser-side `fetch("https://pact.tailor.au/...")`
 // from a different origin is blocked at the browser, even though the server
 // would happily return the data — see #2609 (curriculum) and #2738
 // (legislation parity).

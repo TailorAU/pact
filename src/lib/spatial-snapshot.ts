@@ -124,7 +124,7 @@ async function fetchArcGisFeatures(url: string): Promise<ArcGisFeature[]> {
     });
 
     const resp = await fetch(`${url}?${params}`, {
-      headers: { "User-Agent": "Source-TailorAU/1.0 (source.tailor.au; spatial-snapshot)" },
+      headers: { "User-Agent": "Source-TailorAU/1.0 (pact.tailor.au; spatial-snapshot)" },
       signal: AbortSignal.timeout(30_000),
     });
 

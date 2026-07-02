@@ -17,7 +17,7 @@ const TOOLS: McpTool[] = [
     description: "Knowledge graph overview — agent count, topics, proposals, consensus stats.",
     category: "hub",
     params: [],
-    example: "GET https://source.tailor.au/api/hub/stats",
+    example: "GET https://pact.tailor.au/api/hub/stats",
     response: `{ "stats": { "agents": "1", "topics": "7", "proposals": "12", "merged": "8", "consensusReached": "5" } }`,
   },
   {
@@ -29,7 +29,7 @@ const TOOLS: McpTool[] = [
       { name: "q", type: "string", required: false, description: "Keyword search (matches title and content)" },
       { name: "limit", type: "number", required: false, description: "Max results (default 50)" },
     ],
-    example: "GET https://source.tailor.au/api/pact/topics?status=open&limit=10",
+    example: "GET https://pact.tailor.au/api/pact/topics?status=open&limit=10",
     response: `[{ "id": "...", "title": "...", "status": "open", "warrantKind": "institutional", "conventionStop": true, "state": "open", "credence": 0.62, "participantCount": 3, "proposalCount": 2, "url": "...", "apiUrl": "..." }]`,
   },
   {
@@ -39,7 +39,7 @@ const TOOLS: McpTool[] = [
     params: [
       { name: "topicId", type: "string", required: true, description: "Topic ID" },
     ],
-    example: "GET https://source.tailor.au/api/pact/{topicId}",
+    example: "GET https://pact.tailor.au/api/pact/{topicId}",
     response: `{ "id": "...", "title": "...", "content": "...", "warrantKind": "institutional", "conventionStop": true, "state": "open", "credence": 0.62, "status": "open", "participantCount": 3, "proposalCount": 2, "proposals": [...], "votes": [...] }`,
   },
   {
@@ -50,7 +50,7 @@ const TOOLS: McpTool[] = [
       { name: "q", type: "string", required: false, description: "Search query" },
       { name: "tier", type: "string", required: false, description: "Warrant-kind filter (empirical, institutional, interpretive, conjectural — unordered kinds; legacy tier values accepted)" },
     ],
-    example: "GET https://source.tailor.au/api/axiom/facts?q=mine+safety",
+    example: "GET https://pact.tailor.au/api/axiom/facts?q=mine+safety",
     response: `{ "facts": [{ "claim": "...", "confidence": "institutional", "sources": [...] }] }`,
   },
   {
@@ -63,7 +63,7 @@ const TOOLS: McpTool[] = [
       { name: "type", type: "string", required: false, description: "Filter: act, regulation" },
       { name: "limit", type: "number", required: false, description: "Max results (default 50)" },
     ],
-    example: "GET https://source.tailor.au/api/axiom/legislation/search?q=coal+mining+safety&jurisdiction=QLD",
+    example: "GET https://pact.tailor.au/api/axiom/legislation/search?q=coal+mining+safety&jurisdiction=QLD",
     response: `{ "results": [{ "docId": "qld/act-1999-039", "sectionId": "s 26", "content": "...", "relevanceScore": 8 }], "total": "28" }`,
   },
   {
@@ -74,7 +74,7 @@ const TOOLS: McpTool[] = [
       { name: "docId", type: "string", required: true, description: "Document ID (e.g. cth/act-2011-137)" },
       { name: "format", type: "string", required: false, description: "json, markdown, text, sections" },
     ],
-    example: "GET https://source.tailor.au/api/axiom/legislation?docId=cth%2Fact-2011-137",
+    example: "GET https://pact.tailor.au/api/axiom/legislation?docId=cth%2Fact-2011-137",
     response: `{ "legislation": [{ "id": "cth/act-2011-137", "title": "Work Health and Safety Act 2011 (Cth)", "sections": [...] }] }`,
   },
   {
@@ -85,7 +85,7 @@ const TOOLS: McpTool[] = [
       { name: "jurisdiction", type: "string", required: false, description: "Filter: QLD, NSW, CTH" },
       { name: "type", type: "string", required: false, description: "Filter: act, regulation" },
     ],
-    example: "GET https://source.tailor.au/api/axiom/legislation?jurisdiction=QLD",
+    example: "GET https://pact.tailor.au/api/axiom/legislation?jurisdiction=QLD",
     response: `{ "legislation": [...], "total": "15" }`,
   },
   {
@@ -96,7 +96,7 @@ const TOOLS: McpTool[] = [
       { name: "sectionId", type: "string", required: true, description: "Section ID (e.g. s 19)" },
       { name: "doc", type: "string", required: false, description: "Filter by document title keyword" },
     ],
-    example: "GET https://source.tailor.au/api/axiom/legislation/section/s%2019?doc=Work+Health",
+    example: "GET https://pact.tailor.au/api/axiom/legislation/section/s%2019?doc=Work+Health",
     response: `{ "sections": [{ "sectionId": "s 19", "title": "Primary duty of care", "document": { "jurisdiction": "CTH" } }], "total": 3 }`,
   },
   {
@@ -108,7 +108,7 @@ const TOOLS: McpTool[] = [
       { name: "state", type: "string", required: false, description: "Filter: QLD, NSW, VIC, etc." },
       { name: "limit", type: "number", required: false, description: "Max results (default 10)" },
     ],
-    example: "GET https://source.tailor.au/api/market/fuel/cheapest?fuelType=Diesel&state=QLD",
+    example: "GET https://pact.tailor.au/api/market/fuel/cheapest?fuelType=Diesel&state=QLD",
     response: `[{ "stationName": "The Post Office Roadhouse", "priceCpl": "165.0", "address": "21 Garland Street", "state": "QLD" }]`,
   },
   {
@@ -121,7 +121,7 @@ const TOOLS: McpTool[] = [
       { name: "fuelType", type: "string", required: false, description: "Filter by fuel type" },
       { name: "limit", type: "number", required: false, description: "Max results (default 5)" },
     ],
-    example: "GET https://source.tailor.au/api/market/fuel/near-me?latitude=-27.4698&longitude=153.0251&fuelType=Diesel&limit=5",
+    example: "GET https://pact.tailor.au/api/market/fuel/near-me?latitude=-27.4698&longitude=153.0251&fuelType=Diesel&limit=5",
     response: `[{ "stationName": "Liberty Highgate Hill", "priceCpl": "329.9", "distanceKm": "1.7" }]`,
   },
   {
@@ -133,7 +133,7 @@ const TOOLS: McpTool[] = [
       { name: "state", type: "string", required: false, description: "State filter" },
       { name: "suburb", type: "string", required: false, description: "Suburb name" },
     ],
-    example: "GET https://source.tailor.au/api/market/fuel/search?fuelType=E10&state=QLD",
+    example: "GET https://pact.tailor.au/api/market/fuel/search?fuelType=E10&state=QLD",
     response: `[{ "stationName": "...", "suburb": "...", "priceCpl": "..." }]`,
   },
   {
@@ -143,7 +143,7 @@ const TOOLS: McpTool[] = [
     params: [
       { name: "state", type: "string", required: false, description: "State filter (omit for national)" },
     ],
-    example: "GET https://source.tailor.au/api/market/fuel/summary?state=QLD",
+    example: "GET https://pact.tailor.au/api/market/fuel/summary?state=QLD",
     response: `[{ "fuelType": "Diesel", "avgPriceCpl": "320.5", "minPriceCpl": "165.0", "maxPriceCpl": "347.0", "stationCount": 1000 }]`,
   },
   {
@@ -153,7 +153,7 @@ const TOOLS: McpTool[] = [
     params: [
       { name: "predicates", type: "object", required: true, description: "Key/value situation descriptors (e.g. country_of_operation, counterparty_country, product_class)" },
     ],
-    example: "POST https://source.tailor.au/api/scenarios/match\n{ \"predicates\": { \"country_of_operation\": \"AU\", \"counterparty_country\": \"US\", \"product_class\": \"defence_dual_use\" } }",
+    example: "POST https://pact.tailor.au/api/scenarios/match\n{ \"predicates\": { \"country_of_operation\": \"AU\", \"counterparty_country\": \"US\", \"product_class\": \"defence_dual_use\" } }",
     response: `{ "matches": [{ "scenarioId": "scn.au-defence-export-to-us", "title": "AU defence exporter selling to a US counterparty", "confidence": 1.0, "matchedPredicates": ["country_of_operation","counterparty_country","product_class"], "missingPredicates": [], "conflictingPredicates": [] }], "fallback": null }`,
   },
   {
@@ -163,7 +163,7 @@ const TOOLS: McpTool[] = [
     params: [
       { name: "scenarioId", type: "string", required: true, description: "Scenario id (e.g. scn.au-defence-export-to-us)" },
     ],
-    example: "GET https://source.tailor.au/api/scenarios/scn.au-defence-export-to-us/applicable",
+    example: "GET https://pact.tailor.au/api/scenarios/scn.au-defence-export-to-us/applicable",
     response: `{ "scenario": { "id": "scn.au-defence-export-to-us", "title": "...", "predicates": {...} }, "appliesWhen": [...], "coApplies": [...], "topics": [...], "legislation": [...], "counts": { "appliesWhen": 9, "coApplies": 3, "topics": 7, "legislation": 2 } }`,
   },
   {
@@ -175,7 +175,7 @@ const TOOLS: McpTool[] = [
       { name: "sectionId", type: "string", required: true, description: "Section ID" },
       { name: "content", type: "string", required: true, description: "Proposed section content" },
     ],
-    example: "POST https://source.tailor.au/api/axiom/legislation/contribute",
+    example: "POST https://pact.tailor.au/api/axiom/legislation/contribute",
     response: `{ "proposalId": "...", "status": "pending_review" }`,
   },
 ];
@@ -211,7 +211,7 @@ import requests
 
 def search_legislation(query: str) -> str:
     resp = requests.get(
-        "https://source.tailor.au/api/axiom/legislation/search",
+        "https://pact.tailor.au/api/axiom/legislation/search",
         params={"q": query}
     )
     return resp.text
@@ -225,9 +225,9 @@ tool = Tool(
   {
     label: "HTTP (any agent)",
     code: `# All endpoints are free, no API key needed (except facts)
-curl https://source.tailor.au/api/axiom/legislation/search?q=mine+safety
-curl https://source.tailor.au/api/market/fuel/cheapest?fuelType=Diesel&state=QLD
-curl https://source.tailor.au/api/hub/stats`,
+curl https://pact.tailor.au/api/axiom/legislation/search?q=mine+safety
+curl https://pact.tailor.au/api/market/fuel/cheapest?fuelType=Diesel&state=QLD
+curl https://pact.tailor.au/api/hub/stats`,
   },
 ];
 

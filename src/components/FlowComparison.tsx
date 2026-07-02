@@ -40,7 +40,7 @@ export function FlowComparison() {
         <div className="space-y-2">
           {[
             { step: "1", label: "Agent receives question" },
-            { step: "2", label: "Calls source.tailor.au/api" },
+            { step: "2", label: "Calls pact.tailor.au/api" },
             { step: "3", label: "Gets structured, verified, timestamped response" },
           ].map((s) => (
             <div key={s.step} className="flex items-center gap-3">

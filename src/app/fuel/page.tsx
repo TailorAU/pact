@@ -1173,7 +1173,7 @@ export default function FuelPage() {
 
             {/* Attribution */}
             <div className="absolute bottom-[148px] lg:bottom-3 right-3 z-20 flex flex-col items-end gap-1 pointer-events-auto">
-              <a href="https://source.tailor.au" className="flex items-center gap-1.5 rounded-lg bg-black/80 backdrop-fix border border-zinc-700/40 px-2.5 py-1.5 hover:border-green-500/40 transition-colors group shadow-lg">
+              <a href="https://pact.tailor.au" className="flex items-center gap-1.5 rounded-lg bg-black/80 backdrop-fix border border-zinc-700/40 px-2.5 py-1.5 hover:border-green-500/40 transition-colors group shadow-lg">
                 <span className="text-[10px] text-zinc-400 group-hover:text-zinc-300">Powered by</span>
                 <span className="text-[11px] font-black text-white group-hover:text-green-400 transition-colors">Source</span>
               </a>

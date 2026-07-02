@@ -57,7 +57,7 @@ export function LiveDemoCard({ title, question, apiUrl, renderResult, cta, accen
 
       <div className="mt-4 flex items-center justify-between">
         <span className="text-[10px] text-pact-dim/50 font-mono truncate max-w-[60%]">
-          {apiUrl.replace("https://source.tailor.au", "")}
+          {apiUrl.replace("https://pact.tailor.au", "")}
         </span>
         <a
           href={apiUrl}

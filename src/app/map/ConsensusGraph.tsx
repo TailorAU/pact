@@ -329,7 +329,7 @@ export default function ConsensusGraph() {
             val: 3 + Math.min(t.participantCount * 1.5, 12) + (hasBounty ? 3 : 0),
             color: baseColor,
             emissive: baseColor,
-            emissiveIntensity: isVerified ? 0.4 : isChallenged ? 0.35 : hasBounty ? 0.3 : 0.2,
+            emissiveIntensity: isVerified ? 0.9 : isChallenged ? 0.85 : hasBounty ? 0.8 : 0.75,
             data: t,
             // Set initial positions — force sim will nudge from here
             x: domainPos.x + Math.cos(angle) * spread,
@@ -519,14 +519,23 @@ export default function ConsensusGraph() {
       fg.cameraPosition({ x: 150, y: 100, z: 280 }, { x: 0, y: 0, z: 0 }, 2000);
     }, 300);
 
-    // Lighting
+    // Lighting — #3895: WHITE ambient (not 0x404040 dark-grey) so the
+    // emissive-lit nodes keep their warrant colour even if react-force-graph
+    // rebuilds its scene on a resize/re-render and the point light is
+    // momentarily absent — the cause of the "graph goes grey on load/tap"
+    // report. Track everything we add and remove it on cleanup so the lights
+    // and grid rings can't accumulate (or leave the scene unlit) across the
+    // graphData/dimensions changes that re-run this effect.
     const scene = fg.scene();
+    const added: unknown[] = [];
     if (scene) {
-      const ambientLight = new THREE.AmbientLight(0x404040, 2);
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
       scene.add(ambientLight);
-      const pointLight = new THREE.PointLight(0xffffff, 1.5, 800);
+      added.push(ambientLight);
+      const pointLight = new THREE.PointLight(0xffffff, 1.2, 900);
       pointLight.position.set(100, 200, 300);
       scene.add(pointLight);
+      added.push(pointLight);
 
       // Add faint grid rings to show the dependency-depth layers
       // (position = dependency depth, not certainty)
@@ -541,9 +550,16 @@ export default function ConsensusGraph() {
           points.push(new THREE.Vector3(Math.cos(a) * size, y, Math.sin(a) * size));
         }
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        scene.add(new THREE.Line(geometry, gridMaterial));
+        const line = new THREE.Line(geometry, gridMaterial);
+        scene.add(line);
+        added.push(line);
       }
     }
+    return () => {
+      const sc = fgRef.current?.scene?.();
+      if (!sc) return;
+      added.forEach((obj) => sc.remove(obj as never));
+    };
   }, [graphData, dimensions]);
 
   // Custom d3 forces — structured layout
@@ -623,8 +639,8 @@ export default function ConsensusGraph() {
         emissiveIntensity: node.emissiveIntensity,
         transparent: true,
         opacity: 0.85,
-        roughness: 0.35,
-        metalness: 0.4,
+        roughness: 0.5,
+        metalness: 0.05,
       });
       return new THREE.Mesh(geo, mat);
     }
@@ -640,8 +656,8 @@ export default function ConsensusGraph() {
         emissiveIntensity: node.emissiveIntensity,
         transparent: true,
         opacity: 0.9,
-        roughness: 0.25,
-        metalness: 0.5,
+        roughness: 0.5,
+        metalness: 0.05,
       });
       group.add(new THREE.Mesh(geo, mat));
 
@@ -674,8 +690,8 @@ export default function ConsensusGraph() {
       emissiveIntensity: node.emissiveIntensity,
       transparent: true,
       opacity: isVerified ? 0.9 : 0.7,
-      roughness: 0.3,
-      metalness: 0.4,
+      roughness: 0.5,
+      metalness: 0.05,
     });
     group.add(new THREE.Mesh(geo, mat));
 
@@ -920,8 +936,9 @@ export default function ConsensusGraph() {
       />
       {/* eslint-enable @typescript-eslint/no-explicit-any */}
 
-      {/* ── Axis labels (floating) ── */}
-      <div className="absolute top-3 left-3 flex flex-col gap-1 text-[10px] text-white/30 pointer-events-none">
+      {/* ── Axis labels (floating) — hidden on mobile so the verbose hint
+             doesn't overlap the top-right warrant legend on narrow viewports ── */}
+      <div className="absolute top-3 left-3 hidden sm:flex flex-col gap-1 text-[10px] text-white/30 pointer-events-none">
         <div className="flex items-center gap-1.5">
           <span className="text-white/50 font-semibold">Y</span>
           <span>Dependency depth — position = dependency depth, not certainty</span>

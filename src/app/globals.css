@@ -1,17 +1,74 @@
 @import "tailwindcss";
 
+/*
+ * PACT knowledge-graph theme — OED dictionary design language (#3882).
+ *
+ * Lifted from the hero front door (src/frontend/public/pact/index.html, #3729):
+ * warm-paper palette, lexicographic serif + mono type, oxblood accent, light + dark.
+ *
+ * The legacy `--pact-cyan` / `--pact-purple` / `--card-*` token NAMES are kept and
+ * REMAPPED onto the dictionary palette so every existing utility class
+ * (`text-pact-cyan`, `text-pact-dim`, `bg-card-bg`, `border-card-border`, …) resolves
+ * to the new look and the whole product cascades — no per-page rewrite needed.
+ * New dictionary components can reach the palette directly via `text-accent`,
+ * `border-rule`, `text-ink-soft`, `text-ink-faint`, `bg-paper-edge`.
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #0f172a;
-  --pact-cyan: #0891b2;
-  --pact-purple: #7c3aed;
-  --pact-green: #16a34a;
-  --pact-orange: #ea580c;
-  --pact-red: #dc2626;
-  --pact-dim: #64748b;
-  --card-bg: #f8fafc;
-  --card-border: #e2e8f0;
-  --hover-bg: #f1f5f9;
+  /* Dictionary palette — light (paper) */
+  --paper: #f4efe4;
+  --paper-2: #efe8d9;
+  --paper-edge: #e4dbc7;
+  --ink: #1a1712;
+  --ink-soft: #4a4438;
+  --ink-softer: #5c5546;
+  --ink-faint: #6f6858;
+  --accent: #8a2f24;        /* oxblood */
+  --accent-strong: #a8392b; /* brighter oxblood — hover / emphasis */
+  --rule: #c9bea6;
+  --prompt: #a99a7c;
+  --grain-1: rgba(26, 23, 18, 0.028);
+  --grain-2: rgba(26, 23, 18, 0.02);
+
+  /* Type — lexicographic serif for prose, mono for labels/code */
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
+  --mono: var(--font-geist-mono), ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", Menlo, monospace;
+
+  /* ── Legacy token names, remapped onto the dictionary palette ── */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --pact-cyan: var(--accent);          /* primary accent — links, brand, highlights */
+  --pact-purple: var(--accent-strong); /* secondary/hover accent */
+  --pact-green: #4f7a3f;               /* status: active / economics (muted botanical) */
+  --pact-orange: #b06a1e;              /* status: pending (warm ochre) */
+  --pact-red: #9a2b1f;                 /* status: rejected (brick) */
+  --pact-dim: var(--ink-faint);        /* muted body text */
+  --card-bg: var(--paper-2);
+  --card-border: var(--rule);
+  --hover-bg: var(--paper-edge);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Dictionary palette — dark (ink) */
+    --paper: #1d1a14;
+    --paper-2: #232019;
+    --paper-edge: #2d2920;
+    --ink: #ece5d3;
+    --ink-soft: #c9c0ac;
+    --ink-softer: #b6ac95;
+    --ink-faint: #978d76;
+    --accent: #e0a99e;
+    --accent-strong: #efc4ba;
+    --rule: #47402f;
+    --prompt: #857a5f;
+    --grain-1: rgba(236, 229, 211, 0.024);
+    --grain-2: rgba(236, 229, 211, 0.016);
+
+    --pact-green: #93b07a;
+    --pact-orange: #d6a45c;
+    --pact-red: #e8b0a4;
+  }
 }
 
 @theme inline {
@@ -26,15 +83,41 @@
   --color-card-bg: var(--card-bg);
   --color-card-border: var(--card-border);
   --color-hover-bg: var(--hover-bg);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  /* Dictionary palette exposed directly for new brand markup */
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-paper-edge: var(--paper-edge);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-softer: var(--ink-softer);
+  --color-ink-faint: var(--ink-faint);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-rule: var(--rule);
+  --color-prompt: var(--prompt);
+
+  --font-sans: var(--serif);
+  --font-serif: var(--serif);
+  --font-mono: var(--mono);
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
+  background-image:
+    radial-gradient(ellipse 90% 60% at 18% 8%, var(--grain-1), transparent 60%),
+    radial-gradient(ellipse 70% 55% at 85% 92%, var(--grain-2), transparent 55%);
   color: var(--foreground);
-  font-family: var(--font-geist-mono), 'IBM Plex Mono', 'Courier New', monospace;
+  font-family: var(--serif);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Links resolve to oxblood on hover unless a component sets its own colour */
+a { transition: color 0.18s ease, background-color 0.18s ease, border-color 0.18s ease; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 @keyframes blink {
@@ -47,8 +130,8 @@ body {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 8px rgba(8, 145, 178, 0.15); }
-  50% { box-shadow: 0 0 24px rgba(8, 145, 178, 0.3); }
+  0%, 100% { box-shadow: 0 0 8px rgba(138, 47, 36, 0.14); }
+  50% { box-shadow: 0 0 24px rgba(138, 47, 36, 0.28); }
 }
 
 .glow {
@@ -57,22 +140,18 @@ body {
 
 .status-active { color: var(--pact-green); }
 .status-pending { color: var(--pact-orange); }
-.status-merged { color: var(--pact-cyan); }
+.status-merged { color: var(--accent); }
 .status-rejected { color: var(--pact-red); }
 
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--background); }
-::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 3px; }
 
+/* Page-field grain — the hero's paper texture, no starfield */
 .star-bg {
   background-image:
-    radial-gradient(1px 1px at 10% 15%, rgba(8, 145, 178, 0.06), transparent),
-    radial-gradient(1px 1px at 25% 65%, rgba(124, 58, 237, 0.04), transparent),
-    radial-gradient(1px 1px at 45% 25%, rgba(22, 163, 74, 0.03), transparent),
-    radial-gradient(1px 1px at 60% 75%, rgba(8, 145, 178, 0.05), transparent),
-    radial-gradient(1px 1px at 75% 10%, rgba(124, 58, 237, 0.03), transparent),
-    radial-gradient(1px 1px at 85% 45%, rgba(22, 163, 74, 0.04), transparent);
-  background-size: 250px 250px;
+    radial-gradient(ellipse 90% 60% at 18% 8%, var(--grain-1), transparent 60%),
+    radial-gradient(ellipse 70% 55% at 85% 92%, var(--grain-2), transparent 55%);
 }
 
 .section-heading {
@@ -86,7 +165,7 @@ body {
   left: 0;
   width: 100%;
   height: 2px;
-  background: linear-gradient(90deg, var(--pact-cyan), var(--pact-purple), transparent);
+  background: linear-gradient(90deg, var(--accent), transparent);
   border-radius: 1px;
 }
 
@@ -127,26 +206,26 @@ body {
   }
 }
 
-/* Google Places Autocomplete dropdown — dark theme */
+/* Google Places Autocomplete dropdown — dictionary paper theme (adapts light/dark) */
 .pac-container {
-  background-color: #18181b;
-  border: 1px solid #3f3f46;
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 30px rgba(26, 23, 18, 0.18);
   margin-top: 4px;
-  font-family: inherit;
+  font-family: var(--serif);
   z-index: 9999 !important;
 }
 .pac-item {
   padding: 8px 12px;
-  border-top: 1px solid #27272a;
-  color: #e4e4e7;
+  border-top: 1px solid var(--card-border);
+  color: var(--ink-soft);
   cursor: pointer;
   font-size: 13px;
   line-height: 1.4;
 }
 .pac-item:first-child { border-top: none; }
-.pac-item:hover, .pac-item-selected { background-color: #27272a; }
-.pac-item-query { color: #fff; font-weight: 600; }
-.pac-matched { color: #22c55e; font-weight: 700; }
+.pac-item:hover, .pac-item-selected { background-color: var(--hover-bg); }
+.pac-item-query { color: var(--ink); font-weight: 600; }
+.pac-matched { color: var(--accent); font-weight: 700; }
 .pac-icon { display: none; }

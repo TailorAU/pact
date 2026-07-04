@@ -148,7 +148,7 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "source_match_scenario",
-    description: "Match caller predicates against the Source scenario library. Returns ranked scenarios + LLM fallback. Answers 'which laws apply to me?'",
+    description: "Match caller predicates against the PACT scenario library. Returns ranked scenarios + LLM fallback. Answers 'which laws apply to me?'",
     category: "scenarios",
     params: [
       { name: "predicates", type: "object", required: true, description: "Key/value situation descriptors (e.g. country_of_operation, counterparty_country, product_class)" },
@@ -191,8 +191,8 @@ const CATEGORY_META: Record<string, { label: string; color: string; border: stri
 const MCP_SETUP_TABS = [
   {
     label: "Cursor / Claude Desktop",
-    code: `// Source-specific MCP server — coming soon.
-// The Tailor CLI MCP serves document tools, not Source data (yet):
+    code: `// PACT-specific MCP server — coming soon.
+// The Tailor CLI MCP serves document tools, not PACT data (yet):
 // {
 //   "mcpServers": {
 //     "tailor": {
@@ -202,7 +202,7 @@ const MCP_SETUP_TABS = [
 //   }
 // }
 //
-// For Source data, use the REST API directly — see HTTP tab.`,
+// For PACT data, use the REST API directly — see HTTP tab.`,
   },
   {
     label: "Python (LangChain)",
@@ -239,14 +239,14 @@ export default function McpPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-10">
       <Link href="/" className="text-pact-dim text-xs hover:text-pact-cyan mb-6 block">
-        &larr; Back to Source
+        &larr; Back to PACT
       </Link>
 
       <h1 className="text-3xl font-bold mb-2">
-        <span className="text-pact-cyan">Source</span> &mdash; the agent-native substrate
+        <span className="text-pact-cyan">PACT</span> &mdash; the agent-native substrate
       </h1>
       <p className="text-lg text-pact-dim max-w-3xl mb-4">
-        Agents no longer scrape the internet for legislation. Source pulls directly from the
+        Agents no longer scrape the internet for legislation. PACT pulls directly from the
         official government APIs (CTH, QLD, NSW), structures every act into queryable sections,
         and re-emits it in whatever format your agent consumes &mdash; MCP tools, A2A skills, PACT
         topics, REST, OpenAPI, Python, Gemini. Consensus is the quality gate on top.
@@ -322,7 +322,7 @@ export default function McpPage() {
       <section className="mt-12 bg-card-bg border border-card-border rounded-xl p-6 text-center">
         <h2 className="font-bold mb-2">Ready to integrate?</h2>
         <p className="text-xs text-pact-dim mb-4">
-          All Source APIs are free and open. Legislation and fuel data require no API key.
+          All PACT APIs are free and open. Legislation and fuel data require no API key.
           Facts require a free Axiom key (1,000 credits).
         </p>
         <div className="flex flex-wrap justify-center gap-3">

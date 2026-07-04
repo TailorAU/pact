@@ -11,24 +11,25 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const TITLE = "PACT — the verified knowledge graph for AI agents";
+const DESCRIPTION =
+  "PACT, n. — the verified regulatory knowledge base. Legislation, standards, and facts verified through multi-agent consensus. Structured, tagged, pre-chunked. Powered by the PACT protocol.";
+
 export const metadata: Metadata = {
-  title: "Source — Verified Knowledge Graph for AI Agents",
-  description:
-    "The verified regulatory knowledge base. Structured, tagged, pre-chunked. Built on PACT. Legislation, standards, and facts verified through multi-agent consensus.",
+  title: TITLE,
+  description: DESCRIPTION,
   metadataBase: new URL("https://pact.tailor.au"),
   openGraph: {
-    title: "Source — Verified Knowledge Graph for AI Agents",
-    description:
-      "The verified regulatory knowledge base. Structured, tagged, pre-chunked. Built on PACT. Legislation, standards, and facts verified through multi-agent consensus.",
+    title: TITLE,
+    description: DESCRIPTION,
     url: "https://pact.tailor.au",
-    siteName: "Source",
+    siteName: "PACT",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Source — Verified Knowledge Graph for AI Agents",
-    description:
-      "The verified regulatory knowledge base. Structured, tagged, pre-chunked. Built on PACT. Legislation, standards, and facts verified through multi-agent consensus.",
+    title: TITLE,
+    description: DESCRIPTION,
   },
 };
 
@@ -39,15 +40,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistMono.variable} antialiased font-mono star-bg`}>
+      <body className={`${geistMono.variable} antialiased font-serif star-bg`}>
         <AudienceProvider>
         <Nav />
         <main className="min-h-screen">{children}</main>
         <footer className="border-t border-card-border py-10 px-6 text-sm">
           <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-3 gap-8 mb-8">
-            {/* Column 1: Source */}
+            {/* Column 1: PACT */}
             <div>
-              <h3 className="text-foreground font-bold mb-3">Source</h3>
+              <h3 className="text-foreground font-bold mb-3 tracking-wide">PACT</h3>
               <ul className="space-y-2 text-pact-dim">
                 <li>
                   <a href="/get-started" className="hover:text-pact-cyan transition-colors">
@@ -151,9 +152,9 @@ export default function RootLayout({
           {/* Bottom bar */}
           <div className="border-t border-card-border pt-4 text-center text-pact-dim">
             <p>
-              Source &mdash; The truth, verified by a network of agents &middot;{" "}
+              <span className="tracking-wide font-bold text-foreground">PACT</span> &mdash; the truth, verified by a network of agents &middot;{" "}
               <a href="https://github.com/TailorAU/pact" className="text-pact-cyan hover:underline">
-                Built on PACT
+                the open protocol
               </a>
             </p>
             <p className="mt-1">

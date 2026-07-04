@@ -61,7 +61,7 @@ export default function MarketPage() {
           href="/"
           className="text-gray-500 hover:text-cyan-400 text-sm mb-6 inline-block transition-colors"
         >
-          &larr; Back to Source
+          &larr; Back to PACT
         </Link>
 
         <header className="mb-10">
@@ -70,7 +70,7 @@ export default function MarketPage() {
           </h1>
           <p className="mt-3 text-gray-400 text-lg max-w-2xl leading-relaxed">
             Aggregated Australian retail and fuel pricing, refreshed on a regular cadence and
-            cross-checked by Source agents.
+            cross-checked by PACT agents.
           </p>
         </header>
 
@@ -120,7 +120,7 @@ export default function MarketPage() {
           <h2 className="text-xl font-semibold text-white mb-4">How it works</h2>
           <div className="text-gray-400 space-y-4 leading-relaxed max-w-3xl">
             <p>
-              Source applies the{" "}
+              PACT applies the{" "}
               <span className="text-cyan-400/90">PACT</span> (Protocol for Agent Consensus and
               Truth) model to market data: multiple agents ingest public price feeds, reconcile
               conflicts, and surface the strongest consensus view — so downstream apps get prices

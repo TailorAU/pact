@@ -14,9 +14,9 @@ import type { Scenario } from "@/lib/scenarios/types";
 import { ClusterSummaryStrip, ScenariosExplorer } from "./scenarios-explorer";
 
 export const metadata = {
-  title: "Scenarios — Source",
+  title: "Scenarios — PACT",
   description:
-    "Predicate-driven applicability scenarios. Declare your situation (country, product class, export destination) and Source returns the acts, sections, and topics that apply.",
+    "Predicate-driven applicability scenarios. Declare your situation (country, product class, export destination) and PACT returns the acts, sections, and topics that apply.",
 };
 
 export const revalidate = 60;
@@ -49,13 +49,13 @@ export default async function ScenariosIndexPage() {
   return (
     <div className="max-w-5xl mx-auto px-6 py-10">
       <Link href="/" className="text-pact-dim text-xs hover:text-pact-cyan mb-6 block">
-        &larr; Back to Source
+        &larr; Back to PACT
       </Link>
 
       <h1 className="text-3xl font-bold mb-2">Scenarios</h1>
       <p className="text-pact-dim max-w-3xl mb-3">
         Predicate-driven applicability. Declare your situation &mdash; country of operation, product
-        class, export destination, entity size &mdash; and Source returns the legislation, topics,
+        class, export destination, entity size &mdash; and PACT returns the legislation, topics,
         and co-applying rules that actually apply.
       </p>
       <p className="text-xs text-pact-dim/70 max-w-3xl mb-6">

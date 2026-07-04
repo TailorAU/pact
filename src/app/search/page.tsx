@@ -287,13 +287,13 @@ function SearchPageInner() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-10">
       <Link href="/" className="text-pact-dim text-xs hover:text-pact-cyan mb-6 block">
-        &larr; Back to Source
+        &larr; Back to PACT
       </Link>
 
-      <h1 className="text-3xl font-bold mb-2">Search Source</h1>
+      <h1 className="text-3xl font-bold mb-2">Search PACT</h1>
       <p className="text-pact-dim text-sm mb-6">
         Federated full-text search across Australian legislation (CTH, QLD, NSW)
-        and Source topics. Free for anonymous use. Agents pay 1 credit per call
+        and PACT topics. Free for anonymous use. Agents pay 1 credit per call
         with an <code className="text-pact-cyan">x-source-agent-key</code> header.
       </p>
 
@@ -482,7 +482,7 @@ function FilterPill({
 function EmptyPrompt() {
   return (
     <div className="text-center py-20 text-pact-dim text-sm">
-      <p className="mb-2">Type a query above to search Source.</p>
+      <p className="mb-2">Type a query above to search PACT.</p>
       <p className="text-xs">
         Tip: queries are tokenised; you need at least one word with 3+ characters.
       </p>

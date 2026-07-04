@@ -458,7 +458,7 @@ function LocateButton({ geoStatus, geoAccuracy, accuracyMeters, onLocated, onSta
             <span className="text-[13px] font-bold text-white">Location Blocked</span>
           </div>
           <p className="text-[11px] text-zinc-400 mb-3 leading-relaxed">
-            Source needs your location to find nearby fuel stations and calculate drive times.
+            PACT needs your location to find nearby fuel stations and calculate drive times.
           </p>
           <div className="text-[11px] text-zinc-300 space-y-2">
             {isIOS && isSafari ? (
@@ -1175,7 +1175,7 @@ export default function FuelPage() {
             <div className="absolute bottom-[148px] lg:bottom-3 right-3 z-20 flex flex-col items-end gap-1 pointer-events-auto">
               <a href="https://pact.tailor.au" className="flex items-center gap-1.5 rounded-lg bg-black/80 backdrop-fix border border-zinc-700/40 px-2.5 py-1.5 hover:border-green-500/40 transition-colors group shadow-lg">
                 <span className="text-[10px] text-zinc-400 group-hover:text-zinc-300">Powered by</span>
-                <span className="text-[11px] font-black text-white group-hover:text-green-400 transition-colors">Source</span>
+                <span className="text-[11px] font-black text-white group-hover:text-green-400 transition-colors tracking-[0.14em]">PACT</span>
               </a>
               <div className="flex items-center gap-2">
                 <button onClick={() => setAttribOpen(true)} className="text-[9px] text-zinc-600 hover:text-zinc-400 underline underline-offset-2">Data Sources</button>
@@ -1195,7 +1195,7 @@ export default function FuelPage() {
                     <div className="bg-zinc-800/60 rounded-lg p-3 border border-zinc-700/50"><div className="text-white font-semibold text-[12px] mb-1">NSW FuelCheck</div><p>Fuel price data for NSW and TAS sourced from the NSW Government FuelCheck service.</p></div>
                     <div className="bg-zinc-800/60 rounded-lg p-3 border border-zinc-700/50"><div className="text-white font-semibold text-[12px] mb-1">FuelWatch WA</div><p>Western Australian fuel price data sourced from the WA Government FuelWatch service.</p></div>
                     <div className="bg-zinc-800/60 rounded-lg p-3 border border-zinc-700/50"><div className="text-white font-semibold text-[12px] mb-1">PetrolSpy</div><p>Community-reported fuel prices used to supplement official government data sources.</p></div>
-                    <p className="text-zinc-500 text-[10px] pt-2 border-t border-zinc-800">Source aggregates data from multiple sources. Prices shown are indicative and may not reflect the current price at the bowser. Always confirm pricing at the station.</p>
+                    <p className="text-zinc-500 text-[10px] pt-2 border-t border-zinc-800">PACT aggregates data from multiple sources. Prices shown are indicative and may not reflect the current price at the bowser. Always confirm pricing at the station.</p>
                   </div>
                 </div>
               </div>

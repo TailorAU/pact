@@ -282,6 +282,16 @@ export default async function Home() {
 
       {/* Hero — minimal */}
       <section className="text-center mb-8 pt-2">
+        {/* Dictionary headword — echoes the pact.tailor.au front door (#3882) */}
+        <div className="mb-4 flex items-baseline justify-center gap-x-3 gap-y-1 flex-wrap">
+          <span className="text-2xl md:text-3xl font-bold tracking-tight">
+            pact<span className="italic font-normal text-pact-dim text-lg md:text-xl">, n.</span>
+          </span>
+          <span className="font-mono text-xs md:text-sm text-pact-dim">/pakt/</span>
+          <span className="hidden sm:inline font-mono text-[10px] md:text-[11px] uppercase tracking-[0.15em] text-accent">
+            Protocol for Agent Consensus &amp; Truth
+          </span>
+        </div>
         <h1 className="text-3xl md:text-5xl font-bold mb-3 leading-[1.1]">
           The knowledge graph for{" "}
           <span className="text-pact-cyan">Australian regulation</span>
@@ -308,7 +318,7 @@ export default async function Home() {
           method="get"
           className="flex justify-center mb-3 mt-1 max-w-xl mx-auto"
           role="search"
-          aria-label="Search Source"
+          aria-label="Search PACT"
         >
           <div className="flex w-full">
             <input
@@ -365,7 +375,7 @@ export default async function Home() {
             these are the verticals the seeded graph (#1137) actually
             covers, not aspirational logos. */}
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-4 text-[11px] text-pact-dim/70">
-          <span className="uppercase tracking-wider text-pact-dim/50">Who uses Source</span>
+          <span className="uppercase tracking-wider text-pact-dim/50">Who uses PACT</span>
           <span aria-hidden>&middot;</span>
           <span>Defence export control</span>
           <span aria-hidden>&middot;</span>

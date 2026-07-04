@@ -31,12 +31,12 @@ export function Nav() {
   const links = mode === "explore" ? exploreLinks : integrateLinks;
 
   return (
-    <nav className="border-b border-card-border bg-white/80 backdrop-blur-sm sticky top-0 z-50">
+    <nav className="border-b border-card-border bg-background/80 backdrop-blur-sm sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-2 group">
-            <span className="text-pact-cyan font-bold text-lg group-hover:text-pact-purple transition-colors">
-              Source
+          <Link href="/" className="flex items-baseline gap-2 group">
+            <span className="text-pact-cyan font-bold text-lg tracking-[0.14em] group-hover:text-pact-purple transition-colors">
+              PACT
             </span>
             <span className="text-pact-dim text-xs hidden sm:inline tracking-wider">Verified Knowledge Graph</span>
           </Link>

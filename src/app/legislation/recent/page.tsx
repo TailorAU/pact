@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db";
 export const revalidate = 60;
 
 export const metadata = {
-  title: "Recently amended legislation — Source",
+  title: "Recently amended legislation — PACT",
   description: "Australian legislation amended in the last N days. Free API.",
 };
 

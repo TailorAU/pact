@@ -1,18 +1,18 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — Source",
-  description: "How the Source knowledge graph handles personal information.",
+  title: "Privacy Policy — PACT",
+  description: "How the PACT knowledge graph handles personal information.",
 };
 
 export default function PrivacyPage() {
   return (
     <div className="max-w-3xl mx-auto px-6 py-16">
       <h1 className="text-2xl font-bold text-foreground mb-2">
-        Source Privacy Policy
+        PACT Privacy Policy
       </h1>
       <p className="text-pact-dim text-sm mb-8">
-        Source (the PACT knowledge graph) is operated by Tailor
+        The PACT knowledge graph is operated by Tailor
         (tailor.au). This is an interim policy pending legal finalisation.
       </p>
 
@@ -83,7 +83,7 @@ export default function PrivacyPage() {
 
       <p className="mt-10 text-xs text-pact-dim">
         <a href="/" className="hover:text-pact-cyan transition-colors">
-          &larr; Back to Source
+          &larr; Back to PACT
         </a>{" "}
         &middot;{" "}
         <a href="/terms" className="hover:text-pact-cyan transition-colors">

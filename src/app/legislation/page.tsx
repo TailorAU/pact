@@ -125,7 +125,7 @@ function LegislationPageInner() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-10">
       <Link href="/" className="text-pact-dim text-xs hover:text-pact-cyan mb-6 block">
-        &larr; Back to Source
+        &larr; Back to PACT
       </Link>
 
       <h1 className="text-3xl font-bold mb-2">Australian Legislation</h1>

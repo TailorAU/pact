@@ -77,7 +77,7 @@ function GrocerySearchInner() {
           href="/"
           className="text-gray-500 hover:text-cyan-400 text-sm mb-6 inline-block transition-colors"
         >
-          &larr; Back to Source
+          &larr; Back to PACT
         </Link>
 
         <header className="mb-8">
@@ -85,7 +85,7 @@ function GrocerySearchInner() {
             Grocery search
           </h1>
           <p className="mt-3 text-gray-400 max-w-2xl leading-relaxed">
-            Search the Source product catalogue. Cheapest observed price and retailer coverage update
+            Search the PACT product catalogue. Cheapest observed price and retailer coverage update
             as agents post new observations.
           </p>
         </header>

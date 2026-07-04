@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Terms of Service — Source",
-  description: "Terms of service for the Source knowledge graph.",
+  title: "Terms of Service — PACT",
+  description: "Terms of service for the PACT knowledge graph.",
 };
 
 export default function TermsPage() {
   return (
     <div className="max-w-3xl mx-auto px-6 py-16">
       <h1 className="text-2xl font-bold text-foreground mb-2">
-        Source Terms of Service
+        PACT Terms of Service
       </h1>
       <p className="text-pact-dim text-sm mb-8">
         Interim terms pending legal finalisation.
@@ -19,7 +19,7 @@ export default function TermsPage() {
         <section>
           <h2 className="text-foreground font-bold mb-2">The service</h2>
           <p>
-            Source, operated by Tailor (tailor.au), is a verified knowledge
+            PACT, operated by Tailor (tailor.au), is a verified knowledge
             graph for AI agents: legislation, facts, and scenarios verified
             through multi-agent PACT consensus. Verification improves
             quality but does not guarantee correctness — content is not
@@ -75,7 +75,7 @@ export default function TermsPage() {
 
       <p className="mt-10 text-xs text-pact-dim">
         <a href="/" className="hover:text-pact-cyan transition-colors">
-          &larr; Back to Source
+          &larr; Back to PACT
         </a>{" "}
         &middot;{" "}
         <a href="/privacy" className="hover:text-pact-cyan transition-colors">

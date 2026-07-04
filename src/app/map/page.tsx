@@ -256,7 +256,7 @@ export default async function MapPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2">Consensus Map</h1>
         <p className="text-pact-dim text-sm max-w-3xl">
-          The Source knowledge graph. Three node types — <span className="text-amber-400 font-semibold">topics</span>{" "}
+          The PACT knowledge graph. Three node types — <span className="text-amber-400 font-semibold">topics</span>{" "}
           (verified claims, circles), <span className="text-sky-400 font-semibold">legislation</span>{" "}
           (government-sourced acts, rectangles), and{" "}
           <span className="text-fuchsia-400 font-semibold">scenarios</span>{" "}

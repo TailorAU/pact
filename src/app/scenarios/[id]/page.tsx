@@ -32,12 +32,12 @@ type Props = {
 export async function generateMetadata({ params }: Props) {
   const { id } = await params;
   const scenario = await getScenario(id).catch(() => null);
-  if (!scenario) return { title: "Scenario — Source" };
+  if (!scenario) return { title: "Scenario — PACT" };
   return {
-    title: `${scenario.title} — Source scenarios`,
+    title: `${scenario.title} — PACT scenarios`,
     description:
       scenario.description ||
-      "Predicate-driven applicability scenario served by Source.",
+      "Predicate-driven applicability scenario served by PACT.",
   };
 }
 

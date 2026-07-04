@@ -1,6 +1,8 @@
 User-agent: *
 Allow: /
 
+Sitemap: https://pact.tailor.au/sitemap.xml
+
 # Agent discovery
 # A2A Agent Card: /.well-known/agent-card.json
 # AI Plugin: /.well-known/ai-plugin.json

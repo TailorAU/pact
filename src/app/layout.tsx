@@ -162,6 +162,15 @@ export default function RootLayout({
                 Tailor
               </a>
             </p>
+            <p className="mt-1 text-xs">
+              <a href="/privacy" className="hover:text-pact-cyan transition-colors">
+                Privacy
+              </a>{" "}
+              &middot;{" "}
+              <a href="/terms" className="hover:text-pact-cyan transition-colors">
+                Terms
+              </a>
+            </p>
           </div>
         </footer>
         </AudienceProvider>

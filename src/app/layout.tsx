@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Nav } from "@/components/nav";
+import { AgentModeStrip } from "@/components/AgentModeStrip";
 import { AudienceProvider } from "@/contexts/audience";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +44,7 @@ export default function RootLayout({
       <body className={`${geistMono.variable} antialiased font-serif star-bg`}>
         <AudienceProvider>
         <Nav />
+        <AgentModeStrip />
         <main className="min-h-screen">{children}</main>
         <footer className="border-t border-card-border py-10 px-6 text-sm">
           <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-3 gap-8 mb-8">

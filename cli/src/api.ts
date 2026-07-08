@@ -312,7 +312,7 @@ export async function getNegotiationSynthesis(
 
 export async function openMatter(name: string, openedByDisplay?: string): Promise<unknown> {
   const body: Record<string, unknown> = { name };
-  if (openedByDisplay) body.opened_by_display = openedByDisplay;
+  if (openedByDisplay) body.openedByDisplay = openedByDisplay;
   return request('/api/pact/matters', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -333,8 +333,8 @@ export async function addMatterMember(
   displayName?: string,
   role?: 'owner' | 'participant',
 ): Promise<unknown> {
-  const body: Record<string, unknown> = { principal_id: principalId };
-  if (displayName) body.display_name = displayName;
+  const body: Record<string, unknown> = { principalId };
+  if (displayName) body.displayName = displayName;
   if (role) body.role = role;
   return request(`/api/pact/matters/${encodeURIComponent(matterId)}/members`, {
     method: 'POST',
@@ -369,8 +369,8 @@ export async function postMatterMessage(
   sectionId?: string,
 ): Promise<unknown> {
   const body: Record<string, unknown> = { content };
-  if (fabricId) body.fabric_id = fabricId;
-  if (sectionId) body.section_id = sectionId;
+  if (fabricId) body.fabricId = fabricId;
+  if (sectionId) body.sectionId = sectionId;
   return request(`/api/pact/matters/${encodeURIComponent(matterId)}/messages`, {
     method: 'POST',
     body: JSON.stringify(body),

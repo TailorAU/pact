@@ -34,9 +34,9 @@ export function registerMatterCommands(program: Command): void {
           console.log(JSON.stringify(result, null, 2));
         } else {
           const r = result as Record<string, unknown>;
-          console.log(`Opened Matter: ${r.matter_id} ("${r.name}")`);
+          console.log(`Opened Matter: ${r.matterId} ("${r.name}")`);
           console.log(`  Phase: ${r.phase}`);
-          console.log(`  Opened by: ${r.opened_by}`);
+          console.log(`  Opened by: ${r.openedBy}`);
         }
       } catch (err) {
         console.error(`Error: ${(err as Error).message}`);
@@ -64,7 +64,7 @@ export function registerMatterCommands(program: Command): void {
             const r = item as Record<string, unknown>;
             const status = r.phase === 'closed' ? '[closed]' : '[active]';
             console.log(
-              `${status} ${r.matter_id} — "${r.name}" (${r.member_count} members, ${r.fabric_count} fabrics, ${r.message_count} messages)`,
+              `${status} ${r.matterId} — "${r.name}" (${r.memberCount} members, ${r.fabricCount} fabrics, ${r.messageCount} messages)`,
             );
           }
         }
@@ -86,11 +86,11 @@ export function registerMatterCommands(program: Command): void {
           console.log(JSON.stringify(result, null, 2));
         } else {
           const r = result as Record<string, unknown>;
-          console.log(`Matter: ${r.matter_id} — "${r.name}"`);
+          console.log(`Matter: ${r.matterId} — "${r.name}"`);
           console.log(`  Phase: ${r.phase}`);
           console.log(`  Members: ${(r.members as unknown[])?.length ?? 0}`);
           console.log(`  Fabrics: ${(r.fabrics as unknown[])?.length ?? 0}`);
-          console.log(`  Messages: ${r.message_count ?? 0}`);
+          console.log(`  Messages: ${r.messageCount ?? 0}`);
         }
       } catch (err) {
         console.error(`Error: ${(err as Error).message}`);
@@ -123,7 +123,7 @@ export function registerMatterCommands(program: Command): void {
               console.log(`${opts.principal} is already a member of ${matterId}.`);
             } else {
               const m = r.member as Record<string, unknown>;
-              console.log(`Added ${m.principal_id} (${m.role}) to ${matterId}.`);
+              console.log(`Added ${m.principalId} (${m.role}) to ${matterId}.`);
             }
           }
         } catch (err) {
@@ -147,7 +147,7 @@ export function registerMatterCommands(program: Command): void {
             console.log(JSON.stringify(result, null, 2));
           } else {
             const r = result as Record<string, unknown>;
-            if (r.already_attached) {
+            if (r.alreadyAttached) {
               console.log(`${opts.fabric} is already attached to ${matterId}.`);
             } else {
               console.log(`Attached ${opts.fabric} to ${matterId}.`);
@@ -235,7 +235,7 @@ export function registerMatterCommands(program: Command): void {
           for (const msg of msgs) {
             const m = msg as Record<string, unknown>;
             const body = m.body as Record<string, unknown>;
-            console.log(`[${m.posted_at}] ${m.sender_principal}: ${body.content}`);
+            console.log(`[${m.postedAt}] ${m.senderPrincipal}: ${body.content}`);
           }
         }
       } catch (err) {
@@ -259,31 +259,31 @@ export function registerMatterCommands(program: Command): void {
           const caller = r.caller as Record<string, unknown>;
           const peers = (r.counterparties as unknown[]) ?? [];
           const fabrics = (r.fabrics as unknown[]) ?? [];
-          const obls = (r.pending_obligations_across_fabrics as unknown[]) ?? [];
-          const sc = r.side_channel as Record<string, unknown>;
-          console.log(`Matter: ${r.matter_id} (${r.phase})`);
-          console.log(`  You: ${caller.principal_id} (${caller.role})`);
+          const obls = (r.pendingObligationsAcrossFabrics as unknown[]) ?? [];
+          const sc = r.sideChannel as Record<string, unknown>;
+          console.log(`Matter: ${r.matterId} (${r.phase})`);
+          console.log(`  You: ${caller.principalId} (${caller.role})`);
           console.log(`  Peers (${peers.length}):`);
           for (const p of peers) {
             const pp = p as Record<string, unknown>;
-            const tag = pp.cross_org ? '[cross-org]' : '[same-org]';
-            console.log(`    ${tag} ${pp.principal_id} — ${pp.display_name} (${pp.role})`);
+            const tag = pp.crossOrg ? '[cross-org]' : '[same-org]';
+            console.log(`    ${tag} ${pp.principalId} — ${pp.displayName} (${pp.role})`);
           }
           console.log(`  Fabrics attached (${fabrics.length}):`);
           for (const f of fabrics) {
             const ff = f as Record<string, unknown>;
-            const mem = ff.caller_is_fabric_member ? 'member' : 'not a member';
+            const mem = ff.callerIsFabricMember ? 'member' : 'not a member';
             console.log(
-              `    ${ff.resourceId} — phase=${ff.phase}, open_proposals=${ff.open_proposals}, you=${mem}`,
+              `    ${ff.resourceId} — phase=${ff.phase}, open_proposals=${ff.openProposals}, you=${mem}`,
             );
           }
           console.log(`  Pending obligations across fabrics (${obls.length}):`);
           for (const o of obls) {
             const oo = o as Record<string, unknown>;
-            console.log(`    ${oo.kind} on ${oo.event_ref} in ${oo.fabric_id}`);
+            console.log(`    ${oo.kind} on ${oo.eventRef} in ${oo.fabricId}`);
           }
           console.log(
-            `  Side-channel: ${sc.message_count} messages (latest: ${sc.latest_message_at ?? 'none'})`,
+            `  Side-channel: ${sc.messageCount} messages (latest: ${sc.latestMessageAt ?? 'none'})`,
           );
         }
       } catch (err) {
@@ -306,10 +306,10 @@ export function registerMatterCommands(program: Command): void {
             console.log(JSON.stringify(result, null, 2));
           } else {
             const r = result as Record<string, unknown>;
-            if (r.already_closed) {
-              console.log(`Matter ${matterId} was already closed at ${r.closed_at}.`);
+            if (r.alreadyClosed) {
+              console.log(`Matter ${matterId} was already closed at ${r.closedAt}.`);
             } else {
-              const fabs = (r.fabrics_referenced as string[]) ?? [];
+              const fabs = (r.fabricsReferenced as string[]) ?? [];
               console.log(
                 `Closed ${matterId} with outcome "${r.outcome}". ${fabs.length} fabric(s) detached but persist independently.`,
               );

@@ -403,3 +403,135 @@ describe("GET /api/axiom/legislation/search — WS11 federation hardening", () =
     expect(mockLogWarn).not.toHaveBeenCalled();
   });
 });
+
+// ── pact#28 ask-2 — designation-aware search + exact-title ranking ──────────
+// Live repros observed 2026-07-13 on pact.tailor.au:
+//   A. "AS/NZS 4308" tokenised to ["nzs","4308"] — designation lost, zero rows.
+//   B. "Privacy Act 1988" ranked the QLD Coal Mining Safety and Health Act's
+//      body-text mentions above the actual Privacy Act topic nodes.
+//   C. "Coal Mining Safety and Health Regulation 2017" ranked the Act above
+//      the Regulation (qld/reg-2017-165).
+describe("GET /api/axiom/legislation/search — pact#28 designation + exact-title ranking", () => {
+  it("repro A: `q=AS/NZS 4308` keeps the designation as a token and ranks the standards topic first", async () => {
+    const standardsTopic = topicRow({
+      id: "asnzs-4308",
+      title:
+        "AS/NZS 4308:2008 sets the procedures for specimen collection and the detection and quantitation of drugs of abuse in urine",
+      canonical_claim:
+        "AS/NZS 4308:2008 (Standards Australia / Standards New Zealand, current) is the recognised standard for workplace urine drug screening in Australia.",
+      jurisdiction: "AU",
+      tier: "institutional",
+      status: "locked",
+      source_ref: "https://store.standards.org.au/product/as-nzs-4308-2008",
+    });
+    // Decoy: a section whose content merely contains the number 4308.
+    const decoy = legislationRow({
+      doc_id: "qld-decoy",
+      doc_title: "Transport Operations (Road Use Management) Act 1995",
+      jurisdiction: "AU-QLD",
+      content: "form 4308 must be lodged with the chief executive.",
+    });
+    prime(1, [decoy], [standardsTopic]);
+
+    const res = await callGet(`q=${encodeURIComponent("AS/NZS 4308")}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      results: Array<{ docId: string; relevanceScore: number }>;
+      keywords: string[];
+      ranking: { designations: string[] };
+    };
+
+    // The designation survives tokenisation…
+    expect(body.keywords).toContain("as/nzs 4308");
+    expect(body.ranking.designations).toEqual(["as/nzs 4308"]);
+    // …and the standards topic outranks the stray numeric body match.
+    expect(body.results[0].docId).toBe("topic:asnzs-4308");
+  });
+
+  it("repro B: `q=Privacy Act 1988` ranks Privacy Act title nodes above body-text mentions", async () => {
+    // The QLD CMSHA chunk mentions "Privacy Act 1988" repeatedly in BODY text.
+    const coalMiningChunk = legislationRow({
+      doc_id: "qld/act-1999-039",
+      doc_title: "Coal Mining Safety and Health Act 1999",
+      jurisdiction: "AU-QLD",
+      section_id: "chunk-12",
+      content:
+        "privacy act 1988 privacy act 1988 privacy act 1988 information sharing under the privacy act 1988 by the regulator",
+    });
+    // The actual Privacy Act legislation doc (exact title) …
+    const privacyActSection = legislationRow({
+      doc_id: "cth/act-1988-119",
+      doc_title: "Privacy Act 1988",
+      jurisdiction: "AU-CTH",
+      section_id: "chunk-1",
+      content: "an act to make provision to protect the privacy of individuals",
+    });
+    // … and a Privacy Act topic node (claim-sentence title → near-exact).
+    const privacyTopic = topicRow({
+      id: "privacy-app",
+      title: "Privacy Act 1988 (Cth) establishes 13 Australian Privacy Principles for handling personal information",
+      canonical_claim: "The Privacy Act 1988 (Cth) establishes the 13 Australian Privacy Principles.",
+      jurisdiction: "AU",
+      tier: "institutional",
+      status: "locked",
+    });
+    prime(2, [coalMiningChunk, privacyActSection], [privacyTopic]);
+
+    const res = await callGet(`q=${encodeURIComponent("Privacy Act 1988")}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      results: Array<{ docId: string; relevanceScore: number }>;
+    };
+
+    // Exact-title legislation doc first, near-exact topic second, body-text
+    // fuzzy hit last — a title match ALWAYS outranks body-text matches.
+    expect(body.results[0].docId).toBe("cth/act-1988-119");
+    expect(body.results[1].docId).toBe("topic:privacy-app");
+    expect(body.results[2].docId).toBe("qld/act-1999-039");
+  });
+
+  it("repro C: `q=Coal Mining Safety and Health Regulation 2017` ranks the Regulation above the Act", async () => {
+    // The Act's sections carry heavy keyword profiles (title hits for coal /
+    // mining / safety / health + many content occurrences)…
+    const actChunk = legislationRow({
+      doc_id: "qld/act-1999-039",
+      doc_title: "Coal Mining Safety and Health Act 1999",
+      jurisdiction: "AU-QLD",
+      section_id: "chunk-3",
+      content:
+        "coal mining safety and health regulation coal mining safety and health obligations at coal mines safety and health management system",
+    });
+    // …while the Regulation is the exact-title match.
+    const regChunk = legislationRow({
+      doc_id: "qld/reg-2017-165",
+      doc_title: "Coal Mining Safety and Health Regulation 2017",
+      jurisdiction: "AU-QLD",
+      doc_type: "regulation",
+      section_id: "chunk-1",
+      content: "this regulation prescribes matters for the coal mining safety and health act",
+    });
+    prime(2, [actChunk, regChunk], []);
+
+    const res = await callGet(`q=${encodeURIComponent("Coal Mining Safety and Health Regulation 2017")}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      results: Array<{ docId: string; relevanceScore: number }>;
+    };
+
+    expect(body.results[0].docId).toBe("qld/reg-2017-165");
+    const regScore = body.results.find((r) => r.docId === "qld/reg-2017-165")!.relevanceScore;
+    const actScore = body.results.find((r) => r.docId === "qld/act-1999-039")!.relevanceScore;
+    expect(regScore).toBeGreaterThan(actScore);
+  });
+
+  it("exact-title fetch-window: the legislation SQL orders title-prefix rows first", async () => {
+    // Guard the ORDER BY pre-pass — the second db.execute call (section rows)
+    // must carry the title-first CASE and the lowercased query prefix param
+    // so exact-title docs land inside the LIMIT window on large datasets.
+    prime(0, [], []);
+    await callGet(`q=${encodeURIComponent("Privacy Act 1988")}`);
+    const sectionCall = mockDb.execute.mock.calls[1][0] as { sql: string; args: unknown[] };
+    expect(sectionCall.sql).toContain("CASE WHEN LOWER(d.title) LIKE ? THEN 0 ELSE 1 END");
+    expect(sectionCall.args).toContain("privacy act 1988%");
+  });
+});

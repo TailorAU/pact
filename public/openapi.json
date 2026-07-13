@@ -2296,6 +2296,59 @@
         }
       }
     },
+    "/api/axiom/resolve": {
+      "get": {
+        "operationId": "resolveCitation",
+        "tags": [
+          "Axiom Legislation"
+        ],
+        "summary": "Deterministic resolve-by-citation (free, no key)",
+        "description": "Resolves a legal citation string (instrument name + optional jurisdiction parenthetical + optional 's ###(#)' section suffix, e.g. 'Privacy Act 1988 (Cth) s 6') or a standards designation (e.g. 'AS/NZS 4308:2008') to a verified docId. Exact-title-first against legislation documents, then PACT topics. Never returns a fuzzy guess: anything below an exact or near-exact title match is a 404-style miss; same-title instruments across jurisdictions without a jurisdiction parenthetical return a 'citation_ambiguous' miss listing the candidates. Free and unauthenticated, like the other legislation reads.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "citation",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The citation to resolve, e.g. 'Privacy Act 1988 (Cth) s 6(1)' or 'Coal Mining Safety and Health Regulation 2017' or 'AS/NZS 4308:2008'"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resolved citation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "resolved": { "type": "boolean" },
+                    "docId": { "type": "string", "description": "Legislation doc id (e.g. 'qld/reg-2017-165') or 'topic:{id}'" },
+                    "docType": { "type": "string", "description": "act | regulation | standard | guidance | topic" },
+                    "sectionRef": { "type": "string", "nullable": true, "description": "Resolved section/chunk id (e.g. 's 19' or 'chunk-2'); null when the requested section could not be verified" },
+                    "canonicalTitle": { "type": "string" },
+                    "verifiedRef": { "type": "string", "description": "Canonical verified citation string; includes the section only when sectionRef resolved" },
+                    "inForce": { "type": "boolean", "nullable": true, "description": "false when repealed, true when an in-force date is recorded, null when unknown (topics always null)" },
+                    "matchTier": { "type": "string", "enum": ["exact", "near-exact"] },
+                    "jurisdiction": { "type": "string", "nullable": true },
+                    "source": { "type": "string", "enum": ["legislation", "topic"] },
+                    "free": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing citation parameter"
+          },
+          "404": {
+            "description": "Citation not resolved (error: citation_not_resolved) or ambiguous across jurisdictions (error: citation_ambiguous, with candidates[])"
+          }
+        }
+      }
+    },
     "/api/axiom/legislation/search": {
       "get": {
         "operationId": "searchLegislation",

@@ -4,6 +4,13 @@ import { getDb } from "@/lib/db";
 import { debitIfAuthenticated } from "@/lib/wallet-debit";
 import { log } from "@/lib/logger";
 import { corsPreflight, withCors } from "@/lib/cors";
+import {
+  designationMatchBoost,
+  escapeLike,
+  extractDesignations,
+  titleMatchBoost,
+  tokenizeQuery,
+} from "@/lib/legislation-ranking";
 
 export const OPTIONS = corsPreflight;
 
@@ -99,11 +106,12 @@ export async function GET(req: NextRequest) {
     }, { status: 400 }));
   }
 
-  // Tokenize query into keywords (3+ chars)
-  const keywords = query.toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter(w => w.length >= 3);
+  // Tokenize query into keywords (3+ chars). pact#28 ask-2: designation-aware
+  // — a standards reference like "AS/NZS 4308" or "ISO 45001:2018" keeps its
+  // canonical designation ("as/nzs 4308") as a first-class searchable token
+  // instead of being shredded by punctuation stripping into ["nzs","4308"].
+  const keywords = tokenizeQuery(query);
+  const designations = extractDesignations(query);
 
   if (keywords.length === 0) {
     return withCors(NextResponse.json({
@@ -207,7 +215,15 @@ export async function GET(req: NextRequest) {
   });
   const total = (countResult.rows[0]?.total as number) || 0;
 
-  // Fetch results — sorted by doc then sort_order
+  // Fetch results — sorted by doc then sort_order.
+  //
+  // pact#28 ask-2 — exact/near-exact TITLE hits must land inside the fetch
+  // window even when another doc's body-text matches would alphabetically
+  // fill the LIMIT page first (live repro: "Privacy Act 1988" fetched 50
+  // Coal Mining Safety and Health Act sections — "C" < "P" — and never saw
+  // the Privacy Act rows). Rows whose doc title starts with the query sort
+  // first; the JS-side relevance scoring below stays authoritative.
+  const titleFirstPattern = `${escapeLike(query.toLowerCase().trim())}%`;
   const result = await db.execute({
     sql: `SELECT
       ls.id,
@@ -228,9 +244,9 @@ export async function GET(req: NextRequest) {
     FROM legislation_sections ls
     JOIN legislation_docs d ON d.id = ls.doc_id
     WHERE ${where}
-    ORDER BY d.title ASC, ls.sort_order ASC
+    ORDER BY CASE WHEN LOWER(d.title) LIKE ? THEN 0 ELSE 1 END, d.title ASC, ls.sort_order ASC
     LIMIT ? OFFSET ?`,
-    args: [...args, limit, offset],
+    args: [...args, titleFirstPattern, limit, offset],
   });
 
 
@@ -266,6 +282,13 @@ export async function GET(req: NextRequest) {
       while ((idx = lowerContent.indexOf(kw, idx + 1)) !== -1) score += 1;
     }
     score += jurisdictionBoost(rowJurisdiction);
+    // pact#28 ask-2 — an exact or near-exact TITLE match always outranks
+    // body-text fuzzy matches ("Coal Mining Safety and Health Regulation
+    // 2017" must return qld/reg-2017-165 ahead of the Act's body hits), and
+    // a standards-designation hit lifts the designated node over stray
+    // numeric substring matches.
+    score += titleMatchBoost(query, docTitle, sectionTitle);
+    score += designationMatchBoost(designations, docTitle, sectionTitle, sectionId);
 
     return {
       docId: row.doc_id,
@@ -349,15 +372,19 @@ export async function GET(req: NextRequest) {
     const TOPIC_TIMEOUT_MS = 5000;
     const federationStart = Date.now();
 
+    // pact#28 ask-2 — same fetch-window guarantee as the legislation half:
+    // topics whose title starts with the query sort ahead of status/recency
+    // ordering so an exact-citation topic is always inside the LIMIT page.
     const topicQueryPromise = db.execute({
       sql: `SELECT id, title, content, canonical_claim, tier, status, jurisdiction, authority, source_ref
             FROM topics
             WHERE ${topicConds.join(" AND ")}
             ORDER BY
+              CASE WHEN LOWER(title) LIKE ? THEN 0 ELSE 1 END,
               CASE status WHEN 'locked' THEN 0 WHEN 'consensus' THEN 1 WHEN 'open' THEN 2 ELSE 3 END,
               created_at DESC
             LIMIT ?`,
-      args: [...topicArgs, limit],
+      args: [...topicArgs, titleFirstPattern, limit],
     });
 
     const timeoutPromise = new Promise<null>((resolve) =>
@@ -403,6 +430,13 @@ export async function GET(req: NextRequest) {
         // keyword match quality.
         if (rowTier === "institutional" && rowStatus === "locked") score += 1;
         score += jurisdictionBoost(rowJurisdiction);
+        // pact#28 ask-2 — exact / near-exact TITLE match dominance and
+        // standards-designation lift, at parity with the legislation half.
+        // Topic claim-sentence titles ("Privacy Act 1988 (Cth) establishes…")
+        // count as near-exact for the citation query "Privacy Act 1988".
+        const rowSourceRef = (row.source_ref as string | null) || null;
+        score += titleMatchBoost(query, title);
+        score += designationMatchBoost(designations, title, rowSourceRef);
 
         // Trim to ~600 chars before highlighting so the payload stays bounded.
         let snippet = claim.length > 600 ? claim.slice(0, 600) + "…" : claim;
@@ -457,6 +491,10 @@ export async function GET(req: NextRequest) {
       preferJurisdiction: preferJurisdiction,
       defaultAuBias: applyDefaultAuBias,
       titleMatch: "wholeWord+negationGuarded",
+      // pact#28 ask-2 — surfaced so callers can see the citation-grade
+      // signals: exact/near-exact title dominance + designation awareness.
+      exactTitleFirst: true,
+      designations: designations.map((d) => d.canonical),
     },
     _links: {
       self: `/api/axiom/legislation/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`,

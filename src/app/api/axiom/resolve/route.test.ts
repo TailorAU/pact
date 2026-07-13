@@ -165,6 +165,30 @@ describe("GET /api/axiom/resolve — legislation resolution", () => {
     expect(mockDb.execute).toHaveBeenCalledTimes(2);
   });
 
+  it("does not double the jurisdiction when the ingested title already carries it (live prod shape)", async () => {
+    mockDb.execute
+      .mockResolvedValueOnce(
+        rows([
+          {
+            id: "qld/act-2011-018",
+            title: "Work Health and Safety Act 2011 (Qld)",
+            short_title: "WHS Act",
+            jurisdiction: "AU-QLD",
+            doc_type: "act",
+            year: 2011,
+            in_force_date: "2012-01-01",
+            repealed_date: null,
+          },
+        ])
+      )
+      .mockResolvedValueOnce(rows([]));
+
+    const res = await callGet("Work Health and Safety Act 2011 (Qld)");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.resolved).toBe(true);
+    expect(body.verifiedRef).toBe("Work Health and Safety Act 2011 (Qld)");
+  });
+
   it("NEVER returns a fuzzy guess: a non-prefix partial citation misses even when SQL returned a candidate", async () => {
     mockDb.execute
       // Legislation candidates: pretend the LIKE returned the Regulation for

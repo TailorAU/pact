@@ -180,8 +180,11 @@ export async function GET(req: NextRequest) {
     }
 
     const jur = citationJurisdiction(doc.jurisdiction);
+    // Ingested titles often already end with the jurisdiction parenthetical
+    // ("Work Health and Safety Act 2011 (Qld)") — don't double it.
+    const titleHasJur = jur ? new RegExp(`\\(${jur}\\)\\s*$`, "i").test(String(doc.title)) : false;
     const verifiedRef =
-      `${doc.title}${jur ? ` (${jur})` : ""}` + (parsed.section && sectionRef ? ` s ${parsed.section}` : "");
+      `${doc.title}${jur && !titleHasJur ? ` (${jur})` : ""}` + (parsed.section && sectionRef ? ` s ${parsed.section}` : "");
     const inForce = doc.repealed_date ? false : doc.in_force_date ? true : null;
 
     return withCors(

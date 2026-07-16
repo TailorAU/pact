@@ -122,8 +122,9 @@ export function registerMatterCommands(program: Command): void {
             if (r.added === false) {
               console.log(`${opts.principal} is already a member of ${matterId}.`);
             } else {
-              const m = r.member as Record<string, unknown>;
-              console.log(`Added ${m.principalId} (${m.role}) to ${matterId}.`);
+              // Server returns the member fields flat (matterId, added,
+              // principalId, role) — there is no `member` wrapper object.
+              console.log(`Added ${r.principalId} (${r.role}) to ${matterId}.`);
             }
           }
         } catch (err) {
@@ -206,8 +207,9 @@ export function registerMatterCommands(program: Command): void {
             console.log(JSON.stringify(result, null, 2));
           } else {
             const r = result as Record<string, unknown>;
-            const m = r.message as Record<string, unknown>;
-            console.log(`Posted message ${m.id} to ${matterId}.`);
+            // Server returns the post ack flat (matterId, messageId, sender,
+            // postedAt) — there is no `message` wrapper object.
+            console.log(`Posted message ${r.messageId} to ${matterId}.`);
           }
         } catch (err) {
           console.error(`Error: ${(err as Error).message}`);
@@ -234,8 +236,9 @@ export function registerMatterCommands(program: Command): void {
           }
           for (const msg of msgs) {
             const m = msg as Record<string, unknown>;
-            const body = m.body as Record<string, unknown>;
-            console.log(`[${m.postedAt}] ${m.senderPrincipal}: ${body.content}`);
+            // Server returns each message flat (id, sender, postedAt, format,
+            // content, …) — no `body` wrapper, and the sender key is `sender`.
+            console.log(`[${m.postedAt}] ${m.sender}: ${m.content}`);
           }
         }
       } catch (err) {

@@ -2682,7 +2682,7 @@ Implementations MAY define additional error codes under custom namespaces (e.g.,
 
 ### A.2 Request/Response Schemas
 
-Full JSON Schema (2020-12) definitions for all API endpoints are available in the [schemas directory](https://github.com/TailorAU/pact/tree/main/spec/v2.1/schemas). Older spec versions (v0.3 / v0.4 / v1.0 / v1.1) use draft-07; v2.0 schemas were bumped to draft 2020-12 on 2026-05-13 and v2.1 carries that forward. Every v2.1 schema `$id` is under `https://pact-spec.dev/schemas/v2.1/` — the carried-forward schemas are re-based to v2.1 so a validator can load the v2.1 directory without `$id` collisions against `spec/v2.0/schemas/`.
+Full JSON Schema (2020-12) definitions for all API endpoints are available in the [schemas directory](./schemas). (Relative, deliberately: an absolute `tree/main/…` link would 404 until this draft directory merges to `main`.) Older spec versions (v0.3 / v0.4 / v1.0 / v1.1) use draft-07; v2.0 schemas were bumped to draft 2020-12 on 2026-05-13 and v2.1 carries that forward. Every v2.1 schema `$id` is under `https://pact-spec.dev/schemas/v2.1/` — the carried-forward schemas are re-based to v2.1 so a validator can load the v2.1 directory without `$id` collisions against `spec/v2.0/schemas/`.
 
 | Schema | Endpoint | Description |
 |---|---|---|

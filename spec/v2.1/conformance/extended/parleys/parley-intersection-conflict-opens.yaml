@@ -1,0 +1,155 @@
+# Conformance test vector — Extended: irreconcilable Mandate envelopes OPEN the
+# Parley with the conflict surfaced, rather than refusing to open. kind: session.
+#
+# This is RFC #14 OQ2 as ratified. Refusing to open hides the disagreement from
+# both agents and both handlers; opening with the conflict attached lets them
+# renegotiate scope or escalate. Consistent with PACT's event-sourced,
+# make-the-state-visible principle (§2).
+
+kind: session
+
+metadata:
+  id: extended/parleys/parley-intersection-conflict-opens
+  description: Handler A's Mandate requires a price decision; Handler B's forbids price commitments. The accept MUST succeed, the Parley MUST become active with a populated intersection_conflicts array, and pact.parley.mandate-violation MUST be emitted with kind intersection_conflict — the conflict is surfaced, not hidden behind a refusal to open.
+  spec_section: "§19.6"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    resource_id: par_conflict_test
+    parley_state:
+      parley_id: par_conflict_test
+      phase: awaiting-peer
+      participants:
+        - agent_id: urn:pact:agent:k-1
+          mandate_id: mnd_a1
+          may_publish: ["pricing"]
+          must_respect:
+            - boundary: Must reach a price decision this Parley
+  request_context:
+    auth: bearer
+    principal_id: did:web:bridget.example
+
+steps:
+  - id: accept-with-conflicting-envelope
+    request:
+      method: POST
+      path: /api/pact/parleys/par_conflict_test/accept
+      headers:
+        Content-Type: application/json
+      body:
+        mandate:
+          version: "1"
+          mandate_id: mnd_b1
+          parley_id: par_conflict_test
+          agent_id: urn:pact:agent:b-1
+          handler_principal_id: did:web:bridget.example
+          identity_claim: This agent represents Bridget; no pricing authority today.
+          constraint_envelope:
+            may_publish:
+              - pricing
+            must_respect:
+              - boundary: No price commitments in this engagement
+          disclosure_ceiling: 2
+          escalation_hook: https://relay.example/agent_b1/escalations
+          expires_at: "2026-05-12T18:15:00Z"
+          credential_id: cred_def456
+          signing_key_id: did:web:bridget.example#key-1
+          alg: webauthn-es256
+          alg_version: "2"
+          signature: base64url-valid-signature-over-canonical-mandate-body
+    expected_response:
+      status: 200                            # MUST NOT refuse to open
+      body_match:
+        mode: subset
+        value:
+          parley_id: par_conflict_test
+          phase: active
+      body_ignore_fields:
+        - agent_id
+        - join_token
+        - event_id
+
+  - id: state-surfaces-the-conflict
+    request:
+      method: GET
+      path: /api/pact/parleys/par_conflict_test/state
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          parley_id: par_conflict_test
+          phase: active
+      body_ignore_fields:
+        - spec_version
+        - purpose
+        - outcome_binding
+        - expires_at
+        - caller
+        - counterparties
+        - pending_obligations
+        - latest_event_id
+        - snapshot_at
+    cross_call_assertions:
+      # intersection_conflicts MUST be present and non-empty. Expressed as a
+      # negative-membership-style structural check on the response body.
+      - kind: negative_obligation
+        body_path: intersection_conflicts
+        must_be_non_empty: true
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.parley.joined
+      match:
+        mode: subset
+        value:
+          actorKind: AiAgent
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - correlationId
+        - payloadJson
+    - event_type: pact.parley.mandate-violation
+      match:
+        mode: subset
+        value:
+          actorKind: System
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - correlationId
+        - payloadJson
+
+postconditions:
+  server_state:
+    events_added: 2
+
+notes: |
+  - The status assertion (200, not 4xx) is the whole point of OQ2. A server
+    that refuses the accept is not being stricter, it is being LESS
+    informative: neither handler learns why, and the natural client response
+    is a blind retry.
+  - `cross_call_assertions[].kind: negative_obligation` with
+    `must_be_non_empty` is used here to assert array non-emptiness. The
+    runner's current negative_obligation assertion checks absence; asserting
+    PRESENCE of a non-empty array needs a small runner extension. Until that
+    lands this assertion is advisory and the vector's load-bearing checks are
+    the 200 + phase: active + the emitted violation event. Tracked with the
+    mandate-runner-kind gap in this directory's README.
+  - Both Mandates name `pricing` in may_publish — the conflict is between the
+    must_respect boundaries, not the publish topics. A server that only
+    intersects may_publish lists will miss this entirely and report no
+    conflict.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Server refuses the accept with 4xx (hides the disagreement — the OQ2 failure mode)
+    - Parley opens but intersection_conflicts is empty because only may_publish was intersected, not must_respect boundaries
+    - No pact.parley.mandate-violation emitted, so the conflict never reaches either handler's escalation_hook
+    - Server auto-closes as deadlocked immediately instead of letting the agents attempt to renegotiate scope

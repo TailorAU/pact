@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/parley-accept-request.json",
+  "title": "PACT Parley Accept Request",
+  "description": "Request body for POST /api/pact/parleys/{parleyId}/accept. Carries the accepting participant's Mandate, whose parley_id MUST equal the Parley being joined (20.5 step 7). Atomic: either the participant is in WITH a verified Mandate, or not in at all — there is no 'joined but unmandated' state. Added in PACT v2.1 (Section 19.5).",
+  "type": "object",
+  "required": [
+    "mandate"
+  ],
+  "properties": {
+    "mandate": {
+      "$ref": "https://pact-spec.dev/schemas/v2.1/mandate.json"
+    },
+    "invite": {
+      "type": "string",
+      "description": "The invite credential from peer_invite_url, where the implementation carries it in the body rather than the query string."
+    }
+  },
+  "additionalProperties": false
+}

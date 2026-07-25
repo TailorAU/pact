@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/parley-state.json",
+  "title": "PACT Parley State",
+  "description": "Response body for GET /api/pact/parleys/{parleyId}/state. Reuses the Section 4.4.2 caller-scoped manifest SHAPE and the 17.13 disclosure rules, scoped to the Mandate envelope instead of resource constraints (19.3). Fields the caller is not entitled to see are OMITTED, not nulled. Added in PACT v2.1 (Section 19.7).",
+  "type": "object",
+  "required": [
+    "parley_id",
+    "spec_version",
+    "phase",
+    "purpose",
+    "caller",
+    "counterparties",
+    "snapshot_at"
+  ],
+  "properties": {
+    "parley_id": {
+      "type": "string"
+    },
+    "spec_version": {
+      "type": "string",
+      "description": "PACT spec version this response conforms to (e.g. '2.1.0')."
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "opening",
+        "awaiting-peer",
+        "active",
+        "closing",
+        "closed"
+      ]
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "outcome_binding": {
+      "type": "string",
+      "enum": [
+        "advisory",
+        "commitment"
+      ]
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "caller": {
+      "type": "object",
+      "required": [
+        "agent_id",
+        "mandate_id"
+      ],
+      "properties": {
+        "agent_id": {
+          "type": "string"
+        },
+        "mandate_id": {
+          "type": "string"
+        },
+        "identity_claim": {
+          "type": "string"
+        },
+        "may_publish": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The caller's own envelope, echoed so the agent's reasoning context knows its bounds."
+        },
+        "must_respect": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "boundary"
+            ],
+            "properties": {
+              "boundary": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "disclosure_ceiling": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "binding_decisions_remaining": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Null when the Mandate carries no commitment_authority."
+        }
+      },
+      "additionalProperties": false
+    },
+    "counterparties": {
+      "type": "array",
+      "description": "Other participants, filtered by 17.13. identity_claim is what this counterparty's handler asserted it represents.",
+      "items": {
+        "type": "object",
+        "required": [
+          "agent_id"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "identity_claim": {
+            "type": "string"
+          },
+          "handler_principal_id": {
+            "type": "string",
+            "description": "Omitted (key absent) where 17.13 does not entitle the caller to it."
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RECOMMENDED at second precision or coarser (17.13) to avoid a timing side channel."
+          },
+          "attention_required": {
+            "type": "boolean"
+          },
+          "disclosure_level": {
+            "type": "string",
+            "enum": [
+              "constraint",
+              "category",
+              "reasoning",
+              "human",
+              "summary"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "pending_obligations": {
+      "type": "array",
+      "items": {
+        "$ref": "https://pact-spec.dev/schemas/v2.1/pending-obligation.json"
+      },
+      "description": "The caller's own Section 6.5 obligations, kind 'respond' for owed rounds (19.7). Omitted entirely by implementations that do not emit obligation events."
+    },
+    "intersection_conflicts": {
+      "type": "array",
+      "description": "Irreconcilable Mandate boundaries detected at accept (19.6). Non-empty does NOT prevent the Parley opening — the conflict is surfaced, not hidden.",
+      "items": {
+        "type": "object",
+        "required": [
+          "boundary",
+          "conflicts_with"
+        ],
+        "properties": {
+          "boundary": {
+            "type": "string"
+          },
+          "conflicts_with": {
+            "type": "string"
+          },
+          "mandate_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "predecessor_parley_id": {
+      "type": "string",
+      "description": "Present ONLY where 17.13 entitles the caller to learn the predecessor exists (19.9); otherwise the key is absent, not null."
+    },
+    "latest_event_id": {
+      "type": "string"
+    },
+    "snapshot_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

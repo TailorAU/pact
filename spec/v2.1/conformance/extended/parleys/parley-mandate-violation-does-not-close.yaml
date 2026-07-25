@@ -1,0 +1,127 @@
+# Conformance test vector — Extended: a Mandate violation is REJECTED but does
+# NOT close the Parley. kind: session — two sequenced calls:
+#   step 1. POST a position in a topic outside constraint_envelope.may_publish
+#           → 403 mandate.violation.
+#   step 2. GET the Parley state → still `active`.
+#
+# This encodes the §19.7 rule that the handler, not the server, decides what a
+# violation means. A server that auto-closes on violation takes a decision that
+# §19.7 reserves for the handler — and does so on what may be a single
+# mis-scoped message from an otherwise well-behaved agent.
+
+kind: session
+
+metadata:
+  id: extended/parleys/parley-mandate-violation-does-not-close
+  description: An agent posts a position in the `pricing` topic while its Mandate permits only `interface`. The server rejects with mandate.violation, emits pact.parley.mandate-violation, and the Parley REMAINS active — violations are pushed to the handler for decision, not auto-terminated by the server.
+  spec_section: "§19.7, §20.7"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    resource_id: par_viol_test
+    parley_state:
+      parley_id: par_viol_test
+      phase: active
+      participants:
+        - agent_id: urn:pact:agent:k-1
+          mandate_id: mnd_a1
+          may_publish: ["interface"]
+        - agent_id: urn:pact:agent:b-1
+          mandate_id: mnd_b1
+          may_publish: ["interface"]
+  request_context:
+    auth: bearer
+    principal_id: did:web:knox.example
+
+steps:
+  - id: position-outside-envelope-rejected
+    request:
+      method: POST
+      path: /api/pact/parleys/par_viol_test/positions
+      headers:
+        Content-Type: application/json
+      body:
+        topic: pricing                       # NOT in may_publish: ["interface"]
+        disclosure_level: 1
+        text: We could go to $40k on the annual licence.
+    expected_response:
+      status: 403
+      body_match:
+        mode: subset
+        value:
+          code: mandate.violation
+          field: may_publish
+      body_ignore_fields:
+        - request_id
+        - timestamp
+        - message
+        - detail
+
+  - id: parley-still-active
+    request:
+      method: GET
+      path: /api/pact/parleys/par_viol_test/state
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          parley_id: par_viol_test
+          phase: active                      # NOT closed / closing
+      body_ignore_fields:
+        - spec_version
+        - purpose
+        - outcome_binding
+        - expires_at
+        - caller
+        - counterparties
+        - pending_obligations
+        - intersection_conflicts
+        - latest_event_id
+        - snapshot_at
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.parley.mandate-violation
+      match:
+        mode: subset
+        value:
+          actorKind: System
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - correlationId
+        - payloadJson
+
+postconditions:
+  server_state:
+    events_added: 1                          # the violation event only
+    resource_modified: false                 # the rejected position did NOT land
+
+notes: |
+  - The load-bearing assertion is step 2, not step 1. Rejecting the position
+    is the easy half; leaving the Parley ACTIVE is the half implementations
+    get wrong, usually by treating any violation as a trust-terminating event.
+  - `field: may_publish` is asserted so the violation is machine-attributable
+    to a specific envelope field — §20.7's VIOLATION(field, detail) contract.
+    A handler receiving the pushed violation needs to know WHICH bound was
+    hit to decide between revoke, widen, and let-it-retry.
+  - The violation MUST also be pushed to the Mandate's escalation_hook per
+    §21. That is a server→client delivery and so is not assertable from an
+    HTTP-request vector; it is covered by the push vectors once a
+    delivery-observing harness exists.
+  - `resource_modified: false` matters: a rejected position must not be
+    visible in the transcript, or transcript_hash at close would attest to
+    content the envelope forbade.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Server closes or deadlocks the Parley on first violation (usurps the handler's decision — §19.7)
+    - Violation rejected but no pact.parley.mandate-violation event emitted (handler never learns; the escalation path is silent)
+    - Violating position is persisted anyway and merely flagged (transcript_hash then attests to forbidden content)
+    - Violation reported without naming the offending envelope field, leaving the handler unable to choose a remedy

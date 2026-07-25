@@ -1,0 +1,73 @@
+# Conformance test vector — Extended: create a push subscription. kind: http.
+# §21.2 happy path. The response MUST carry signing_key_id so the subscriber
+# knows which key to verify deliveries against — without it the subscriber
+# cannot perform the §17.7 check §21.3 requires of it, and "signed delivery"
+# degrades to "delivery with a signature field nobody checks".
+
+kind: http
+
+metadata:
+  id: extended/push/push-subscription-create
+  description: A principal registers an https endpoint for two event types. The server creates the subscription and returns subscription_id plus the signing_key_id deliveries will be signed with.
+  spec_section: "§21.2, §21.3"
+  conformance_level: extended
+  track: T4
+
+preconditions:
+  server_state:
+    resource_id: doc_xyz
+  request_context:
+    auth: bearer
+    principal_id: did:web:knox.example
+
+request:
+  method: POST
+  path: /api/pact/doc_xyz/subscriptions
+  headers:
+    Content-Type: application/json
+  body:
+    endpoint: https://relay.example/hooks/pact
+    event_types:
+      - pact.escalation.human
+      - pact.parley.closed
+    secret_hint: kid-2026-05
+    description: AloomU ops channel
+
+expected_response:
+  status: 200
+  body_match:
+    mode: subset
+    value:
+      endpoint: https://relay.example/hooks/pact
+      event_types:
+        - pact.escalation.human
+        - pact.parley.closed
+  body_ignore_fields:
+    - subscription_id
+    - created_at
+    - signing_key_id
+    - secret_hint
+    - description
+
+postconditions:
+  server_state:
+    events_added: 0                          # subscription management is control-plane
+
+notes: |
+  - signing_key_id is in body_ignore_fields because its VALUE is
+    server-specific, but the field is REQUIRED by subscription-response.json.
+    Schema conformance covers presence; this vector covers the echo of
+    endpoint and event_types.
+  - No event is asserted: registering a subscription is control-plane and does
+    not itself produce a negotiation event. An implementation that emits an
+    audit event is not thereby non-conformant.
+  - event_types is echoed exactly. A server that silently expands it to a
+    wildcard, or drops an unrecognised type without saying so, would pass a
+    looser subset match — hence the full-array assertion.
+
+failure_classification:
+  severity: warning
+  common_causes:
+    - signing_key_id omitted, leaving the subscriber unable to verify deliveries (§21.3 verification becomes impossible)
+    - Server silently expands event_types to all events
+    - Server drops unrecognised event types silently instead of rejecting the request

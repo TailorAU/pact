@@ -1,0 +1,138 @@
+# Conformance test vector — Extended: Mandate revocation is an IMMEDIATE
+# hang-up, not a finish-the-round. kind: session.
+#
+# RFC #14 OQ1 as ratified. Finishing the current round would risk an agent
+# committing under an authority that no longer exists — incoherent with the
+# §17 trust model, in which a revoked authorization must never retroactively
+# bless an in-flight commitment.
+
+kind: session
+
+metadata:
+  id: extended/parleys/parley-revocation-immediate-hangup
+  description: A handler revokes its agent's Mandate mid-Parley. The server MUST stop accepting that participant's operations immediately, close the Parley with outcome mandate_revoked, and record revoked_mandate_id so the transcript shows exactly where authority ended.
+  spec_section: "§20.6, §19.4"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    resource_id: par_revoke_test
+    parley_state:
+      parley_id: par_revoke_test
+      phase: active
+      participants:
+        - agent_id: urn:pact:agent:k-1
+          mandate_id: mnd_a1
+        - agent_id: urn:pact:agent:b-1
+          mandate_id: mnd_b1
+  request_context:
+    auth: bearer
+    principal_id: did:web:knox.example
+
+steps:
+  - id: handler-revokes-mandate
+    request:
+      method: DELETE
+      path: /api/pact/parleys/par_revoke_test/mandates/mnd_a1
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          parley_id: par_revoke_test
+          outcome: mandate_revoked
+          revoked_mandate_id: mnd_a1
+      body_ignore_fields:
+        - request_id
+        - timestamp
+        - closed_at
+        - transcript_hash
+
+  - id: parley-is-closed-not-active
+    request:
+      method: GET
+      path: /api/pact/parleys/par_revoke_test/state
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          parley_id: par_revoke_test
+          phase: closed
+      body_ignore_fields:
+        - spec_version
+        - purpose
+        - outcome_binding
+        - expires_at
+        - caller
+        - counterparties
+        - pending_obligations
+        - intersection_conflicts
+        - latest_event_id
+        - snapshot_at
+
+  - id: revoked-participant-cannot-post
+    request:
+      method: POST
+      path: /api/pact/parleys/par_revoke_test/positions
+      headers:
+        Content-Type: application/json
+      body:
+        topic: interface
+        disclosure_level: 1
+        text: One more thing before we wrap up.
+    expected_response:
+      # The Parley is closed; a post-close operation MUST be refused. 409
+      # (parley.closed) is the expected code; 403 also conforms.
+      status: 409
+      body_match:
+        mode: subset
+        value:
+          code: parley.closed
+      body_ignore_fields:
+        - request_id
+        - timestamp
+        - message
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.parley.closed
+      match:
+        mode: subset
+        value:
+          actorKind: System
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - correlationId
+        - payloadJson
+
+postconditions:
+  server_state:
+    events_added: 1
+
+notes: |
+  - Step 3 is what distinguishes "closed" from "marked closed". An
+    implementation that flips the phase but still accepts operations has not
+    hung up; it has relabelled.
+  - `revoked_mandate_id` is asserted because §20.6 requires the outcome to
+    record where authority ended. Without it, a handler reading the transcript
+    cannot tell which entries pre-date the revocation and which do not.
+  - Revocation is NOT retroactive over the event log. Operations already
+    committed before the revocation was known remain in the transcript; this
+    vector does not assert their removal, and an implementation that DELETES
+    them is non-conformant in the other direction.
+  - Both participants' escalation_hooks receive the outcome per §21. Not
+    assertable from an HTTP-request vector — see the push vectors.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Server finishes the current round before hanging up (the exact OQ1 failure — an agent may commit under lapsed authority)
+    - Phase flips to closed but operations are still accepted (relabelled, not hung up)
+    - outcome recorded as `deadlocked` or `timeout` rather than `mandate_revoked`, losing the reason
+    - revoked_mandate_id omitted, so the transcript cannot be audited against the revocation boundary
+    - Server retroactively deletes pre-revocation events (revocation is immediate over future operations, not retroactive over the log)

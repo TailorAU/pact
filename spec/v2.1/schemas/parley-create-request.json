@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/parley-create-request.json",
+  "title": "PACT Parley Create Request",
+  "description": "Request body for POST /api/pact/parleys — open an ephemeral, time-bounded, small-N (2-5) negotiation. The caller is the opener and supplies the opener's Mandate. Added in PACT v2.1 (Section 19.5).",
+  "type": "object",
+  "required": [
+    "purpose",
+    "ttl_seconds",
+    "mandate"
+  ],
+  "properties": {
+    "purpose": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Human-readable statement of what the Parley is about. Carried into the outcome and into every participant's state."
+    },
+    "ttl_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Requested lifetime from `active`. The EFFECTIVE TTL is the minimum of this and the earliest expires_at across accepted Mandates — a Parley never outlives the narrowest authority inside it (19.4)."
+    },
+    "expected_participants": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 5,
+      "default": 2,
+      "description": "Total participants including the opener. More than 5 MUST be rejected with parley.too_many_participants (19.4)."
+    },
+    "mandate": {
+      "$ref": "https://pact-spec.dev/schemas/v2.1/mandate.json"
+    },
+    "outcome_binding": {
+      "type": "string",
+      "enum": [
+        "advisory",
+        "commitment"
+      ],
+      "default": "advisory",
+      "description": "'commitment' requires a per-handler 17.6 authorization_proof from EVERY participant at close (19.8). An implementation that cannot verify Section 17 proofs MUST reject 'commitment'."
+    },
+    "predecessor_parley_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional link to a prior Parley (19.9). Metadata only — no state carries forward. Its existence is itself subject to 17.13 disclosure."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "purpose": "Agree the v3 event-schema interface contract",
+      "ttl_seconds": 900,
+      "expected_participants": 2,
+      "mandate": {
+        "version": "1",
+        "mandate_id": "mnd_a1",
+        "agent_id": "urn:pact:agent:k-1",
+        "handler_principal_id": "did:web:knox.example",
+        "identity_claim": "This agent represents Knox on API contract negotiation.",
+        "constraint_envelope": {
+          "may_publish": [
+            "interface"
+          ],
+          "must_respect": [
+            {
+              "boundary": "No breaking changes to the event v1 schema"
+            }
+          ]
+        },
+        "disclosure_ceiling": 2,
+        "escalation_hook": "https://relay.example/agent_k1/escalations",
+        "expires_at": "2026-05-12T18:15:00Z",
+        "credential_id": "cred_abc123",
+        "signing_key_id": "did:web:knox.example#key-1",
+        "alg": "webauthn-es256",
+        "alg_version": "2",
+        "signature": "base64url-..."
+      },
+      "outcome_binding": "advisory",
+      "predecessor_parley_id": null
+    }
+  ]
+}

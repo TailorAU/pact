@@ -1,0 +1,109 @@
+# Conformance test vector — Extended: opening a Parley with a valid Mandate.
+# kind: http. The happy path for §19.5: POST /api/pact/parleys with the
+# opener's Mandate returns a Parley in `awaiting-peer` with an out-of-band
+# peer invite URL, and emits exactly one pact.parley.opened.
+#
+# Note the phase assertion: a conformant server does NOT go straight to
+# `active` on open. A Parley with one verified Mandate and no accepted peer
+# is `awaiting-peer` — going straight to `active` would mean negotiation
+# could begin before the counterparty was mandated at all.
+
+kind: http
+
+metadata:
+  id: extended/parleys/parley-open-success
+  description: A handler opens a Parley with a valid, unexpired, whitelisted-alg Mandate. Server verifies the Mandate per §20.5, mints the Parley in phase awaiting-peer, returns a peer_invite_url for the out-of-band handshake, and emits pact.parley.opened.
+  spec_section: "§19.4, §19.5, §20.5"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    registered_agents: []
+  request_context:
+    auth: bearer
+    principal_id: did:web:knox.example
+
+request:
+  method: POST
+  path: /api/pact/parleys
+  headers:
+    Content-Type: application/json
+  body:
+    purpose: Agree the v3 event-schema interface contract
+    ttl_seconds: 900
+    expected_participants: 2
+    outcome_binding: advisory
+    mandate:
+      version: "1"
+      mandate_id: mnd_a1
+      agent_id: urn:pact:agent:k-1
+      handler_principal_id: did:web:knox.example
+      identity_claim: This agent represents Knox on API contract negotiation.
+      constraint_envelope:
+        may_publish:
+          - interface
+          - performance
+        must_respect:
+          - boundary: No breaking changes to the event v1 schema
+      commitment_authority:
+        max_binding_decisions: 1
+        binding_scope: interface contract draft
+      disclosure_ceiling: 2
+      escalation_hook: https://relay.example/agent_k1/escalations
+      expires_at: "2026-05-12T18:15:00Z"
+      credential_id: cred_abc123
+      signing_key_id: did:web:knox.example#key-1
+      alg: webauthn-es256
+      alg_version: "2"
+      signature: base64url-valid-signature-over-canonical-mandate-body
+
+expected_response:
+  status: 200
+  body_match:
+    mode: subset
+    value:
+      phase: awaiting-peer
+  body_ignore_fields:
+    - parley_id
+    - peer_invite_url
+    - expires_at
+    - event_id
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.parley.opened
+      match:
+        mode: subset
+        value:
+          actorKind: AiAgent
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - correlationId
+        - payloadJson
+
+postconditions:
+  server_state:
+    events_added: 1
+
+notes: |
+  - `peer_invite_url` is ignored for matching because its opaque invite
+    component is server-minted. Its PRESENCE is required by the response
+    schema (parley-create-response.json marks it required); this vector
+    asserts the phase, and schema conformance covers the field's presence.
+  - The Mandate here carries no `parley_id` — correct for open, where the
+    Parley does not exist yet. §20.5 step 7 makes the server bind the minted
+    id. A server that REQUIRES parley_id on open is non-conformant.
+  - `expected_participants: 2` is the default; it is stated explicitly so the
+    vector still reads correctly if a future revision changes the default.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Server returns phase `active` on open, before any peer has accepted (negotiation could begin unmandated on one side)
+    - Server rejects a Mandate that omits parley_id on open (§20.5 step 7 misread — the server binds the id, the handler cannot know it)
+    - No pact.parley.opened event emitted (Parley invisible to the event log; transcript_hash at close cannot be reconstructed)
+    - peer_invite_url absent, forcing in-band peer discovery (breaks the handler-as-root-of-authority property of §19.5)

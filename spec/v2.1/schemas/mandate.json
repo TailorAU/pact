@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/mandate.json",
+  "title": "PACT Mandate",
+  "description": "A handler-signed capability grant authorising one agent to negotiate inside one Parley within a bounded envelope. A Section 17-family object: signed by a HumanPrincipal under the strictly-1:1 model (17.4), alg drawn from the 17.6 whitelist, verified by the 17.7 flow applied to a broader-scope claim (20.5), fail-closed. Added in PACT v2.1 (Section 20).",
+  "type": "object",
+  "required": [
+    "version",
+    "mandate_id",
+    "agent_id",
+    "handler_principal_id",
+    "identity_claim",
+    "constraint_envelope",
+    "disclosure_ceiling",
+    "escalation_hook",
+    "expires_at",
+    "credential_id",
+    "signing_key_id",
+    "alg",
+    "alg_version",
+    "signature"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "enum": [
+        "1"
+      ],
+      "description": "Mandate format version. '1' at v2.1."
+    },
+    "mandate_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Handler-minted identifier, unique per handler. Named in violation events and in parley-outcome.participants[]."
+    },
+    "parley_id": {
+      "type": "string",
+      "description": "The Parley this Mandate authorises. REQUIRED on accept; absent on open (the Parley does not exist yet — the server binds the minted id per 20.5 step 7). A Mandate bearing a parley_id MUST NOT be accepted for any other Parley."
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "The Section 23 agentId this Mandate authorises. A Mandate is not transferable between agents."
+    },
+    "handler_principal_id": {
+      "type": "string",
+      "description": "DID of the HumanPrincipal granting the Mandate (17.4 strictly-1:1)."
+    },
+    "identity_claim": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Human-readable assertion of what the agent represents. Surfaced verbatim to counterparties in parley-state — this is what the other side is told it is talking to."
+    },
+    "constraint_envelope": {
+      "type": "object",
+      "required": [
+        "may_publish",
+        "must_respect"
+      ],
+      "properties": {
+        "may_publish": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Topic categories the agent may publish positions in. An operation outside these categories is a violation (19.7). MAY be empty — an agent that may say nothing is a listener."
+        },
+        "must_respect": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "boundary"
+            ],
+            "properties": {
+              "boundary": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A Section 10.3-style constraint: states the bound, not the reasoning behind it."
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Boundaries the agent must not cross. An unevaluable boundary is a violation, not a pass (20.7 step 5)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The negotiating envelope the server enforces on every operation (20.7)."
+    },
+    "commitment_authority": {
+      "type": "object",
+      "required": [
+        "max_binding_decisions",
+        "binding_scope"
+      ],
+      "properties": {
+        "max_binding_decisions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cap on irreversible decisions this agent may make in the Parley."
+        },
+        "binding_scope": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the agent may commit to. A commitment outside this scope is a violation."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Absent → the agent has no commitment authority and any 'commitment' close is rejected. NECESSARY BUT NOT SUFFICIENT for a binding outcome: the close itself must carry a per-handler 17.6 authorization_proof (19.8, SOQ4)."
+    },
+    "disclosure_ceiling": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "description": "Maximum Section 10.3 graduated-disclosure level the agent may reach (1 Constraint, 2 Category, 3 Reasoning, 4 Human)."
+    },
+    "escalation_hook": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "description": "Where outcomes and violation events are pushed, in the Section 21 signed-delivery envelope. MUST be https."
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Expiry in SERVER time (20.4). Skew window is the 17.7 step 4 window, ±5 minutes configurable — reused verbatim, not tightened."
+    },
+    "credential_id": {
+      "type": "string",
+      "description": "The enrolled credential that produced `signature`, resolvable under handler_principal_id per 17.8."
+    },
+    "signing_key_id": {
+      "type": "string",
+      "description": "Key identifier within the handler's DID Document."
+    },
+    "alg": {
+      "type": "string",
+      "description": "Signature algorithm. MUST be in the 17.6 normative whitelist; HMAC / symmetric-key algs are disallowed. Outside the whitelist → reject at 20.5 step 3."
+    },
+    "alg_version": {
+      "type": "string",
+      "description": "Version of `alg`. Suite revisions MUST NOT silently invalidate enrolled references."
+    },
+    "signature": {
+      "type": "string",
+      "description": "Signature over the canonical JSON (RFC 8785) encoding of the Mandate body with `signature` removed."
+    },
+    "attestation_chain": {
+      "type": "array",
+      "maxItems": 0,
+      "description": "Mandates are direct (1-hop) ONLY at v2.1 (20.8). A Mandate presented with a non-empty delegation chain MUST be rejected as unverifiable. Present for forward compatibility with 17.11."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "version": "1",
+      "mandate_id": "mnd_a1",
+      "parley_id": "par_7bd2",
+      "agent_id": "urn:pact:agent:k-1",
+      "handler_principal_id": "did:web:knox.example",
+      "identity_claim": "This agent represents Knox on API contract negotiation.",
+      "constraint_envelope": {
+        "may_publish": [
+          "interface",
+          "performance",
+          "security"
+        ],
+        "must_respect": [
+          {
+            "boundary": "No breaking changes to the event v1 schema"
+          },
+          {
+            "boundary": "p99 latency under 200ms"
+          }
+        ]
+      },
+      "commitment_authority": {
+        "max_binding_decisions": 1,
+        "binding_scope": "interface contract draft"
+      },
+      "disclosure_ceiling": 2,
+      "escalation_hook": "https://relay.example/agent_k1/escalations",
+      "expires_at": "2026-05-12T18:15:00Z",
+      "credential_id": "cred_abc123",
+      "signing_key_id": "did:web:knox.example#key-1",
+      "alg": "webauthn-es256",
+      "alg_version": "2",
+      "signature": "base64url-signature-over-canonical-mandate-body"
+    }
+  ]
+}

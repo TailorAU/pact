@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/parley-outcome.json",
+  "title": "PACT Parley Outcome",
+  "description": "The terminal record of a Parley. Carried in payloadJson of pact.parley.closed and pushed to every participant's Mandate escalation_hook in the Section 21 envelope. Added in PACT v2.1 (Section 19.8).",
+  "type": "object",
+  "required": [
+    "parley_id",
+    "outcome",
+    "outcome_binding",
+    "purpose",
+    "participants",
+    "opened_at",
+    "closed_at",
+    "transcript_hash"
+  ],
+  "properties": {
+    "parley_id": {
+      "type": "string"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "aligned",
+        "deadlocked",
+        "timeout",
+        "mandate_revoked"
+      ],
+      "description": "Exactly one terminal outcome (19.4)."
+    },
+    "outcome_binding": {
+      "type": "string",
+      "enum": [
+        "advisory",
+        "commitment"
+      ],
+      "description": "Advisory outcomes bind nobody and MUST NOT auto-create downstream resources. 'commitment' requires witness_proofs to be non-empty (19.8)."
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "outcome_summary": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "What was agreed, or why it deadlocked."
+        },
+        "positions_ref": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Event ids of the positions the summary rests on."
+        },
+        "intersection_conflicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "boundary",
+              "conflicts_with"
+            ],
+            "properties": {
+              "boundary": {
+                "type": "string"
+              },
+              "conflicts_with": {
+                "type": "string"
+              },
+              "mandate_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Populated when the outcome is deadlocked due to 19.6 irreconcilable envelopes."
+        }
+      },
+      "additionalProperties": false
+    },
+    "participants": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": [
+          "agent_id",
+          "handler_principal_id",
+          "mandate_id"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "handler_principal_id": {
+            "type": "string"
+          },
+          "mandate_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "revoked_mandate_id": {
+      "type": "string",
+      "description": "Set when outcome is mandate_revoked — records exactly where authority ended, so a handler reading the transcript can see it (20.6)."
+    },
+    "opened_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "closed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "witness_proofs": {
+      "type": "array",
+      "items": {
+        "$ref": "https://pact-spec.dev/schemas/v2.1/authorization-proof.json"
+      },
+      "description": "Per-handler 17.6 proofs over the outcome body. MUST be non-empty, with one valid proof per participant, when outcome_binding is 'commitment' (19.8 / SOQ4). A Mandate flag alone is NOT sufficient — this array is what makes 'binding' cryptographic rather than API-asserted."
+    },
+    "transcript_hash": {
+      "type": "string",
+      "description": "Base64url SHA-256 over the canonical JSON (RFC 8785) encoding of the Parley's event sequence, so a handler can check the outcome against the transcript it claims to summarise."
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outcome_binding": {
+            "const": "commitment"
+          }
+        },
+        "required": [
+          "outcome_binding"
+        ]
+      },
+      "then": {
+        "required": [
+          "witness_proofs"
+        ],
+        "properties": {
+          "witness_proofs": {
+            "minItems": 2
+          }
+        }
+      }
+    }
+  ],
+  "examples": [
+    {
+      "parley_id": "par_7bd2",
+      "outcome": "aligned",
+      "outcome_binding": "advisory",
+      "purpose": "Agree the v3 event-schema interface contract",
+      "outcome_summary": {
+        "text": "Agreed: additive-only changes to event v1; p99 budget 180ms.",
+        "positions_ref": [
+          "evt_9042",
+          "evt_9051"
+        ],
+        "intersection_conflicts": []
+      },
+      "participants": [
+        {
+          "agent_id": "urn:pact:agent:k-1",
+          "handler_principal_id": "did:web:knox.example",
+          "mandate_id": "mnd_a1"
+        },
+        {
+          "agent_id": "urn:pact:agent:b-1",
+          "handler_principal_id": "did:web:bridget.example",
+          "mandate_id": "mnd_b1"
+        }
+      ],
+      "opened_at": "2026-05-12T18:00:00Z",
+      "closed_at": "2026-05-12T18:11:42Z",
+      "witness_proofs": [],
+      "transcript_hash": "base64url-sha256-of-canonical-event-sequence"
+    }
+  ]
+}

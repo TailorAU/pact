@@ -1,0 +1,99 @@
+# Conformance test vector — Extended: an expired Mandate MUST NOT admit an
+# agent to a Parley. kind: http.
+#
+# FAIL-CLOSED VECTOR (the second no-op-verifier catcher). §20.4 makes the
+# SERVER's clock authoritative and reuses the §17.7 step 4 window — ±5 minutes,
+# configurable — verbatim. The Mandate below is expired by ~1 hour, which is
+# far outside any conformant skew window, so no clock-skew configuration can
+# legitimately accept it.
+
+kind: http
+
+metadata:
+  id: extended/parleys/parley-mandate-expired-rejected
+  description: A Parley accept carries a Mandate whose expires_at is ~1 hour in the past — far outside the §17.7 ±5min skew window §20.4 reuses. The server MUST reject at §20.5 step 5, MUST NOT admit the agent, and MUST NOT emit pact.parley.joined.
+  spec_section: "§20.4, §20.5, §17.7"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    resource_id: par_expired_test
+    # A Parley already open and awaiting its peer.
+    parley_state:
+      parley_id: par_expired_test
+      phase: awaiting-peer
+    # Server "now" — the Mandate below expired 58 minutes before this.
+    server_clock: "2026-05-12T19:13:00Z"
+  request_context:
+    auth: bearer
+    principal_id: did:web:bridget.example
+
+request:
+  method: POST
+  path: /api/pact/parleys/par_expired_test/accept
+  headers:
+    Content-Type: application/json
+  body:
+    mandate:
+      version: "1"
+      mandate_id: mnd_expired
+      parley_id: par_expired_test
+      agent_id: urn:pact:agent:b-1
+      handler_principal_id: did:web:bridget.example
+      identity_claim: This agent represents Bridget on the interface contract.
+      constraint_envelope:
+        may_publish:
+          - interface
+        must_respect: []
+      disclosure_ceiling: 1
+      escalation_hook: https://relay.example/agent_b1/escalations
+      expires_at: "2026-05-12T18:15:00Z"   # 58 minutes before server_clock
+      credential_id: cred_def456
+      signing_key_id: did:web:bridget.example#key-1
+      alg: webauthn-es256
+      alg_version: "2"
+      signature: base64url-valid-signature-but-mandate-is-expired
+
+expected_response:
+  status: 403
+  body_match:
+    mode: subset
+    value:
+      code: mandate.expired
+      failing_step: 5
+  body_ignore_fields:
+    - request_id
+    - timestamp
+    - message
+
+expected_events:
+  ordered: true
+  sequence: []
+
+postconditions:
+  server_state:
+    events_added: 0
+    resource_modified: false
+
+notes: |
+  - The signature here is otherwise VALID. Only expiry fails, which is the
+    point: the vector isolates §20.5 step 5 from step 4. A server that checks
+    the signature and forgets expiry passes every crypto test and still admits
+    an agent whose authority has lapsed.
+  - `mandate.expired` is asserted as a distinct code from `mandate.invalid`.
+    §19.5 lists both; the distinction matters operationally because expiry is
+    the one rejection a handler can fix by re-minting rather than
+    re-enrolling. An implementation returning mandate.invalid here is a
+    warning-level deviation.
+  - The Parley MUST remain in `awaiting-peer` — a failed accept is not a
+    terminal condition for the Parley, only for that accept. It does not
+    close the Parley, and the peer may retry with a fresh Mandate.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Server never checks expires_at (agents negotiate under lapsed authority indefinitely)
+    - Server trusts a client-supplied clock instead of its own (§20.4 makes the server clock authoritative precisely to stop this)
+    - Server applies an unbounded or misconfigured skew window that swallows an hour of drift
+    - Failed accept transitions the Parley to closed/deadlocked rather than leaving it awaiting-peer

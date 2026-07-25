@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/subscription-create-request.json",
+  "title": "PACT Push Subscription Create Request",
+  "description": "Request body for POST /api/pact/{resourceId}/subscriptions. A subscription delivers only events the subscribing principal is entitled to observe — 17.13 applies to the pushed payload exactly as it applies to a read. Push is not a disclosure bypass. Added in PACT v2.1 (Section 21.2).",
+  "type": "object",
+  "required": [
+    "endpoint",
+    "event_types"
+  ],
+  "properties": {
+    "endpoint": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "description": "Absolute https URL. Implementations MUST reject non-https and SHOULD reject endpoints resolving to private address ranges unless explicitly configured otherwise."
+    },
+    "event_types": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "description": "Section 6.2 event types to deliver. MUST be non-empty — a subscription MUST NOT be a wildcard for every event type an implementation might later add."
+    },
+    "secret_hint": {
+      "type": "string",
+      "description": "Opaque key identifier the subscriber echoes in its verification tooling. Not a secret itself."
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Human-readable label."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "endpoint": "https://relay.example/hooks/pact",
+      "event_types": [
+        "pact.escalation.human",
+        "pact.parley.closed"
+      ],
+      "secret_hint": "kid-2026-05",
+      "description": "AloomU ops channel"
+    }
+  ]
+}

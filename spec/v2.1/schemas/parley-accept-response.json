@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/parley-accept-response.json",
+  "title": "PACT Parley Accept Response",
+  "description": "Response body for POST /api/pact/parleys/{parleyId}/accept. Added in PACT v2.1 (Section 19.5).",
+  "type": "object",
+  "required": [
+    "parley_id",
+    "agent_id",
+    "join_token",
+    "phase"
+  ],
+  "properties": {
+    "parley_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "The Section 23 agentId assigned to this participant."
+    },
+    "join_token": {
+      "type": "string",
+      "description": "Handed by the handler to its agent so the agent can act in the Parley. Transport identity only — it is NOT the Mandate and grants no negotiating authority by itself."
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "opening",
+        "awaiting-peer",
+        "active",
+        "closing",
+        "closed"
+      ]
+    },
+    "event_id": {
+      "type": "string",
+      "description": "Id of the emitted pact.parley.joined event."
+    }
+  },
+  "additionalProperties": false
+}

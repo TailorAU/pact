@@ -1,0 +1,98 @@
+# Conformance test vector — Extended: a `commitment` close without per-handler
+# §17 authorization_proofs MUST be rejected. kind: http.
+#
+# This is the SOQ4 tightening, and it is the single assertion that separates a
+# Parley from "contracts reinvented over HTTP". The Mandate's
+# commitment_authority says the handler PERMITS a binding commitment of this
+# shape; the authorization_proof on the close is the handler MAKING it, over
+# the specific outcome text, at the moment it is made. §19.8 requires both —
+# a flag in a request body is an API assertion, not a commitment.
+
+kind: http
+
+metadata:
+  id: extended/parleys/parley-binding-outcome-unwitnessed
+  description: A close is submitted with outcome_binding "commitment" and an empty witness_proofs array, while both Mandates carry commitment_authority. The server MUST reject with outcome.unwitnessed and MUST NOT close the Parley — a Mandate flag alone is insufficient to make an outcome binding (§19.8, SOQ4).
+  spec_section: "§19.8"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    resource_id: par_bind_test
+    parley_state:
+      parley_id: par_bind_test
+      phase: active
+      outcome_binding: commitment
+      participants:
+        - agent_id: urn:pact:agent:k-1
+          mandate_id: mnd_a1
+          commitment_authority:
+            max_binding_decisions: 1
+            binding_scope: interface contract draft
+        - agent_id: urn:pact:agent:b-1
+          mandate_id: mnd_b1
+          commitment_authority:
+            max_binding_decisions: 1
+            binding_scope: interface contract draft
+  request_context:
+    auth: bearer
+    principal_id: did:web:knox.example
+
+request:
+  method: POST
+  path: /api/pact/parleys/par_bind_test/close
+  headers:
+    Content-Type: application/json
+  body:
+    outcome: aligned
+    outcome_binding: commitment
+    outcome_summary:
+      text: "Agreed: additive-only changes to event v1; p99 budget 180ms."
+      positions_ref:
+        - evt_9042
+        - evt_9051
+    witness_proofs: []                       # THE DEFECT: no handler witnessed this
+
+expected_response:
+  status: 403
+  body_match:
+    mode: subset
+    value:
+      code: outcome.unwitnessed
+  body_ignore_fields:
+    - request_id
+    - timestamp
+    - message
+
+expected_events:
+  ordered: true
+  sequence: []                               # no pact.parley.closed
+
+postconditions:
+  server_state:
+    events_added: 0
+    resource_modified: false
+
+notes: |
+  - Both participants hold commitment_authority in their Mandates, so the
+    ONLY thing missing is the per-handler proof. That isolation is deliberate:
+    it proves the server requires the witness rather than merely re-checking
+    the Mandate flag it already checked at open.
+  - The Parley MUST remain active. A rejected close is not a close; the
+    participants may retry with proofs attached.
+  - An implementation that cannot verify §17 proofs MUST NOT advertise
+    `capabilities.parleyBindingOutcomes` and MUST reject `commitment` closes
+    outright (§19.8). Such an implementation passes this vector by rejecting —
+    the vector asserts the rejection, not the reason for it.
+  - A partial witness set (one handler of two) MUST also be rejected; §19.8
+    requires a valid proof from EVERY participant. A companion vector for the
+    partial case is worth adding when a live implementation exists to run it.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Server treats the Mandate's commitment_authority as sufficient and closes binding without any signature (the exact failure SOQ4 exists to prevent)
+    - Server accepts outcome_binding "commitment" from the request body as self-attesting
+    - Server closes the Parley as advisory instead of rejecting, silently downgrading what the caller asked for
+    - Server accepts a witness_proofs array without verifying each proof per §17.7

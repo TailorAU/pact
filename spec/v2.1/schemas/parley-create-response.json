@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/parley-create-response.json",
+  "title": "PACT Parley Create Response",
+  "description": "Response body for POST /api/pact/parleys. The opener transmits peer_invite_url to the peer's handler OUT OF BAND — PACT does not define handler discovery, which is what makes the handler the root of authority. Added in PACT v2.1 (Section 19.5).",
+  "type": "object",
+  "required": [
+    "parley_id",
+    "phase",
+    "peer_invite_url",
+    "expires_at",
+    "event_id"
+  ],
+  "properties": {
+    "parley_id": {
+      "type": "string",
+      "description": "Server-minted Parley identifier. Portable — federation is a non-goal at v2.1 but MUST NOT be precluded (19.2)."
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "opening",
+        "awaiting-peer",
+        "active",
+        "closing",
+        "closed"
+      ],
+      "description": "Parley lifecycle phase (19.4)."
+    },
+    "peer_invite_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Handed to the peer's handler out-of-band to accept the Parley."
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Effective expiry in server time (19.4)."
+    },
+    "event_id": {
+      "type": "string",
+      "description": "Id of the emitted pact.parley.opened event."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "parley_id": "par_7bd2",
+      "phase": "awaiting-peer",
+      "peer_invite_url": "https://api.example/api/pact/parleys/par_7bd2/accept?invite=eyJ0...",
+      "expires_at": "2026-05-12T18:15:00Z",
+      "event_id": "evt_9001"
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+# Conformance test vector — Extended: a Mandate signed with a non-whitelisted
+# algorithm MUST be rejected. kind: http.
+#
+# FAIL-CLOSED VECTOR. This is one of the two vectors that catch a no-op Mandate
+# verifier: a server that accepts everything passes the happy path but fails
+# here. §20.5 step 3 reuses the §17.6 whitelist verbatim, and HMAC / symmetric-key
+# algorithms are explicitly disallowed — a symmetric alg means the verifier
+# could also have MINTED the Mandate, which destroys the handler-signature
+# property the whole primitive rests on.
+
+kind: http
+
+metadata:
+  id: extended/parleys/parley-mandate-alg-disallowed
+  description: A Parley open carries a Mandate whose alg is HMAC-SHA256 — outside the §17.6 normative whitelist. The server MUST reject at §20.5 step 3 with mandate.invalid, MUST NOT open the Parley, and MUST NOT emit pact.parley.opened.
+  spec_section: "§20.5, §17.6"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    registered_agents: []
+  request_context:
+    auth: bearer
+    principal_id: did:web:knox.example
+
+request:
+  method: POST
+  path: /api/pact/parleys
+  headers:
+    Content-Type: application/json
+  body:
+    purpose: Attempt to open under a symmetric-key Mandate
+    ttl_seconds: 900
+    mandate:
+      version: "1"
+      mandate_id: mnd_bad_alg
+      agent_id: urn:pact:agent:k-1
+      handler_principal_id: did:web:knox.example
+      identity_claim: This agent represents Knox.
+      constraint_envelope:
+        may_publish:
+          - interface
+        must_respect: []
+      disclosure_ceiling: 1
+      escalation_hook: https://relay.example/agent_k1/escalations
+      expires_at: "2026-05-12T18:15:00Z"
+      credential_id: cred_abc123
+      signing_key_id: did:web:knox.example#key-1
+      alg: hmac-sha256                       # NOT in the §17.6 whitelist
+      alg_version: "1"
+      signature: base64url-symmetric-mac-not-a-signature
+
+expected_response:
+  status: 403
+  body_match:
+    mode: subset
+    value:
+      code: mandate.invalid
+      failing_step: 3
+  body_ignore_fields:
+    - request_id
+    - timestamp
+    - message
+
+expected_events:
+  ordered: true
+  sequence: []
+
+postconditions:
+  server_state:
+    events_added: 0
+    resource_modified: false
+
+notes: |
+  - `failing_step: 3` is asserted because §20.5 numbers its steps normatively
+    and a rejecting server should say WHICH step failed — otherwise a handler
+    debugging a rejected Mandate is reduced to guesswork. An implementation
+    that rejects correctly but omits failing_step is close to conformant;
+    treat that as a warning-level deviation, not a silent pass.
+  - A server MAY additionally emit pact.trust.violation with
+    payloadJson.kind = "mandate_failed" (§20.5 step 8). This vector does not
+    require it, and `sequence: []` asserts only that no SUCCESS event fires.
+  - 403 is asserted rather than 400: the Mandate is well-formed JSON that
+    fails an authorization check, not a malformed body.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Server accepts any alg string (no whitelist check) — Mandate signatures are then unforgeable-in-name-only
+    - Server accepts HMAC / symmetric algs, so the verifier could itself have minted the Mandate it is verifying
+    - Server rejects with 400 and no machine-readable code, so handlers cannot distinguish a bad alg from a bad body
+    - Server opens the Parley and defers verification (there is no "accepted pending verification" state — §20.5 is fail-closed)

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/subscription-response.json",
+  "title": "PACT Push Subscription",
+  "description": "A registered push subscription. Added in PACT v2.1 (Section 21.2).",
+  "type": "object",
+  "required": [
+    "subscription_id",
+    "endpoint",
+    "event_types",
+    "created_at",
+    "signing_key_id"
+  ],
+  "properties": {
+    "subscription_id": {
+      "type": "string"
+    },
+    "endpoint": {
+      "type": "string",
+      "format": "uri"
+    },
+    "event_types": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "signing_key_id": {
+      "type": "string",
+      "description": "The server key deliveries are signed with, so the subscriber knows which key to verify against (21.3)."
+    },
+    "secret_hint": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

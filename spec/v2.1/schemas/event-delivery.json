@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/event-delivery.json",
+  "title": "PACT Signed Event Delivery Envelope",
+  "description": "The body POSTed to a subscriber endpoint on every push. Signed with the SENDING SERVER'S principal key (Section 17). A receiver MUST apply the 17.7 flow and MUST discard a delivery it cannot verify — an unverifiable push is not a push, and receivers MUST NOT act on the payload before verifying. The Mandate escalation_hook (20.2) uses this same envelope; there is no second webhook format. Added in PACT v2.1 (Section 21.3).",
+  "type": "object",
+  "required": [
+    "delivery_id",
+    "idempotency_key",
+    "subscription_id",
+    "event",
+    "sent_at",
+    "attempt",
+    "sender_principal_id",
+    "signing_key_id",
+    "alg",
+    "signature"
+  ],
+  "properties": {
+    "delivery_id": {
+      "type": "string",
+      "description": "Unique per delivery ATTEMPT."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "STABLE across retries of the same event to the same subscription. A receiver MUST treat repeated deliveries bearing the same key as one event — this is what makes at-least-once delivery safe."
+    },
+    "subscription_id": {
+      "type": "string"
+    },
+    "event": {
+      "$ref": "https://pact-spec.dev/schemas/v2.1/event.json"
+    },
+    "sent_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Checked for freshness by the receiver within the 17.7 skew window."
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "1-based attempt counter. Retries use exponential backoff WITH JITTER; dead-lettered after 24h (21.4)."
+    },
+    "sender_principal_id": {
+      "type": "string",
+      "description": "DID of the sending server's principal."
+    },
+    "signing_key_id": {
+      "type": "string"
+    },
+    "alg": {
+      "type": "string",
+      "description": "MUST be in the 17.6 normative whitelist."
+    },
+    "signature": {
+      "type": "string",
+      "description": "Signature over the canonical JSON (RFC 8785) encoding of this envelope with `signature` removed."
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,67 @@
+# Conformance test vector — Extended: a non-https push endpoint MUST be
+# rejected. kind: http.
+#
+# §21.2 makes this a MUST. A plaintext endpoint would carry signed PACT events
+# — including escalations and Parley outcomes, which are exactly the
+# high-value, human-attention-bearing messages — in the clear. The signature
+# protects integrity, not confidentiality.
+
+kind: http
+
+metadata:
+  id: extended/push/push-endpoint-non-https-rejected
+  description: A subscription is requested against an http:// endpoint. The server MUST reject it; a plaintext transport would expose escalations and Parley outcomes in the clear, and the delivery signature provides integrity, not confidentiality.
+  spec_section: "§21.2"
+  conformance_level: extended
+  track: T4
+
+preconditions:
+  server_state:
+    resource_id: doc_xyz
+  request_context:
+    auth: bearer
+    principal_id: did:web:knox.example
+
+request:
+  method: POST
+  path: /api/pact/doc_xyz/subscriptions
+  headers:
+    Content-Type: application/json
+  body:
+    endpoint: http://relay.example/hooks/pact    # plaintext — MUST be rejected
+    event_types:
+      - pact.escalation.human
+
+expected_response:
+  status: 400
+  body_match:
+    mode: subset
+    value:
+      code: subscription.endpoint_insecure
+  body_ignore_fields:
+    - request_id
+    - timestamp
+    - message
+
+postconditions:
+  server_state:
+    events_added: 0
+    resource_modified: false
+
+notes: |
+  - The error code is asserted so a client can distinguish "your URL is
+    insecure" from "your URL is malformed" and fix the right thing.
+  - §21.2 also SHOULDs rejection of endpoints resolving to private address
+    ranges (an SSRF surface: the server is being asked to make authenticated
+    requests to an address the caller chooses). That is a SHOULD, so it is not
+    asserted here; implementations serving untrusted subscribers should treat
+    it as a MUST in practice.
+  - 400 rather than 403: the request is malformed with respect to the schema's
+    ^https:// constraint, not an authorization failure.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Server accepts http:// endpoints (signed events, including escalations, delivered in the clear)
+    - Server accepts the subscription and silently upgrades the scheme to https, which may not resolve
+    - Rejection is generic, so the subscriber cannot tell scheme from syntax

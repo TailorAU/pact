@@ -64,6 +64,46 @@ jobs:
           npm run build
           node dist/index.js run --vectors ..
 
+      - name: Conformance scaffold present for v2.1 (draft)
+        # spec/v2.1/ is a DRAFT carry-forward adding §19-22. Guard its scaffold
+        # the same way v2.0's is guarded, so the draft cannot rot silently while
+        # it waits for sign-off.
+        run: |
+          test -d spec/v2.1/conformance || { echo "spec/v2.1/conformance/ missing"; exit 1; }
+          test -f spec/v2.1/conformance/README.md || { echo "v2.1 conformance README missing"; exit 1; }
+          test -f spec/v2.1/conformance/test-vector-format.yaml || { echo "v2.1 test-vector-format.yaml missing"; exit 1; }
+          for d in parleys push service-accounts; do
+            test -d "spec/v2.1/conformance/extended/$d" || { echo "spec/v2.1/conformance/extended/$d/ missing"; exit 1; }
+          done
+          echo "v2.1 conformance scaffold present."
+
+      - name: Every v2.1 test vector parses as YAML
+        run: |
+          node -e "
+            const fs=require('fs'),path=require('path'),yaml=require('js-yaml');
+            const walk=d=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>{
+              const p=path.join(d,e.name);
+              return e.isDirectory()?walk(p):(e.name.endsWith('.yaml')?[p]:[]);
+            });
+            const files=walk('spec/v2.1/conformance');
+            if(!files.length){console.error('No v2.1 vectors found');process.exit(1);}
+            for(const f of files){ yaml.load(fs.readFileSync(f,'utf8')); console.log('  OK '+f); }
+            console.log(files.length+' v2.1 vector file(s) parsed.');
+          "
+
+      - name: Build & run the v2.1 conformance runner (draft vectors)
+        # Server-bound vectors (kind:http + kind:session) SKIP here — the
+        # reference server does not implement §19-22 yet, so there is nothing
+        # to point them at. They still have to LOAD and carry a runner kind the
+        # runner recognises: an unknown `kind` is a hard FAIL, which is exactly
+        # the regression this step catches. Not wired into `conformance-server`
+        # for the same reason — see spec/v2.1/README.md "Known gaps".
+        working-directory: spec/v2.1/conformance/runner
+        run: |
+          npm ci || npm install
+          npm run build
+          node dist/index.js run --vectors ..
+
   conformance-server:
     name: Conformance runner against the reference server
     runs-on: ubuntu-latest

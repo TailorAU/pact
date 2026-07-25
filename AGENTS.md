@@ -15,6 +15,8 @@ TailorAU/pact/
 │   ├── resource-types.yaml      ← machine-readable resource-type registry (§14.3)
 │   ├── schemas/                 ← JSON Schema 2020-12, incl. authorization-proof, principal-registry, agent-identity
 │   └── conformance/             ← test vectors + @pact-protocol/conformance-runner
+├── spec/v2.1/        ← **DRAFT** — v2.0 carry-forward + §19 Parleys / §20 Mandate / §21 push / §22 service-account. NOT FOR CITATION until signed off (rule 3). See spec/v2.1/README.md
+├── spec/v2.2/        ← stable (Matter line: v2.0 carry-forward + §24). Does NOT yet contain §19-22 — see its README "Known scope gap"
 ├── spec/v1.1/        ← previous stable spec; has ERRATA.md
 ├── cli/              ← @pact-protocol/cli (vendor-neutral coordination CLI; v2.0 — `--authorization-proof`, `pact verify-proof`, `pact profile`)
 ├── mcp/              ← @pact-protocol/mcp (vendor-neutral MCP for PACT servers; v2.0 — pact_ask, pact_negotiate_*, pact_profile)
@@ -50,8 +52,8 @@ TailorAU/pact/
 |---|---|---|---|
 | [#5](https://github.com/TailorAU/pact/issues/5) | Publish `@pact-protocol/cli` + `@pact-protocol/mcp` | **Reopened** — npm still 404; no `NPM_TOKEN`. Knox-only. | Knox |
 | [#33](https://github.com/TailorAU/pact/issues/33) | Cut v2.2.0 release | Blocked on #5. Checklist: `RELEASING_v2.2.md`. | Knox → agent |
-| [#32](https://github.com/TailorAU/pact/issues/32) | Matter add-member idempotency (§24.6) | **`ready`** — decision (a) different-role = no-op. | agent |
-| [#35](https://github.com/TailorAU/pact/issues/35) | Author `spec/v2.1/` §19–22 (Parley) | **`ready`** — RFC #14 converged. | agent |
+| [#32](https://github.com/TailorAU/pact/issues/32) | Matter add-member idempotency (§24.6) | **In review** — §24.6 ratified w/ decision (a); response schema + vector + reference-server alignment landed. | agent → Knox |
+| [#35](https://github.com/TailorAU/pact/issues/35) | Author `spec/v2.1/` §19–22 (Parley) | **In review** — `spec/v2.1/` DRAFT authored (§19–22, 12 schemas, 11 vectors). Needs rule-3 sign-off to promote. | agent → Knox |
 | [#28](https://github.com/TailorAU/pact/issues/28) | Living-doc citation contract | Umbrella; children in tailor-app #4460/#4461/#4462 `ready`. | agent |
 | [#34](https://github.com/TailorAU/pact/issues/34) | KG product extraction into this repo | Blocker — runtime still `tailor-app` `sites/source/`. Security-sensitive. | Knox |
 | [#14](https://github.com/TailorAU/pact/issues/14) | RFC Parleys / Mandates | Accepted-with-modifications; delivery is #35. | — |
@@ -64,9 +66,11 @@ TailorAU/pact/
 
 ### Heading toward v2.1 / v2.2 release
 
-- **v2.1** (`#35`): §19 Parleys + §20 Mandate + §21 push + §22 service-account — draft in new directory; do not edit frozen `spec/v2.0/` or rewrite `spec/v2.2/` in that PR.
+- **v2.1** (`#35`): §19 Parleys + §20 Mandate + §21 push + §22 service-account — **authored** in `spec/v2.1/` as a v2.0 carry-forward. `spec/v2.0/` was not touched and `spec/v2.2/` was not rewritten. Status: **DRAFT awaiting rule-3 sign-off**; see `spec/v2.1/README.md` for the promotion checklist and the five recorded gaps (no Mandate runner kind; §21 delivery not vector-covered; no cross-org §22 vector; reference server does not implement §19–22; `must_respect` evaluation is implementation-defined).
 - **v2.2 release** (`#33`): tag + npm after #5 unblocks. Matter already in `spec/v2.2/`.
 - **Absorb later:** when v2.1 is stable, re-carry into a v2.2 re-issue / v2.2.1 per `spec/v2.2/README.md`.
+- **Backronym:** "Protocol for Agent Contexture and Trust" is **normative from `spec/v2.1/`**. Frozen versions stay "Consensus and Truth" as-shipped (rule 4). No identifiers change.
+- **Schema `$id` note:** `spec/v2.1/` re-bases every carried-forward schema `$id` to `/v2.1/`, unlike `spec/v2.2/` which left carried schemas on their `v2.0` `$id`s. Re-basing is what `v2.1-scope.yaml` specifies and avoids duplicate-`$id` collisions when a validator loads two spec directories together. CI now validates **every** `spec/v2*/schemas` directory, not just v2.0 — v2.2's 48 schemas had never been checked.
 
 ## Things you should NOT do
 

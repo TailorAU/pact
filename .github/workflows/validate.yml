@@ -54,29 +54,48 @@ jobs:
             fi
           done
 
-      - name: Validate v2.0 schemas (JSON Schema 2020-12)
-        # v2.0 schemas are bumped to https://json-schema.org/draft/2020-12/schema.
+      - name: Validate v2.x schemas (JSON Schema 2020-12)
+        # v2.x schemas are on https://json-schema.org/draft/2020-12/schema.
         # Older versions (v0.3/v0.4/v1.0/v1.1) stay on draft-07 (frozen for citation stability).
+        #
+        # This loop covers EVERY spec/v2*/schemas directory. Previously it was
+        # hardcoded to v2.0, so spec/v2.2/ shipped stable with its 48 schemas
+        # never validated in CI, and any new v2.x directory would have been
+        # unchecked by default. Globbing means a future v2.3 is covered the day
+        # it lands.
         run: |
-          if [ -d spec/v2.0/schemas ]; then
-            echo "Validating v2.0 JSON schemas (draft 2020-12)..."
+          shopt -s nullglob
+          found=0
+          for dir in spec/v2*/schemas; do
+            [ -d "$dir" ] || continue
+            found=1
+            version=$(basename "$(dirname "$dir")")
+            echo "Validating $version JSON schemas (draft 2020-12)..."
             # v2.0.3 introduced cross-schema $refs (e.g. fabric-manifest ->
             # pending-obligation, *-request -> authorization-proof). ajv-cli
             # compiles one -s schema in isolation, so every sibling that a
             # schema may $ref MUST be registered with -r or the ref is
-            # unresolvable. Register all OTHER v2.0 schemas as references
-            # (excluding self to avoid an ajv duplicate-$id error).
-            for schema in spec/v2.0/schemas/*.json; do
+            # unresolvable. Register all OTHER schemas in the SAME directory as
+            # references (excluding self to avoid an ajv duplicate-$id error).
+            #
+            # Cross-directory registration would be wrong as well as unnecessary:
+            # spec/v2.2/ carries v2.0 $ids forward verbatim, so mixing directories
+            # in one ajv invocation collides on duplicate $id.
+            for schema in "$dir"/*.json; do
               echo "  Checking $schema"
               refs=""
-              for other in spec/v2.0/schemas/*.json; do
+              for other in "$dir"/*.json; do
                 if [ "$other" != "$schema" ]; then
                   refs="$refs -r $other"
                 fi
               done
               ajv compile -s "$schema" $refs --spec=draft2020 -c ajv-formats || exit 1
             done
-            echo "All v2.0 schemas valid."
+            echo "All $version schemas valid."
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "::error::No spec/v2*/schemas directory found — the validation glob matched nothing."
+            exit 1
           fi
 
   check-links:

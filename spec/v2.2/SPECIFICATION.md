@@ -2258,8 +2258,8 @@ member with role `owner`. The body:
 ```
 
 The response includes the new `matter_id`, `phase: "open"`, and the
-emitted `pact.matter.opened` event id. See `matters-schemas/matter-create-request.json`
-and `matters-schemas/matter-create-response.json`.
+emitted `pact.matter.opened` event id. See `schemas/matter-create-request.json`
+and `schemas/matter-create-response.json`.
 
 `GET /api/pact/matters/{id}` is gated by §17.13 caller-scoping: a non-member
 MUST receive `403 auth.forbidden`.
@@ -2275,8 +2275,57 @@ Detaching is symmetric and explicitly does NOT close the underlying fabric
 (resolves RFC OQ3). A detached fabric remains queryable directly via its
 own `/api/pact/{fabricId}/...` endpoints.
 
-Member management is owner-only. Adding the same principal twice is
-idempotent (`added: false` in the response).
+### Member management — `POST /api/pact/matters/{id}/members`
+
+Member management is **owner-only**; a non-owner caller receives
+`403 auth.forbidden`.
+
+**Adding a member is idempotent.** The operation is "ensure this principal is
+a member", not "create a membership". This makes a client retry after a
+dropped ACK safe — without it, a retry turns a success into an error.
+
+| Case | Response | `added` |
+|---|---|---|
+| Principal is not yet a member | `200` — member added, `pact.matter.member-added` emitted | `true` |
+| Principal is already a member **at the same role** | `200` — no state change, **no event emitted** | `false` |
+| Principal is already a member **at a different role** | `200` — **no-op**: the existing role is retained and returned, no event emitted | `false` |
+
+**Same principal, different role is an idempotent no-op** (ratified via RFC
+[#32](https://github.com/TailorAU/pact/issues/32), option (a)). Adding
+`did:web:x` as `participant` when they are already an `owner` does **not**
+demote them: the request succeeds, `added` is `false`, and the `role` in the
+response is the **existing** role, not the requested one. This keeps
+`add-member` a pure "ensure present" operation. Role changes are deliberately
+**not** expressible through this endpoint — a dedicated change-role operation
+is future work, so that a privilege change is never a side effect of a retry.
+
+> A caller that needs to know whether its requested role took effect MUST
+> compare the returned `role` against the one it sent. An implementation MUST
+> NOT signal a role mismatch by rejecting the request — that would break
+> idempotency for the ordinary retry case.
+
+**Response shape.** The response is **flat** — there is no nested `member`
+wrapper — and matches `matter-add-member-response.json`:
+
+```json
+{
+  "matterId": "mtr_9f2a",
+  "added": true,
+  "principalId": "did:web:counterparty.example",
+  "role": "participant"
+}
+```
+
+`display_name` is optional in the request and **defaults to the
+`principal_id`** when omitted. An implementation MUST NOT reject an add that
+omits `display_name`.
+
+> **Note on field casing.** This response uses `camelCase` to match the
+> deployed wire contract (confirmed live and pinned by
+> [#30](https://github.com/TailorAU/pact/issues/30) /
+> [#31](https://github.com/TailorAU/pact/issues/31)), while the §24 *request*
+> schemas use `snake_case`. That inconsistency is inherited, not introduced
+> here, and is tracked separately — it is not resolved by this ratification.
 
 ## 24.7 Cross-fabric manifest (§24.7)
 

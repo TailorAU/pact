@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.2/matter-add-member-response.json",
+  "title": "Matter — Add Member Response",
+  "description": "Success response for POST /api/pact/matters/{id}/members (§24.6). The operation is idempotent: 'ensure this principal is a member', not 'create a membership'. `added` is true only when the member was newly created; a repeat add — at the same role OR a different one — returns added:false with the EXISTING role and emits no event. Fields are flat camelCase to match the deployed wire contract pinned by #30/#31; there is no nested `member` wrapper. Ratified via RFC #32.",
+  "type": "object",
+  "required": ["matterId", "added", "principalId", "role"],
+  "additionalProperties": true,
+  "properties": {
+    "matterId": {
+      "type": "string",
+      "description": "The Matter the principal is a member of. Prefix `mtr_`."
+    },
+    "added": {
+      "type": "boolean",
+      "description": "true = the member was newly created and pact.matter.member-added was emitted. false = the principal was already a member; no state change and NO event. A dropped-ACK retry therefore returns added:false rather than an error."
+    },
+    "principalId": {
+      "type": "string",
+      "description": "DID of the member principal."
+    },
+    "role": {
+      "type": "string",
+      "enum": ["owner", "participant"],
+      "description": "The member's role AS STORED. When added is false this is the EXISTING role, which may differ from the role requested — add-member never changes an existing member's role (§24.6, RFC #32 option (a)). A caller that needs to know whether its requested role took effect MUST compare this value against what it sent."
+    },
+    "eventId": {
+      "type": "string",
+      "description": "Id of the emitted pact.matter.member-added event. Present only when added is true — an idempotent repeat emits no event, so this key is absent."
+    }
+  },
+  "examples": [
+    {
+      "matterId": "mtr_9f2a",
+      "added": true,
+      "principalId": "did:web:counterparty.example",
+      "role": "participant",
+      "eventId": "evt_5c11"
+    },
+    {
+      "matterId": "mtr_9f2a",
+      "added": false,
+      "principalId": "did:web:counterparty.example",
+      "role": "participant"
+    },
+    {
+      "matterId": "mtr_9f2a",
+      "added": false,
+      "principalId": "did:web:knox.example",
+      "role": "owner"
+    }
+  ]
+}

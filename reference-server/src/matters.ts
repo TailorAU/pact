@@ -196,12 +196,17 @@ export function handleAddMember(
     });
     return;
   }
-  if (m.members.some((mm) => mm.principal_id === newPrincipal)) {
-    // Idempotent: already a member.
+  const existing = m.members.find((mm) => mm.principal_id === newPrincipal);
+  if (existing) {
+    // §24.6 idempotent "ensure present": no state change and NO event. The
+    // EXISTING role is returned even when a different one was requested
+    // (RFC #32 option (a)) — add-member never changes a member's role, so a
+    // dropped-ACK retry can never promote or demote someone as a side effect.
     sendJson(res, 200, {
-      matter_id: m.matter_id,
+      matterId: m.matter_id,
       added: false,
-      member: m.members.find((mm) => mm.principal_id === newPrincipal),
+      principalId: existing.principal_id,
+      role: existing.role,
     });
     return;
   }
@@ -221,11 +226,15 @@ export function handleAddMember(
     added_role: role,
     added_by: callerP,
   });
+  // Flat camelCase per §24.6 / matter-add-member-response.json — matches the
+  // deployed wire contract pinned by #30 / #31 and the shape cli/ already
+  // reads. There is no nested `member` wrapper.
   sendJson(res, 200, {
-    matter_id: m.matter_id,
+    matterId: m.matter_id,
     added: true,
-    member,
-    event_id: ev.id,
+    principalId: member.principal_id,
+    role: member.role,
+    eventId: ev.id,
   });
 }
 

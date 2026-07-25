@@ -91,7 +91,38 @@ RESP=$(curl -sS -X POST "${BASE}/api/pact/matters/${MID}/members" \
   -H "X-Pact-Principal: did:web:knox.example" \
   -d '{"principal_id": "did:web:counterparty.example", "display_name": "Counterparty", "role": "participant"}')
 assert "added=true" "True" "$(echo "$RESP" | jq_get added)"
-assert "role=participant" "participant" "$(echo "$RESP" | jq_get member.role)"
+assert "principalId echoed flat" "did:web:counterparty.example" "$(echo "$RESP" | jq_get principalId)"
+assert "role=participant (flat, no member wrapper)" "participant" "$(echo "$RESP" | jq_get role)"
+
+# ── 2b. add-member idempotency (§24.6, RFC #32) ──────────────────────────
+# Guards the contract that had no test and therefore drifted: a duplicate add
+# must be a safe no-op, not an error, and must never change an existing role.
+echo ""
+echo "2b. POST /matters/{id}/members — idempotent repeat + different-role no-op"
+
+# Identical repeat → added:false, no error. This is the dropped-ACK retry case.
+RESP=$(curl -sS -X POST "${BASE}/api/pact/matters/${MID}/members" \
+  -H "Content-Type: application/json" \
+  -H "X-Pact-Principal: did:web:knox.example" \
+  -d '{"principal_id": "did:web:counterparty.example", "display_name": "Counterparty", "role": "participant"}')
+assert "duplicate add → added=false" "False" "$(echo "$RESP" | jq_get added)"
+assert "duplicate add → role unchanged" "participant" "$(echo "$RESP" | jq_get role)"
+
+# Same principal, DIFFERENT role → no-op, existing role retained (option (a)).
+# A retry must never be able to promote or demote a member as a side effect.
+RESP=$(curl -sS -X POST "${BASE}/api/pact/matters/${MID}/members" \
+  -H "Content-Type: application/json" \
+  -H "X-Pact-Principal: did:web:knox.example" \
+  -d '{"principal_id": "did:web:counterparty.example", "role": "owner"}')
+assert "different-role add → added=false" "False" "$(echo "$RESP" | jq_get added)"
+assert "different-role add → EXISTING role retained" "participant" "$(echo "$RESP" | jq_get role)"
+
+# display_name omitted → must default to principal_id, not 400 (the #30 defect).
+STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${BASE}/api/pact/matters/${MID}/members" \
+  -H "Content-Type: application/json" \
+  -H "X-Pact-Principal: did:web:knox.example" \
+  -d '{"principal_id": "did:web:newmember.example"}')
+assert "add without display_name → 200 (not 400)" "200" "$STATUS"
 
 # ── 3. attach two fabrics ─────────────────────────────────────────────────
 echo ""

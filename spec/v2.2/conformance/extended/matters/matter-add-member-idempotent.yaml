@@ -1,0 +1,154 @@
+# Conformance test vector — Extended: `matter add-member` is idempotent (§24.6).
+# kind: session — three sequenced calls:
+#   step 1. add a new principal            → added: true
+#   step 2. add the SAME principal again   → added: false, no error
+#   step 3. add the same principal at a
+#           DIFFERENT role                 → added: false, EXISTING role retained
+#
+# This vector exists because its absence is what let the implementation drift
+# from §24.6 undetected (RFC #32). §24.6 has always said the duplicate add is
+# idempotent, but with no response schema and no vector, nothing tested it —
+# the live implementation hardcoded `added: true` and 400'd on a missing
+# display_name, and the reference CLI's `added === false` branch was dead code.
+#
+# Step 3 is the RFC #32 decision (a) ratification: add-member is a pure
+# "ensure present" operation and MUST NOT change an existing member's role.
+# A retry must never be able to escalate or demote a privilege as a side effect.
+
+kind: session
+
+metadata:
+  id: extended/matters/matter-add-member-idempotent
+  description: Adding a principal to a Matter is idempotent. A fresh add returns added:true and emits pact.matter.member-added; an identical repeat returns added:false with no event; a repeat at a different role is a no-op that retains and returns the EXISTING role. Guards §24.6 against the drift recorded in #32.
+  spec_section: "§24.6"
+  conformance_level: extended
+  track: T-matter
+
+preconditions:
+  server_state:
+    matter:
+      matter_id: mtr_idem_test
+      phase: open
+      members:
+        - principal_id: did:web:knox.example
+          role: owner
+  request_context:
+    auth: bearer
+    principal_id: did:web:knox.example        # caller is the owner — add-member is owner-only
+
+steps:
+  - id: fresh-add-returns-added-true
+    request:
+      method: POST
+      path: /api/pact/matters/mtr_idem_test/members
+      headers:
+        Content-Type: application/json
+      body:
+        principal_id: did:web:counterparty.example
+        role: participant
+        # display_name deliberately OMITTED — §24.6 requires it to default to
+        # principal_id. A server that 400s here reproduces the #30 defect.
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          matterId: mtr_idem_test
+          added: true
+          principalId: did:web:counterparty.example
+          role: participant
+      body_ignore_fields:
+        - eventId
+
+  - id: identical-repeat-returns-added-false
+    request:
+      method: POST
+      path: /api/pact/matters/mtr_idem_test/members
+      headers:
+        Content-Type: application/json
+      body:
+        principal_id: did:web:counterparty.example
+        role: participant
+    expected_response:
+      # MUST be 200, NOT 400/409. This is the dropped-ACK retry case: a retry
+      # of a successful add must not surface as a failure to the client.
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          matterId: mtr_idem_test
+          added: false
+          principalId: did:web:counterparty.example
+          role: participant
+
+  - id: different-role-is-a-no-op
+    request:
+      method: POST
+      path: /api/pact/matters/mtr_idem_test/members
+      headers:
+        Content-Type: application/json
+      body:
+        principal_id: did:web:counterparty.example
+        role: owner                            # requesting a PROMOTION
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          matterId: mtr_idem_test
+          added: false
+          principalId: did:web:counterparty.example
+          # THE ASSERTION: the EXISTING role is retained and returned.
+          # `participant`, not the requested `owner`. RFC #32 option (a).
+          role: participant
+
+expected_events:
+  # Exactly ONE member-added event across all three calls. Steps 2 and 3 are
+  # no-ops and MUST NOT emit — an idempotent repeat that still emits pollutes
+  # the event log and would make the Matter's audit trail overstate what
+  # happened.
+  ordered: true
+  sequence:
+    - event_type: pact.matter.member-added
+      match:
+        mode: subset
+        value:
+          actorKind: Human
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - correlationId
+        - payloadJson
+
+postconditions:
+  server_state:
+    events_added: 1                            # one event, three calls
+
+notes: |
+  - The response shape asserted here is FLAT camelCase (matterId, added,
+    principalId, role) with no nested `member` wrapper, matching the deployed
+    wire contract pinned by #30 / #31 and schematised in
+    matter-add-member-response.json. §24.6 carries a note that this differs
+    from the snake_case §24 request schemas; that inconsistency is inherited
+    and tracked separately, not resolved by this vector.
+  - `display_name` is omitted in step 1 on purpose. §24.6 requires it to
+    default to principal_id, and the #30 defect was a 400 on exactly this
+    input. Passing step 1 therefore also regression-guards #30.
+  - Step 3 asserts role RETENTION, not role rejection. A server that returns
+    409 for the different-role case has chosen option (c), which #32
+    considered and did not adopt — it breaks idempotency for the ordinary
+    retry case, where a client cannot always know which role it sent first.
+  - `events_added: 1` is the strict reading. A server emitting a diagnostic
+    or audit event on the no-op calls is not thereby non-conformant, but it
+    MUST NOT emit a second pact.matter.member-added.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Server hardcodes `added: true` so the idempotent branch is never observable (the exact #32 drift — the CLI's `added === false` branch stays dead code)
+    - Server returns 400/409 on a duplicate add, turning a safe retry into a client-visible failure
+    - Server 400s when display_name is omitted instead of defaulting it to principal_id (the #30 defect)
+    - Server APPLIES the new role on a different-role add, so a retry silently promotes or demotes a member
+    - Server emits pact.matter.member-added on the idempotent repeats, overstating the audit trail
+    - Response nests the member under a `member` object, breaking the flat wire contract the CLI reads

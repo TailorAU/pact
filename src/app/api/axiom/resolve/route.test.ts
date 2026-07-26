@@ -165,6 +165,63 @@ describe("GET /api/axiom/resolve — legislation resolution", () => {
     expect(mockDb.execute).toHaveBeenCalledTimes(2);
   });
 
+  // ── #4461: Regulation pinpoints resolve against "r N" section ids ──────
+  // Live prod shape (probed 2026-07-26): qld/reg-2017-165 stores its rows
+  // as section_id "r 3" / "r 89" / "r 108" …, so a consumer citing
+  // "… (Qld) s 42" previously got sectionRef: null even though the row
+  // existed under the regulation prefix.
+  it("resolves a Regulation 's N' citation against the stored 'r N' section id", async () => {
+    mockDb.execute
+      .mockResolvedValueOnce(rows([{ ...REG_2017, title: "Coal Mining Safety and Health Regulation 2017 (Qld)" }]))
+      .mockResolvedValueOnce(rows([{ section_id: "r 89" }]));
+
+    const res = await callGet("Coal Mining Safety and Health Regulation 2017 (Qld) s 89");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.sectionRef).toBe("r 89");
+    // verifiedRef echoes the unit the RESOLVED row uses.
+    expect(body.verifiedRef).toBe("Coal Mining Safety and Health Regulation 2017 (Qld) r 89");
+    expect(mockDb.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("resolves an explicit 'r N' Regulation citation (unit written as cited)", async () => {
+    mockDb.execute
+      .mockResolvedValueOnce(rows([{ ...REG_2017, title: "Coal Mining Safety and Health Regulation 2017 (Qld)" }]))
+      .mockResolvedValueOnce(rows([{ section_id: "r 42" }]));
+
+    const res = await callGet("Coal Mining Safety and Health Regulation 2017 (Qld) r 42");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.docId).toBe("qld/reg-2017-165");
+    expect(body.sectionRef).toBe("r 42");
+    expect(body.verifiedRef).toBe("Coal Mining Safety and Health Regulation 2017 (Qld) r 42");
+  });
+
+  it("the exact-section lookup asks for every conventional unit prefix", async () => {
+    mockDb.execute
+      .mockResolvedValueOnce(rows([{ ...REG_2017, title: "Coal Mining Safety and Health Regulation 2017 (Qld)" }]))
+      .mockResolvedValueOnce(rows([{ section_id: "r 42" }]));
+
+    await callGet("Coal Mining Safety and Health Regulation 2017 (Qld) s 42");
+    const secCall = mockDb.execute.mock.calls[1][0] as { sql: string; args: unknown[] };
+    expect(secCall.args).toContain("r 42");
+    expect(secCall.args).toContain("s 42");
+    expect(secCall.args).toContain("42");
+  });
+
+  it("a bare Regulation citation is unaffected — the year is not a pinpoint", async () => {
+    mockDb.execute.mockResolvedValueOnce(rows([REG_2017]));
+
+    const res = await callGet("Coal Mining Safety and Health Regulation 2017");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.docId).toBe("qld/reg-2017-165");
+    expect(body.sectionRef).toBeNull();
+    expect(body.verifiedRef).toBe("Coal Mining Safety and Health Regulation 2017 (Qld)");
+    // Only the doc query ran — no section lookup was triggered by the year.
+    expect(mockDb.execute).toHaveBeenCalledTimes(1);
+  });
+
   it("does not double the jurisdiction when the ingested title already carries it (live prod shape)", async () => {
     mockDb.execute
       .mockResolvedValueOnce(

@@ -141,17 +141,25 @@ export async function GET(req: NextRequest) {
     let sectionRef: string | null = null;
     if (parsed.section) {
       const base = (parsed.section.match(/^\d+[A-Za-z]{0,3}/) ?? [parsed.section])[0];
-      const variants = [
-        parsed.section.toLowerCase(),
-        `s ${parsed.section.toLowerCase()}`,
-        base.toLowerCase(),
-        `s ${base.toLowerCase()}`,
-      ];
+      // Stored `section_id` values carry an instrument-appropriate unit
+      // prefix: Acts ingest as "s 19", Regulations as "r 89". The
+      // citation's own unit is only a HINT — a consumer writing
+      // "CMSHR 2017 (Qld) s 42" against a Regulation still means r 42 —
+      // so try every conventional prefix, ordered by the unit the
+      // citation used and then by the doc's own type.
+      const docTypeUnit = String(doc.doc_type ?? "act").toLowerCase().startsWith("reg") ? "r" : "s";
+      const prefixes = [...new Set([parsed.sectionUnit ?? docTypeUnit, docTypeUnit, "s", "r", "cl", "sch"])];
+      const variants: string[] = [];
+      for (const value of [parsed.section.toLowerCase(), base.toLowerCase()]) {
+        variants.push(value);
+        for (const p of prefixes) variants.push(`${p} ${value}`);
+      }
+      const uniqueVariants = [...new Set(variants)];
       const exactSec = await db.execute({
         sql: `SELECT section_id FROM legislation_sections
-              WHERE doc_id = ? AND LOWER(section_id) IN (?, ?, ?, ?)
+              WHERE doc_id = ? AND LOWER(section_id) IN (${uniqueVariants.map(() => "?").join(", ")})
               ORDER BY sort_order ASC LIMIT 1`,
-        args: [docId, ...variants],
+        args: [docId, ...uniqueVariants],
       });
       if (exactSec.rows.length > 0) {
         sectionRef = String(exactSec.rows[0].section_id);
@@ -168,7 +176,7 @@ export async function GET(req: NextRequest) {
         const markerRe = new RegExp(
           `(?:^|\\n)\\s*${escaped}\\s*(?:\\([0-9A-Za-z]+\\))?\\s+[A-Z(]|\\bs(?:ection)?\\.?\\s*${escaped}\\b`,
         );
-        const idRe = new RegExp(`^(?:s\\s*)?${escaped}$`, "i");
+        const idRe = new RegExp(`^(?:(?:s|r|cl|sch)\\.?\\s*)?${escaped}$`, "i");
         for (const row of candidates.rows) {
           const sid = String(row.section_id ?? "");
           if (idRe.test(sid) || markerRe.test(String(row.content ?? ""))) {
@@ -183,8 +191,17 @@ export async function GET(req: NextRequest) {
     // Ingested titles often already end with the jurisdiction parenthetical
     // ("Work Health and Safety Act 2011 (Qld)") — don't double it.
     const titleHasJur = jur ? new RegExp(`\\(${jur}\\)\\s*$`, "i").test(String(doc.title)) : false;
+    // Echo the unit the RESOLVED row actually uses ("r 89" for a
+    // Regulation whose sections ingest as "r N"), falling back to the
+    // unit the citation asked for. verifiedRef stays a citation a human
+    // can paste back in, and never claims an unverified pinpoint.
+    const resolvedUnit =
+      (sectionRef && (sectionRef.match(/^(s|r|cl|sch)\b/i)?.[1]?.toLowerCase() as string | undefined)) ??
+      parsed.sectionUnit ??
+      "s";
     const verifiedRef =
-      `${doc.title}${jur && !titleHasJur ? ` (${jur})` : ""}` + (parsed.section && sectionRef ? ` s ${parsed.section}` : "");
+      `${doc.title}${jur && !titleHasJur ? ` (${jur})` : ""}` +
+      (parsed.section && sectionRef ? ` ${resolvedUnit} ${parsed.section}` : "");
     const inForce = doc.repealed_date ? false : doc.in_force_date ? true : null;
 
     return withCors(

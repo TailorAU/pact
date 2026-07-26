@@ -37,18 +37,66 @@ export interface ParsedCitation {
   jurisdictionRaw: string | null;
   /** Section reference as typed, e.g. "6(1)", "42", "19A". Null when absent. */
   section: string | null;
+  /**
+   * Canonical unit keyword the citation used, normalised: "s" for a
+   * section, "r" for a regulation/rule, "cl" for a clause, "sch" for a
+   * schedule. Null when no section suffix was present.
+   *
+   * Subordinate instruments (Regulations) are conventionally cited by
+   * REGULATION ("r 42" / "reg 42"), and their ingested rows store
+   * `section_id` values shaped the same way ("r 89"). Keeping the unit
+   * lets the resolver try the right stored prefixes and lets
+   * `verifiedRef` echo a conventional citation.
+   */
+  sectionUnit: SectionUnit | null;
 }
+
+export type SectionUnit = "s" | "r" | "cl" | "sch";
+
+/** Citation keyword → canonical unit. */
+const UNIT_MAP: Record<string, SectionUnit> = {
+  s: "s",
+  ss: "s",
+  sec: "s",
+  sect: "s",
+  section: "s",
+  r: "r",
+  rr: "r",
+  reg: "r",
+  regs: "r",
+  regulation: "r",
+  rule: "r",
+  cl: "cl",
+  cll: "cl",
+  clause: "cl",
+  sch: "sch",
+  sched: "sch",
+  schedule: "sch",
+};
 
 export function parseCitation(citation: string): ParsedCitation {
   let rest = citation.trim().replace(/\s+/g, " ");
 
-  // Trailing section suffix: "s 6", "s. 6(1)", "sec 42", "section 19A".
+  // Trailing section suffix: "s 6", "s. 6(1)", "sec 42", "section 19A",
+  // plus the subordinate-instrument forms "r 42" / "reg 42" / "cl 3" /
+  // "sch 2" that Regulations are conventionally cited by.
+  //
+  // Year guard: an instrument NAME legitimately ends in
+  // "<unit-word> <year>" — "Coal Mining Safety and Health Regulation
+  // 2017", "Acts Interpretation Act 1901". A bare 4-digit 19xx/20xx
+  // number is therefore NEVER read as a section/regulation number; a
+  // real pinpoint to such a number must be written with a subsection
+  // ("r 2017(1)") or an alpha suffix. Without this guard, adding
+  // "regulation"/"rule" to the keyword set would silently truncate the
+  // year off every Regulation citation and break instrument matching.
   let section: string | null = null;
+  let sectionUnit: SectionUnit | null = null;
   const sectionMatch = rest.match(
-    /(?:^|[\s,])(?:s|ss|sec|sect|section)\.?\s*(\d+[A-Za-z]{0,3}(?:\([0-9A-Za-z]+\))*)\s*$/i
+    /(?:^|[\s,])(s|ss|sec|sect|section|r|rr|reg|regs|regulation|rule|cl|cll|clause|sch|sched|schedule)\.?\s*(\d+[A-Za-z]{0,3}(?:\([0-9A-Za-z]+\))*)\s*$/i
   );
-  if (sectionMatch) {
-    section = sectionMatch[1];
+  if (sectionMatch && !/^(?:19|20)\d{2}$/.test(sectionMatch[2])) {
+    section = sectionMatch[2];
+    sectionUnit = UNIT_MAP[sectionMatch[1].toLowerCase()] ?? "s";
     rest = rest.slice(0, rest.length - sectionMatch[0].length).trim();
   }
 
@@ -66,7 +114,7 @@ export function parseCitation(citation: string): ParsedCitation {
       .trim();
   }
 
-  return { name: rest.replace(/[\s,;]+$/, "").trim(), jurisdiction, jurisdictionRaw, section };
+  return { name: rest.replace(/[\s,;]+$/, "").trim(), jurisdiction, jurisdictionRaw, section, sectionUnit };
 }
 
 /** Does a legislation_docs / topics jurisdiction value satisfy a parsed hint? */

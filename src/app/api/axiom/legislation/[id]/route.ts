@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { formatLegislation, type LegislationDoc } from "@/lib/legislation-format";
 import { corsPreflight, withCors } from "@/lib/cors";
+import { buildCitationCurrency, evaluateSince, sectionFingerprint } from "@/lib/legislation-currency";
 
 export const OPTIONS = corsPreflight;
 
@@ -27,6 +28,8 @@ export async function GET(
   const { searchParams } = new URL(req.url);
   const format = searchParams.get("format") || "json";
   const sectionFilter = searchParams.get("section");
+  // #4462 — same cheap change-detection probe as /api/axiom/resolve.
+  const since = searchParams.get("since");
 
   const db = await getDb();
 
@@ -132,9 +135,33 @@ export async function GET(
         ? { citation: (jsonBody.citations as unknown[])[0] }
         : jsonBody;
 
+  // #4462 — currency stamp. The fingerprint must describe the WHOLE
+  // instrument, so when `section=` narrowed the result we re-fingerprint
+  // from the full section set; otherwise the same doc would report a
+  // different contentVersion depending on how it was queried.
+  let fingerprintRows: Array<{ section_id?: unknown; content?: unknown }>;
+  if (sectionFilter) {
+    const allSections = await db.execute({
+      sql: `SELECT section_id, content FROM legislation_sections WHERE doc_id = ? ORDER BY sort_order ASC`,
+      args: [docId],
+    });
+    fingerprintRows = allSections.rows as Array<{ section_id?: unknown; content?: unknown }>;
+  } else {
+    fingerprintRows = sectionsResult.rows as Array<{ section_id?: unknown; content?: unknown }>;
+  }
+  const currency = buildCitationCurrency(row, sectionFingerprint(fingerprintRows));
+
   return withCors(NextResponse.json({
     ...unwrapped,
     sectionCount: doc.sections.length,
+    asAt: currency.asAt,
+    contentVersion: currency.contentVersion,
+    versionScope: currency.versionScope,
+    lastAmendedDate: currency.lastAmendedDate,
+    inForceDate: currency.inForceDate,
+    repealedDate: currency.repealedDate,
+    pointInTimeSupported: currency.pointInTimeSupported,
+    ...(since ? { since: evaluateSince(since, currency) } : {}),
     free: true,
   }));
 }

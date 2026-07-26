@@ -2303,7 +2303,7 @@
           "Axiom Legislation"
         ],
         "summary": "Deterministic resolve-by-citation (free, no key)",
-        "description": "Resolves a legal citation string (instrument name + optional jurisdiction parenthetical + optional 's ###(#)' section suffix, e.g. 'Privacy Act 1988 (Cth) s 6') or a standards designation (e.g. 'AS/NZS 4308:2008') to a verified docId. Exact-title-first against legislation documents, then PACT topics. Never returns a fuzzy guess: anything below an exact or near-exact title match is a 404-style miss; same-title instruments across jurisdictions without a jurisdiction parenthetical return a 'citation_ambiguous' miss listing the candidates. Free and unauthenticated, like the other legislation reads.",
+        "description": "Resolves a legal citation string (instrument name + optional jurisdiction parenthetical + optional pinpoint suffix — sections as 's ###(#)', and for subordinate instruments 'r ##' / 'reg ##' / 'cl ##' / 'sch ##', e.g. 'Privacy Act 1988 (Cth) s 6' or 'Coal Mining Safety and Health Regulation 2017 (Qld) r 42') or a standards designation (e.g. 'AS/NZS 4308:2008') to a verified docId. Exact-title-first against legislation documents, then PACT topics. Never returns a fuzzy guess: anything below an exact or near-exact title match is a 404-style miss; same-title instruments across jurisdictions without a jurisdiction parenthetical return a 'citation_ambiguous' miss listing the candidates. Legislation hits also carry currency metadata (asAt, contentVersion, versionScope, amendment/commencement/repeal dates) and support a cheap `since=` change probe answered in the same response — no full-act refetch. Free and unauthenticated, like the other legislation reads.",
         "security": [],
         "parameters": [
           {
@@ -2313,7 +2313,16 @@
             "schema": {
               "type": "string"
             },
-            "description": "The citation to resolve, e.g. 'Privacy Act 1988 (Cth) s 6(1)' or 'Coal Mining Safety and Health Regulation 2017' or 'AS/NZS 4308:2008'"
+            "description": "The citation to resolve, e.g. 'Privacy Act 1988 (Cth) s 6(1)' or 'Coal Mining Safety and Health Regulation 2017 (Qld) r 42' or 'AS/NZS 4308:2008'"
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Cheap change-detection probe. Supply a previously returned contentVersion (exact match, preferred) or an ISO date (compared against asAt). The verdict rides back on this same response under `since` — one call, no full-act refetch. Unparseable values fail OPEN (changed: true), never a false 'unchanged'."
           }
         ],
         "responses": {
@@ -2327,10 +2336,18 @@
                     "resolved": { "type": "boolean" },
                     "docId": { "type": "string", "description": "Legislation doc id (e.g. 'qld/reg-2017-165') or 'topic:{id}'" },
                     "docType": { "type": "string", "description": "act | regulation | standard | guidance | topic" },
-                    "sectionRef": { "type": "string", "nullable": true, "description": "Resolved section/chunk id (e.g. 's 19' or 'chunk-2'); null when the requested section could not be verified" },
+                    "sectionRef": { "type": "string", "nullable": true, "description": "Resolved section/pinpoint id as STORED (e.g. 's 19' for an Act, 'r 89' for a Regulation, or 'chunk-2'); null when the requested pinpoint could not be verified" },
                     "canonicalTitle": { "type": "string" },
-                    "verifiedRef": { "type": "string", "description": "Canonical verified citation string; includes the section only when sectionRef resolved" },
+                    "verifiedRef": { "type": "string", "description": "Canonical verified citation string; includes the pinpoint only when sectionRef resolved, echoing the unit the resolved row uses (e.g. '… (Qld) r 89')" },
                     "inForce": { "type": "boolean", "nullable": true, "description": "false when repealed, true when an in-force date is recorded, null when unknown (topics always null)" },
+                    "asAt": { "type": "string", "nullable": true, "description": "ISO date (YYYY-MM-DD) the stored consolidation is current to: repeal date if repealed, else last amendment, else commencement, else record creation. Null for topics and undated rows." },
+                    "contentVersion": { "type": "string", "nullable": true, "description": "Short stable digest (8 hex chars) over the currency-bearing fields. Pass back as `since` to detect change. Null for topics." },
+                    "versionScope": { "type": "string", "nullable": true, "enum": ["metadata", "metadata+sections"], "description": "What contentVersion covers. This endpoint returns 'metadata' (doc identity + dates; single-query and cheap). GET /api/axiom/legislation/{id} returns 'metadata+sections', which also detects a section rewrite that left the dates stuck. The two are DIFFERENT digests — always compare a stamp against the endpoint that issued it." },
+                    "lastAmendedDate": { "type": "string", "nullable": true, "description": "Last recorded amendment date (ISO date)" },
+                    "inForceDate": { "type": "string", "nullable": true, "description": "Commencement date (ISO date)" },
+                    "repealedDate": { "type": "string", "nullable": true, "description": "Repeal date (ISO date); non-null implies inForce false" },
+                    "pointInTimeSupported": { "type": "boolean", "description": "Always false. Only CURRENT consolidations are stored — there is no point-in-time history, so a historical asAt request cannot be honoured and today's text must never be mistaken for a point-in-time answer." },
+                    "since": { "type": "object", "description": "Present only when the request supplied `since`. One-call change detection.", "properties": { "since": { "type": "string" }, "changed": { "type": "boolean", "description": "True when the stored instrument differs from what the caller last saw. FAILS OPEN on an unparseable stamp." }, "basis": { "type": "string", "enum": ["contentVersion", "asAt", "unparseable"] } } },
                     "matchTier": { "type": "string", "enum": ["exact", "near-exact"] },
                     "jurisdiction": { "type": "string", "nullable": true },
                     "source": { "type": "string", "enum": ["legislation", "topic"] },
@@ -2458,11 +2475,20 @@
               "type": "string"
             },
             "description": "Return only a specific section"
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Cheap change-detection probe. Supply a previously returned contentVersion (exact match, preferred) or an ISO date (compared against asAt). The verdict rides back on this same response under `since`. Unparseable values fail OPEN (changed: true). Note this endpoint issues a 'metadata+sections' scoped contentVersion — do not compare it against a stamp from /api/axiom/resolve."
           }
         ],
         "responses": {
           "200": {
-            "description": "Full legislation with sections, amendments, and metadata"
+            "description": "Full legislation with sections, amendments, and metadata. Also carries currency fields: asAt, contentVersion (versionScope 'metadata+sections' — includes a fingerprint over every section's content, so it detects a section rewrite that left the dates stuck), versionScope, lastAmendedDate, inForceDate, repealedDate, pointInTimeSupported (always false — only current consolidations are stored), and `since` when the probe was requested. The contentVersion describes the WHOLE instrument even when `section=` narrowed the response."
           },
           "401": {
             "description": "Missing or invalid Axiom key"

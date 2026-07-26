@@ -38,9 +38,10 @@ vi.mock("@/lib/db", () => ({
 
 import { GET } from "./route";
 
-function callGet(citation: string | null) {
+function callGet(citation: string | null, since?: string) {
   const qs = citation === null ? "" : `?citation=${encodeURIComponent(citation)}`;
-  return GET(new Request(`http://localhost/api/axiom/resolve${qs}`) as never);
+  const sinceQs = since === undefined ? "" : `${qs ? "&" : "?"}since=${encodeURIComponent(since)}`;
+  return GET(new Request(`http://localhost/api/axiom/resolve${qs}${sinceQs}`) as never);
 }
 
 function rows(r: Record<string, unknown>[]): DbResult {
@@ -321,6 +322,85 @@ describe("GET /api/axiom/resolve — legislation resolution", () => {
   });
 });
 
+// ── #4462: currency metadata + cheap since-probe ────────────────────────
+describe("GET /api/axiom/resolve — currency metadata (#4462)", () => {
+  const DATED = {
+    ...REG_2017,
+    title: "Coal Mining Safety and Health Regulation 2017 (Qld)",
+    last_amended_date: "2024-07-01",
+    created_at: "2025-01-01T00:00:00Z",
+  };
+
+  it("returns asAt + contentVersion for a legislation hit", async () => {
+    mockDb.execute.mockResolvedValueOnce(rows([DATED]));
+
+    const res = await callGet("Coal Mining Safety and Health Regulation 2017 (Qld)");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.asAt).toBe("2024-07-01");
+    expect(body.contentVersion).toMatch(/^[0-9a-f]{8}$/);
+    expect(body.versionScope).toBe("metadata");
+    expect(body.lastAmendedDate).toBe("2024-07-01");
+    expect(body.inForceDate).toBe("2017-09-01");
+    expect(body.repealedDate).toBeNull();
+    // Only current consolidations are stored — never claim otherwise.
+    expect(body.pointInTimeSupported).toBe(false);
+    // No `since` asked for ⇒ no probe in the payload.
+    expect(body.since).toBeUndefined();
+  });
+
+  it("stays a single-query call — the currency stamp adds no DB round trip", async () => {
+    mockDb.execute.mockResolvedValueOnce(rows([DATED]));
+    await callGet("Coal Mining Safety and Health Regulation 2017 (Qld)");
+    expect(mockDb.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers the since-probe in the SAME call — unchanged for a matching version", async () => {
+    mockDb.execute.mockResolvedValueOnce(rows([DATED]));
+    const first = (await (await callGet("Coal Mining Safety and Health Regulation 2017 (Qld)")).json()) as Record<string, unknown>;
+
+    mockDb.execute.mockResolvedValueOnce(rows([DATED]));
+    const res = await callGet("Coal Mining Safety and Health Regulation 2017 (Qld)", String(first.contentVersion));
+    const body = (await res.json()) as { since: { changed: boolean; basis: string } };
+    expect(body.since.changed).toBe(false);
+    expect(body.since.basis).toBe("contentVersion");
+  });
+
+  it("reports changed when the stored instrument moved since the caller's stamp", async () => {
+    mockDb.execute.mockResolvedValueOnce(rows([DATED]));
+    const res = await callGet("Coal Mining Safety and Health Regulation 2017 (Qld)", "deadbeef");
+    const body = (await res.json()) as { since: { changed: boolean; basis: string } };
+    expect(body.since.changed).toBe(true);
+    expect(body.since.basis).toBe("contentVersion");
+  });
+
+  it("accepts an ISO date as the since stamp", async () => {
+    mockDb.execute.mockResolvedValueOnce(rows([DATED]));
+    const res = await callGet("Coal Mining Safety and Health Regulation 2017 (Qld)", "2020-01-01");
+    const body = (await res.json()) as { since: { changed: boolean; basis: string } };
+    expect(body.since.changed).toBe(true);
+    expect(body.since.basis).toBe("asAt");
+  });
+
+  it("fails OPEN on an unparseable since stamp (never a false 'unchanged')", async () => {
+    mockDb.execute.mockResolvedValueOnce(rows([DATED]));
+    const res = await callGet("Coal Mining Safety and Health Regulation 2017 (Qld)", "garbage");
+    const body = (await res.json()) as { since: { changed: boolean; basis: string } };
+    expect(body.since.changed).toBe(true);
+    expect(body.since.basis).toBe("unparseable");
+  });
+
+  it("reports repealed instruments with the repeal date as asAt", async () => {
+    mockDb.execute.mockResolvedValueOnce(
+      rows([{ ...PRIVACY_ACT, id: "cth/act-old", title: "Old Act 1901", repealed_date: "1990-01-01" }])
+    );
+    const res = await callGet("Old Act 1901");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.inForce).toBe(false);
+    expect(body.asAt).toBe("1990-01-01");
+    expect(body.repealedDate).toBe("1990-01-01");
+  });
+});
+
 describe("GET /api/axiom/resolve — topic resolution", () => {
   it("resolves a standards designation citation to the standards topic", async () => {
     mockDb.execute
@@ -351,6 +431,12 @@ describe("GET /api/axiom/resolve — topic resolution", () => {
     expect(body.inForce).toBeNull();
     expect(body.verifiedRef).toBe("https://store.standards.org.au/product/as-nzs-4308-2008");
     expect(body.source).toBe("topic");
+    // #4462 — topics are consensus claim nodes, not dated consolidations:
+    // the currency fields are honestly null, never fabricated.
+    expect(body.asAt).toBeNull();
+    expect(body.contentVersion).toBeNull();
+    expect(body.versionScope).toBeNull();
+    expect(body.pointInTimeSupported).toBe(false);
   });
 
   it("resolves a citation to a claim-sentence topic title via the near-exact prefix tier", async () => {

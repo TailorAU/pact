@@ -9,6 +9,7 @@ import {
   type TitleMatchTier,
 } from "@/lib/legislation-ranking";
 import { citationJurisdiction, jurisdictionMatches, parseCitation } from "@/lib/citation";
+import { buildCitationCurrency, evaluateSince } from "@/lib/legislation-currency";
 
 export const OPTIONS = corsPreflight;
 
@@ -50,6 +51,10 @@ const TIER_RANK: Record<TitleMatchTier, number> = { exact: 2, "near-exact": 1, n
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const citation = searchParams.get("citation");
+  // #4462 — cheap change-detection probe. `since` carries a previously
+  // returned `contentVersion` (exact) or an ISO date, and the verdict rides
+  // back on THIS response: one call, no full-act refetch.
+  const since = searchParams.get("since");
 
   if (!citation || !citation.trim()) {
     return withCors(
@@ -88,7 +93,7 @@ export async function GET(req: NextRequest) {
   }
   const legResult = await db.execute({
     sql: `SELECT d.id, d.title, d.short_title, d.jurisdiction, d.doc_type, d.year,
-                 d.in_force_date, d.repealed_date
+                 d.in_force_date, d.last_amended_date, d.repealed_date, d.created_at
           FROM legislation_docs d
           WHERE ${legConditions.join(" AND ")}
           ORDER BY d.title ASC
@@ -204,6 +209,15 @@ export async function GET(req: NextRequest) {
       (parsed.section && sectionRef ? ` ${resolvedUnit} ${parsed.section}` : "");
     const inForce = doc.repealed_date ? false : doc.in_force_date ? true : null;
 
+    // #4462 — currency stamp. Derived from the doc row the route ALREADY
+    // fetched, so resolve stays a single-doc-query call. The section
+    // fingerprint is deliberately NOT computed here: it would mean pulling
+    // every section on every resolve, which is exactly the full-act refetch
+    // this probe exists to avoid. GET /api/axiom/legislation/{id} — which
+    // loads the sections anyway — returns the fingerprint-strengthened
+    // version for callers that want content-level change detection.
+    const currency = buildCitationCurrency(doc);
+
     return withCors(
       NextResponse.json({
         resolved: true,
@@ -213,6 +227,14 @@ export async function GET(req: NextRequest) {
         canonicalTitle: doc.title,
         verifiedRef,
         inForce,
+        asAt: currency.asAt,
+        contentVersion: currency.contentVersion,
+        versionScope: currency.versionScope,
+        lastAmendedDate: currency.lastAmendedDate,
+        inForceDate: currency.inForceDate,
+        repealedDate: currency.repealedDate,
+        pointInTimeSupported: currency.pointInTimeSupported,
+        ...(since ? { since: evaluateSince(since, currency) } : {}),
         matchTier: bestLegTier,
         jurisdiction: doc.jurisdiction ?? null,
         source: "legislation",
@@ -261,6 +283,17 @@ export async function GET(req: NextRequest) {
         canonicalTitle: title,
         verifiedRef: String(row.source_ref ?? "") || title,
         inForce: null,
+        // #4462 — topics are consensus claim nodes, not dated consolidations:
+        // they carry no commencement/amendment/repeal dates, so the currency
+        // fields are honestly null rather than fabricated. Legislation hits
+        // above are where `asAt` / `contentVersion` are meaningful.
+        asAt: null,
+        contentVersion: null,
+        versionScope: null,
+        lastAmendedDate: null,
+        inForceDate: null,
+        repealedDate: null,
+        pointInTimeSupported: false,
         matchTier: tier === "none" ? "near-exact" : tier,
         jurisdiction: row.jurisdiction ?? null,
         source: "topic",

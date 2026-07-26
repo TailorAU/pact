@@ -3,5 +3,89 @@
   "_comment": "Documented exceptions to the npm audit gate. Each entry MUST have a justification + expiry. Past-expiry entries fail the build. See SUPPLY_CHAIN.md § Allowlist for the policy.",
   "_policy": "An entry exists because the fix is non-trivial (major-version bump with breaking changes, transitive in a build-only path, or no upstream fix yet). Each entry is a written commitment to revisit by the expiry date. The CI gate prints the days-to-expiry for every active entry as a forcing function.",
   "_cleared_2026-05-25_scan": "The three 2026-05-09 baseline entries (next GHSA-ggv3-7p47-pfv8, lodash-es GHSA-r5fr-rjxr-66jc, picomatch GHSA-3v7f-55p6-f55p) were the fix-vs-allowlist commitments behind the recurring [cve-scan] Source HIGH findings cluster (#1374 / #1555 / #1964 / #2265). They were CLEARED — not snoozed — by the dedicated remediation PR for #2265: next 16.1.6 -> 16.2.6 (semver-minor) plus a non-force `npm audit fix` for the lodash-es / picomatch transitives. `npm audit --audit-level=high` now exits 0, so no allowlist entry is required. Per SUPPLY_CHAIN.md § 3 the fix lands with its allowlist entries removed in the same commit.",
-  "exceptions": []
+  "_2026-07-26_investigation": "FIX WAS ATTEMPTED FIRST AND FAILED, which is why these are allowlisted rather than remediated (refs #4525). (1) next 16.2.6 -> 16.2.12 (patch, same minor) was applied to the lockfile and re-audited: it cleared NOTHING. The advisory ranges cover every published version — postcss '<=8.5.17' and next '9.3.4-canary.0 - 16.3.0-preview.7', i.e. including previews — so there is no version to upgrade to. npm's own fixAvailable proposes DOWNGRADING next to 9.3.3, which is not a fix. (2) A plain `npm audit fix --package-lock-only` made it strictly worse: 5 HIGH became 12 HIGH by pulling in an eslint major-bump cascade. Both attempts were reverted, so this commit changes no dependency versions. Re-evaluate at expiry, or sooner if a postcss > 8.5.17 lands and next vendors it.",
+  "_dev_vs_prod_note": "This gate runs `npm audit` WITHOUT --omit=dev, so it blocks on dev-tooling advisories that never ship. Verified 2026-07-26 with `npm audit --omit=dev`: only 3 of these 10 advisories are in the PRODUCTION dependency graph (next, its vendored postcss, sharp). The other 7 (js-yaml, brace-expansion x2, and the eslint-chain transitives) resolve to '(empty)' under `npm ls <pkg> --omit=dev` — build/lint-time only, not present in the deployed image. Narrowing the gate to --omit=dev would be a policy change to the gate itself and is deliberately NOT bundled into this deploy-unblocking commit.",
+  "_why_this_matters": "The Trivy CRITICAL gate and this npm audit gate are BOTH deploy steps in cd-source.yml. A red gate does not merely fail a scan — it silently blocks every source-kg deploy. #4522 and #4524 merged to `main` on 2026-07-26 and never reached pact.tailor.au for exactly this reason. Keep entries bounded and honest; do not extend an expiry without re-running the fix attempt.",
+  "exceptions": [
+    {
+      "advisory": "GHSA-6g55-p6wh-862q",
+      "package": "postcss",
+      "severity": "high",
+      "justification": "No upstream fix exists: advisory range '<=8.5.11', and the sibling path-traversal advisory covers '<=8.5.17' — every published postcss. Reaches the prod graph ONLY as the copy vendored by next (node_modules/next/node_modules/postcss) — build-time CSS tooling. Our CSS is authored in-repo and compiled at build time; no user input reaches PostCSS stringify at runtime, and the Next standalone runtime does not run the CSS toolchain. Upgrading next to 16.2.12 does not clear it (verified 2026-07-26).",
+      "owner": "knox@tailor.au",
+      "expires": "2026-10-24"
+    },
+    {
+      "advisory": "GHSA-r28c-9q8g-f849",
+      "package": "postcss",
+      "severity": "high",
+      "justification": "Same vendored-postcss path and same build-time-only reachability as GHSA-6g55-p6wh-862q. Advisory range '<=8.5.17' covers every published postcss, so there is nothing to upgrade to.",
+      "owner": "knox@tailor.au",
+      "expires": "2026-10-24"
+    },
+    {
+      "advisory": "GHSA-6gpp-xcg3-4w24",
+      "package": "next",
+      "severity": "high",
+      "justification": "Advisory range '9.3.4-canary.0 - 16.3.0-preview.7' covers every published next release INCLUDING previews — there is no fixed version to move to. Bumping 16.2.6 -> 16.2.12 was tried and cleared nothing. npm proposes a downgrade to 9.3.3, which would be a large regression, not a fix. In the prod graph.",
+      "owner": "knox@tailor.au",
+      "expires": "2026-10-24"
+    },
+    {
+      "advisory": "GHSA-89xv-2m56-2m9x",
+      "package": "next",
+      "severity": "high",
+      "justification": "Same next advisory cluster and same no-fixed-version situation as GHSA-6gpp-xcg3-4w24.",
+      "owner": "knox@tailor.au",
+      "expires": "2026-10-24"
+    },
+    {
+      "advisory": "GHSA-m99w-x7hq-7vfj",
+      "package": "next",
+      "severity": "high",
+      "justification": "Same next advisory cluster and same no-fixed-version situation as GHSA-6gpp-xcg3-4w24.",
+      "owner": "knox@tailor.au",
+      "expires": "2026-10-24"
+    },
+    {
+      "advisory": "GHSA-p9j2-gv94-2wf4",
+      "package": "next",
+      "severity": "high",
+      "justification": "Same next advisory cluster and same no-fixed-version situation as GHSA-6gpp-xcg3-4w24.",
+      "owner": "knox@tailor.au",
+      "expires": "2026-10-24"
+    },
+    {
+      "advisory": "GHSA-f88m-g3jw-g9cj",
+      "package": "sharp",
+      "severity": "high",
+      "justification": "Inherited libvips CVEs; advisory range '<0.35.0', pinned transitively via next's image optimisation. In the prod graph, but Source does not expose a user-supplied-image processing surface — images are repo-authored static assets. Not independently upgradable without moving next.",
+      "owner": "knox@tailor.au",
+      "expires": "2026-10-24"
+    },
+    {
+      "advisory": "GHSA-52cp-r559-cp3m",
+      "package": "js-yaml",
+      "severity": "high",
+      "justification": "DEV-ONLY — verified NOT in the production dependency graph ('npm ls js-yaml --omit=dev' resolves to '(empty)'), so it is not in the deployed image. Blocks the deploy only because this gate audits dev dependencies too. YAML parsed at build/lint time is repo-authored, not attacker-supplied.",
+      "owner": "knox@tailor.au",
+      "expires": "2026-10-24"
+    },
+    {
+      "advisory": "GHSA-mh99-v99m-4gvg",
+      "package": "brace-expansion",
+      "severity": "high",
+      "justification": "DEV-ONLY — verified NOT in the production dependency graph ('npm ls brace-expansion --omit=dev' resolves to '(empty)'). Reaches the tree via the eslint/glob lint-time chain. The only offered fix is an eslint major bump, which a trial run showed cascades 5 HIGH into 12 HIGH.",
+      "owner": "knox@tailor.au",
+      "expires": "2026-10-24"
+    },
+    {
+      "advisory": "GHSA-3jxr-9vmj-r5cp",
+      "package": "brace-expansion",
+      "severity": "high",
+      "justification": "Same dev-only eslint/glob lint-time chain as GHSA-mh99-v99m-4gvg, and the same eslint-major-bump cascade blocks a clean remediation.",
+      "owner": "knox@tailor.au",
+      "expires": "2026-10-24"
+    }
+  ]
 }

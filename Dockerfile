@@ -38,6 +38,41 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+# Strip the base image's bundled npm/npx from the RUNTIME layer.
+#
+# `output: "standalone"` means this stage runs `node server.js` directly —
+# npm is never invoked at runtime (no `npm start`, no lifecycle scripts, no
+# runtime installs). But `node:22-alpine` bundles npm, and npm vendors its
+# own dependency tree, so Trivy attributes those CVEs to the shipped image.
+#
+# CVE-2026-59873 (CRITICAL, node-tar gzip-bomb DoS, tar 7.5.11 -> 7.5.19)
+# arrives purely that way: `tar` is NOT an application dependency — it does
+# not appear in package.json or package-lock.json at any depth. It reached
+# production only as an unreachable file inside bundled npm. It has failed
+# the cd-source.yml CRITICAL gate on every run since 2026-07-13, blocking
+# ALL source-kg deploys (refs #4525).
+#
+# Deleting the package managers removes the vulnerable code from the
+# artefact rather than suppressing the finding, so the gate stays honest: a
+# future CRITICAL in code we actually ship still fails the build. The
+# builder stage keeps npm (it runs `npm ci` + `npm run build`); only the
+# runtime layer is stripped. yarn goes too — it is equally unused here and
+# vendors its own tree.
+#
+# The `command -v` assertions make this SELF-VERIFYING: if a future base
+# image relocates these binaries, the build fails loudly instead of
+# silently shipping them again. Do not soften them to `|| true`.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+           /usr/local/bin/npm \
+           /usr/local/bin/npx \
+           /usr/local/bin/yarn \
+           /usr/local/bin/yarnpkg \
+           /opt/yarn-* \
+ && if command -v npm >/dev/null 2>&1; then echo "npm still present after strip" >&2; exit 1; fi \
+ && if command -v npx >/dev/null 2>&1; then echo "npx still present after strip" >&2; exit 1; fi \
+ && if command -v yarn >/dev/null 2>&1; then echo "yarn still present after strip" >&2; exit 1; fi \
+ && node --version
+
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 

@@ -1,12 +1,18 @@
 # RFC: `au.tailor.pact/mandate` — a PACT Mandate extension for MCP
 
-> **Status:** RFC — for discussion. No normative text lands until RFC #14 converges.
+> **Status:** RFC — for discussion. RFC #14 has since **converged**
+> (ACCEPT-WITH-MODIFICATIONS, 2026-05-16; the Sessions primitive is named
+> **Parley**; normative §19–20 authoring is [#35]). This document tracks the
+> ratified decisions — see the 2026-07-30 revision notes inline.
 > **Extension identifier:** `au.tailor.pact/mandate`
 > **Target MCP revision:** `2026-07-28`
-> **Target PACT version:** v2 (§19–20)
+> **Target PACT version:** v2.1 (§19–20, [#35])
 > **Owner:** Knox Hart
-> **Related:** PACT RFC #14 (Sessions + Mandates), T11 gap G3, PACT §17 `authorization_proof`
-> **Intended home:** `docs/v2-prep/rfc-mcp-mandate-extension.md` in `TailorAU/pact`
+> **Related:** PACT RFC #14 (Parleys + Mandates), T11 gap G3, PACT §17 `authorization_proof`
+> **Reference implementation:** `mcp/src/mandate.ts` (+ `mcp/test/mandate.test.mjs`);
+> vectors in [`mandate-mcp-vectors/`](mandate-mcp-vectors/README.md)
+
+[#35]: https://github.com/TailorAU/pact/issues/35
 
 ---
 
@@ -95,7 +101,7 @@ Servers that enforce mandates **MUST** advertise the extension in
         "enforcement": "required",
         "acceptedSigningAlgs": ["EdDSA", "ES256"],
         "principalRegistry": "https://pact.tailor.au/.well-known/principals",
-        "maxClockSkewMs": 30000
+        "maxClockSkewMs": 300000
       }
     }
   }
@@ -111,7 +117,10 @@ Field semantics:
   - `"observed"` — mandates are recorded for provenance but never cause rejection.
 - **`acceptedSigningAlgs`** (REQUIRED) — signature algorithms the server will verify.
 - **`principalRegistry`** (OPTIONAL) — where the server resolves `handler_principal_id`.
-- **`maxClockSkewMs`** (OPTIONAL, default `30000`) — matches RFC #14 open question 6.
+- **`maxClockSkewMs`** (OPTIONAL, default `300000`) — *revised 2026-07-30*: the
+  shepherd synthesis ratified SOQ2 as reusing §17.7's ±5-minute configurable
+  window; the RFC #14 draft's 30 s proposal was **not** adopted. An earlier
+  revision of this document said 30000 — that was wrong.
 
 Clients declare support in `ClientCapabilities.extensions` with the same key and
 an empty object when they carry mandates but impose no settings.
@@ -296,19 +305,24 @@ hook tells the handler out-of-band, MRTR holds the call open.
 
 ## 10. Revocation
 
-RFC #14 open question 1 asks whether a mid-session revocation hangs up
-immediately or finishes the current round, and proposes immediate hang-up.
+*Revised 2026-07-30.* RFC #14 open question 1 — immediate hang-up versus
+finish-the-round — was **ratified as immediate** before this document was
+written: the shepherd synthesis adopted "immediate hang-up with
+`outcome=mandate_revoked`", on the rationale that a revoked authorisation must
+not retroactively bless an in-flight commit (incoherent with the §17 trust
+model). This section is therefore not feedback into a contested question; it is
+the observation that the transport now *guarantees* the ratified answer.
 
-**Under MCP `2026-07-28`, immediate is the only reachable answer, and it is free.**
-Because the protocol is stateless and §7 requires per-request verification, there
-is no session to finish. The next request after revocation fails verification.
-There is no in-flight authority to wind down, because authority was never held
-between requests.
+**Under MCP `2026-07-28`, immediate is structural, and it is free.** Because the
+protocol is stateless and §7 requires per-request verification, there is no
+round to finish. The next request after revocation fails verification. There is
+no in-flight authority to wind down, because authority was never held between
+requests.
 
-This is worth feeding back into RFC #14: the stateless binding turns a contested
-design question into a property of the transport. The RFC's concern — "the agent
-committing under an authority that no longer exists" — cannot arise, because
-every commitment re-presents the authority.
+The ratified decision goes one step further than this boundary can: terminating
+the Parley with an explicit `outcome=mandate_revoked` is the PACT fabric's
+obligation (§19–20, [#35]), not the MCP boundary's. The two compose — the
+fabric hangs up; the boundary guarantees nothing slips through while it does.
 
 The caveat is digest mode (§6). A server caching mandate *bodies* by digest must
 still re-verify expiry and revocation per request. Caching the body is
@@ -346,8 +360,16 @@ Mirrors PACT's existing three levels:
   and MUST reject unsigned or unverifiable mandates across organisational
   boundaries.
 
-Test vectors belong in `spec/v2.2/conformance/extended/mandate-mcp/`, following
-the existing `test-vector-format.yaml`. Minimum set:
+*Revised 2026-07-30.* Test vectors are **authored** — they incubate in
+[`docs/v2-prep/mandate-mcp-vectors/`](mandate-mcp-vectors/README.md) (the
+`matters-vectors/` precedent), because `spec/v2.0/` is frozen, CI's runner
+executes `spec/v2.0/conformance/` only, and the primitive's normative home is
+`spec/v2.1/` ([#35]) which is not yet authored. They promote into
+`spec/v2.1/conformance/extended/mandate-mcp/` with #35, at which point the
+provisional `kind: mandate` joins `test-vector-format.yaml` in the same
+reviewed change. Until then, `mcp/test/mandate.test.mjs` is the executable
+enforcement of these semantics (17 passing tests, one per vector plus mode
+coverage). Minimum set:
 
 | Vector | Asserts |
 |---|---|
@@ -359,7 +381,7 @@ the existing `test-vector-format.yaml`. Minimum set:
 | `mandate-commitment-escalation` | `input_required`, not an error |
 | `mandate-escalation-retry` | Retry with `authorization_proof` in `inputResponses` succeeds |
 | `mandate-revoked-midsession` | Request N permitted, revocation, request N+1 rejected |
-| `mandate-disclosure-redacted` | Above-ceiling content redacted, `redacted: true` set |
+| `mandate-disclosure-redacted` | Above-ceiling disclosure redacted (`redacted: true`) or refused (`-32015`) where redaction is impossible |
 | `mandate-digest-unknown` | `-32016` then successful retry with full body |
 | `mandate-clock-skew` | `-32017` beyond `maxClockSkewMs` |
 | `mandate-absent-required` | `-32010` when `enforcement: "required"` |
@@ -454,3 +476,44 @@ worth attempting at all.
 | PACT Mandate | RFC #14 | The envelope itself — carried verbatim |
 | PACT `authorization_proof` | §17 | Per-message human authorisation, used at escalation |
 | Enterprise Managed Authorization | [ext-auth](https://github.com/modelcontextprotocol/ext-auth) | Complementary, not overlapping: HTTP-layer access-token issuance (ID-JAG); no visibility into MCP traffic |
+
+## Appendix B: reference implementation (added 2026-07-30)
+
+`mcp/src/mandate.ts` implements the guard in `@pact-protocol/mcp`; every tool
+registration in `mcp/src/index.ts` passes through it. Disabled by default —
+with `PACT_MANDATE_ENFORCEMENT` unset the guard is a pass-through and the
+server behaves exactly as before.
+
+Configuration:
+
+| Env | Meaning | Default |
+|---|---|---|
+| `PACT_MANDATE_ENFORCEMENT` | `required` \| `optional` \| `observed`; unset = disabled | unset |
+| `PACT_MANDATE_CLOCK_SKEW_SECONDS` | freshness window (§5) | `300` (SOQ2) |
+| `PACT_MANDATE_REGISTRY` | path to a principal-registry JSON (the `pact verify-proof --registry` shape); re-read **per verification** so revocation is immediate | none |
+| `PACT_MANDATE_BINDING_TOOLS` | csv of tools counted as binding decisions | `pact_done,pact_lock,pact_matter_close` |
+
+Documented deviations, all forced by `@modelcontextprotocol/sdk` 1.x
+(pre-`2026-07-28`) and all mechanical to remove when the SDK lands the new
+revision:
+
+1. **Error codes** ride inside the house `isError` content and result `_meta`,
+   not as protocol-level JSON-RPC errors — SDK 1.x tool handlers cannot emit
+   the latter without fighting `McpServer`.
+2. **`input_required` is emulated** as a structured tool result carrying
+   `resultType`, `inputRequests`, and `requestState`; the retry carries
+   `request_state` + `authorization_proof` inside the extension's `_meta` key
+   rather than first-class `inputResponses`.
+3. **Signature verification is structural** — presence, shape, DID format,
+   expiry, registry tombstone/revocation. Cryptographic verification is
+   type-defined and deferred, exactly as `pact verify-proof` and the
+   conformance runner's non-crypto paths defer it, and the verdict notes say
+   so on every request. Mandate signature crypto gets specified with §19–20
+   ([#35]); implementing it before the canonicalisation is normative would be
+   inventing spec.
+
+Open-question defaults taken by the implementation (§15): Q2 —
+`binding_scope` is advisory outside the issuing fabric (noted, never the sole
+rejection ground); Q3 — enforcement is server-authoritative at the boundary;
+no client-side pre-check is assumed. Both are implementation defaults, not
+normative answers.

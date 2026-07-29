@@ -1,0 +1,46 @@
+# Conformance test vector — Extended: enforcement "required" fails closed.
+# kind: mandate (provisional) — no mandate, no service; non-declaring clients included.
+
+kind: mandate
+
+metadata:
+  id: extended/mandate-mcp/mandate-absent-required
+  description: >
+    Under enforcement "required", a tools/call carrying no mandate in _meta is
+    rejected with MandateRequired (-32010) — including calls from clients that
+    never declared the extension in their capabilities. A governance extension
+    that degrades to open on client silence reads as enforced when it is not
+    (RFC §5).
+  spec_section: "rfc-mcp-mandate-extension.md §5, §11"
+  conformance_level: extended
+  track: T11
+
+guard_config:
+  enforcement: required
+  clock_skew_seconds: 300
+  registry: null
+
+clock: "2026-08-01T00:00:00Z"
+
+steps:
+  - call:
+      tool: pact_agents
+      arguments:
+        documentId: doc_vec123
+      meta: {}
+    expected:
+      outcome: error
+      error: { name: MandateRequired, code: -32010 }
+
+notes: |
+  The complementary modes are pinned by tests rather than separate vectors:
+  "optional" permits absent mandates but enforces present ones; "observed"
+  records verdicts (verified true/false) and never rejects. An "observed"
+  deployment being described as "PACT-governed" is open question 5 — a
+  labelling/conformance question, deliberately not settled here.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Mandate checked only for clients that declared the extension (fail-open).
+    - required mode implemented as a warning rather than a rejection.

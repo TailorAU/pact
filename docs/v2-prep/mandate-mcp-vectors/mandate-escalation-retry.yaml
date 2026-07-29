@@ -1,0 +1,97 @@
+# Conformance test vector — Extended: escalation retry with authorization_proof; approvals single-use.
+# kind: mandate (provisional) — the full RFC §9 round trip, including replay rejection.
+
+kind: mandate
+
+metadata:
+  id: extended/mandate-mcp/mandate-escalation-retry
+  description: >
+    After an input_required suspension, re-invoking the SAME tool with
+    IDENTICAL arguments plus request_state and a fresh §17.6
+    authorization_proof from the mandate's handler proceeds exactly once.
+    Replaying the same request_state is rejected: approvals are single-use
+    (the mandate invariant). A proof whose principal_id differs from the
+    mandate's handler_principal_id is rejected.
+  spec_section: "rfc-mcp-mandate-extension.md §9; PACT §17.6–§17.7"
+  conformance_level: extended
+  track: T11
+
+guard_config:
+  enforcement: required
+  clock_skew_seconds: 300
+  registry: null
+
+clock: "2026-08-01T00:00:00Z"
+
+steps:
+  - call:
+      tool: pact_done
+      arguments: &args
+        documentId: doc_vec123
+      meta:
+        au.tailor.pact/mandate: &mandate
+          version: "1"
+          session_id: sess_vec
+          agent_id: agent_vec
+          handler_principal_id: did:web:knox.example
+          commitment_authority:
+            max_binding_decisions: 0
+          expires_at: "2026-08-02T00:00:00Z"
+          signature: base64url-vector-signature
+          signing_key_id: "did:web:knox.example#key-1"
+    expected:
+      outcome: input_required
+      input_required:
+        reason: commitment_authority_exceeded
+      capture:
+        request_state: requestState   # carried into subsequent steps
+  - call:
+      tool: pact_done
+      arguments: *args
+      meta:
+        au.tailor.pact/mandate:
+          <<: *mandate
+          request_state: "{captured.request_state}"
+          authorization_proof:
+            type: fido2-assertion
+            principal_id: did:web:knox.example
+            credential_id: cred_vec
+            challenge_nonce: base64url-nonce
+            asserted_at: "2026-08-01T00:00:00Z"
+            signature: base64url-proof-signature
+    expected:
+      outcome: pass
+      verdict:
+        verified: true
+  - call:
+      tool: pact_done
+      arguments: *args
+      meta:
+        au.tailor.pact/mandate:
+          <<: *mandate
+          request_state: "{captured.request_state}"
+          authorization_proof:
+            type: fido2-assertion
+            principal_id: did:web:knox.example
+            credential_id: cred_vec
+            challenge_nonce: base64url-nonce
+            asserted_at: "2026-08-01T00:00:00Z"
+            signature: base64url-proof-signature
+    expected:
+      outcome: error
+      error: { name: MandateRequired, code: -32010 }
+
+notes: |
+  The proof is verified structurally (§17.7 steps 1, 4 + principal binding to
+  the mandate's handler); cryptographic verification is type-defined and
+  deferred, as everywhere in this repo's non-runner tooling. Retries must
+  match tool + arguments + mandate session exactly — an approval is for one
+  specific call, not a blanket grant. "{captured.request_state}" is this
+  provisional format's capture-substitution syntax (step 1 exports it).
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Approvals honoured more than once (single-use invariant broken).
+    - Retry accepted with different arguments than the suspended call.
+    - Proof accepted from a principal other than the mandate's handler.

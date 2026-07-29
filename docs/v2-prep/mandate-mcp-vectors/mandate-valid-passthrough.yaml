@@ -1,0 +1,65 @@
+# Conformance test vector — Extended: well-formed mandate, in-envelope call, permitted.
+# kind: mandate (provisional) — single tools/call carrying a valid mandate in _meta.
+
+kind: mandate
+
+metadata:
+  id: extended/mandate-mcp/mandate-valid-passthrough
+  description: >
+    A structurally valid, unexpired mandate whose constraint envelope permits the
+    call's category passes the guard; the tool executes and the result _meta is
+    stamped with a verified:true verdict (RFC §6 echo).
+  spec_section: "rfc-mcp-mandate-extension.md §6, §7, §8; RFC #14"
+  conformance_level: extended
+  track: T11
+
+guard_config:
+  enforcement: required
+  clock_skew_seconds: 300
+  registry: null
+
+clock: "2026-08-01T00:00:00Z"
+
+steps:
+  - call:
+      tool: pact_intent
+      arguments:
+        documentId: doc_vec123
+        sectionId: "sec:intro"
+        goal: declare interface intent
+        category: interface
+      meta:
+        au.tailor.pact/mandate:
+          version: "1"
+          session_id: sess_vec
+          agent_id: agent_vec
+          handler_principal_id: did:web:knox.example
+          identity_claim: vector fixture agent
+          constraint_envelope:
+            may_publish: [interface, performance]
+            must_respect:
+              - boundary: no breaking changes to event v1 schema
+          commitment_authority:
+            max_binding_decisions: 1
+            binding_scope: interface contract draft
+          disclosure_ceiling: 2
+          expires_at: "2026-08-02T00:00:00Z"
+          signature: base64url-vector-signature
+          signing_key_id: "did:web:knox.example#key-1"
+    expected:
+      outcome: pass
+      verdict:
+        verified: true
+        session_id: sess_vec
+
+notes: |
+  With no registry configured, principal/revocation checks are skipped with a
+  note, and signature verification is structural (crypto type-defined and
+  deferred — the pact verify-proof precedent). must_respect boundaries are
+  carried, never machine-enforced (RFC §8).
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Guard rejects valid mandates because it treats structural verification as requiring a registry.
+    - Result _meta verdict not stamped (RFC §6 echo omitted).

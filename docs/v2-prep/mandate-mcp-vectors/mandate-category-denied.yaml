@@ -1,0 +1,69 @@
+# Conformance test vector — Extended: publish outside may_publish rejected.
+# kind: mandate (provisional) — constraint-envelope category check on a publishing tool.
+
+kind: mandate
+
+metadata:
+  id: extended/mandate-mcp/mandate-category-denied
+  description: >
+    A publishing call whose explicit category is not in the mandate's
+    may_publish list is rejected with MandateCategoryDenied (-32014). A
+    publishing call with NO category argument is permitted with an honesty
+    note — the category is not determinable at the MCP boundary.
+  spec_section: "rfc-mcp-mandate-extension.md §8, §11"
+  conformance_level: extended
+  track: T11
+
+guard_config:
+  enforcement: required
+  clock_skew_seconds: 300
+  registry: null
+
+clock: "2026-08-01T00:00:00Z"
+
+steps:
+  - call:
+      tool: pact_constrain
+      arguments:
+        documentId: doc_vec123
+        sectionId: "sec:pricing"
+        boundary: total must not exceed $2M
+        category: pricing
+      meta:
+        au.tailor.pact/mandate: &mandate
+          version: "1"
+          session_id: sess_vec
+          agent_id: agent_vec
+          handler_principal_id: did:web:knox.example
+          constraint_envelope:
+            may_publish: [interface, performance]
+          expires_at: "2026-08-02T00:00:00Z"
+          signature: base64url-vector-signature
+          signing_key_id: "did:web:knox.example#key-1"
+    expected:
+      outcome: error
+      error: { name: MandateCategoryDenied, code: -32014 }
+  - call:
+      tool: pact_intent
+      arguments:
+        documentId: doc_vec123
+        sectionId: "sec:intro"
+        goal: uncategorised intent
+      meta:
+        au.tailor.pact/mandate: *mandate
+    expected:
+      outcome: pass
+      verdict:
+        verified: true
+
+notes: |
+  Categories are only enforceable where the call carries one. Silently
+  blocking uncategorised publishes would overstate what the boundary can see;
+  silently passing categorised out-of-envelope publishes would understate it.
+  Both directions are pinned here.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - may_publish enforced on read-only tools (over-blocking).
+    - Uncategorised publishes rejected instead of noted (overclaiming enforcement).

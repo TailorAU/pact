@@ -298,6 +298,10 @@ tool(
     documentId: z.string().describe('Document ID'),
     message: z.string().describe('Reason for escalation'),
     sectionId: z.string().optional().describe('Relevant section ID'),
+    disclosure_level: z.number().int().min(1).max(4).optional().describe(
+      'Graduated disclosure level this escalation reveals (§10.3: 1 Constraint, 2 Category, 3 Reasoning, 4 Human). ' +
+        'Guard-facing: checked against an active mandate\'s disclosure_ceiling (au.tailor.pact/mandate); not forwarded upstream.',
+    ),
     authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
   },
   async ({ documentId, message, sectionId, authorizationProof }) => {
@@ -323,6 +327,10 @@ tool(
     sectionId: z.string().optional().describe('Relevant section ID'),
     context: z.string().optional().describe('Background context for the question'),
     timeoutSeconds: z.number().optional().describe('How long to wait for an answer (default 60)'),
+    disclosure_level: z.number().int().min(1).max(4).optional().describe(
+      'Graduated disclosure level this question reveals (§10.3: 1 Constraint, 2 Category, 3 Reasoning, 4 Human). ' +
+        'Guard-facing: checked against an active mandate\'s disclosure_ceiling (au.tailor.pact/mandate); not forwarded upstream.',
+    ),
     authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
   },
   async ({ documentId, question, sectionId, context, timeoutSeconds, authorizationProof }) => {

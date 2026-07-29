@@ -97,7 +97,7 @@ Servers that enforce mandates **MUST** advertise the extension in
   "capabilities": {
     "extensions": {
       "au.tailor.pact/mandate": {
-        "specVersion": "2.2",
+        "specVersion": "2.1-draft",
         "enforcement": "required",
         "acceptedSigningAlgs": ["EdDSA", "ES256"],
         "principalRegistry": "https://pact.tailor.au/.well-known/principals",
@@ -110,7 +110,9 @@ Servers that enforce mandates **MUST** advertise the extension in
 
 Field semantics:
 
-- **`specVersion`** (REQUIRED) — PACT spec version whose Mandate shape is accepted.
+- **`specVersion`** (REQUIRED) — PACT spec version whose Mandate shape is
+  accepted. While §19–20 is unauthored ([#35]) the value is `"2.1-draft"`,
+  meaning the RFC #14 shape as ratified.
 - **`enforcement`** (REQUIRED) — one of:
   - `"required"` — requests without a valid mandate are rejected.
   - `"optional"` — mandates are verified when present, absent is permitted.
@@ -184,10 +186,16 @@ transcript alone:
   "au.tailor.pact/mandate": {
     "session_id": "sess_xyz",
     "verified": true,
+    "verification": "structural",
     "verified_at": "2026-07-29T04:11:07Z"
   }
 }
 ```
+
+`verification` states what "verified" means — `"structural"` until
+type-defined mandate signature crypto is normative, `"cryptographic"` after.
+A verdict **MUST NOT** omit it: overloading the boolean is how structural
+checks get read as cryptographic ones.
 
 ### Size
 
@@ -283,6 +291,28 @@ whatever human-approval path it implements, then **retries the original request*
 with `inputResponses` carrying the proof. The server verifies the proof and
 proceeds.
 
+Three obligations sharpen this flow (*revised 2026-07-30, from implementation
+review*):
+
+- **Nonce binding.** The escalation **MUST** issue a per-escalation
+  `challenge_nonce`, and the retry proof **MUST** echo it (§17.7 step 5).
+  Without this, "single-use" holds only for the server's `requestState`
+  token, not for the human approval itself — one byte-identical proof would
+  approve unlimited escalations inside the freshness window.
+- **Success-conditional consumption.** The approval and the binding-decision
+  counter are consumed when the authorised call **succeeds**. A transient
+  upstream failure does not burn a human approval; a replay after success
+  fails with `MandateEscalationUnknown`.
+- **Approver registry checks.** Where a principal registry is configured, the
+  proof's principal and `credential_id` are resolved and **MUST** be
+  enrolled, unrevoked, and untombstoned — revoking the human's credential
+  kills escalation approvals too.
+
+Pre-`2026-07-28` SDK emulation carries the retry material under the sibling
+`_meta` key `au.tailor.pact/mandate-escalation` (`request_state` +
+`authorization_proof`), never spliced into the mandate key's value — verbatim
+carriage (§6) survives the emulation. See Appendix B.
+
 Why this matters:
 
 - **The call is suspended, not failed.** The agent does not have to reconstruct
@@ -343,7 +373,14 @@ specification. Extension errors therefore live in the low range.
 | `-32014` | `MandateCategoryDenied` | Call publishes outside `may_publish` |
 | `-32015` | `MandateDisclosureExceeded` | Would disclose above ceiling, redaction impossible |
 | `-32016` | `MandateDigestUnknown` | Digest mode; server has not seen this mandate body |
-| `-32017` | `MandateClockSkew` | Client time drift exceeds `maxClockSkewMs` |
+| `-32017` | `MandateClockSkew` | Client-time signal (a retry proof's `asserted_at`) outside `maxClockSkewMs` |
+| `-32018` | `MandateEscalationUnknown` | Retry `request_state` unknown, expired, consumed, or bound to different call material |
+| `-32019` | `MandateProofRejected` | Retry `authorization_proof` invalid: shape, type, principal mismatch, wrong nonce, or approver credential unenrolled/revoked |
+
+*Revised 2026-07-30*: `-32018`/`-32019` added — the escalation-retry flow has
+its own failure modes and reusing unrelated codes for them misreports the
+defect. Note the Mandate body itself carries no client-time field, so
+`-32017` fires on retry-proof freshness, not on the mandate.
 
 Exceeding `commitment_authority` is **not** in this table. It is not an error —
 it returns `input_required` (§9).
@@ -367,9 +404,10 @@ executes `spec/v2.0/conformance/` only, and the primitive's normative home is
 `spec/v2.1/` ([#35]) which is not yet authored. They promote into
 `spec/v2.1/conformance/extended/mandate-mcp/` with #35, at which point the
 provisional `kind: mandate` joins `test-vector-format.yaml` in the same
-reviewed change. Until then, `mcp/test/mandate.test.mjs` is the executable
-enforcement of these semantics (17 passing tests, one per vector plus mode
-coverage). Minimum set:
+reviewed change. Until then, `mcp/test/mandate.test.mjs` and
+`mcp/test/wire.test.mjs` mirror every vector (26 passing tests, locally
+runnable via `npm test` in `mcp/`; not yet wired into CI — the `validate.yml`
+addition needs a workflow-scoped push). Minimum set:
 
 | Vector | Asserts |
 |---|---|
@@ -490,8 +528,29 @@ Configuration:
 |---|---|---|
 | `PACT_MANDATE_ENFORCEMENT` | `required` \| `optional` \| `observed`; unset = disabled | unset |
 | `PACT_MANDATE_CLOCK_SKEW_SECONDS` | freshness window (§5) | `300` (SOQ2) |
-| `PACT_MANDATE_REGISTRY` | path to a principal-registry JSON (the `pact verify-proof --registry` shape); re-read **per verification** so revocation is immediate | none |
-| `PACT_MANDATE_BINDING_TOOLS` | csv of tools counted as binding decisions | `pact_done,pact_lock,pact_matter_close` |
+| `PACT_MANDATE_REGISTRY` | path to a principal-registry JSON (the `pact verify-proof --registry` shape); re-read **per verification** so revocation is immediate; unreadable ⇒ fail closed in enforcing modes | none |
+| `PACT_MANDATE_BINDING_TOOLS` | csv of tools counted as binding decisions | `pact_done,pact_lock,pact_matter_close,pact_matter_add_member,pact_matter_attach,pact_matter_detach` |
+
+**Enforcement reach** (the SDK strips arguments a tool's schema does not
+declare, so argument-based checks reach exactly the tools that declare them —
+pinned by `mcp/test/wire.test.mjs`):
+
+| Check | Reaches | Semantics |
+|---|---|---|
+| `may_publish` category | `pact_intent`, `pact_constrain` | Fail closed: under a scoped `may_publish`, a category is **required** |
+| `disclosure_ceiling` | `pact_escalate`, `pact_ask` (guard-facing `disclosure_level` arg) | Above ceiling ⇒ refused (`-32015`); other tools: carried, not enforced |
+| `commitment_authority` | the binding-tools set above | Exceeding ⇒ `input_required` escalation, never an error |
+| `must_respect` | nowhere | Natural language: carried, never machine-enforced |
+
+**Honest limits.** Counters (binding decisions, pending escalations) are
+in-process, keyed by the mandate body's digest, and bounded — they reset if
+the client restarts the proxy process it launched, so `max_binding_decisions`
+is advisory against an adversary who owns the process. And until mandate
+signature crypto is normative, a client able to fabricate mandate bodies can
+mint fresh authority: the registry's fail-closed enrollment/revocation checks
+narrow this; the type-defined crypto (with #35) closes it. Deployments
+needing a boundary the client cannot restart put this guard server-side of a
+network hop.
 
 Documented deviations, all forced by `@modelcontextprotocol/sdk` 1.x
 (pre-`2026-07-28`) and all mechanical to remove when the SDK lands the new
@@ -501,9 +560,12 @@ revision:
    not as protocol-level JSON-RPC errors — SDK 1.x tool handlers cannot emit
    the latter without fighting `McpServer`.
 2. **`input_required` is emulated** as a structured tool result carrying
-   `resultType`, `inputRequests`, and `requestState`; the retry carries
-   `request_state` + `authorization_proof` inside the extension's `_meta` key
-   rather than first-class `inputResponses`.
+   `resultType`, `inputRequests` (including the per-escalation
+   `challenge_nonce`), and `requestState`; the retry carries `request_state`
+   + `authorization_proof` under the **sibling** `_meta` key
+   `au.tailor.pact/mandate-escalation` rather than first-class
+   `inputResponses` — the mandate key's value stays the RFC #14 body
+   verbatim.
 3. **Signature verification is structural** — presence, shape, DID format,
    expiry, registry tombstone/revocation. Cryptographic verification is
    type-defined and deferred, exactly as `pact verify-proof` and the

@@ -27,6 +27,7 @@ steps:
       tool: pact_done
       arguments:
         documentId: doc_vec123
+        status: aligned
       meta:
         au.tailor.pact/mandate:
           version: "1"
@@ -45,14 +46,18 @@ steps:
         reason: commitment_authority_exceeded
         requires: authorization_proof
         request_state_present: true
+        challenge_nonce_present: true
 
 notes: |
   Which tools count as binding decisions is deployment configuration
-  (default: pact_done, pact_lock, pact_matter_close). binding_scope is
-  advisory at this boundary (open question 2 default) — noted, never the
-  sole ground for rejection. escalation_hook_notified MUST be reported
-  truthfully; §21 push delivery is not wired at this boundary yet, so it is
-  false here.
+  (default: pact_done, pact_lock, pact_matter_close, pact_matter_add_member,
+  pact_matter_attach, pact_matter_detach). The suspension mints a
+  per-escalation challenge_nonce; the retry's authorization_proof MUST echo
+  it (§17.7 step 5 replay protection — see mandate-escalation-retry).
+  binding_scope is advisory at this boundary (open question 2 default) —
+  noted, never the sole ground for rejection. escalation_hook_notified MUST
+  be reported truthfully; §21 push delivery is not wired at this boundary
+  yet, so it is false here.
 
 failure_classification:
   severity: blocker

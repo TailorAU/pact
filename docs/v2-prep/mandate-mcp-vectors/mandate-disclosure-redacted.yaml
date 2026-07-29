@@ -28,6 +28,7 @@ steps:
       tool: pact_escalate
       arguments:
         documentId: doc_vec123
+        message: pricing constraint conflict needs human review
         sectionId: "sec:pricing"
         disclosure_level: 3        # Reasoning — above the ceiling of 2 (Category)
       meta:
@@ -47,10 +48,12 @@ steps:
 notes: |
   §10.3 levels — 1 Constraint, 2 Category, 3 Reasoning, 4 Human. The
   disclosure ceiling and PACT clearances are DIFFERENT mechanisms and both
-  apply; the effective limit is the lower of the two (RFC §8). Only calls
-  carrying an explicit disclosure_level are checkable at this boundary —
-  implementations MUST NOT claim to enforce disclosure on calls where the
-  level is not visible to them.
+  apply; the effective limit is the lower of the two (RFC §8). Reach:
+  disclosure_level is a declared, guard-facing argument on pact_escalate and
+  pact_ask only (the SDK strips undeclared arguments before the guard runs,
+  so declaring it is what makes the check reachable at the wire — pinned by
+  mcp/test/wire.test.mjs). Implementations MUST NOT claim to enforce
+  disclosure on calls where the level is not visible to them.
 
 failure_classification:
   severity: blocker

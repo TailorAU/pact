@@ -50,6 +50,7 @@ steps:
       outcome: pass
       verdict:
         verified: true
+        verification: structural
         session_id: sess_vec
 
 notes: |

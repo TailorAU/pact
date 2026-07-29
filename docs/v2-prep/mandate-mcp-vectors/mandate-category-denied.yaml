@@ -52,18 +52,41 @@ steps:
       meta:
         au.tailor.pact/mandate: *mandate
     expected:
+      outcome: error
+      error: { name: MandateCategoryDenied, code: -32014 }
+  - call:
+      tool: pact_intent
+      arguments:
+        documentId: doc_vec123
+        sectionId: "sec:intro"
+        goal: uncategorised intent under an unscoped mandate
+      meta:
+        au.tailor.pact/mandate:
+          version: "1"
+          session_id: sess_vec
+          agent_id: agent_vec
+          handler_principal_id: did:web:knox.example
+          constraint_envelope: {}
+          expires_at: "2026-08-02T00:00:00Z"
+          signature: base64url-vector-signature
+          signing_key_id: "did:web:knox.example#key-1"
+    expected:
       outcome: pass
       verdict:
         verified: true
 
 notes: |
-  Categories are only enforceable where the call carries one. Silently
-  blocking uncategorised publishes would overstate what the boundary can see;
-  silently passing categorised out-of-envelope publishes would understate it.
-  Both directions are pinned here.
+  Category enforcement reaches exactly the tools whose schemas declare a
+  `category` argument (pact_intent, pact_constrain) — the MCP SDK strips
+  undeclared arguments before the guard runs, so a check on any other tool
+  would be dead code. Under a mandate that scopes may_publish, those tools
+  REQUIRE a category (step 2, fail closed): an agent can always supply one,
+  and permitting uncategorised publishes would make the strictest expressible
+  mandate restrict nothing. Without may_publish scoping (step 3) no category
+  is required.
 
 failure_classification:
   severity: blocker
   common_causes:
-    - may_publish enforced on read-only tools (over-blocking).
-    - Uncategorised publishes rejected instead of noted (overclaiming enforcement).
+    - may_publish enforced on tools that cannot carry a category (dead code at the wire).
+    - Uncategorised publishes permitted under a scoped mandate (envelope unenforceable).

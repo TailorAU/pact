@@ -1,0 +1,135 @@
+# Conformance test vector — §25.7 check 3 negative: a cryptographically VALID
+# attestation from a principal who is NOT a required signer is refused.
+#
+# kind: http — this is the half of "wrong principal" that no §17.7 verifier can
+# decide on its own. The proof verifies perfectly: the principal is enrolled,
+# the credential is live, the signature is good, the nonce is outstanding, the
+# payload hash matches, the scope is correct. §17.7 returns `verified`.
+#
+# And the apply is still refused, because §25.7 check 3 is an application-layer
+# binding: `principal_id` must be one of the principals the application requires
+# FOR THIS EFFECT. A verified proof from the wrong human is a verified proof
+# from the wrong human.
+#
+# The unresolvable-principal half is pinned by
+# `attest-wrong-principal-rejected.yaml` (kind: verification, §17.7 step 2).
+
+kind: http
+
+metadata:
+  id: extended/execution-boundary/guarded-apply-wrong-principal-refused
+  description: An approve call carrying an authorization_proof that passes every §17.7 step, but whose principal is an analyst rather than the CFO required for this payment, is refused with 403 apply.principal_mismatch. Verification success is not principal binding.
+  spec_section: "§17.7, §17.14, §25.7"
+  conformance_level: extended
+  track: T-execution-boundary
+
+preconditions:
+  server_state:
+    resource_id: fab_payment_run
+    resource_type: transaction
+    effect_class: external-irreversible
+    human_attestation: required
+    proposal:
+      proposalId: prop_pay_9f2
+      status: AwaitingAttestation
+      # The application layer requires the CFO for a payment of this size.
+      required_principals:
+        - did:web:cfo.example
+    credential_registry:
+      # The analyst IS enrolled and IS a legitimate PACT principal. That is
+      # what makes this case dangerous — nothing about the proof is wrong.
+      principals:
+        - id: did:web:cfo.example
+          credentials:
+            - id: cred_cfo_hsm
+              revoked: false
+        - id: did:web:analyst.example
+          credentials:
+            - id: cred_analyst_laptop
+              revoked: false
+  request_context:
+    auth: bearer
+    principal_id: did:web:analyst.example
+
+request:
+  method: POST
+  path: /api/pact/fab_payment_run/proposals/prop_pay_9f2/approve
+  headers:
+    Content-Type: application/json
+    X-Pact-Principal: did:web:analyst.example
+  body:
+    decision: approve
+    authorization_proof:
+      type: fido2-assertion
+      principal_id: did:web:analyst.example        # enrolled, but not required
+      credential_id: cred_analyst_laptop
+      challenge_nonce: nonce-pay-9f2-002
+      verifier_id: did:web:treasury.example
+      asserted_at: "2026-07-30T10:00:00Z"
+      signature: "<valid signature from the analyst's enrolled credential>"
+      alg: webauthn-es256
+      alg_version: "2"
+      attestation_chain: []
+      payload_hash: "vNpTpNSrqyjRjII7dlTxBr0JGgExDrVXfr_O51gNKW4"
+      scope: "pact.apply.transaction:txn_9f2"
+      effect_class: external-irreversible
+
+expected_response:
+  status: 403
+  body_match:
+    mode: subset
+    value:
+      errors:
+        - code: apply.principal_mismatch
+  body_ignore_fields:
+    - traceId
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.apply.blocked
+      match:
+        mode: subset
+        value:
+          proposalId: prop_pay_9f2
+          effect_class: external-irreversible
+          reason: principal_mismatch
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - actorId
+        - required_principals
+        - policy
+
+postconditions:
+  server_state:
+    events_added: 1
+    resource_modified: false
+    external_effects_performed: 0
+    apply_attested_events_added: 0       # §25.9 — no attested event for a refused apply
+
+notes: |
+  This is the §17.14 boundary made operational. A verified proof establishes
+  "did:web:analyst.example authorised this exact PACT message" — nothing about
+  role, seniority, capacity, or authority to commit the organisation's money.
+  Those live in the application layer, and PACT MUST NOT be read as supplying
+  them (§25.7 check 6, §25.11).
+
+  The implementation failure mode is a verification helper that returns a
+  boolean. `if (verifyProof(msg)) { apply(); }` passes this request. The
+  correct shape is `verified && isRequiredSigner(principal, effect) &&
+  scopeCovers(...) && authorityChecks(...)`.
+
+  Note also that this MUST NOT be reported as a §17.7 verification failure —
+  the proof is valid and the audit trail should say so. The refusal reason is
+  `principal_mismatch`, not `attestation_invalid`.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Apply gated on "a valid proof was present" rather than "a valid proof from a required signer was present"
+    - required_principals never consulted at the apply boundary
+    - Any authenticated principal's proof accepted because §17.7 returned verified
+    - Refusal reported as attestation_invalid, corrupting the audit trail (the proof was valid)
+    - Self-attestation allowed — the proposing agent's own operator signs off their own payment

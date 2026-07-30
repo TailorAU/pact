@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased — `spec/v2.3/` (DRAFT, not tagged)
+
+**Security-sensitive / normative.** Adds §25 — *Consensus, Authorization, and
+Legal Execution* — the safety boundary between a PACT protocol state, a human
+attestation, and legal execution. Raised as
+[#41](https://github.com/TailorAU/pact/issues/41); awaiting maintainer sign-off.
+
+- **New `spec/v2.3/`** — carries `spec/v2.2/` forward and adds §25 plus §17.14
+  (`authorization_proof` scope limit). Full delta in
+  [`spec/v2.3/README.md`](spec/v2.3/README.md).
+- **`spec/v2.2/ERRATA.md` (NEW)** — additive disclosure for the stable v2.2
+  line. v2.2's normative text and schemas are unchanged.
+- **Boundary:** protocol states (`accepted`, `auto-merged`, `aligned`,
+  `consensus_reached`, `commitment`, TTL expiry, absence of objection) are
+  never, by themselves, an electronic signature, legal assent, proof of
+  identity or capacity, or authority to bind. Silence never creates an
+  `authorization_proof`.
+- **Fail-closed apply guard:** resource types declare `effect_class` and
+  `human_attestation`; an `external-irreversible` apply MUST NOT proceed from
+  silence, and `auto` / `objection-based` policies MUST NOT bypass the guard.
+  The v2.2 §14.5 mapping "silence = consent → *Auto-authorize after TTL*" for
+  transactions is **withdrawn**.
+- **`authorization_proof`** gains `payload_hash`, `scope` and `effect_class`
+  for guarded applies; `$id` bumped to `/v2.3/`.
+- **Conformance:** 11 new vectors in
+  `spec/v2.3/conformance/extended/execution-boundary/`. Five execute in the
+  runner today (two with real Ed25519 crypto); six need a server and no
+  implementation of §25 exists yet.
+- **Docs / clients:** README, integration guide, `site/index.html`, the
+  negotiation example, and the CLI / MCP surfaces qualify "silence =
+  acceptance/consent" as *absence of protocol objection* and report protocol
+  states only.
+
+**Not yet done:** no reference-server implementation of §25, and no CI job runs
+the v2.3 vectors (`conformance.yml` targets `spec/v2.0/conformance`).
+
 ## v2.0.3 — 2026-05-15
 
 Third patch on v2.0. Introduces **Fabric Onboarding & Session Awareness** — five additive operations and six new events that close the "cognitive layer" gap between *being registered in a fabric* and an agent *knowing it is in a fabric, with these obligations, with these counterparties*. **Additive — no breaking changes to v2.0 / v2.0.1 / v2.0.2 clients.**

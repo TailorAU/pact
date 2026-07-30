@@ -15,6 +15,8 @@ TailorAU/pact/
 │   ├── resource-types.yaml      ← machine-readable resource-type registry (§14.3)
 │   ├── schemas/                 ← JSON Schema 2020-12, incl. authorization-proof, principal-registry, agent-identity
 │   └── conformance/             ← test vectors + @pact-protocol/conformance-runner
+├── spec/v2.2/        ← current stable spec (Matter §24; promoted 27 May 2026, not yet tagged v2.2.0 — #33); has ERRATA.md
+├── spec/v2.3/        ← DRAFT, not released: v2.2 + §25 consensus / authorization / legal-execution safety boundary (#41)
 ├── spec/v1.1/        ← previous stable spec; has ERRATA.md
 ├── cli/              ← @pact-protocol/cli (vendor-neutral coordination CLI; v2.0 — `--authorization-proof`, `pact verify-proof`, `pact profile`)
 ├── mcp/              ← @pact-protocol/mcp (vendor-neutral MCP for PACT servers; v2.0 — pact_ask, pact_negotiate_*, pact_profile)

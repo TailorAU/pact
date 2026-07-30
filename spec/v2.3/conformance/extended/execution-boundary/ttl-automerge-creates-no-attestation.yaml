@@ -1,0 +1,176 @@
+# Conformance test vector — §25: TTL / no objection MAY auto-merge an eligible
+# draft edit, but it creates NO signature and NO attestation.
+#
+# This is the POSITIVE half of the §25 boundary. Auto-merge on silence is still
+# legitimate — for an `internal-reversible` effect (§25.5). What MUST NOT happen
+# is the protocol quietly manufacturing a human attestation out of the silence:
+# no `authorization_proof` is synthesised (§25.4), no `pact.apply.attested`
+# event is emitted, and the merged resource MUST NOT be labelled signed or
+# executed (§25.3, §25.8).
+#
+# kind: session — the assertion is a cross-call one: after the auto-merge, the
+# proposal's attestation surface MUST still be empty. A single request/response
+# cannot express that.
+
+kind: session
+
+metadata:
+  id: extended/execution-boundary/ttl-automerge-creates-no-attestation
+  description: An objection-based proposal on an internal-reversible document fabric auto-merges when its TTL expires with no objection. The merge is a protocol state only — the server MUST NOT synthesise an authorization_proof, MUST report attestation as absent, and MUST NOT mark the document signed or executed.
+  spec_section: "§5, §10.5, §25.3, §25.4, §25.8"
+  conformance_level: core
+  track: T-execution-boundary
+
+preconditions:
+  server_state:
+    resource_id: fab_draft_note
+    resource_type: document
+    effect_class: internal-reversible          # §25.5 — auto-merge is permitted here
+    human_attestation: not-required
+    approval_policy: objection-based
+    registered_agents:
+      - did:web:alpha.example
+      - did:web:beta.example
+  request_context:
+    auth: bearer
+    principal_id: did:web:alpha.example
+
+steps:
+  # 1. Alpha proposes a draft edit with a short TTL under the objection-based
+  #    policy. No human attestation is supplied — none is required for an
+  #    internal-reversible effect.
+  - id: alpha-proposes-draft-edit
+    request:
+      method: POST
+      path: /api/pact/fab_draft_note/proposals
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:alpha.example
+      body:
+        proposalId: prop_draft_edit
+        sectionId: sec:summary
+        summary: "Tighten the summary paragraph"
+        ttlSeconds: 1
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          proposalId: prop_draft_edit
+          status: open
+          created: true
+          effect_class: internal-reversible
+      body_ignore_fields:
+        - required_voters
+        - created_at
+        - event_id
+
+  # 2. The TTL elapses with no objection. The server auto-merges. The response
+  #    MUST report the protocol state and MUST report attestation as absent —
+  #    `attested: false`, not a synthesised proof (§25.4).
+  - id: ttl-expires-auto-merged
+    request:
+      method: GET
+      path: /api/pact/fab_draft_note/proposals/prop_draft_edit
+      headers:
+        X-Pact-Principal: did:web:alpha.example
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          proposalId: prop_draft_edit
+          status: auto-merged
+          merged_by: protocol-timeout          # NOT a principal — nobody signed
+          effect_class: internal-reversible
+          attested: false                       # §25.4 — silence created no attestation
+          authorization_proof: null             # MUST NOT be synthesised
+          execution_state: none                 # §25.8 — not signed, not executed
+      body_ignore_fields:
+        - merged_at
+        - event_id
+        - revision
+    cross_call_assertions:
+      # §25.4 — the attestation collection MUST be empty. An empty `match` block
+      # matches ANY entry, so the assertion fails if the array has any element.
+      - kind: negative_obligation
+        body_path: attestations
+        match: {}
+      # §25.8 — no signature record may exist for a merge reached by silence.
+      - kind: negative_obligation
+        body_path: signature_records
+        match: {}
+
+  # 3. The fabric's status MUST describe the resource in protocol vocabulary.
+  #    `signed` / `executed` MUST NOT appear (§25.3, §25.10).
+  - id: status-reports-protocol-vocabulary
+    request:
+      method: GET
+      path: /api/pact/fab_draft_note/_status
+      headers:
+        X-Pact-Principal: did:web:alpha.example
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          fabric_id: fab_draft_note
+          effect_class: internal-reversible
+          execution_state: none
+          document_state: merged                # NOT "signed", NOT "executed"
+      body_ignore_fields:
+        - phase
+        - members
+        - latest_event_id
+        - pending_obligations
+        - snapshot_at
+    cross_call_assertions:
+      - kind: negative_obligation
+        body_path: signature_records
+        match: {}
+
+# Event-log assertions are documentation until the runner subscribes to the
+# event stream (see runner/src/index.ts). Recorded here so an event-aware
+# runner can enforce them.
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.proposal.created
+      match: { mode: subset, value: { proposalId: prop_draft_edit, proposer: did:web:alpha.example } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.proposal.auto-merged
+      match: { mode: subset, value: { proposalId: prop_draft_edit, effect_class: internal-reversible, attested: false } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+
+postconditions:
+  server_state:
+    events_added: 2
+    resource_modified: true
+    # The decisive negative postcondition: no attestation event of any kind.
+    apply_attested_events_added: 0              # pact.apply.attested MUST NOT fire (§25.9)
+
+notes: |
+  This vector deliberately PASSES the auto-merge. Auto-merge on silence is not
+  the defect — silently upgrading it to "a human signed this" is. The three
+  things this vector pins:
+
+    1. `merged_by: protocol-timeout`, never a principal_id. A timeout is not a
+       person (§25.3).
+    2. `attested: false` and `authorization_proof: null`. Silence MUST NOT
+       create or substitute for an attestation (§25.4).
+    3. `execution_state: none` and `document_state: merged`. The merged draft
+       is a draft (§25.8); no surface may call it signed or executed (§25.10).
+
+  A server that returns `attested: true`, populates `authorization_proof`, or
+  reports `document_state: signed` here has manufactured legal-looking evidence
+  out of nobody doing anything. That is the exact failure this section exists
+  to prevent.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Server synthesises an authorization_proof (or an "auto-approved by <principal>" record) on TTL expiry
+    - merged_by is set to the proposer's principal_id rather than protocol-timeout
+    - Response or status labels the merged draft `signed`, `executed`, or `legally accepted`
+    - pact.apply.attested emitted for an unattested auto-merge
+    - attestations / signature_records collections populated with a placeholder entry

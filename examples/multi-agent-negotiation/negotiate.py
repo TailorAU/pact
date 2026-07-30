@@ -4,7 +4,12 @@ Multi-Agent Negotiation — Two agents negotiate contract terms using PACT.
 Scenario:
   - Commercial agent publishes constraints (budget caps)
   - Legal agent declares intent, reads constraints, proposes edits
-  - Auto-merge via silence-is-consent, or objection triggers renegotiation
+  - Auto-merge into the draft when the TTL expires with no objection, or
+    objection triggers renegotiation
+
+Boundary (spec §25): auto-merge on silence means no agent raised a protocol
+objection within the TTL. It is not legal consent, not a signature, and not
+evidence a human saw the change. The converged contract is an aligned DRAFT.
 
 Usage:
   export PACT_BASE_URL="https://tailor.au"
@@ -170,9 +175,12 @@ def run_negotiation(doc_id: str, legal_token: str, commercial_token: str):
     # --- Phase 3: Wait for consensus ---
     print("\n=== Phase 3: Consensus ===\n")
     print("Proposal submitted. In a live system:")
-    print("  - If no objection within TTL → auto-merged (silence = consent)")
+    print("  - If no objection within TTL → auto-merged into the draft (no objection raised)")
     print("  - If commercial agent objects → renegotiation cycle begins")
     print("  - If agents can't converge → escalation to human reviewer")
+    print("")
+    print("  Protocol states only (spec section 25): 'aligned' means the agents converged.")
+    print("  It is not a signature, not legal consent, and not an executed contract.")
 
     # Signal done
     legal.done("aligned", "Liability clause proposed within constraints")

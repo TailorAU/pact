@@ -1,0 +1,132 @@
+# Conformance test vector — §25.7 check 5 negative: an attestation whose SCOPE
+# does not cover the effect being applied is refused.
+#
+# kind: http — scope coverage is an application-layer evaluation, like principal
+# binding. §17.7 verifies the envelope; it has no opinion about whether the
+# effect the caller is attempting falls inside the scope the human agreed to.
+#
+# Scenario. The CFO attested to editing the payment run's narrative section — an
+# internal, reversible document edit. The caller then presents that attestation
+# to release the guard on the payment itself. Both the `scope` string and the
+# `effect_class` are wrong for the requested effect, and either mismatch alone
+# MUST refuse.
+
+kind: http
+
+metadata:
+  id: extended/execution-boundary/guarded-apply-wrong-scope-refused
+  description: An approve call on an external-irreversible payment, carrying a valid CFO attestation scoped to an internal-reversible document edit, is refused with 403 apply.attestation_scope_mismatch. A proof scoped to one effect MUST NOT release the guard for another, and internal-reversible MUST NOT release an external-irreversible guard.
+  spec_section: "§17.6, §25.5, §25.7"
+  conformance_level: extended
+  track: T-execution-boundary
+
+preconditions:
+  server_state:
+    resource_id: fab_payment_run
+    resource_type: transaction
+    effect_class: external-irreversible
+    human_attestation: required
+    proposal:
+      proposalId: prop_pay_9f2
+      status: AwaitingAttestation
+      required_principals:
+        - did:web:cfo.example
+      # The effect the caller is attempting.
+      effect_scope: "pact.apply.transaction:txn_9f2"
+    credential_registry:
+      principals:
+        - id: did:web:cfo.example
+          credentials:
+            - id: cred_cfo_hsm
+              revoked: false
+  request_context:
+    auth: bearer
+    principal_id: did:web:cfo.example
+
+request:
+  method: POST
+  path: /api/pact/fab_payment_run/proposals/prop_pay_9f2/approve
+  headers:
+    Content-Type: application/json
+    X-Pact-Principal: did:web:cfo.example
+  body:
+    decision: approve
+    authorization_proof:
+      type: fido2-assertion
+      principal_id: did:web:cfo.example            # the RIGHT human
+      credential_id: cred_cfo_hsm
+      challenge_nonce: nonce-narrative-004
+      verifier_id: did:web:treasury.example
+      asserted_at: "2026-07-30T10:00:00Z"
+      signature: "<valid signature over the narrative-edit payload>"
+      alg: webauthn-es256
+      alg_version: "2"
+      attestation_chain: []
+      payload_hash: "R7kd0pQ2vXn5mLcHwB3sTfYa8Ej1GuZoNi6xVrKtQ4M"
+      # WRONG SCOPE: a document section edit, not the payment.
+      scope: "pact.apply.document:fab_payment_run/sec:narrative"
+      # WRONG EFFECT CLASS: the human was shown a reversible internal edit.
+      effect_class: internal-reversible
+
+expected_response:
+  status: 403
+  body_match:
+    mode: subset
+    value:
+      errors:
+        - code: apply.attestation_scope_mismatch
+  body_ignore_fields:
+    - traceId
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.apply.blocked
+      match:
+        mode: subset
+        value:
+          proposalId: prop_pay_9f2
+          effect_class: external-irreversible
+          reason: scope_mismatch
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - actorId
+        - required_principals
+        - policy
+
+postconditions:
+  server_state:
+    events_added: 1
+    resource_modified: false
+    external_effects_performed: 0
+    apply_attested_events_added: 0
+
+notes: |
+  Two independent mismatches are present and either MUST be sufficient on its
+  own to refuse:
+
+    - `scope` names a document section, not the transaction being applied.
+    - `effect_class` is `internal-reversible`, which §25.7 check 5 explicitly
+      forbids from releasing a guard on an `external-irreversible` apply.
+
+  The second is the more important of the two, because it encodes what the
+  human was actually shown. A consent screen that said "approve this wording
+  change — you can undo it" cannot be recycled into authority to send money,
+  however identical the cryptography is. `effect_class` in the envelope is the
+  record of what was on that screen.
+
+  Scope-coverage semantics are deliberately conservative: an implementation MAY
+  define hierarchical scopes (a scope covering a fabric covers its sections),
+  but a scope MUST NOT be read as covering an effect of a higher class than the
+  one it declares.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Scope carried in the envelope but never compared against the effect being applied
+    - effect_class ignored, so a reversible-edit consent releases an irreversible-payment guard
+    - Scope matching implemented as a prefix/substring test that over-matches across resource types
+    - Refusal reported as principal_mismatch or attestation_invalid rather than scope_mismatch
+    - Envelope fields treated as advisory metadata because they are marked Conditional in §17.6

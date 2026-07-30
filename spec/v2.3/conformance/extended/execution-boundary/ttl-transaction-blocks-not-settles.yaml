@@ -1,0 +1,233 @@
+# Conformance test vector — §25.6: TTL / no objection on a transaction (an
+# external-irreversible resource) does NOT settle or execute. It fails closed.
+#
+# This is the vector that would have caught the pre-v2.3 §14.5 mapping
+# "silence = consent → Auto-authorize after TTL" for transactions. Under v2.3
+# that mapping is withdrawn: the guard wins over the approval policy, the
+# proposal moves to the NON-TERMINAL state AwaitingAttestation, and a
+# `pact.apply.blocked` event plus a §6.5 `sign` obligation are raised.
+#
+# The second TTL expiry is the important half: a blocked apply MUST NOT time
+# out into an apply. The guard does not weaken with age.
+
+kind: session
+
+metadata:
+  id: extended/execution-boundary/ttl-transaction-blocks-not-settles
+  description: An objection-based transaction proposal reaches TTL with no objection. Because the transaction resource type is external-irreversible with human_attestation required, the server MUST NOT settle. It fails closed to AwaitingAttestation, emits pact.apply.blocked, raises a sign obligation, and a further TTL expiry re-blocks rather than releasing.
+  spec_section: "§14.5, §25.5, §25.6, §25.9"
+  conformance_level: core
+  track: T-execution-boundary
+
+preconditions:
+  server_state:
+    resource_id: fab_payment_run
+    resource_type: transaction
+    effect_class: external-irreversible        # §25.5 — the guard is engaged
+    human_attestation: required
+    approval_policy: objection-based           # MUST NOT bypass the guard (§25.6)
+    registered_agents:
+      - did:web:treasury-bot.example
+      - did:web:controller.example
+    required_principals:
+      - did:web:cfo.example
+  request_context:
+    auth: bearer
+    principal_id: did:web:treasury-bot.example
+
+steps:
+  # 1. An agent proposes a payment. No attestation is supplied.
+  - id: agent-proposes-payment
+    request:
+      method: POST
+      path: /api/pact/fab_payment_run/proposals
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:treasury-bot.example
+      body:
+        proposalId: prop_pay_9f2
+        type: transaction
+        fieldId: "txn:amount"
+        payload:
+          amount: 250000.00
+          currency: AUD
+          recipient: "acct_supplier_44"
+          method: "eft"
+          reference: "INV-2026-0731"
+        ttlSeconds: 1
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          proposalId: prop_pay_9f2
+          status: open
+          created: true
+          effect_class: external-irreversible
+          human_attestation: required
+      body_ignore_fields:
+        - required_voters
+        - created_at
+        - event_id
+        - payload_hash
+
+  # 2. TTL elapses with no objection. Under the pre-v2.3 reading this would
+  #    "auto-authorize". Under §25.6 it MUST fail closed instead.
+  - id: ttl-expires-apply-blocked
+    request:
+      method: GET
+      path: /api/pact/fab_payment_run/proposals/prop_pay_9f2
+      headers:
+        X-Pact-Principal: did:web:treasury-bot.example
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          proposalId: prop_pay_9f2
+          status: AwaitingAttestation            # non-terminal — NOT Settled
+          settled: false
+          executed: false
+          effect_class: external-irreversible
+          blocked_reason: attestation_missing
+          required_principals:
+            - did:web:cfo.example
+      body_ignore_fields:
+        - blocked_at
+        - event_id
+        - payload_hash
+        - ttl_expired_at
+
+  # 3. The blocked apply MUST surface as a §6.5 pending obligation of kind
+  #    `sign` against the required principal — the protocol tells the human
+  #    what it is waiting for rather than proceeding without them.
+  - id: sign-obligation-raised
+    request:
+      method: GET
+      path: /api/pact/fab_payment_run/manifest
+      headers:
+        X-Pact-Principal: did:web:cfo.example
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          fabric_id: fab_payment_run
+          caller:
+            principal_id: did:web:cfo.example
+            obligations_by_ref:
+              prop_pay_9f2:
+                kind: sign
+                event_ref: prop_pay_9f2
+                status: pending
+                effect_class: external-irreversible
+      body_ignore_fields:
+        - generated_at
+        - last_event_seq
+        - snapshot_at
+
+  # 4. THE KEY ASSERTION. A second TTL expiry over the blocked apply MUST NOT
+  #    release the guard (§25.6(a)). The state is unchanged and the block is
+  #    re-emitted. A server that "eventually" settles fails here.
+  - id: second-ttl-does-not-release-the-guard
+    request:
+      method: GET
+      path: /api/pact/fab_payment_run/proposals/prop_pay_9f2
+      headers:
+        X-Pact-Principal: did:web:treasury-bot.example
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          proposalId: prop_pay_9f2
+          status: AwaitingAttestation            # STILL blocked
+          settled: false
+          executed: false
+          blocked_reason: attestation_missing
+      body_ignore_fields:
+        - blocked_at
+        - event_id
+        - payload_hash
+        - ttl_expired_at
+    cross_call_assertions:
+      # §25.4 — still no attestation. Nothing was manufactured by waiting.
+      - kind: negative_obligation
+        body_path: attestations
+        match: {}
+
+  # 5. An attempt to force the apply without a proof is refused outright with
+  #    the §A.1 envelope and the §25.9 error code. It is not a warning.
+  - id: forced-apply-without-proof-refused
+    request:
+      method: POST
+      path: /api/pact/fab_payment_run/proposals/prop_pay_9f2/approve
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:treasury-bot.example
+      body:
+        decision: approve
+    expected_response:
+      status: 403
+      body_match:
+        mode: subset
+        value:
+          errors:
+            - code: apply.attestation_required
+      body_ignore_fields:
+        - traceId
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.proposal.created
+      match: { mode: subset, value: { proposalId: prop_pay_9f2, effect_class: external-irreversible } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.apply.blocked
+      match:
+        mode: subset
+        value:
+          proposalId: prop_pay_9f2
+          effect_class: external-irreversible
+          reason: attestation_missing
+          policy: objection-based
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId, required_principals]
+    - event_type: pact.obligation.created
+      match: { mode: subset, value: { kind: sign, event_ref: prop_pay_9f2, principal_id: did:web:cfo.example } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.apply.blocked                # second expiry re-blocks
+      match: { mode: subset, value: { proposalId: prop_pay_9f2, reason: attestation_missing } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId, required_principals]
+
+postconditions:
+  server_state:
+    resource_modified: false                       # nothing settled
+    apply_attested_events_added: 0                 # pact.apply.attested MUST NOT fire
+    external_effects_performed: 0                  # no payment left the system
+
+notes: |
+  The failure this vector exists to catch is quiet and expensive: a treasury
+  integration wired to PACT, an `objection-based` policy copied from the
+  document examples, a 60-second TTL, and nobody watching at 02:00. Under the
+  pre-v2.3 §14.5 table that combination reads as "auto-authorize after TTL".
+
+  Under §25.6 the guard wins over the policy. Note especially step 4: the
+  correct behaviour is to stay blocked forever. "Blocked" is a stable state,
+  not a retry window. An implementation that cannot hold that state MUST NOT
+  advertise the transaction resource type (§25.6).
+
+  A conformant alternative is §25.6(b): do not model settlement as a PACT apply
+  at all. Such an implementation advertises
+  `applySemanticsExternal: "out-of-band"`, terminates at `Aligned` rather than
+  `Settled`, and this vector does not apply to it — but then no PACT surface
+  may claim the payment settled either.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Server honours the objection-based policy and settles the transaction on TTL expiry (the defect §25.6 exists to close)
+    - status reported as Settled / Authorized / Completed rather than AwaitingAttestation
+    - No pact.apply.blocked event, so the block leaves no audit trail
+    - No sign obligation raised, so no human is ever told the payment is waiting
+    - A second TTL expiry releases the guard ("eventually settles")
+    - Forced approve without a proof returns 200, or 403 with a generic auth.forbidden instead of apply.attestation_required

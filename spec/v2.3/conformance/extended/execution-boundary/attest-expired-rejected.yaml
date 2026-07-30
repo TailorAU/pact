@@ -1,0 +1,75 @@
+# Conformance test vector — §25.7 negative: an EXPIRED attestation is rejected
+# before any guarded apply.
+#
+# kind: verification — exercises §17.7 step 4 (freshness). The proof is
+# otherwise well-formed and correctly scoped to an external-irreversible
+# payment apply; it is stale. Staleness alone MUST refuse the apply (§25.7
+# check 2). "The CFO signed this yesterday" is not authority to move money now.
+
+kind: verification
+
+metadata:
+  id: extended/execution-boundary/attest-expired-rejected
+  description: A guarded-apply attestation whose asserted_at is 26 hours before the verifier's clock is rejected at §17.7 step 4 (freshness), before the §25.6 guard can be released. Correct scope and payload binding do not rescue a stale proof.
+  spec_section: "§17.7, §25.6, §25.7"
+  conformance_level: extended
+  track: T-execution-boundary
+
+verification:
+  proof:
+    type: fido2-assertion
+    principal_id: did:web:cfo.example
+    credential_id: cred_cfo_hsm
+    challenge_nonce: nonce-pay-9f2-001
+    verifier_id: did:web:treasury.example
+    asserted_at: "2026-07-29T08:00:00Z"          # 26h before verifier_clock
+    signature: "<placeholder — rejection occurs at step 4, before the crypto check>"
+    alg: webauthn-es256
+    alg_version: "2"
+    attestation_chain: []
+    # v2.3 guarded-apply binding (§17.6, §25.7). Correct in every respect —
+    # which is the point: freshness is checked regardless.
+    payload_hash: "L2s1bqOX8T7Yy9m4Qv0pRt3aWc6JdKfHnB5xZgE7uMs"
+    scope: "pact.apply.transaction:txn_9f2"
+    effect_class: external-irreversible
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:cfo.example
+        display_name: Chief Financial Officer
+        credentials:
+          - id: cred_cfo_hsm
+            type: fido2-assertion
+            public_key: "<es256-public-key>"
+            enrolled_at: "2026-01-01T00:00:00Z"
+            revoked: false
+  verifier_clock: "2026-07-30T10:00:00Z"
+  issued_nonces:
+    - nonce-pay-9f2-001                          # the nonce IS outstanding
+  receiving_verifier_id: did:web:treasury.example
+  operation_requires_uv: true
+  signature_check: structural
+  expected:
+    result: rejected
+    failing_step: 4
+    emits_trust_violation: true
+
+notes: |
+  §25.7 check 2 requires every step of §17.7 to pass before the guard is
+  released. This vector isolates freshness: the attestation is scoped and
+  payload-bound to exactly the payment being applied, and the principal is
+  the required signer — and it is still refused, because a signature captured
+  a day earlier is not evidence of intent now.
+
+  A server that caches "the CFO is authorised" from an earlier proof and
+  reuses it for a later apply is the failure mode here; §25.4 forbids reusing
+  a proof over a different payload, and §17.7 step 4 forbids reusing a stale
+  one over the same payload.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Verifier does not enforce the §17.7 step 4 clock-skew window
+    - Clock skew configured so wide that day-old attestations pass
+    - Verifier treats a correct payload_hash / scope as a reason to skip freshness
+    - Guarded apply proceeds on a stale proof with only a logged warning

@@ -104,10 +104,22 @@
     <p>The protocol covers joining a resource, declaring intent and
       constraints, proposing and objecting to changes, salience-weighted
       attention, escalation to humans, and completion — with
-      <em>silence&nbsp;=&nbsp;acceptance</em> so only genuine disagreement
-      needs action. It adds a cryptographic human-authorization layer
-      (W3C DIDs, WebAuthn-class attestation) and a full agent-identity
+      <em>silence&nbsp;=&nbsp;no&nbsp;objection</em> so only genuine
+      disagreement needs action. It adds a cryptographic human-authorization
+      layer (W3C DIDs, WebAuthn-class attestation) and a full agent-identity
       lifecycle (cooperative transfer, M-of-N recovery).</p>
+    <p><strong>What consensus is not.</strong> A PACT consensus state —
+      <code>accepted</code>, <code>auto-merged</code>, <code>aligned</code>,
+      a TTL expiring with nobody objecting — is a coordination state and
+      nothing more. It is not an electronic signature, not legal assent, not
+      proof of anyone's identity, capacity or authority to bind, and not
+      authority to move money or perform any irreversible act. Silence never
+      creates a human attestation, and effects that leave the system fail
+      closed until a person explicitly attests to the exact payload. The
+      normative boundary is
+      <a href="https://github.com/TailorAU/pact/blob/main/spec/v2.3/SPECIFICATION.md">§25 of the v2.3 draft</a>,
+      with an
+      <a href="https://github.com/TailorAU/pact/blob/main/spec/v2.2/ERRATA.md">erratum for the current stable line</a>.</p>
     <p>This site is a front door, not the specification. The
       <strong>normative</strong> requirements — every MUST and SHOULD,
       the schemas, the verification flow — live in the spec itself:</p>

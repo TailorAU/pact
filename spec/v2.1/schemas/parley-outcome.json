@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/parley-outcome.json",
+  "title": "Parley — Outcome Record",
+  "description": "Response body for GET /api/pact/parleys/{id}/outcome (§19.6), also delivered to each Mandate's escalation_hook via §21 on close. Outcomes are advisory unless outcome_binding was `commitment` AND both per-handler §17.6 proofs verified — absent either proof the server records the outcome as advisory and notes the downgrade. Added in PACT v2.1 (§19).",
+  "type": "object",
+  "properties": {
+    "parley_id": { "type": "string", "minLength": 1 },
+    "outcome": {
+      "type": "string",
+      "enum": ["aligned", "deadlocked", "timeout", "mandate_revoked"],
+      "description": "Exactly one close outcome (§19.2)."
+    },
+    "outcome_binding": {
+      "type": "string",
+      "enum": ["advisory", "commitment"],
+      "description": "As agreed at open, possibly downgraded per §19.6."
+    },
+    "binding_downgraded": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when `commitment` was requested but a per-handler proof was absent or failed §17.7 — the outcome is advisory and this flag says why."
+    },
+    "converged_content": {
+      "type": ["string", "null"],
+      "description": "What the agents converged on, if anything (aligned outcomes)."
+    },
+    "participants": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "properties": {
+          "agent_id": { "type": "string" },
+          "handler_principal_id": { "type": "string", "pattern": "^did:[a-z0-9]+:.+" },
+          "mandate_digest": {
+            "type": "string",
+            "description": "SHA-256 (hex) of the §20.3 canonical Mandate body this side negotiated under."
+          },
+          "authorization_proof": {
+            "$ref": "https://pact-spec.dev/schemas/v2.0/authorization-proof.json",
+            "description": "Per-handler §17.6 proof — REQUIRED for a binding `aligned` outcome (SOQ4)."
+          }
+        },
+        "required": ["agent_id", "handler_principal_id", "mandate_digest"],
+        "additionalProperties": false
+      }
+    },
+    "closed_at": { "type": "string", "format": "date-time" },
+    "closed_by": {
+      "type": ["string", "null"],
+      "description": "Principal or agent that closed early; null on timeout/mandate_revoked."
+    },
+    "close_reason": { "type": ["string", "null"] }
+  },
+  "required": ["parley_id", "outcome", "outcome_binding", "participants", "closed_at"],
+  "additionalProperties": false
+}

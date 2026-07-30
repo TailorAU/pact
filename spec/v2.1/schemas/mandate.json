@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/mandate.json",
+  "title": "Mandate — Handler-Signed Capability Grant",
+  "description": "A handler-signed capability grant defining an agent's negotiating envelope for one Parley (§20.2). Signed over the RFC 8785 canonical JSON of this object with `signature` removed (§20.3). Added in PACT v2.1 (§20) per RFC #14.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1",
+      "description": "Mandate shape version."
+    },
+    "session_id": {
+      "type": ["string", "null"],
+      "description": "The Parley id this Mandate is bound to. REQUIRED (non-null) on accept (§19.3.2); MAY be null on open, in which case the server records the mandate-digest ↔ parley-id binding in the transcript's first event. Field name retained from RFC #14 for wire compatibility; it denotes the Parley id."
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The agent negotiating under this Mandate (§23 identity)."
+    },
+    "handler_principal_id": {
+      "type": "string",
+      "pattern": "^did:[a-z0-9]+:.+",
+      "description": "The handler granting authority. MUST be resolvable per §17.4 (did:web / did:key)."
+    },
+    "identity_claim": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable assertion of what the agent represents. Carried verbatim into the transcript."
+    },
+    "constraint_envelope": {
+      "type": "object",
+      "properties": {
+        "may_publish": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Constraint categories the agent MAY assert. Absent ⇒ no category scoping."
+        },
+        "must_respect": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "boundary": { "type": "string", "minLength": 1 }
+            },
+            "required": ["boundary"],
+            "additionalProperties": true
+          },
+          "description": "Pre-loaded natural-language boundaries. Carried and surfaced to humans; NOT machine-enforced (§20.2) — implementations MUST NOT claim enforcement."
+        }
+      },
+      "additionalProperties": false
+    },
+    "commitment_authority": {
+      "type": "object",
+      "properties": {
+        "max_binding_decisions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cap on binding decisions the agent may make alone. Exceeding it MUST escalate (§20.5)."
+        },
+        "binding_scope": {
+          "type": "string",
+          "description": "What the binding decisions may be about."
+        }
+      },
+      "additionalProperties": false
+    },
+    "disclosure_ceiling": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "description": "Maximum §10.3 graduated-disclosure level the agent may reveal. Effective limit is the lower of this and the agent's clearance (§10)."
+    },
+    "escalation_hook": {
+      "type": "string",
+      "format": "uri",
+      "description": "HTTPS endpoint receiving outcomes and mandate-violation events via §21 push delivery."
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Hard expiry, judged against the SERVER clock (§19.5)."
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 1,
+      "description": "base64url handler signature over the §20.3 canonical payload."
+    },
+    "signing_key_id": {
+      "type": "string",
+      "pattern": "^did:[a-z0-9]+:.+",
+      "description": "DID URL of the signing key. MUST belong to handler_principal_id; MUST be enrolled and unrevoked per §17.8."
+    }
+  },
+  "required": [
+    "version",
+    "agent_id",
+    "handler_principal_id",
+    "identity_claim",
+    "escalation_hook",
+    "expires_at",
+    "signature",
+    "signing_key_id"
+  ],
+  "additionalProperties": false
+}

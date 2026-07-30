@@ -1,0 +1,54 @@
+# Conformance test vector — Extended: cross-verifier replay rejected by verifier_id equality.
+# kind: verification — exercises §17.6 verifier-binding + §17.7 step 5 with the v2.0.2 equality check.
+#
+# Attack scenario: an adversary captures a proof legitimately produced for verifier A
+# (verifier_id = did:web:a.example) and replays it at verifier B (did:web:b.example).
+# Without the equality check, presence-of-verifier_id alone satisfies the schema and the
+# v2.0.1 runner would accept it. v2.0.2 verifiers MUST reject — equality, not presence.
+
+kind: verification
+
+metadata:
+  id: extended/attestation/verify-cross-verifier-replay
+  description: A proof bearing verifier_id=did:web:a.example arriving at did:web:b.example — rejected at step 5 by the v2.0.2 equality rule.
+  spec_section: "§17.6, §17.7"
+  conformance_level: extended
+  track: T1
+
+verification:
+  proof:
+    type: fido2-assertion
+    principal_id: did:web:knox.example
+    credential_id: cred_abc123
+    challenge_nonce: nonce-fresh-for-A
+    verifier_id: did:web:a.example                # the original target
+    asserted_at: "2026-05-15T10:30:00Z"
+    signature: "<placeholder — structural vector; crypto check defers to verify-fido2-real-signature.yaml>"
+    alg: webauthn-es256
+    alg_version: "2"
+    attestation_chain: []
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:knox.example
+        display_name: Knox Hart
+        credentials:
+          - id: cred_abc123
+            type: fido2-assertion
+            public_key: "<es256-public-key>"
+            enrolled_at: "2026-01-01T00:00:00Z"
+            revoked: false
+  verifier_clock: "2026-05-15T10:30:30Z"
+  issued_nonces: []                                # B never issued this nonce; nor is it verifier-signed by B
+  receiving_verifier_id: did:web:b.example         # we are B; the proof claims A
+  signature_check: structural
+  expected:
+    result: rejected
+    failing_step: 5
+    emits_trust_violation: true
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Verifier accepts presence-of-verifier_id without checking equality (the v2.0.1 footgun)
+    - Verifier doesn't carry receiving_verifier_id through its replay check

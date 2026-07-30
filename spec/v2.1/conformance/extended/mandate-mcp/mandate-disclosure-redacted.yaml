@@ -1,0 +1,62 @@
+# Conformance test vector — Extended: disclosure above the ceiling blocked where redaction is impossible.
+# kind: mandate (provisional) — disclosure_ceiling vs §10.3 graduated disclosure levels.
+
+kind: mandate
+
+metadata:
+  id: extended/mandate-mcp/mandate-disclosure-redacted
+  description: >
+    A call that would disclose above the mandate's disclosure_ceiling must be
+    redacted to the ceiling (with redacted: true in result _meta) or refused.
+    At an MCP proxy boundary the content lives upstream, so redaction is
+    impossible and the call is rejected with MandateDisclosureExceeded
+    (-32015) — the "redaction impossible" arm of RFC §8. Returning
+    above-ceiling content unredacted is never permitted.
+  spec_section: "rfc-mcp-mandate-extension.md §8, §11; PACT §10.3"
+  conformance_level: extended
+  track: T11
+
+guard_config:
+  enforcement: required
+  clock_skew_seconds: 300
+  registry: null
+
+clock: "2026-08-01T00:00:00Z"
+
+steps:
+  - call:
+      tool: pact_escalate
+      arguments:
+        documentId: doc_vec123
+        message: pricing constraint conflict needs human review
+        sectionId: "sec:pricing"
+        disclosure_level: 3        # Reasoning — above the ceiling of 2 (Category)
+      meta:
+        au.tailor.pact/mandate:
+          version: "1"
+          session_id: sess_vec
+          agent_id: agent_vec
+          handler_principal_id: did:web:knox.example
+          disclosure_ceiling: 2
+          expires_at: "2026-08-02T00:00:00Z"
+          signature: base64url-vector-signature
+          signing_key_id: "did:web:knox.example#key-1"
+    expected:
+      outcome: error
+      error: { name: MandateDisclosureExceeded, code: -32015 }
+
+notes: |
+  §10.3 levels — 1 Constraint, 2 Category, 3 Reasoning, 4 Human. The
+  disclosure ceiling and PACT clearances are DIFFERENT mechanisms and both
+  apply; the effective limit is the lower of the two (RFC §8). Reach:
+  disclosure_level is a declared, guard-facing argument on pact_escalate and
+  pact_ask only (the SDK strips undeclared arguments before the guard runs,
+  so declaring it is what makes the check reachable at the wire — pinned by
+  mcp/test/wire.test.mjs). Implementations MUST NOT claim to enforce
+  disclosure on calls where the level is not visible to them.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Above-ceiling content passed through unredacted.
+    - Ceiling conflated with clearance level (they compose; neither substitutes).

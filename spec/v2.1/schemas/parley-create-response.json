@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/parley-create-response.json",
+  "title": "Parley — Open Response",
+  "description": "Response body for POST /api/pact/parleys (§19.3.1). Added in PACT v2.1 (§19).",
+  "type": "object",
+  "properties": {
+    "parley_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Server-minted Parley id."
+    },
+    "peer_invite_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Capability URL for the counterparty handler to accept (§19.3.2). Travels out-of-band; grants accept, not join."
+    },
+    "mandate_digest": {
+      "type": "string",
+      "description": "SHA-256 (hex) of the §20.3 canonical body of the opening Mandate — the binding the server recorded when session_id was null at open."
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the Parley times out (server clock): open time + ttl_seconds."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Non-fatal advisories (e.g. mandate expiry inside the TTL window, §19.5)."
+    }
+  },
+  "required": ["parley_id", "peer_invite_url", "mandate_digest", "expires_at"],
+  "additionalProperties": false
+}

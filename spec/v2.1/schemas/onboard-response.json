@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.0/onboard-response.json",
+  "title": "PACT Onboard Response",
+  "description": "Response body for POST /api/pact/{fabricId}/_onboard. Discriminated by 'status': on success ('onboarded') carries the registration and the published constraints plus the single pact.fabric.onboarded event id; on failure ('rejected') carries the rejection_reason and an errors array — and no registration exists on the server. See §4.4.5. Added in PACT v2.0.3.",
+  "type": "object",
+  "required": ["status"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["onboarded", "rejected"]
+    },
+    "fabric_id": { "type": "string" },
+    "registration": {
+      "description": "On success: the join-response.json shape produced by the inner join half.",
+      "$ref": "https://pact-spec.dev/schemas/v2.0/join-response.json"
+    },
+    "constraints": {
+      "type": "array",
+      "description": "On success: the constraints that were published as part of the atomic transaction.",
+      "items": {
+        "type": "object",
+        "required": ["constraint_id", "sectionId", "boundary"],
+        "properties": {
+          "constraint_id": { "type": "string" },
+          "sectionId": { "type": "string", "maxLength": 256 },
+          "boundary": { "type": "string" },
+          "category": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "onboarded_event_id": {
+      "type": "string",
+      "description": "On success: id of the single pact.fabric.onboarded event. The bundled pact.constraint.published events carry this id as their correlationId."
+    },
+    "onboarded_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "On success: ISO 8601 timestamp."
+    },
+    "rejection_reason": {
+      "type": "string",
+      "description": "On failure: machine-readable reason (e.g. 'constraint.incompatible', 'constraint.invalid', 'invite_token.consumed', 'join.unauthorized')."
+    },
+    "rejected_constraint_index": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "On failure: zero-based index into the request's constraints array identifying which constraint caused rejection. Null if rejection was on the join half."
+    },
+    "errors": {
+      "type": "array",
+      "description": "On failure: standard PACT error array (per Appendix A.1).",
+      "items": {
+        "type": "object",
+        "required": ["code", "description"],
+        "properties": {
+          "code": { "type": "string" },
+          "description": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "onboarded" } } },
+      "then": { "required": ["status", "fabric_id", "registration", "constraints", "onboarded_event_id", "onboarded_at"] }
+    },
+    {
+      "if": { "properties": { "status": { "const": "rejected" } } },
+      "then": { "required": ["status", "rejection_reason", "errors"] }
+    }
+  ],
+  "examples": [
+    {
+      "status": "onboarded",
+      "fabric_id": "doc_xyz",
+      "registration": {
+        "registrationId": "f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+        "documentId": "doc_xyz",
+        "agentName": "Agent-Finance",
+        "role": "reviewer",
+        "contextMode": "section-scoped",
+        "allowedSections": ["sec:budget", "sec:risk"],
+        "trustLevel": "Collaborator",
+        "protocolVersion": "2.0",
+        "capabilities": ["atomicOnboard", "manifest"],
+        "joinedAt": "2026-05-15T18:02:11Z"
+      },
+      "constraints": [
+        { "constraint_id": "con_42", "sectionId": "sec:risk", "boundary": "Must not name specific instruments", "category": "regulatory" },
+        { "constraint_id": "con_43", "sectionId": "sec:budget", "boundary": "Must not commit beyond Q3 forecast", "category": "commercial" }
+      ],
+      "onboarded_event_id": "evt_onb_001",
+      "onboarded_at": "2026-05-15T18:02:11Z"
+    },
+    {
+      "status": "rejected",
+      "rejection_reason": "constraint.incompatible",
+      "rejected_constraint_index": 1,
+      "errors": [
+        {
+          "code": "constraint.incompatible",
+          "description": "Constraint on sec:budget conflicts with existing fabric constraint con_18.",
+          "metadata": { "conflicting_constraint_id": "con_18" }
+        }
+      ]
+    }
+  ]
+}

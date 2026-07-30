@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/event-delivery.json",
+  "title": "Push Delivery — Signed Event Delivery Envelope",
+  "description": "Body of the HTTPS POST a PACT server makes to a subscription URL or Mandate escalation_hook (§21.3). At-least-once: receivers deduplicate on (subscription_id, event.id). signature.value is computed over the RFC 8785 canonical JSON of this envelope with the `signature` member removed (§20.3 canonicalisation). Added in PACT v2.1 (§21).",
+  "type": "object",
+  "properties": {
+    "delivery_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique per delivery ATTEMPT. The event id, not this, is the idempotency key."
+    },
+    "subscription_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The subscription (or server-managed escalation-hook binding) this delivery serves."
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "1-based attempt counter under the §21.3 retry policy."
+    },
+    "delivered_at": { "type": "string", "format": "date-time" },
+    "event": {
+      "$ref": "https://pact-spec.dev/schemas/v2.0/event.json",
+      "description": "The §6.1 event envelope being delivered, clearance-reduced per §17.13."
+    },
+    "signature": {
+      "type": "object",
+      "properties": {
+        "signing_key_id": {
+          "type": "string",
+          "pattern": "^did:[a-z0-9]+:.+",
+          "description": "The delivering server's principal key (§17.4)."
+        },
+        "alg": {
+          "type": "string",
+          "description": "Signature algorithm; the §18.2 allow-list applies (no HMAC/symmetric schemes)."
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "description": "base64url signature over the canonical envelope (see top-level description)."
+        }
+      },
+      "required": ["signing_key_id", "alg", "value"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["delivery_id", "subscription_id", "attempt", "delivered_at", "event", "signature"],
+  "additionalProperties": false
+}

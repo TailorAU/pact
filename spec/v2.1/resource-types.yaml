@@ -1,18 +1,45 @@
-# PACT resource-type registry (v2.0)
+# PACT resource-type registry (v2.1)
 #
 # Machine-readable index of well-known resource types, referenced from
-# PACT_SPECIFICATION.md §14.3. Each entry conforms to the table in §14.3:
+# SPECIFICATION.md §14.3. Each entry conforms to the table in §14.3:
 # type / field_schema / proposal_payload / apply_semantics / terminal_states
-# / content_format / maintainer / status.
+# / content_format / effect_class / human_attestation / maintainer / status.
+#
+# v2.1 adds the two apply-guard fields (§25.5, §25.6):
+#
+#   effect_class:       internal-reversible | external-irreversible
+#                       What the apply does IN THE WORLD, not what the type is
+#                       called. `internal-reversible` means the apply changes
+#                       only state inside the PACT implementation and the prior
+#                       state is restorable from its own event log (§6).
+#                       `external-irreversible` means the effect leaves the
+#                       system, moves value, or is asserted to bind a person or
+#                       entity. An entry that OMITS this field MUST be read as
+#                       `external-irreversible` — unclassified is not internal.
+#
+#   human_attestation:  required | not-required
+#                       `required` engages the §25.6 fail-closed apply guard:
+#                       silence, TTL expiry, absence of objection, agent
+#                       consensus and `auto` / `objection-based` policies MUST
+#                       NOT cause the apply. It proceeds only after the six
+#                       §25.7 checks pass, or the effect is re-declared
+#                       out-of-band under §25.6(b).
+#                       `required` MUST accompany
+#                       `effect_class: external-irreversible`.
+#
+# These registry values are a FLOOR, not a ceiling. An implementation whose own
+# apply is more consequential than the registry says MUST classify it upward in
+# its /.well-known/pact.json profile (§15.1 `effectClass` / `humanAttestation`)
+# — never downward.
 #
 # To register a custom resource type: open a PR against this file. Custom
 # types SHOULD use reverse-domain notation (com.example.case-file). An
 # implementation that supports a type MUST declare it in its
 # /.well-known/pact.json profile (§15).
 
-version: "1"
-spec_version: "v2.0"
-last_updated: "2026-05-13"
+version: "2"
+spec_version: "v2.1"
+last_updated: "2026-07-30"
 
 types:
 
@@ -25,37 +52,75 @@ types:
     apply_semantics: Text replacement within the addressed Markdown section.
     terminal_states: [Merged]
     content_format: "text/markdown (also html, docx, pdf via section projection — §8)"
+    effect_class: internal-reversible
+    human_attestation: not-required
     maintainer: TailorAU
-    notes: The default resource type. Proposals without an explicit `type` field are treated as document proposals.
+    notes: >-
+      The default resource type. Proposals without an explicit `type` field are
+      treated as document proposals. `Merged` is a DRAFT outcome — it is not
+      `signed` or `executed` (§25.8). An implementation whose document apply
+      also publishes to an external system, dispatches the document to a
+      counterparty, or asserts execution MUST classify that apply upward to
+      `external-irreversible` in its own profile (§25.5).
 
   - type: transaction
     status: built-in
     field_schema: "txn:{field}  — structured transaction fields (txn:amount, txn:recipient, txn:method, …)"
     proposal_payload: "{ amount, recipient, method, reference }"
-    apply_semantics: Payment settled.
-    terminal_states: [Settled]
+    apply_semantics: >-
+      Payment settled. GUARDED — see effect_class / human_attestation below.
+    terminal_states: [Settled, AwaitingAttestation, Aligned]
     content_format: application/json
+    effect_class: external-irreversible
+    human_attestation: required
     maintainer: TailorAU
-    notes: Reference impl (planned) — Baink.
+    notes: >-
+      v2.1 correction: silence / TTL expiry / consensus MUST NOT settle,
+      authorize or execute a transaction (§25.6). On TTL expiry with no
+      objection the implementation fails closed to `AwaitingAttestation` and
+      emits `pact.apply.blocked`, or declares settlement out-of-band under
+      §25.6(b) — in which case the terminal state is `Aligned`, not `Settled`.
+      Reference impl (planned) — Baink.
 
   - type: fact
     status: built-in
     field_schema: "claim:{id}  — knowledge-claim identifier"
     proposal_payload: "{ claim, evidence, tier, sources }"
-    apply_semantics: Fact verified into the knowledge graph.
+    apply_semantics: Fact verified into the implementation's own knowledge graph.
     terminal_states: [Verified]
     content_format: application/json
+    effect_class: internal-reversible
+    human_attestation: not-required
     maintainer: TailorAU
-    notes: Reference impl — Source.
+    notes: >-
+      Classified internal-reversible only because the built-in apply writes to
+      the implementation's own graph and is revocable from its event log. An
+      implementation that publishes verified facts to a third party, a public
+      register, or any surface it cannot retract MUST classify that apply
+      upward to `external-irreversible` (§25.5). `Verified` is a protocol
+      state — it is not an assertion of truth, provenance, or legal
+      admissibility. Reference impl — Source.
 
   - type: record
     status: built-in
     field_schema: "rec:{field}  — structured record fields (e.g. clinical record fields)"
     proposal_payload: "{ field, value, justification }"
-    apply_semantics: Record finalised.
-    terminal_states: [Finalized]
+    apply_semantics: >-
+      Record finalised. GUARDED — see effect_class / human_attestation below.
+    terminal_states: [Finalized, AwaitingAttestation]
     content_format: application/json
+    effect_class: external-irreversible
+    human_attestation: required
     maintainer: TailorAU
+    notes: >-
+      Finalising a clinical or official record is an attributable act that the
+      implementation cannot unilaterally undo, and downstream systems treat it
+      as authoritative. It is therefore guarded by default: a `record` MUST NOT
+      be finalised from silence, TTL expiry or agent consensus alone (§25.6).
+      An implementation whose `record` apply is genuinely an internal draft may
+      classify downward ONLY by registering a distinct custom type with its own
+      entry — it MUST NOT advertise `internal-reversible` for the built-in
+      `record` type (§14.3).
 
   # ─── Registered custom types ────────────────────────────────────────────
 
@@ -64,10 +129,26 @@ types:
 registration_process:
   - Open a PR against this file with the entry filled out.
   - The PR's description SHOULD link to a reference implementation (running or in progress) that uses the new type.
-  - Maintainer review: confirms uniqueness of `type`, that the entry has the required fields, that apply_semantics is unambiguous, and that the type is genuinely new (not duplicating a built-in).
+  - >-
+    The entry MUST carry `effect_class` and `human_attestation` (§14.3, §25.5).
+    An entry proposing `internal-reversible` MUST state, in the PR description,
+    how the prior state is restorable from the implementation's own event log.
+  - "Maintainer review: confirms uniqueness of `type`, that the entry has the required fields, that apply_semantics is unambiguous, that the effect classification is honest, and that the type is genuinely new (not duplicating a built-in)."
   - On merge the type is `registered`. Implementations that support it advertise it in their /.well-known/pact.json profile.
-  - Lifecycle: a `registered` type can be moved to `deprecated` by the original maintainer or by maintainer review (e.g. superseded by a better type); deprecated types remain in the registry for citation stability.
+  - "Lifecycle: a `registered` type can be moved to `deprecated` by the original maintainer or by maintainer review (e.g. superseded by a better type); deprecated types remain in the registry for citation stability."
 
 custom_type_naming:
   rule: "Reverse-domain notation: e.g. com.example.case-file, au.gov.mygovid-document. Bare identifiers are reserved for built-ins."
   case: "lower-kebab segments separated by dots."
+
+apply_guard:
+  spec_section: "§25.5, §25.6"
+  default_when_unclassified: external-irreversible
+  guard_engaged_when: "effect_class == external-irreversible OR human_attestation == required"
+  policies_that_must_not_bypass: [auto, single, majority, unanimous, objection-based]
+  on_guard_hit:
+    - "Do not apply. Transition the proposal to AwaitingAttestation (non-terminal)."
+    - "Emit pact.apply.blocked with reason + effect_class + required_principals."
+    - "Raise a §6.5 pending obligation of kind: sign against each required principal."
+    - "A further TTL expiry re-emits pact.apply.blocked; it never releases the guard."
+  release_requires: "All six §25.7 checks — presence, §17.7 verification, principal binding, payload binding, scope binding, application-layer authority."

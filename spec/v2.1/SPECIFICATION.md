@@ -40,9 +40,23 @@ the two operational primitives that were designed alongside it:
   `apiKey` promoted from side effect to first-class auth mode with a
   create/rotate/revoke/scope-narrow lifecycle.
 
+- **§25 Consensus, Authorization, and Legal Execution (normative)** — the
+  safety boundary between a PACT protocol state, a human attestation, and
+  legal execution. Protocol states (`auto-merged`, `aligned`,
+  `consensus_reached`, TTL expiry, absence of objection) are never, by
+  themselves, an electronic signature, legal assent, or authority to bind
+  (§25.3–§25.4); every resource type declares an `effect_class`, and
+  `external-irreversible` applies **fail closed** pending an explicit,
+  payload-bound human attestation (§25.5–§25.7); consensus on a contract
+  yields an *aligned draft*, never `signed` (§25.8). New §17.14 pins the
+  scope of a verified `authorization_proof`. Raised as
+  [#41](https://github.com/TailorAU/pact/issues/41); the additive disclosure
+  for the stable v2.2 line is [`../v2.2/ERRATA.md`](../v2.2/ERRATA.md).
+
 Design records: RFC [#14](https://github.com/TailorAU/pact/issues/14),
 `docs/v2-prep/rfc-14-shepherd-synthesis.yaml`, `docs/v2-plan.yaml` (tracks
-T3, T4, T5). Delivery: [#35](https://github.com/TailorAU/pact/issues/35).
+T3, T4, T5). Delivery: [#35](https://github.com/TailorAU/pact/issues/35),
+[#41](https://github.com/TailorAU/pact/issues/41).
 
 ### What's New in v2.0.3
 
@@ -563,7 +577,9 @@ The number of approvals required before auto-merge is configurable per document:
 | `majority` | >50% of registered agents approve |
 | `unanimous` | All registered agents approve |
 | `human-only` | Only a human can approve (agents can only propose) |
-| `objection-based` | Auto-merge after TTL unless an agent objects (silence = consent) |
+| `objection-based` | Auto-merge after TTL unless an agent objects (silence = **absence of protocol objection**, not legal consent — §25.3) |
+
+> **Safety boundary (v2.1, normative — §25).** No approval policy in this table, and no `MERGED` / `APPROVED` state reached through one, is an electronic signature, legal assent, proof of capacity, or authority to bind. Where the resource's apply is `external-irreversible` or its resource type declares `human_attestation: required`, **`auto` and `objection-based` MUST NOT cause the apply**: the implementation fails closed per §25.6 pending an explicit, payload-bound human attestation. The guard binds at every conformance level.
 
 #### Self-approval
 
@@ -655,6 +671,10 @@ pact.subscription.dead-letter   // Delivery exhausted retries; moved to dead-let
 pact.service-account.created    // Service account created (§22.4)
 pact.service-account.rotated    // Key rotated; prior key invalidated (§22.4)
 pact.service-account.revoked    // Service account revoked (§22.4)
+
+// v2.1 — Consensus / authorization / execution boundary (§25)
+pact.apply.blocked              // A guarded apply became eligible but no valid attestation was present; the implementation failed closed (§25.6(a), §25.9)
+pact.apply.attested             // All six §25.7 checks passed and a guarded apply was released (§25.9)
 ```
 
 ### 6.3 Event-log retention
@@ -1083,7 +1103,7 @@ Agent A: proposal.create(section, content, ttl=60)
                     │                    │
                     ▼                    ▼
               AUTO-MERGED            OBJECTED
-            (silence = consent)    (must renegotiate)
+         (no objection raised)     (must renegotiate)
 ```
 
 **Key rules:**
@@ -1092,6 +1112,7 @@ Agent A: proposal.create(section, content, ttl=60)
 - Agents with salience = 10 (critical) **must** explicitly approve or object; auto-merge is blocked
 - If no agents have salience > 0 on a section, the proposal merges immediately
 - The `ObjectionBased` approval policy enables this flow
+- **`AUTO-MERGED` is a protocol state (§25.3).** The shorthand "silence = consent" means *no objection was raised within the TTL* — nothing more. It is not consent by a human, not an electronic signature, and not evidence that any human saw the proposal. Where the apply would be `external-irreversible` (§25.5), auto-merge MUST NOT fire: the implementation transitions to `AwaitingAttestation` and fails closed per §25.6.
 
 ### 10.6 Example Flow
 
@@ -1417,7 +1438,7 @@ The `document` type is the default. Proposals without an explicit `type` field a
 
 ### 14.3 The resource-type registry
 
-The PACT **resource-type registry** is a machine-readable index of well-known resource types, both built-in (§14.2) and community-registered. It lives at [`spec/v2.0/resource-types.yaml`](./resource-types.yaml) in the canonical repository and is the source of truth implementations consult when negotiating resource-type compatibility.
+The PACT **resource-type registry** is a machine-readable index of well-known resource types, both built-in (§14.2) and community-registered. It lives at [`resource-types.yaml`](./resource-types.yaml) in the canonical repository and is the source of truth implementations consult when negotiating resource-type compatibility.
 
 Each registry entry carries:
 
@@ -1429,10 +1450,14 @@ Each registry entry carries:
 | `apply_semantics` | What the implementation does when consensus is reached. |
 | `terminal_states` | One or more named terminal states (e.g. `Merged`, `Settled`, `Verified`). |
 | `content_format` | How the resource body is represented (Markdown, JSON, etc.). |
+| `effect_class` | **(v2.1, REQUIRED)** `internal-reversible` \| `external-irreversible` — what the apply does in the world (§25.5). An entry that omits it MUST be treated as `external-irreversible`. |
+| `human_attestation` | **(v2.1, REQUIRED)** `required` \| `not-required` — whether the §25.6 fail-closed apply guard applies to this type. `required` MUST accompany `effect_class: external-irreversible`. |
 | `maintainer` | The contact / organisation registering the type. |
 | `status` | `built-in` \| `registered` \| `proposed` \| `deprecated`. |
 
-To register a custom resource type, open a PR against `spec/v2.0/resource-types.yaml` with the entry filled out. A custom type MUST define a unique identifier, a field schema, apply semantics, and at least one terminal state. Implementations that support a custom type MUST declare it in their `/.well-known/pact.json` profile (§15).
+To register a custom resource type, open a PR against [`resource-types.yaml`](./resource-types.yaml) with the entry filled out. A custom type MUST define a unique identifier, a field schema, apply semantics, at least one terminal state, and (from v2.1) an `effect_class` and `human_attestation` value. Implementations that support a custom type MUST declare it in their `/.well-known/pact.json` profile (§15).
+
+**Registry values are a floor, not a ceiling.** A registry entry's `effect_class` is the minimum classification for that type. An implementation whose own apply for a type is more consequential than the registry says MUST classify it upward in its own profile (§25.5) — never downward. An implementation MUST NOT advertise `effect_class: internal-reversible` for a type the registry classifies as `external-irreversible`.
 
 ### 14.4 Backward Compatibility
 
@@ -1453,9 +1478,13 @@ The core primitives work identically regardless of resource type:
 | `intent` | "I want to add risk language" | "I want to authorize this payment" | "I want to verify this claim" |
 | `constraint` | "Liability cap ≤ $2M" | "Daily limit $10K" | "Must cite primary source" |
 | `propose` | New section content | Payment authorization | Evidence-backed claim |
-| `silence = consent` | Auto-merge after TTL | Auto-authorize after TTL | Auto-verify after TTL |
+| absence of objection at TTL | Auto-merge into the **draft** after TTL | **MUST NOT auto-authorize** — fail closed (§25.6) | Auto-verify after TTL *if* the implementation's apply is `internal-reversible`; otherwise fail closed |
 | `object` | "Violates my constraint" | "Exceeds limit" | "Contradicts existing fact" |
 | `escalate` | Human reviews text | Human reviews payment | Human reviews evidence |
+| `effect_class` (v2.1, §25.5) | `internal-reversible` | `external-irreversible` | `internal-reversible` |
+| `human_attestation` (v2.1) | `not-required` | **`required`** | `not-required` |
+
+**v2.1 correction (normative).** Before v2.1 this table read `silence = consent → "Auto-authorize after TTL"` for transactions and `"Auto-verify after TTL"` for facts. That mapping is **withdrawn** for any apply classified `external-irreversible`. The primitives are identical across resource types; their *apply consequences* are not. For the built-in `transaction` type — and for any type whose apply leaves the implementation, moves value, or is asserted to bind a person — silence, TTL expiry and consensus MUST NOT settle, authorize, or execute anything. See §25.5–§25.7, and [`resource-types.yaml`](./resource-types.yaml) for the machine-readable classification.
 
 ---
 
@@ -1477,7 +1506,19 @@ Each PACT server SHOULD publish an **Implementation Profile** describing its cap
       "fieldSchema": "sec:{slug}",
       "contentFormat": "text/markdown",
       "terminalStates": ["Merged"],
-      "applySemantics": "Text replacement within Markdown section"
+      "applySemantics": "Text replacement within Markdown section",
+      "effectClass": "internal-reversible",
+      "humanAttestation": "not-required"
+    },
+    {
+      "type": "transaction",
+      "fieldSchema": "txn:{field}",
+      "contentFormat": "application/json",
+      "terminalStates": ["Aligned"],
+      "applySemantics": "Coordination only — settlement is performed by the treasury system",
+      "applySemanticsExternal": "out-of-band",
+      "effectClass": "external-irreversible",
+      "humanAttestation": "required"
     }
   ],
   "capabilities": {
@@ -1486,7 +1527,9 @@ Each PACT server SHOULD publish an **Implementation Profile** describing its cap
     "structuredNegotiation": true,
     "inviteTokens": true,
     "authorizationProof": true,
-    "agentIdentityTransfer": true
+    "agentIdentityTransfer": true,
+    "applyGuard": true,
+    "executionCapability": false
   },
   "retentionPolicy": {
     "minimumDays": 365,
@@ -1509,19 +1552,22 @@ Each PACT server SHOULD publish an **Implementation Profile** describing its cap
 | `version` | Yes | Implementation version (independent of `specVersion`). |
 | `specVersion` | Yes | PACT spec version this profile targets (e.g. `"2.0"`). |
 | `conformanceLevel` | Yes | One of `core` / `extended` / `authorization-required`. |
-| `resourceTypes` | Yes | Resource types this server supports (must intersect with the v2.0 registry, §14.3). |
+| `resourceTypes` | Yes | Resource types this server supports (must intersect with the registry, §14.3). **From v2.1 each entry MUST carry `effectClass` and `humanAttestation`** (§25.5); an entry omitting them MUST be read by consumers as `external-irreversible` / `required`. An entry MAY carry `applySemanticsExternal: "out-of-band"` to declare the real-world effect outside PACT (§25.6(b)). |
 | `retentionPolicy` | **Yes (v2.0+)** | Event-log retention policy per §6.3: `{ minimumDays: int, indefinite: bool, tombstoneAfter: int\|null }`. |
-| `capabilities` | SHOULD | Boolean capability flags. Well-known flags: `mediatedCommunication`, `informationBarriers`, `structuredNegotiation`, `inviteTokens`, `authorizationProof`, `agentIdentityTransfer`, `didDocumentPinning`, `recoverySingleChannel`, `atomicOnboard` (v2.0.3), `manifest` (v2.0.3), `sessionAwareness` (v2.0.3), `parleys` (v2.1, §19 — supersedes the placeholder flag name `sessions` announced pre-rename; implementations MUST advertise `parleys`), `pushDelivery` (v2.1, §21), `serviceAccounts` (v2.1, §22). |
+| `capabilities` | SHOULD | Boolean capability flags. Well-known flags: `mediatedCommunication`, `informationBarriers`, `structuredNegotiation`, `inviteTokens`, `authorizationProof`, `agentIdentityTransfer`, `didDocumentPinning`, `recoverySingleChannel`, `atomicOnboard` (v2.0.3), `manifest` (v2.0.3), `sessionAwareness` (v2.0.3), `parleys` (v2.1, §19 — supersedes the placeholder flag name `sessions` announced pre-rename; implementations MUST advertise `parleys`), `pushDelivery` (v2.1, §21), `serviceAccounts` (v2.1, §22), `applyGuard` (v2.1 — the §25.6 fail-closed guard is enforced), `executionCapability` (v2.1 — see below). |
+| `executionCapability` | Conditional | **(v2.1)** `capabilities.executionCapability` MUST be `false` or absent unless the implementation satisfies all four conditions of §25.8. When `true`, the profile MUST also carry `executionSystem` naming the separate execution / signature system that captures each signer's intentional act. Advertising `true` without that system is a conformance violation. |
 | `endpoints` | SHOULD | At minimum `rest`. SHOULD include `realtime` for SignalR/WebSocket and `credentialsRegistry` for §17.8. |
 
 ### 15.2 Conformance Levels
 
 | Level | Requirements | Target Audience |
 |---|---|---|
-| **Core** | `join`, `leave`, `intent`, `constrain`, `propose`, `object`, `escalate`, `done`, `poll`, event sourcing, silence-based auto-apply | Any PACT implementation |
-| **Extended** | Core + information barriers (classification, clearance, graduated disclosure), mediated communication, structured negotiation, invite tokens | Enterprise, regulated, multi-organisation |
+| **Core** | `join`, `leave`, `intent`, `constrain`, `propose`, `object`, `escalate`, `done`, `poll`, event sourcing, silence-based auto-apply **for `internal-reversible` effects only**, and the §25 safety boundary (§25.3, §25.4, §25.6, §25.10) | Any PACT implementation |
+| **Extended** | Core + information barriers (classification, clearance, graduated disclosure), mediated communication, structured negotiation, invite tokens, published `effectClass` / `humanAttestation` per advertised resource type | Enterprise, regulated, multi-organisation |
 
 An implementation declares its conformance level in the Implementation Profile. Implementations MUST support all primitives in their declared level.
+
+> **v2.1 scoping (normative).** "Silence-based auto-apply" in the Core row has never meant *any* apply. From v2.1 it is explicitly scoped to `internal-reversible` effects (§25.5). Silence-based auto-apply of an `external-irreversible` effect is a **conformance violation at every level**, including Core — see §25.6. An implementation that cannot enforce the guard MUST NOT advertise the affected resource type.
 
 ### 15.3 Multi-Implementation Interoperability
 
@@ -1799,6 +1845,9 @@ Any PACT message (proposal, intent, constraint, completion, mediated message, Pa
 | `alg` | string | Yes (v2.0.2+) | Signature/match algorithm identifier. **Normative whitelist for `fido2-assertion`**: `webauthn-es256` (ECDSA P-256 + SHA-256), `webauthn-es384` (P-384 + SHA-384), `webauthn-eddsa` (Ed25519). For `voice-biometric`: `resemblyzer-v1` (HMAN's #3 PR pins the normative set). Custom attestation types declare their own algs in reverse-domain notation (`com.example.alg-name`). **Anything outside this whitelist MUST be rejected at §17.7 step 3** — HMAC-based or symmetric-key algs are explicitly disallowed for `fido2-assertion`. |
 | `alg_version` | string | Yes | Version of `alg`. Model swaps / retrains / suite revisions MUST NOT silently invalidate enrolled references. |
 | `attestation_chain` | array | No | Ordered intermediate attestations for delegated authorization (§17.11). Empty or absent = direct. v2.0 item shape is implementation-defined and verifiers that cannot verify the chain MUST reject — see §17.11. |
+| `payload_hash` | string | **Conditional (v2.1)** | Base64url SHA-256 of the [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) canonical JSON encoding of the exact payload being authorized. REQUIRED whenever the proof is presented to release a §25.6 apply guard. The `signature` MUST commit to it. Binds the attestation to *this* payload — an attestation over an earlier revision MUST be refused (§25.7 check 4). |
+| `scope` | string | **Conditional (v2.1)** | The specific effect this attestation authorizes, in reverse-domain or path form (e.g. `pact.apply.transaction:txn_9f2`, `pact.apply.document:doc_abc/sec:intro`). REQUIRED for a guarded apply. A proof MUST NOT release a guard for an effect outside its `scope` (§25.7 check 5). |
+| `effect_class` | string | **Conditional (v2.1)** | `internal-reversible` \| `external-irreversible` — the effect class (§25.5) the human was shown when they attested. REQUIRED for a guarded apply. A proof carrying `internal-reversible` MUST NOT release a guard on an `external-irreversible` apply. |
 
 ### 17.7 Verification Flow
 
@@ -1928,6 +1977,28 @@ This section is non-normative framing. It does not impose new requirements; it m
 - The atomicity guarantee of `_onboard` (§4.4.5) is independent of manifest visibility: a rejected onboard does not leak through the manifest because no membership ever existed.
 
 In short: manifest endpoints are *aggregators of state the caller would already be entitled to compute by other means*, not new disclosure surfaces. If a counterparty's name is hidden from the caller via the §10.3 graduated-disclosure rules, it stays hidden in the manifest.
+
+### 17.14 Scope of a verified `authorization_proof` (v2.1, normative)
+
+A proof that passes every step of §17.7 establishes exactly one thing:
+
+> **The HumanPrincipal identified by `principal_id` authorized this exact PACT message, at `asserted_at`, to this verifier, using the credential enrolled as `credential_id`.**
+
+That is the whole claim. A verified `authorization_proof` does **NOT**, by itself, establish any of the following, and an implementation MUST NOT represent it as doing so:
+
+| Not established | Why |
+|---|---|
+| **Legal identity** | `principal_id` is a DID bound to an enrolled credential. Whether the DID corresponds to a specific natural person of a specific legal name is an enrolment-time question the protocol does not answer (§17.12 OQ1). |
+| **Role or capacity** | Nothing in the envelope asserts that the principal is a director, officer, attorney, guardian, or has legal capacity to act. `persona` is explicitly advisory and MUST NOT be used in any trust decision (§17.5). |
+| **Authority to bind an entity** | Whether this human may commit an organisation is an application- and law-layer determination. PACT carries no delegation-of-authority instrument. `attestation_chain` (§17.11) carries protocol delegation, not corporate authority. |
+| **Intention to sign a particular instrument** | The proof commits to a PACT message. Absent `payload_hash` and `scope` (§17.6, §25.7) it does not even commit to a specific payload — and even with them, authorizing a message is not the same act as executing an instrument. |
+| **Satisfaction of formalities** | Witnessing, countersignature, notarisation, deed execution, statutory form, delivery, or timestamping requirements are untouched by PACT. |
+| **Enforceability** | Whether anything resulting is legally binding, admissible, or enforceable in a jurisdiction is outside the protocol (§17.10, §25.11). |
+| **A qualified electronic signature** | No attestation type in §18 is asserted to meet eIDAS QES, ESIGN/UETA, the Australian *Electronic Transactions Act 1999*, or any other statutory signature standard. |
+
+**Export rule.** Any export, audit report, or verification result that reports a proof as verified MUST carry this scope statement, or an unambiguous reference to it, alongside the result. A verification result exported without it is a §25.3 misrepresentation.
+
+**Relationship to §25.** A verified proof is necessary but not sufficient to release the §25.6 apply guard: checks 3–6 of §25.7 (principal, payload, scope, application-layer authority) are additional and MUST also pass.
 
 ---
 
@@ -2869,6 +2940,180 @@ M-of-N recovery and abandoned-agent reset (§23.4) are OPTIONAL at every tier bu
 
 ---
 
+> **§24 (reserved — Matters).** The Matter primitive (multi-fabric deal-room
+> workspaces) is numbered §24 and currently lives in
+> [`spec/v2.2/`](../v2.2/SPECIFICATION.md); it folds together with this
+> line's §19–22 and §25 in the planned v2.2 re-issue (see
+> `spec/v2.2/README.md`, "Known scope gap"). The number is reserved here so
+> section numbering is stable across that re-issue.
+
+---
+
+## 25. Consensus, Authorization, and Legal Execution (v2.1)
+
+> **Status:** v2.1 normative — DRAFT, awaiting maintainer sign-off. Raised as issue [#41](https://github.com/TailorAU/pact/issues/41).
+>
+> **This section is a safety boundary and it governs.** Where §5, §10.5, §14.5, §15.2, §17 or §19–22 could be read as permitting an outcome that this section forbids, **§25 controls**. The key words MUST, MUST NOT, REQUIRED, SHOULD, SHOULD NOT and MAY in this section are to be interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
+>
+> The corresponding additive disclosure for the current stable v2.2 line is [`../v2.2/ERRATA.md`](../v2.2/ERRATA.md).
+
+### 25.1 Why this section exists
+
+PACT is a coordination protocol. Its vocabulary — `accepted`, `approved`, `auto-merged`, `aligned`, `consensus_reached`, `commitment`, `Settled`, "silence = consent" — is borrowed from domains where those words carry legal weight. They do not carry that weight here.
+
+Left unstated, that overlap invites a dangerous inference: that a TTL expiry, an absence of objection, an agent's vote, or a `consensus_reached` state is a person's electronic signature, their consent to a binding instrument, proof of their corporate authority, or authority to move money. PACT consensus is **evidence of protocol coordination**. It must not silently manufacture legal execution or real-world authority.
+
+### 25.2 Three distinct layers
+
+| Layer | What it establishes | Where it is defined |
+|---|---|---|
+| **Protocol consensus** | The coordination state a set of agents reached over a resource under this specification. | §1–§16, §19–§22, §23 (and §24 Matters, `spec/v2.2/` pending the re-issue) |
+| **Human authorization** | That one identified HumanPrincipal deliberately authorized one specific PACT message. | §17–§18 |
+| **Legal execution** | That an instrument has been signed or executed by a person with capacity and authority, and is enforceable. | **Outside PACT.** A separate execution / signature system. |
+
+Each layer is strictly weaker evidence of the layer below it than it appears. Protocol consensus does not imply human authorization; human authorization does not imply legal execution.
+
+### 25.3 Protocol states are protocol states (normative)
+
+The following are **PACT protocol states only**: `accepted`, `approved`, `auto-merged`, `merged`, `aligned`, `consensus_reached`, `commitment`, `objected`, `resolved`, the resource-type terminal states of §14.2 (`Merged`, `Settled`, `Verified`, `Finalized`), a `done` completion, a §19–22 Parley outcome, timeout / TTL expiry, and absence of objection.
+
+None of them is, **by itself**, any of the following, and an implementation MUST NOT represent it as such:
+
+1. an electronic signature, or the execution of an instrument;
+2. legal assent, acceptance of an offer, or agreement to be bound;
+3. proof of a natural person's legal identity;
+4. proof of a person's role, capacity, or authority to bind a legal entity;
+5. authority to perform an external, irreversible, financial, or purportedly legally binding effect.
+
+This applies to every surface an implementation exposes: API response bodies, event payloads, the §15.1 Implementation Profile, exports and audit reports, CLI and MCP output, and human-facing UI (§9). A conformant implementation MUST NOT emit `signed`, `executed`, `countersigned`, `legally accepted`, or a synonym, in a positive sense, for a resource whose state was reached only by the mechanisms listed above.
+
+**Silence.** Where this specification says "silence = consent" (§5 approval policy, §10.5, §14.5, §15.2), the normative meaning is **absence of protocol objection within the TTL window**. It is a coordination default chosen so that only disagreement requires action. It is NOT consent in any legal sense, NOT an act of a human, and NOT evidence that any human saw the proposal.
+
+### 25.4 Silence, TTL, consensus and agent votes never create an attestation (normative)
+
+An implementation MUST NOT synthesise, imply, back-fill, or accept as equivalent an `authorization_proof` (§17.6) from any of:
+
+- expiry of a proposal, lock, salience-abstention (§10.7), or Parley TTL;
+- absence of objection;
+- an `auto`, `single`, `majority`, `unanimous`, or `objection-based` approval outcome;
+- a vote, approval, or `done` signal cast by an agent rather than by a HumanPrincipal;
+- a `consensus_reached` or `commitment` state;
+- a previously verified `authorization_proof` over a *different* payload, scope, or effect (§25.7).
+
+A message that carries no `authorization_proof` is a message with no human attestation. Implementations MUST record the absence as absence — they MUST NOT emit an event, export, or manifest field describing an unattested protocol state as human-authorized, human-approved, or human-signed.
+
+**Human overrides (§9.2) are not exempt.** A human override recorded without a §17.6 proof is an *implementation-authenticated* action, not a PACT attestation, and MUST NOT be exported as one.
+
+### 25.5 Effect classification (normative)
+
+Every resource type MUST declare an **effect class** describing what its apply semantics (§14.1) do in the world:
+
+| `effect_class` | Meaning | Examples |
+|---|---|---|
+| `internal-reversible` | The apply changes only state inside the PACT implementation, and the implementation can restore the prior state from its own event log (§6). | Merging a Markdown section into a draft; setting salience; recording a constraint. |
+| `external-irreversible` | The apply produces an effect the implementation cannot unilaterally undo — it leaves the system, moves value, or is asserted to bind a person or entity. | Settling a payment; dispatching an order; publishing to a third party; asserting that an instrument is executed. |
+
+The classification is a property of the *effect*, not of the resource type's name. An implementation whose `document` type applies by publishing to an external system MUST classify that apply as `external-irreversible` and MUST say so in its §15.1 profile.
+
+If an implementation cannot classify an effect, it MUST treat it as `external-irreversible`. **Unclassified is not internal.**
+
+Built-in classifications are recorded in [`resource-types.yaml`](./resource-types.yaml) as `effect_class` and `human_attestation`. `human_attestation: required` on a registry entry or a profile entry means the guard of §25.6 applies.
+
+### 25.6 Fail-closed apply guard (normative)
+
+An implementation **MUST NOT** perform an apply whose effect class is `external-irreversible`, or whose resource type or profile declares `human_attestation: required`, on the strength of silence, TTL expiry, absence of objection, agent consensus, or any other state listed in §25.3.
+
+When such an apply becomes eligible under the resource's approval policy (§5) and no valid attestation is present, the implementation MUST do exactly one of:
+
+**(a) Fail closed.** Do not apply. Transition the proposal to the non-terminal state `AwaitingAttestation`, emit `pact.apply.blocked` (§25.9), and raise a §6.5 pending obligation of `kind: sign` against each principal whose attestation is required. The apply proceeds only when §25.7 is satisfied. The implementation MAY additionally escalate (§4.3). `AwaitingAttestation` MUST NOT time out into an apply — a further TTL expiry over a blocked apply re-emits `pact.apply.blocked`; it never releases the guard.
+
+**(b) Declare the effect outside PACT.** Do not model the external effect as a PACT apply at all. Advertise it in the §15.1 profile as `applySemanticsExternal: "out-of-band"`, reach the protocol state (`aligned`, `merged`) inside PACT, and hand the effect to a separate execution system. The PACT resource then records coordination only, and the terminal state MUST NOT be named for the external effect — an out-of-band payment resource reports `Aligned`, not `Settled`.
+
+An `auto` or `objection-based` approval policy configured on a guarded resource MUST NOT bypass this. Where policy and guard conflict, **the guard wins**: the implementation fails closed under (a) rather than honouring the policy. A server that cannot enforce the guard MUST NOT advertise the affected resource type in its profile.
+
+The guard binds **every** conformance level including Core (§25.13). An implementation that supports only `internal-reversible` document resources satisfies it trivially and need declare nothing further.
+
+### 25.7 What a valid attestation releases — and what it does not (normative)
+
+To release the §25.6 guard, an implementation MUST verify **all** of the following, and MUST refuse the apply if any fails:
+
+1. **Presence.** A §17.6 `authorization_proof` accompanies the applying message. Absence is a refusal, not a warning.
+2. **§17.7 verification.** Every step of §17.7 passes — type dispatch, principal resolution, signature, freshness, replay / verifier binding.
+3. **Principal binding.** `principal_id` is one of the principals the application layer requires for this effect. A cryptographically valid proof from a principal who is not a required signer MUST be refused.
+4. **Payload binding.** The proof carries `payload_hash` equal to the base64url SHA-256 of the [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) canonical JSON encoding of the exact apply payload, and the signature commits to it. An attestation over a different payload — including an earlier revision of the same proposal — MUST be refused.
+5. **Scope binding.** The proof carries `scope` and `effect_class` values that cover the effect being applied. A proof scoped to one effect MUST NOT release the guard for another; a proof carrying `effect_class: internal-reversible` MUST NOT release a guard on an `external-irreversible` apply.
+6. **Application-layer authority.** The implementation's own authority checks — mandate, limit, role, entity authority, four-eyes, sanctions / AML, whatever the deployment requires — pass. PACT does not define these and MUST NOT be read as supplying them.
+
+Checks 1–5 MUST be performed **before** any guarded side effect is initiated. An implementation MUST NOT perform the effect and then verify.
+
+Attestations for guarded applies are submitted on the existing approval surface — `POST /api/pact/{resourceId}/proposals/{id}/approve` carrying `authorization_proof` (§17.6, extended with `payload_hash`, `scope` and `effect_class`). No new endpoint is introduced.
+
+**And the boundary, restated:** a proof passing all six checks establishes that a HumanPrincipal authorized this exact PACT message. It establishes nothing else — see §17.14.
+
+### 25.8 Documents: aligned is not signed (normative)
+
+A resource MAY reach protocol consensus and be merged or finalised. That state is a **draft outcome**.
+
+An implementation MUST NOT label a document `signed`, `executed`, `countersigned`, or legally `accepted` — in its API, events, exports, filenames, or UI — unless **all** of:
+
+1. the implementation advertises a distinct **execution capability** in its §15.1 profile (`capabilities.executionCapability: true`) together with the identifier of the execution system used;
+2. that capability captured an **intentional act of execution** by each required signer, separate from and additional to any PACT protocol state, over the final payload;
+3. the evidence of each such act is retained and independently exportable; and
+4. the implementation does not represent the capability's output as a determination of enforceability (§17.14, §25.11).
+
+Absent all four, the correct labels are the protocol ones: `aligned`, `merged`, `consensus_reached`, `draft`.
+
+Reaching consensus on a contract, NDA, or other instrument therefore yields **an aligned draft**. Nothing in §5 or §10.5 changes that; and a §24 Matter (`spec/v2.2/`, pending the re-issue) closed with `outcome: "deal-signed"` records a free-form human-supplied label — it is not itself evidence of execution.
+
+### 25.9 Events and errors
+
+| Event type | Emitted when | Payload fields |
+|---|---|---|
+| `pact.apply.blocked` | A guarded apply became eligible but no valid attestation was present (§25.6(a)). | `resourceId`, `proposalId`, `effect_class`, `required_principals[]`, `reason`, `policy` |
+| `pact.apply.attested` | All six §25.7 checks passed for a guarded apply. | `resourceId`, `proposalId`, `effect_class`, `principal_id`, `payload_hash`, `scope` |
+
+`reason` is one of `attestation_missing`, `attestation_invalid`, `scope_mismatch`, `payload_mismatch`, `principal_mismatch`, `authority_check_failed`. `policy` is the §5 approval policy that would otherwise have applied.
+
+Both events are subject to §6.4 hash chaining and §6.3 retention. `pact.apply.blocked` MUST be emitted even when the implementation also escalates — the block is the audit artifact.
+
+A refused guarded apply returns HTTP `403` with the §A.1 error envelope — `{ "errors": [ { "code": …, "description": …, "metadata": … } ] }` — and `errors[0].code` one of `apply.attestation_required`, `apply.attestation_invalid`, `apply.principal_mismatch`, `apply.attestation_payload_mismatch`, `apply.attestation_scope_mismatch`, `apply.authority_check_failed` (all registered in Appendix A.1). The `metadata` object SHOULD carry `effect_class` and `required_principals` so the caller can act without a second round trip.
+
+### 25.10 Client terminology (normative for conformant clients)
+
+CLI, MCP, SDK and UI surfaces distributed as PACT clients MUST report protocol states in protocol vocabulary:
+
+- report `auto-merged`, `aligned`, `merged`, `consensus reached`, `objected`, `awaiting attestation`;
+- never render an unattested protocol state as `signed`, `executed`, `authorised by <person>`, or `agreed by <person>`;
+- where a surface summarises "silence", qualify it as *no objection was raised within the TTL* rather than as consent;
+- where a surface reports a verified `authorization_proof`, it SHOULD carry the §17.14 scope statement, or a link to it, in the same output.
+
+### 25.11 What PACT does not do
+
+This section deliberately does **not**:
+
+- define jurisdiction-specific electronic-signature law (eIDAS, ESIGN / UETA, the Australian *Electronic Transactions Act 1999*, or any other);
+- determine corporate authority, delegation, or capacity;
+- make PACT a document-signing product; or
+- assert that any attestation format in §18 satisfies any statutory signature requirement.
+
+It defines only what PACT's own states and attestations do — and do not — authorize, and requires implementations to fail closed at that boundary. Whether a given deployment's execution capability satisfies a given law is a per-deployment legal question, exactly as in §17.10.
+
+### 25.12 Relationship to §19–22 (Parleys and Mandates)
+
+Consistent with RFC [#14](https://github.com/TailorAU/pact/issues/14) and [#35](https://github.com/TailorAU/pact/issues/35): Parley outcomes are advisory by default (§19.6), and a handler-signed §17 proof from every participating handler is required for a protocol-level binding outcome. §25 generalises that boundary — even that proof is a protocol-level binding, not a legal signature and not proof of entity authority. A `commitment` reached in a Parley is a §25.3 protocol state and is bound by §25.6 if it would drive a guarded apply.
+
+### 25.13 Conformance impact
+
+- **Core** — §25.3, §25.4, §25.6 and §25.10 are REQUIRED at every level. The §15.2 Core row's "silence-based auto-apply" is hereby scoped to `internal-reversible` effects.
+- **Extended** — additionally MUST publish `effect_class` and `human_attestation` for every advertised resource type in the §15.1 profile.
+- **Authorization-Required** — additionally MUST enforce all six §25.7 checks on every guarded apply, and MUST retain the `pact.apply.attested` / `pact.apply.blocked` events for the profile's declared retention period.
+
+### 25.14 Migration
+
+Additive for correct implementations. An implementation that only ever applies `internal-reversible` document merges is already conformant. An implementation that today auto-settles a `transaction` on TTL expiry is **not** conformant to v2.1 and MUST either adopt the §25.6(a) guard or re-declare the effect under §25.6(b).
+
+---
+
 ## Appendix A: API Schemas (Unmediated + Mediated)
 
 ### A.1 Error Response Format
@@ -2914,6 +3159,12 @@ The `errors` array contains one or more error objects. Each error has a machine-
 | `parley.invite_consumed` | 409 | Invite token already used for its party slot (v2.1 — §19.3.1) |
 | `parley.full` | 409 | All declared party slots are filled (v2.1 — §19.2) |
 | `escalation.not_found` | 404 | Escalation id unknown, expired, or already consumed (v2.1 — §20.5) |
+| `apply.attestation_required` | 403 | **(v2.1, §25.6)** Guarded apply refused — no `authorization_proof` accompanied the applying message |
+| `apply.attestation_invalid` | 403 | **(v2.1, §25.7 check 2)** A proof was present but failed §17.7 verification |
+| `apply.principal_mismatch` | 403 | **(v2.1, §25.7 check 3)** Valid proof, but `principal_id` is not a required signer for this effect |
+| `apply.attestation_payload_mismatch` | 403 | **(v2.1, §25.7 check 4)** `payload_hash` does not match the payload being applied |
+| `apply.attestation_scope_mismatch` | 403 | **(v2.1, §25.7 check 5)** The proof's `scope` / `effect_class` does not cover this effect |
+| `apply.authority_check_failed` | 403 | **(v2.1, §25.7 check 6)** The implementation's application-layer authority checks did not pass |
 | `subscription.not_found` | 404 | Subscription ID does not exist (v2.1 — §21) |
 | `service_account.revoked` | 401 | Service-account key has been revoked or rotated away (v2.1 — §22.4) |
 

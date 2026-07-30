@@ -1,0 +1,266 @@
+# Conformance test vector — §25.8: consensus on a contract / NDA yields an
+# ALIGNED, MERGED DRAFT. It does not yield `signed` or `executed`.
+#
+# Two agents negotiate an NDA to convergence: every proposal merged, both
+# parties `done --status aligned`, `consensus_reached: true`. That is the
+# strongest protocol state PACT can produce — and it is still a draft.
+#
+# The server under test does NOT advertise capabilities.executionCapability,
+# so §25.8's four conditions are unmet and the words `signed` / `executed`
+# MUST NOT appear on any surface.
+
+kind: session
+
+metadata:
+  id: extended/execution-boundary/consensus-contract-is-draft-not-signed
+  description: Two counterparties reach full protocol consensus on an NDA fabric. The server MUST report aligned / merged / consensus_reached with execution_state unexecuted, MUST NOT label the document signed or executed, and MUST NOT expose a signature record — it advertises no §25.8 execution capability.
+  spec_section: "§25.3, §25.8, §25.10, §15.1"
+  conformance_level: core
+  track: T-execution-boundary
+
+preconditions:
+  server_state:
+    resource_id: fab_nda_atlas
+    resource_type: document
+    effect_class: internal-reversible
+    human_attestation: not-required
+    approval_policy: unanimous
+    registered_agents:
+      - did:web:alpha-legal.example
+      - did:web:beta-legal.example
+    profile:
+      capabilities:
+        executionCapability: false             # §25.8 condition 1 NOT satisfied
+  request_context:
+    auth: bearer
+    principal_id: did:web:alpha-legal.example
+
+steps:
+  # 1. The counterparty confirms the server advertises no execution capability.
+  #    Everything else in this vector follows from that.
+  - id: profile-advertises-no-execution-capability
+    request:
+      method: GET
+      path: /.well-known/pact.json
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          capabilities:
+            executionCapability: false
+      body_ignore_fields:
+        - name
+        - version
+        - specVersion
+        - conformanceLevel
+        - resourceTypes
+        - retentionPolicy
+        - endpoints
+
+  # 2. Alpha proposes the confidentiality clause; Beta approves it. Unanimous
+  #    policy, so the approval merges it.
+  - id: alpha-proposes-confidentiality-clause
+    request:
+      method: POST
+      path: /api/pact/fab_nda_atlas/proposals
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:alpha-legal.example
+      body:
+        proposalId: prop_confidentiality
+        sectionId: sec:confidentiality
+        summary: "Mutual confidentiality, 3-year tail, standard carve-outs"
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          proposalId: prop_confidentiality
+          status: open
+          created: true
+      body_ignore_fields:
+        - required_voters
+        - created_at
+        - event_id
+
+  - id: beta-approves-confidentiality-clause
+    request:
+      method: POST
+      path: /api/pact/fab_nda_atlas/proposals/prop_confidentiality/approve
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:beta-legal.example
+      body:
+        decision: approve
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          proposalId: prop_confidentiality
+          recorded: true
+          decision: approve
+      body_ignore_fields:
+        - vote_id
+        - recorded_at
+
+  # 3. Both parties declare done / aligned. The fabric converges. This is
+  #    maximal protocol consensus.
+  - id: alpha-done-aligned
+    request:
+      method: POST
+      path: /api/pact/fab_nda_atlas/done
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:alpha-legal.example
+      body:
+        status: aligned
+        summary: "Terms agreed subject to execution"
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          fabric_id: fab_nda_atlas
+          principal_id: did:web:alpha-legal.example
+          done: true
+      body_ignore_fields:
+        - completed_at
+        - event_id
+        - phase
+
+  - id: beta-done-aligned-fabric-converges
+    request:
+      method: POST
+      path: /api/pact/fab_nda_atlas/done
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:beta-legal.example
+      body:
+        status: aligned
+        summary: "Terms agreed subject to execution"
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          fabric_id: fab_nda_atlas
+          principal_id: did:web:beta-legal.example
+          done: true
+          phase: converged
+      body_ignore_fields:
+        - completed_at
+        - event_id
+
+  # 4. THE ASSERTION. Full consensus reached. The reported state MUST be the
+  #    protocol one, and the execution state MUST be `unexecuted`.
+  - id: converged-state-is-a-draft
+    request:
+      method: GET
+      path: /api/pact/fab_nda_atlas/_status
+      headers:
+        X-Pact-Principal: did:web:alpha-legal.example
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          fabric_id: fab_nda_atlas
+          phase: converged
+          consensus_reached: true
+          document_state: merged                # a merged DRAFT
+          execution_state: unexecuted           # §25.8 — not signed, not executed
+          legal_status: null                    # PACT makes no such determination
+      body_ignore_fields:
+        - members
+        - latest_event_id
+        - pending_obligations
+        - snapshot_at
+        - effect_class
+    cross_call_assertions:
+      # §25.8 — with executionCapability: false there can be no signature
+      # record and no signer evidence, however aligned the parties are.
+      - kind: negative_obligation
+        body_path: signature_records
+        match: {}
+      - kind: negative_obligation
+        body_path: signers
+        match: {}
+
+  # 5. An export of the converged fabric MUST carry the same vocabulary. This
+  #    is where the misrepresentation usually escapes into the world — a PDF
+  #    or audit bundle stamped "executed".
+  - id: export-carries-draft-vocabulary
+    request:
+      method: GET
+      path: /api/pact/fab_nda_atlas/manifest
+      headers:
+        X-Pact-Principal: did:web:alpha-legal.example
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          fabric_id: fab_nda_atlas
+          execution_state: unexecuted
+          document_state: merged
+      body_ignore_fields:
+        - caller
+        - counterparties
+        - generated_at
+        - last_event_seq
+        - snapshot_at
+    cross_call_assertions:
+      - kind: negative_obligation
+        body_path: signature_records
+        match: {}
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.proposal.created
+      match: { mode: subset, value: { proposalId: prop_confidentiality } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.proposal.voted
+      match: { mode: subset, value: { proposalId: prop_confidentiality, decision: approve } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.proposal.merged
+      match: { mode: subset, value: { proposalId: prop_confidentiality } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.agent.done
+      match: { mode: subset, value: { principalId: did:web:alpha-legal.example } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.agent.done
+      match: { mode: subset, value: { principalId: did:web:beta-legal.example } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+
+postconditions:
+  server_state:
+    resource_modified: true
+    apply_attested_events_added: 0
+    signature_records_created: 0                # §25.8 — none, at any point
+
+notes: |
+  Everything in this vector goes right. Both sides agreed. That is precisely
+  the point: the strongest thing PACT can honestly say about a contract is
+  "the parties' agents converged on this text". Whether the parties are bound
+  is a question about signatures, capacity, authority and law that PACT does
+  not answer and MUST NOT appear to answer (§25.11, §17.14).
+
+  To legitimately report `signed`, a server must satisfy all four §25.8
+  conditions — advertise `capabilities.executionCapability: true` plus the
+  execution system's identifier, capture each required signer's intentional
+  act separately from any PACT state, retain exportable evidence of each act,
+  and still not represent the result as a determination of enforceability.
+  This server advertises `false`, so `signed` is simply unavailable to it.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Converged fabric reported as `signed`, `executed`, or `legally accepted`
+    - execution_state omitted, so consumers default to assuming execution
+    - legal_status populated with an enforceability claim PACT cannot make
+    - Signature record fabricated from the consensus state
+    - Export / PDF stamped "executed" while the API correctly says merged (the boundary must hold on every surface, §25.3)
+    - Server advertises executionCapability: true without a separate execution system (§25.8 condition 1)

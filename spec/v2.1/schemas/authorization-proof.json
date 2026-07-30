@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pact-spec.dev/schemas/v2.0/authorization-proof.json",
+  "$id": "https://pact-spec.dev/schemas/v2.1/authorization-proof.json",
   "title": "PACT Authorization Proof",
-  "description": "Proof-of-human-intent envelope (PACT Specification §17.6) that MAY accompany any PACT message. Carries a cryptographic attestation that a specific HumanPrincipal authorized the action. Attestation-type-specific fields (e.g. `match`, `utterance_hash`, `verifier_id` for `voice-biometric`) are additive — see §18.",
+  "description": "Proof-of-human-intent envelope (PACT Specification §17.6) that MAY accompany any PACT message. Carries a cryptographic attestation that a specific HumanPrincipal authorized the action. Attestation-type-specific fields (e.g. `match`, `utterance_hash`, `verifier_id` for `voice-biometric`) are additive — see §18. SCOPE (§17.14, normative): a proof that verifies establishes only that the identified HumanPrincipal authorized THIS EXACT PACT message. It does NOT establish legal identity, role or capacity, authority to bind an entity, intention to sign a particular instrument, satisfaction of witnessing / countersignature / statutory formalities, or enforceability. Silence, TTL expiry, consensus and automated agent votes MUST NOT create or substitute for this envelope (§25.4).",
   "type": "object",
   "required": ["type", "principal_id", "credential_id", "challenge_nonce", "asserted_at", "signature", "alg", "alg_version"],
   "properties": {
@@ -82,6 +82,22 @@
     "utterance_hash": {
       "type": "string",
       "description": "Base64url hash of the spoken utterance, binding a `voice-biometric` assertion to what was said (§18.3, normative)."
+    },
+    "payload_hash": {
+      "type": "string",
+      "minLength": 43,
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "v2.1 (§17.6, §25.7 check 4). Base64url SHA-256 of the RFC 8785 canonical JSON encoding of the exact payload being authorized. REQUIRED whenever this proof is presented to release a §25.6 apply guard (i.e. whenever `effect_class` is present). The `signature` MUST commit to it. A verifier MUST refuse an attestation whose `payload_hash` does not equal the hash it computes over the payload actually being applied — including an earlier revision of the same proposal."
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "v2.1 (§17.6, §25.7 check 5). The specific effect this attestation authorizes, in reverse-domain or path form — e.g. `pact.apply.transaction:txn_9f2`, `pact.apply.document:doc_abc/sec:intro`. REQUIRED for a guarded apply. A proof MUST NOT release a guard for an effect outside its scope."
+    },
+    "effect_class": {
+      "enum": ["internal-reversible", "external-irreversible"],
+      "description": "v2.1 (§25.5). The effect class the human was shown when they attested. REQUIRED for a guarded apply. A proof carrying `internal-reversible` MUST NOT release a guard on an `external-irreversible` apply (§25.7 check 5)."
     }
   },
   "additionalProperties": true,
@@ -99,6 +115,16 @@
         }
       },
       "then": { "required": ["verifier_id"] }
+    },
+    {
+      "description": "v2.1 §25.7 guarded-apply binding: a proof that declares an `effect_class` is being presented to release a §25.6 apply guard, and MUST therefore also carry `payload_hash` (check 4) and `scope` (check 5). Schema-validity is necessary but not sufficient — the verifier MUST additionally recompute the payload hash and evaluate scope coverage at runtime.",
+      "if": { "required": ["effect_class"] },
+      "then": { "required": ["payload_hash", "scope"] }
+    },
+    {
+      "description": "v2.1 §25.7: `payload_hash` and `scope` are only meaningful together with the effect class the human was shown. Presenting either without `effect_class` is an incomplete guarded-apply binding.",
+      "if": { "anyOf": [{ "required": ["payload_hash"] }, { "required": ["scope"] }] },
+      "then": { "required": ["effect_class"] }
     }
   ]
 }

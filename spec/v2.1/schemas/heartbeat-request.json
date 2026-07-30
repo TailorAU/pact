@@ -22,7 +22,7 @@
     },
     "authorization_proof": {
       "description": "Optional. When present, §17.7 verification rules apply; verifier_id MUST equal the receiving server's DID.",
-      "$ref": "https://pact-spec.dev/schemas/v2.0/authorization-proof.json"
+      "$ref": "https://pact-spec.dev/schemas/v2.1/authorization-proof.json"
     }
   },
   "additionalProperties": false,

@@ -1,0 +1,74 @@
+# Conformance test vector — §25.7 negative: a REPLAYED attestation is rejected
+# before any guarded apply.
+#
+# kind: verification — exercises §17.7 step 5 (replay / verifier binding). The
+# attestation is fresh and correctly payload-bound, but its challenge_nonce was
+# never issued by this verifier, is not verifier-signed, and carries no
+# verifier_id. It is a proof lifted from somewhere else and presented at the
+# guarded apply.
+
+kind: verification
+
+metadata:
+  id: extended/execution-boundary/attest-replayed-rejected
+  description: A guarded-apply attestation whose challenge_nonce this verifier never issued — not verifier-signed, no verifier_id — is rejected at §17.7 step 5 before the §25.6 guard can be released. A captured proof cannot be replayed into an external-irreversible apply.
+  spec_section: "§17.6, §17.7, §25.6, §25.7"
+  conformance_level: extended
+  track: T-execution-boundary
+
+verification:
+  proof:
+    type: fido2-assertion
+    principal_id: did:web:cfo.example
+    credential_id: cred_cfo_hsm
+    # Never issued by this verifier; no verifier_signed_nonce; no verifier_id.
+    challenge_nonce: nonce-captured-from-another-flow
+    asserted_at: "2026-07-30T10:00:00Z"
+    signature: "<placeholder — rejection occurs at step 5, before the crypto check>"
+    alg: webauthn-es256
+    alg_version: "2"
+    attestation_chain: []
+    payload_hash: "L2s1bqOX8T7Yy9m4Qv0pRt3aWc6JdKfHnB5xZgE7uMs"
+    scope: "pact.apply.transaction:txn_9f2"
+    effect_class: external-irreversible
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:cfo.example
+        display_name: Chief Financial Officer
+        credentials:
+          - id: cred_cfo_hsm
+            type: fido2-assertion
+            public_key: "<es256-public-key>"
+            enrolled_at: "2026-01-01T00:00:00Z"
+            revoked: false
+  verifier_clock: "2026-07-30T10:00:20Z"         # fresh — step 4 passes
+  issued_nonces:
+    - nonce-pay-9f2-001                          # this verifier's outstanding nonce; not the proof's
+  receiving_verifier_id: did:web:treasury.example
+  operation_requires_uv: true
+  signature_check: structural
+  expected:
+    result: rejected
+    failing_step: 5
+    emits_trust_violation: true
+
+notes: |
+  Distinct from `extended/attestation/verify-replayed-nonce` in intent rather
+  than mechanism: that vector pins the general §17.7 step-5 rule; this one
+  pins that the rule is enforced ON THE GUARDED APPLY PATH, before any
+  external effect is initiated (§25.7, "checks 1–5 MUST be performed before
+  any guarded side effect is initiated").
+
+  The realistic attack: an attestation the CFO produced for a low-stakes
+  internal approval is captured and presented at the payment guard. Freshness
+  and payload binding can both be satisfied by an attacker who moves quickly
+  and re-hashes; the verifier-issued nonce is what they cannot forge.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Verifier accepts a nonce it never issued (no replay check on the apply path)
+    - Replay check performed only on message ingress, not again at the guarded apply
+    - Verifier accepts a nonce that is neither verifier-signed nor accompanied by a matching verifier_id
+    - Guard released first and replay checked afterwards (§25.7 ordering violated)

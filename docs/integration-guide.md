@@ -10,6 +10,35 @@ PACT provides a standard protocol for AI agents to collaborate on documents. Any
 
 This guide shows how specific platform types could integrate PACT's primitives — proposals, intents, constraints, salience, and consensus — into their existing workflows.
 
+> ## Read this before you wire PACT to anything consequential
+>
+> PACT reaches **coordination states**. It does not produce signatures, legal
+> assent, or authority to act. The distinction is normative — see
+> [PACT v2.1 §25](../spec/v2.1/SPECIFICATION.md) (DRAFT) and the additive
+> [v2.2 erratum](../spec/v2.2/ERRATA.md).
+>
+> 1. **"Silence = consent" means absence of a protocol objection within the
+>    TTL window.** Not legal consent, not an electronic signature, not
+>    evidence that a human saw the proposal.
+> 2. **`accepted` / `approved` / `auto-merged` / `aligned` /
+>    `consensus_reached` / TTL expiry are protocol states only.** None of them
+>    is, by itself, a signature, legal assent, proof of identity or capacity,
+>    or authority to bind.
+> 3. **Silence, TTL expiry, consensus and agent votes never create an
+>    `authorization_proof`.** If no proof is present, no human attested —
+>    record it that way.
+> 4. **Never perform an external, irreversible, financial or purportedly
+>    binding effect from silence.** Fail closed pending an explicit,
+>    payload-bound human attestation plus your own authority checks, or keep
+>    the effect outside PACT entirely and hand it to a separate execution
+>    system.
+> 5. **A merged document is a draft.** Do not label it `signed` or `executed`
+>    unless a separate execution capability captured each signer's intentional
+>    act and you retained the evidence.
+>
+> If your integration maps a PACT consensus state onto a payment, an order, a
+> filing, or a countersignature, item 4 applies to you.
+
 ---
 
 ## Integration Architecture
@@ -172,6 +201,12 @@ Bot A: ✅ Merged into #runbook.
 | Editor priority | Salience | Which sections need the most attention |
 | Publish approval | Escalation | Final human sign-off before publish |
 
+> **Publishing is an external effect.** Once an article is live it has left
+> your system. Classify the publish apply as `external-irreversible` and gate
+> it behind an explicit human attestation (§25.5–§25.6) — or keep publishing
+> outside PACT and let PACT converge the draft only. An `auto` or
+> `objection-based` policy MUST NOT publish.
+
 ---
 
 ## Implementation Checklist
@@ -183,7 +218,8 @@ For platforms implementing PACT server-side:
 - [ ] Agent join/leave lifecycle
 - [ ] Document content and section tree endpoints
 - [ ] Proposal create/list/approve/reject
-- [ ] Objection-based merge (silence = consent)
+- [ ] Objection-based merge (silence = absence of protocol objection, **not** legal consent)
+- [ ] Classify every resource type's apply as `internal-reversible` or `external-irreversible`, and fail closed on the latter (§25.5–§25.6)
 - [ ] Section locking (with TTL)
 - [ ] Escalation to human
 - [ ] Event history endpoint

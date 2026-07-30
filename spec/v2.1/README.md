@@ -31,6 +31,17 @@ sections, authored from the RFC
 - **§22 Service-Account Authentication** — the v1.1 invite-token scoped
   `apiKey` promoted to a first-class auth mode with
   create/rotate/revoke/scope-narrow lifecycle, including per-mandate scoping.
+- **§25 Consensus, Authorization, and Legal Execution** (issue
+  [#41](https://github.com/TailorAU/pact/issues/41)) — protocol states are
+  never, by themselves, signatures/assent/authority (§25.3–§25.4); every
+  resource type declares `effect_class`; `external-irreversible` applies fail
+  closed pending payload-bound human attestation (§25.5–§25.7); aligned is
+  not signed (§25.8); plus §17.14 proof-scope limits, `payload_hash` /
+  `scope` / `effect_class` proof fields, `apply.*` error codes, apply-guard
+  events, and the `extended/execution-boundary/` vector family. §24 is
+  reserved (Matters, `spec/v2.2/`) so numbering is stable across the
+  re-issue. Ported from PR #44 (authored against a since-superseded v2.3
+  carry-forward) with content credit to its author.
 
 From v2.1 the backronym is **Contexture and Trust** (AGENTS.md); shipped
 v2.0.x stays "Consensus and Truth" as released. Acronym and `pact*`

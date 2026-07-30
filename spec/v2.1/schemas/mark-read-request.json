@@ -29,7 +29,7 @@
     },
     "authorization_proof": {
       "description": "Optional. Cross-org calls at Authorization-Required MUST carry a valid proof; verifier_id MUST equal the server's DID.",
-      "$ref": "https://pact-spec.dev/schemas/v2.0/authorization-proof.json"
+      "$ref": "https://pact-spec.dev/schemas/v2.1/authorization-proof.json"
     }
   },
   "additionalProperties": false,

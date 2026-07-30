@@ -65,7 +65,7 @@
     },
     "authorization_proof": {
       "description": "Cross-org calls at the Authorization-Required tier MUST carry a valid proof. The envelope's verifier_id MUST equal the server's DID per §17.7 step 5. The proof witnesses 'the human authorized joining this fabric with these constraints.'",
-      "$ref": "https://pact-spec.dev/schemas/v2.0/authorization-proof.json"
+      "$ref": "https://pact-spec.dev/schemas/v2.1/authorization-proof.json"
     }
   },
   "additionalProperties": false,

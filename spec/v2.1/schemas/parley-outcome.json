@@ -39,7 +39,7 @@
             "description": "SHA-256 (hex) of the §20.3 canonical Mandate body this side negotiated under."
           },
           "authorization_proof": {
-            "$ref": "https://pact-spec.dev/schemas/v2.0/authorization-proof.json",
+            "$ref": "https://pact-spec.dev/schemas/v2.1/authorization-proof.json",
             "description": "Per-handler §17.6 proof — REQUIRED for a binding `aligned` outcome (SOQ4)."
           }
         },

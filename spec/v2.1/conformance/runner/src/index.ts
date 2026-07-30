@@ -587,6 +587,12 @@ async function main(): Promise<void> {
       outcome = await checkHttp(vec, args.server);
     } else if (kind === 'session') {
       outcome = await checkSession(vec, args.server);
+    } else if (kind === 'mandate') {
+      // v2.1 (format version "2"): §20 mandate-boundary vectors. No runner
+      // mode exists yet — skip loudly rather than fail a conforming tree.
+      // The @pact-protocol/mcp test suites are the current executable
+      // enforcement of these vectors' semantics.
+      outcome = { status: 'skip', reason: 'kind: mandate not implemented in this runner (see spec/v2.1/README.md)' };
     } else {
       outcome = { status: 'fail', reason: `unknown kind: ${String(kind)}` };
     }

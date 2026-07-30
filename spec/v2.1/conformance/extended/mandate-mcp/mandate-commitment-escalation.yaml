@@ -34,10 +34,13 @@ steps:
           session_id: sess_vec
           agent_id: agent_vec
           handler_principal_id: did:web:knox.example
+          identity_claim: vector fixture agent
+          escalation_hook: https://relay.knox.example/agent-vec/escalations
           commitment_authority:
             max_binding_decisions: 0
             binding_scope: interface contract draft
           expires_at: "2026-08-02T00:00:00Z"
+          alg: eddsa-ed25519
           signature: base64url-vector-signature
           signing_key_id: "did:web:knox.example#key-1"
     expected:

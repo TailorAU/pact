@@ -7,9 +7,10 @@ metadata:
   id: extended/mandate-mcp/mandate-category-denied
   description: >
     A publishing call whose explicit category is not in the mandate's
-    may_publish list is rejected with MandateCategoryDenied (-32014). A
-    publishing call with NO category argument is permitted with an honesty
-    note — the category is not determinable at the MCP boundary.
+    may_publish list is rejected with MandateCategoryDenied (-32014); under a
+    scoped may_publish, a categorised tool with NO category argument is also
+    rejected fail-closed (step 2). Only under an unscoped envelope (step 3)
+    is no category required.
   spec_section: "rfc-mcp-mandate-extension.md §8, §11"
   conformance_level: extended
   track: T11
@@ -35,9 +36,12 @@ steps:
           session_id: sess_vec
           agent_id: agent_vec
           handler_principal_id: did:web:knox.example
+          identity_claim: vector fixture agent
+          escalation_hook: https://relay.knox.example/agent-vec/escalations
           constraint_envelope:
             may_publish: [interface, performance]
           expires_at: "2026-08-02T00:00:00Z"
+          alg: eddsa-ed25519
           signature: base64url-vector-signature
           signing_key_id: "did:web:knox.example#key-1"
     expected:
@@ -66,8 +70,11 @@ steps:
           session_id: sess_vec
           agent_id: agent_vec
           handler_principal_id: did:web:knox.example
+          identity_claim: vector fixture agent
+          escalation_hook: https://relay.knox.example/agent-vec/escalations
           constraint_envelope: {}
           expires_at: "2026-08-02T00:00:00Z"
+          alg: eddsa-ed25519
           signature: base64url-vector-signature
           signing_key_id: "did:web:knox.example#key-1"
     expected:

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/parley-accept-response.json",
+  "title": "Parley — Accept Response",
+  "description": "Response body for POST /api/pact/parleys/{id}/accept (§19.3.2). Added in PACT v2.1 (§19).",
+  "type": "object",
+  "properties": {
+    "parley_id": { "type": "string", "minLength": 1 },
+    "join_token": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The accepting side's agent credential (§19.3.3): ≥128-bit CSPRNG, bound to this parley_id and the accepted Mandate's agent_id, single-use for join, then presented on in-Parley operations."
+    },
+    "mandate_digest": {
+      "type": "string",
+      "description": "Lowercase-hex SHA-256 §20.3 digest of the accepted Mandate."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Non-fatal advisories, including §19.3.2 mandate-intersection deadlock warnings (ratified Q2)."
+    }
+  },
+  "required": ["parley_id", "join_token", "mandate_digest"],
+  "additionalProperties": false
+}

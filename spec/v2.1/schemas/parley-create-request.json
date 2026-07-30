@@ -14,7 +14,14 @@
       "type": "integer",
       "minimum": 60,
       "maximum": 86400,
-      "description": "Time budget in seconds, bounded by the SERVER clock (§19.5). Expiry closes the Parley with outcome `timeout`."
+      "description": "Time budget in seconds (§19.3.1 bounds, stated in prose), bounded by the SERVER clock (§19.5). Expiry closes the Parley with outcome `timeout`."
+    },
+    "max_participants": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 5,
+      "default": 2,
+      "description": "Declared party count (§19.2). Accepts beyond this are 409 parley.full; the Parley activates when every slot has accepted and joined."
     },
     "mandate": {
       "$ref": "https://pact-spec.dev/schemas/v2.1/mandate.json",

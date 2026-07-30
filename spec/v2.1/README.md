@@ -44,9 +44,9 @@ folds together with §19–22 in the planned v2.2 re-issue (see
 
 | Path | Content |
 |---|---|
-| `SPECIFICATION.md` | v2.0.3 body + §19–22 (DRAFT banner at top) |
-| `schemas/` | v2.0 schemas + 8 new: `mandate.json`, `parley-create-request/-response.json`, `parley-accept-request.json`, `parley-outcome.json`, `subscription-create-request.json`, `event-delivery.json`, `service-account-create-request.json` (`$id` …/schemas/v2.1/…) |
-| `conformance/` | v2.0 vectors + `extended/mandate-mcp/` (12 `kind: mandate` vectors) ; `test-vector-format.yaml` bumped to version "2" adding `kind: mandate` |
+| `SPECIFICATION.md` | v2.0.3 body + §19–22 (DRAFT banner at top); carried-body edits: §5/§17.6 Parley renames, §6.1 envelope widened for `pact-parley`, §6.2 events, §15.1 flags, Appendix A.1/A.2 |
+| `schemas/` | v2.0 schemas + 10 new (`$id` …/v2.1/…): `mandate.json`, `parley-create-request/-response.json`, `parley-accept-request/-response.json`, `parley-outcome.json`, `subscription-create-request.json`, `event-delivery.json`, `dead-letter-record.json`, `service-account-create-request.json`; plus `event.json` modified in place (`$id` bumped to v2.1: `pact-parley` entityType, per-entity sequencing, hyphenated event namespaces) |
+| `conformance/` | v2.0 vectors + `extended/mandate-mcp/` (12 `kind: mandate` vectors); `test-vector-format.yaml` version "2" (adds `kind: mandate`, declares `notes:`); runner skips `kind: mandate` with a stated reason; README rewritten for v2.1 |
 | `resource-types.yaml`, `GETTING_STARTED.md` | unchanged from v2.0 |
 
 ## Conformance claims
@@ -57,13 +57,22 @@ None yet. The `kind: mandate` vectors are mirrored by the passing
 vectors yet, and CI does not run the v2.1 conformance tree. Implementations
 MUST NOT claim v2.1 conformance while this directory is a draft.
 
-## Known open questions (tracked in SPECIFICATION.md)
+## Known open questions and draft decisions (tracked in SPECIFICATION.md §19.10)
 
-- §19.10 — facilitator close authority; predecessor-chain transitivity.
+- Facilitator authority beyond close; predecessor-chain transitivity;
+  Parley-scoped subscriptions; in-Parley schema variants.
+- **Draft decision flagged for sign-off:** §19.3.1 refuses a `commitment`
+  open when the *opener's own* Mandate cannot complete it — a narrow
+  divergence from a maximal reading of ratified Q2 (which governs
+  counterparty shortfalls, handled open-with-deadlock per §19.3.2).
 - §20.2 — the Mandate wire field `session_id` retains its RFC #14 name for
   compatibility with the shipped `au.tailor.pact/mandate` reference
   implementation; whether to rename it `parley_id` at v2.1 freeze is a
   maintainer call for sign-off.
+- **Reference-implementation drift to reconcile at sign-off:** the shipped
+  `@pact-protocol/mcp` guard predates this draft's SOQ2 expiry grace
+  (it judges `expires_at` absolutely) and does not yet require
+  `identity_claim`/`alg` in carried mandates — both tracked as follow-ups.
 
 ## History
 

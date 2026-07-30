@@ -13,7 +13,16 @@
     "peer_invite_url": {
       "type": "string",
       "format": "uri",
-      "description": "Capability URL for the counterparty handler to accept (§19.3.2). Travels out-of-band; grants accept, not join."
+      "description": "Capability URL embedding a ≥128-bit CSPRNG invite token — single-use per party slot, TTL ≤ the Parley TTL, REQUIRED on accept (§19.3.1). Travels out-of-band; grants accept plus one pre-accept state read, not join."
+    },
+    "join_token": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The opener's agent credential (§19.3.3): ≥128-bit CSPRNG, bound to this parley_id and the opening Mandate's agent_id, single-use for join, then presented on in-Parley operations."
+    },
+    "facilitator": {
+      "type": ["string", "null"],
+      "description": "The recorded facilitator principal, or null (§19.3.1)."
     },
     "mandate_digest": {
       "type": "string",
@@ -30,6 +39,6 @@
       "description": "Non-fatal advisories (e.g. mandate expiry inside the TTL window, §19.5)."
     }
   },
-  "required": ["parley_id", "peer_invite_url", "mandate_digest", "expires_at"],
+  "required": ["parley_id", "peer_invite_url", "join_token", "mandate_digest", "expires_at"],
   "additionalProperties": false
 }

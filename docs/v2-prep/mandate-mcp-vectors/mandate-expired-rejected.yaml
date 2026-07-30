@@ -30,7 +30,10 @@ steps:
           session_id: sess_vec
           agent_id: agent_vec
           handler_principal_id: did:web:knox.example
+          identity_claim: vector fixture agent
+          escalation_hook: https://relay.knox.example/agent-vec/escalations
           expires_at: "2026-07-01T00:00:00Z"
+          alg: eddsa-ed25519
           signature: base64url-vector-signature
           signing_key_id: "did:web:knox.example#key-1"
     expected:
@@ -38,12 +41,15 @@ steps:
       error: { name: MandateExpired, code: -32012 }
 
 notes: |
-  The server clock is authoritative; the client's opinion of the time is
-  irrelevant to expiry. Verification MUST happen before any side effect
-  (RFC §7).
+  The server clock is authoritative. Per SOQ2 (ratified) the §17.7 ±300 s
+  freshness window applies to the expires_at comparison in the Mandate's
+  favour: a Mandate is expired when server time exceeds expires_at PLUS the
+  window. This fixture is a month stale, far beyond any window. Verification
+  MUST happen before any side effect (RFC §7).
 
 failure_classification:
   severity: blocker
   common_causes:
     - Expiry checked against a client-supplied timestamp instead of server time.
+    - Expiry judged absolutely with no skew grace (SOQ2 applies the ±300 s window to expires_at).
     - Tool side effect executed before verification.

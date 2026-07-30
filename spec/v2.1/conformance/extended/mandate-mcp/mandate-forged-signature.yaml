@@ -33,6 +33,8 @@ steps:
           session_id: sess_vec
           agent_id: agent_vec
           handler_principal_id: did:web:knox.example
+          identity_claim: vector fixture agent
+          escalation_hook: https://relay.knox.example/agent-vec/escalations
           expires_at: "2026-08-02T00:00:00Z"
           # signature deliberately absent
           signing_key_id: "did:web:knox.example#key-1"

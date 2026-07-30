@@ -22,7 +22,7 @@
     },
     "delivered_at": { "type": "string", "format": "date-time" },
     "event": {
-      "$ref": "https://pact-spec.dev/schemas/v2.0/event.json",
+      "$ref": "https://pact-spec.dev/schemas/v2.1/event.json",
       "description": "The §6.1 event envelope being delivered, clearance-reduced per §17.13."
     },
     "signature": {
@@ -35,7 +35,8 @@
         },
         "alg": {
           "type": "string",
-          "description": "Signature algorithm; the §18.2 allow-list applies (no HMAC/symmetric schemes)."
+          "enum": ["eddsa-ed25519", "ecdsa-es256", "ecdsa-es384"],
+          "description": "Signature suite from the §20.3 registry (no HMAC/symmetric schemes)."
         },
         "value": {
           "type": "string",

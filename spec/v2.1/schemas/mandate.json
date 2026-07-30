@@ -76,12 +76,18 @@
     "escalation_hook": {
       "type": "string",
       "format": "uri",
-      "description": "HTTPS endpoint receiving outcomes and mandate-violation events via §21 push delivery."
+      "pattern": "^https://",
+      "description": "HTTPS endpoint receiving outcomes and mandate-violation events via §21 push delivery (subject to §21.2 endpoint-safety rules). REQUIRED at Parley open/accept; §20.7 foreign-transport carriage MAY omit it."
     },
     "expires_at": {
       "type": "string",
       "format": "date-time",
-      "description": "Hard expiry, judged against the SERVER clock (§19.5)."
+      "description": "Hard expiry, judged against the SERVER clock with the §17.7 freshness window applied in the Mandate's favour (§19.5, SOQ2)."
+    },
+    "alg": {
+      "type": "string",
+      "enum": ["eddsa-ed25519", "ecdsa-es256", "ecdsa-es384"],
+      "description": "Signature suite from the §20.3 registry. Inside the signed body."
     },
     "signature": {
       "type": "string",
@@ -101,6 +107,7 @@
     "identity_claim",
     "escalation_hook",
     "expires_at",
+    "alg",
     "signature",
     "signing_key_id"
   ],

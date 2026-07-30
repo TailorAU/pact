@@ -28,6 +28,7 @@
     "participants": {
       "type": "array",
       "minItems": 2,
+      "maxItems": 5,
       "items": {
         "type": "object",
         "properties": {

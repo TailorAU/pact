@@ -112,6 +112,8 @@ test_vector_schema:
                                          # "{captured.<key>}"
     - registry_update: object            # …or an out-of-band mutation replacing guard_config.registry
 
+  notes: string?                         # informative drafting notes; ignored by runners
+
   failure_classification:                # how to report a failure
     severity: enum                       # blocker | warning
     common_causes:                       # human-readable diagnostic hints

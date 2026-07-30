@@ -65,9 +65,7 @@ Current additions in this draft:
 - **Attestation Format Reference** (Section 18) — `fido2-assertion` plus a first-class `voice-biometric` credential type. See issue [#3](https://github.com/TailorAU/pact/issues/3).
 - **Backward compatibility** — all v1.1 endpoints, schemas, and resource types continue to work unchanged.
 
-Tracked for v2.0 (normative text lands via coordinated PRs — see [`docs/v2-plan.yaml`](../../docs/v2-plan.yaml)): W3C DID principal identity (`did:web` + `did:key` required), an `Authorization-Required` conformance tier, ephemeral negotiation Sessions with handler-signed Mandates (§19–20), push delivery (§21), service-account authentication (§22), agent identity lifecycle (§23), and a conformance test suite.
-
-> Sections 17 and 18 are stub headings — full normative text (fields, signature suites, lifecycle, revocation) lands via coordinated PRs with HMAN / tailor-app per AGENTS.md.
+Delivered across v2.0 and this v2.1 draft: W3C DID principal identity (`did:web` + `did:key` required), an `Authorization-Required` conformance tier, agent identity lifecycle (§23), and a conformance test suite (all v2.0); ephemeral negotiation **Parleys** with handler-signed Mandates (§19–20), push delivery (§21), and service-account authentication (§22) land in this v2.1 draft. Sections 17 and 18 carry full normative text.
 
 ---
 
@@ -573,7 +571,7 @@ By default, the agent that authored a proposal **cannot** count as an approver o
 
 Resources MAY set a per-resource boolean **`allowSelfApproval`** (default `false`). When `true`, an author's approval of their own proposal counts normally — appropriate for low-stakes resources, or where the operator deliberately wants self-approval and accepts the reduced check.
 
-**Recommendation for multi-agent-under-one-operator deployments** (the common cloud / managed-service case — see issue [#13](https://github.com/TailorAU/pact/issues/13) Q1): rather than flipping `allowSelfApproval`, use the **`objection-based`** policy. It has no approval step at all — proposals auto-merge after TTL unless an agent objects — so the self-approval question simply does not arise. For new agent-to-agent flows that aren't long-lived collaborations, ephemeral **Sessions** (§19–20, when finalised) sidestep it entirely (Sessions have no merge/approve step; outcomes are reported back to each handler).
+**Recommendation for multi-agent-under-one-operator deployments** (the common cloud / managed-service case — see issue [#13](https://github.com/TailorAU/pact/issues/13) Q1): rather than flipping `allowSelfApproval`, use the **`objection-based`** policy. It has no approval step at all — proposals auto-merge after TTL unless an agent objects — so the self-approval question simply does not arise. For new agent-to-agent flows that aren't long-lived collaborations, ephemeral **Parleys** (§19–20) sidestep it entirely (a Parley has no merge/approve step; outcomes are reported back to each handler).
 
 ### Conflict Detection
 
@@ -603,11 +601,11 @@ Every PACT operation produces an event. Implementations MUST store events with a
 | `actorDisplay` | string | Human-readable actor name |
 | `actorKind` | enum | `Individual`, `AiAgent`, `GovernanceGroup`, `System` |
 | `eventType` | string | Dot-delimited event type (e.g., `pact.proposal.created`) |
-| `entityType` | string | `pact-document` |
-| `entityId` | UUID | Document identifier |
+| `entityType` | string | `pact-document`, or `pact-parley` (v2.1 — §19.7) |
+| `entityId` | string | Document identifier (UUID), or Parley id for `pact-parley` events |
 | `correlationId` | UUID? | Links related events (e.g., create → approve → merge) |
 | `inResponseTo` | UUID? | Direct reply chain |
-| `sequenceNumber` | int64 | Per-document monotonic counter |
+| `sequenceNumber` | int64 | Per-entity monotonic counter (per-document; per-Parley for `pact-parley` events) |
 | `sectionId` | string? | Target section (nullable, max 256 chars) |
 | `payloadJson` | string | JSON payload with operation-specific data |
 
@@ -1764,7 +1762,7 @@ Entity / role disambiguation is the implementation's responsibility, not the pro
 
 ### 17.6 The `authorization_proof` envelope
 
-Any PACT message (proposal, intent, constraint, completion, mediated message, session mandate) MAY include an `authorization_proof` object:
+Any PACT message (proposal, intent, constraint, completion, mediated message, Parley Mandate — §20) MAY include an `authorization_proof` object:
 
 ```json
 {
@@ -2050,6 +2048,14 @@ Terminology notes:
   negotiates. A Parley involves agents in-band and their handlers
   out-of-band.
 
+Two more disambiguations (required by the verdict's naming modification):
+
+- A Parley is not a §13.5.3 **negotiation round**. §13 rounds are a mediated
+  primitive *inside* a long-lived Resource; a Parley is a standalone
+  container that may itself host §13-style exchanges (§19.4).
+- §17.6's "Parley Mandate" message kind is the §20 primitive carried at
+  open/accept; it is bound to §19–§20 by this section.
+
 Parleys sidestep the §5 self-approval problem structurally: there is no
 approval step inside a Parley. Outcomes are reported to each handler, who
 decides what to do with them (see §19.6).
@@ -2081,8 +2087,11 @@ Handler A                               PACT Server                    Handler B
    │◀── outcome → escalation_hook (§21) ────┴──── outcome → hook (§21) ──▶│
 ```
 
-States: `open` → `active` (all mandates accepted, agents joined) → `closed`.
-A Parley MUST close with exactly one outcome:
+States: `open` → `active` → `closed`. A Parley declares its expected party
+count at open (`max_participants`, 2–5, default 2); it becomes `active` when
+every declared slot has an accepted Mandate **and** a joined agent (§19.3.3),
+and the server MUST reject accepts beyond the declared count with
+`409 parley.full`. A Parley MUST close with exactly one outcome:
 
 | Outcome | Meaning |
 |---|---|
@@ -2096,11 +2105,22 @@ A Parley MUST close with exactly one outcome:
 | Method | Path | §-ref | Description |
 |---|---|---|---|
 | POST | `/api/pact/parleys` | §19.3.1 | Open a Parley (caller's handler supplies the first Mandate). |
-| POST | `/api/pact/parleys/{id}/accept` | §19.3.2 | Accept with a counterparty Mandate; returns a `join_token`. |
-| GET | `/api/pact/parleys/{id}/state` | §19.3.3 | Current state, participants, TTL remaining. |
-| POST | `/api/pact/parleys/{id}/close` | §19.3.3 | Close early with an outcome. |
+| POST | `/api/pact/parleys/{id}/accept` | §19.3.2 | Accept with a counterparty Mandate + invite token; returns a `join_token`. |
+| POST | `/api/pact/parleys/{id}/join` | §19.3.3 | An agent joins with its side's `join_token`. |
+| GET | `/api/pact/parleys/{id}/state` | §19.3.4 | Current state, participants, facilitator, warnings, TTL remaining. |
+| POST | `/api/pact/parleys/{id}/close` | §19.3.4 | Close early (participants: `deadlocked` only). |
+| POST | `/api/pact/parleys/{id}/escalations/{escalationId}/authorize` | §20.5 | Resume a suspended over-authority operation with a §17.6 proof. |
 | GET | `/api/pact/parleys/{id}/outcome` | §19.6 | The closed Parley's outcome record. |
 | GET | `/api/pact/parleys/{id}/transcript` | §19.7 | Full negotiation transcript (participants + their handlers only). |
+
+**Authentication.** A `parley_id` carries no authority by itself. Agents
+authenticate in-Parley operations with their `join_token` (§19.3.3),
+presented in the `X-Pact-Join-Token` header. Handlers authenticate
+handler-facing reads and closes with either a §17.6 `authorization_proof`
+bound to the specific operation (nonce rules per §17.7 step 5) or a §22
+service-account key scoped to this Parley's `mandate_digest`. A facilitator
+authenticates as the principal named at open. Any other caller MUST receive
+`403 parley.not_participant`.
 
 #### 19.3.1 Open
 
@@ -2110,6 +2130,7 @@ Request body (see `schemas/parley-create-request.json`):
 {
   "purpose": "API contract negotiation — event v1 schema evolution",
   "ttl_seconds": 900,
+  "max_participants": 2,
   "mandate": { "…§20.2 envelope…" },
   "facilitator": null,
   "predecessor_parley_id": null,
@@ -2117,92 +2138,215 @@ Request body (see `schemas/parley-create-request.json`):
 }
 ```
 
-The server MUST verify the Mandate per §20.4 before opening; an invalid
-Mandate is a `400` with `mandate.invalid` (Appendix A.1). The response
-(`schemas/parley-create-response.json`) carries `parley_id` and
-`peer_invite_url`. The invite URL travels out-of-band between handlers; it is
-a capability to *accept*, not to *join* — agents join with `join_token`s
-their handlers pass them.
+`ttl_seconds` MUST be between 60 and 86400. The server MUST verify the
+Mandate per §20.4 before opening; an invalid Mandate is a `400` with
+`mandate.invalid` (Appendix A.1). The response
+(`schemas/parley-create-response.json`) carries `parley_id`,
+`peer_invite_url`, the opener's `join_token` (§19.3.3), the recorded
+`mandate_digest` (§20.3), the recorded `facilitator` (or null), and
+`expires_at`.
 
+**The invite is a token, not a URL shape.** `peer_invite_url` MUST embed an
+invite token of ≥128 bits from a CSPRNG. The invite token is **single-use
+per party slot**, expires no later than the Parley TTL, is bound to this
+`parley_id`, and is REQUIRED on accept — the server MUST reject an accept
+that does not present a valid, unconsumed invite token
+(`403 parley.invite_invalid`; a consumed token is `409
+parley.invite_consumed`). It is a capability to *accept*, not to *join* —
+agents join with `join_token`s their handlers pass them. The invite URL
+travels out-of-band between handlers and additionally permits one pre-accept
+`GET /state` read so the accepting handler can inspect the declared purpose,
+`outcome_binding`, party count, and **facilitator** before committing —
+accepting implies acknowledging the facilitator on display there.
+
+- `max_participants` — 2–5 (default 2). Slots beyond the opener are filled
+  by accepts; each accept consumes one invite token and one slot.
 - `facilitator` — OPTIONAL principal id of an opt-in third-party facilitator
   (decision D5: Parleys are peer-to-peer by default; an always-mediated
-  variant is NOT part of this section).
+  variant is NOT part of this section). A Parley whose facilitator was not
+  visible to an accepting handler before accept MUST NOT reach `active`.
 - `predecessor_parley_id` — OPTIONAL reference to an earlier Parley (round 2
   of a negotiation). Parleys are **islanded by default**: absent this field,
   implementations MUST NOT link Parleys to each other. When present, the
-  server SHOULD grant participants of the predecessor read access to its
-  outcome record (not its transcript).
-- `outcome_binding` — `"advisory"` (default) or `"commitment"` (§19.6).
+  server MUST reject the open with `403 parley.not_participant` unless the
+  opening handler was a participant or handler of the predecessor; on
+  success, this Parley's participants gain read access to the
+  predecessor's **outcome record only** (never its transcript). Single-hop:
+  access is not transitive across chains (§19.10).
+- `outcome_binding` — `"advisory"` (default) or `"commitment"`. *Draft
+  decision (flagged for sign-off):* when `"commitment"` is requested and the
+  **opener's own** Mandate does not pre-authorise a binding outcome
+  (`commitment_authority.max_binding_decisions ≥ 1`), the server MUST refuse
+  the open with `mandate.insufficient` — the opener is asking for a shape
+  its own authority cannot complete. This refusal applies only to the
+  opener's Mandate at open; counterparty shortfalls are governed by ratified
+  Q2 (§19.3.2), never refused.
 
 #### 19.3.2 Accept
 
 Request body (`schemas/parley-accept-request.json`) carries the accepting
-handler's `mandate`. The server MUST verify it per §20.4. On success the
-response carries the `join_token` for the accepting side's agent.
+handler's `mandate` and is authorised by the invite token (§19.3.1). The
+server MUST verify the Mandate per §20.4; its `session_id` MUST be non-null
+and equal to the path Parley id (§20.4 step 2). On success the response
+(`schemas/parley-accept-response.json`) carries the accepting side's
+`join_token` and recorded `mandate_digest`.
 
-**Mandate intersection.** If the two envelopes are structurally incompatible
-with the stated purpose (e.g. one `commitment_authority` requires a binding
-decision the other forbids), the server MUST still open the Parley and MUST
-attach a deadlock warning to both sides' state view. Refusing to open hides
-the disagreement; opening with the conflict surfaced lets agents renegotiate
-scope or escalate (ratified Q2: open-with-deadlock).
+**Mandate intersection (ratified Q2: open-with-deadlock).** If the accepted
+envelopes are structurally incompatible with the stated purpose or with each
+other — including a `commitment`-bound Parley where an accepting Mandate
+does not pre-authorise binding outcomes — the server MUST still accept and
+proceed, and MUST attach a deadlock warning to every side's state view.
+Refusing hides the disagreement; proceeding with the conflict surfaced lets
+agents renegotiate scope or escalate. For the binding-authority case the
+consequence lands at close: the outcome cannot become binding and is
+recorded with `binding_downgraded: true` (§19.6). With `max_participants` >
+2, intersection warnings are computed pairwise across all accepted Mandates.
 
-#### 19.3.3 State and close
+#### 19.3.3 Join
 
-`GET /state` returns participants (agent + handler principal per side),
-declared purpose, `outcome_binding`, TTL remaining in **server** time, and
-any intersection warnings. Any participant's agent or handler MAY `POST
-/close` early; the server records who closed and why.
+Each side's agent joins with `POST /join` presenting its `join_token`. A
+`join_token`:
+
+- is issued exactly once per party slot — to the opener in the open
+  response, to each acceptor in the accept response;
+- MUST be ≥128 bits from a CSPRNG;
+- is bound to one `parley_id` and to the `agent_id` named in that side's
+  Mandate — a join presenting a token for a different agent MUST be
+  rejected;
+- is **single-use for join**, then serves as that agent's credential on
+  in-Parley operations (`X-Pact-Join-Token`) until close;
+- expires with the Parley TTL.
+
+The Parley becomes `active` when all `max_participants` slots have joined.
+
+#### 19.3.4 State and close
+
+`GET /state` returns the caller-scoped view, reusing the §4.4.2 manifest
+shape under §17.13 disclosure rules (verdict modification M2): participants
+(agent + handler principal per filled slot), declared purpose,
+`outcome_binding`, `max_participants` and slots filled, the **facilitator**
+(or null), per-member liveness (§19.5), pending obligations (§19.4), any
+intersection/deadlock warnings, and TTL remaining in **server** time.
+
+Close authority is asymmetric by design:
+
+- Any participant's agent or handler MAY `POST /close` with outcome
+  **`deadlocked`** only. The server records who closed and the stated
+  reason.
+- **`aligned`** is never a unilateral close: the server closes `aligned`
+  when **every** participant has signalled done-aligned (the §7 `done`
+  primitive scoped to the Parley), and — for `commitment`-bound Parleys —
+  the §19.6 proof requirements are met. One side cannot manufacture a
+  server-signed `aligned` record for a counterparty's handler.
+- `timeout` and `mandate_revoked` are server-driven (§19.5, §20.6).
+- A facilitator MAY close `deadlocked`; a facilitator MUST NOT close
+  `aligned` (further facilitator authority is §19.10).
 
 ### 19.4 In-Parley negotiation
 
-Within a Parley, agents exchange the mediated-communication primitives of
-§13 (`message.send`, `query.submit`, structured negotiation §13.5) scoped to
-the Parley rather than a document. Implementations MUST enforce each agent's
-Mandate envelope on every in-Parley operation per §20.5. A rejected operation
-emits `pact.parley.mandate-violation` to the Parley transcript and to the
+In-Parley operations have their own wire surface, reusing the §13 request
+schemas:
+
+| Method | Path | Reuses |
+|---|---|---|
+| POST | `/api/pact/parleys/{id}/messages` | §13.4 `message.send` request shape |
+| POST | `/api/pact/parleys/{id}/queries` | §13.5.2 `query.submit` request shape |
+| POST | `/api/pact/parleys/{id}/negotiations/{nid}/position` | §13.5.3 position request shape |
+
+Each request MAY carry one additional top-level member, `category` (string),
+which feeds the §20.5 constraint-envelope check. (Formal Parley-scoped
+schema variants are deferred to sign-off — §19.10.)
+
+**Who routes.** §13's Mediator semantics do NOT apply by default — a Parley
+is peer-to-peer (D5). In a facilitator-less Parley the **server relays
+operations verbatim** between participants, subject only to each agent's
+Mandate envelope (§20.5) and §17.13 disclosure reduction; there is no
+filtering, routing discretion, or synthesis step. The Mediator-dependent
+operations (`query.route` targeting, `negotiation.synthesis`) exist **only**
+when a facilitator is present, with the facilitator in the §13 Mediator
+role.
+
+**Round expectations are §6.5 pending obligations** (verdict modification
+M2): when an operation awaits a counterparty response (a `query.submit`, a
+negotiation round), the server registers a pending obligation of kind
+`respond` against the target, surfaced in `/state`.
+
+**Binding decisions.** An in-Parley operation is a *binding decision* iff it
+carries the top-level member `"binding": true`. The flag is the
+machine-checkable trigger for `commitment_authority` accounting (§20.5); a
+side that takes materially binding action without the flag is in violation
+of its Mandate, surfaced in the transcript and outcome record. The
+all-parties `aligned` close of a `commitment`-bound Parley counts as one
+binding decision per handler.
+
+Implementations MUST enforce each agent's Mandate envelope on every
+in-Parley operation per §20.5. A rejected operation emits
+`pact.parley.mandate-violation` (carrying the `escalationId` where §20.5
+suspended rather than rejected) to the Parley transcript and to the
 offending side's `escalation_hook` (§21).
 
-### 19.5 Clocks and TTL
+### 19.5 Clocks, TTL, and liveness
 
 The **server clock is authoritative** for Parley TTL and Mandate expiry
-(ratified Q6). Client-asserted times (e.g. `authorization_proof.asserted_at`)
-are checked against the §17.7 freshness window — **±5 minutes by default,
-configurable** (SOQ2; the RFC draft's 30-second window was considered and
-NOT adopted). A Mandate whose `expires_at` precedes the earliest possible
-close of the Parley (open time + `ttl_seconds`) SHOULD produce a warning in
-the state view at open.
+(ratified Q6). All client-asserted times — `authorization_proof.asserted_at`
+and Mandate `expires_at` comparisons alike — are judged with the §17.7
+freshness window applied: **±5 minutes by default, configurable** (SOQ2; the
+RFC draft's 30-second window was considered and NOT adopted). Concretely, a
+Mandate is expired when server time exceeds `expires_at` **plus** the
+configured window — the tolerance absorbs handler clock drift and is applied
+in the Mandate's favour.
+
+A Mandate whose `expires_at` precedes the Parley's latest possible close
+(the TTL deadline: open time + `ttl_seconds`) MUST produce a warning in the
+state view at open — that configuration guarantees a mid-negotiation
+authority failure.
+
+**Liveness reuses §4.4.3 heartbeat semantics** (verdict modification M2):
+joined agents SHOULD heartbeat against the Parley; per-member `last_seen`
+appears in `/state`. Implementations MAY treat sustained silence from a
+participant (no heartbeat and no operations for an implementation-defined
+window, RECOMMENDED ≥ 2 heartbeat intervals) as grounds to close `timeout`
+early rather than holding the counterparty hostage to the full TTL.
 
 ### 19.6 Outcomes
 
 Outcomes are **advisory by default** (ratified Q3): the outcome record states
 what the agents converged on; each handler decides what to do with it.
 
-A Parley opened with `outcome_binding: "commitment"` elevates the outcome to
-binding, and then:
+A Parley opened with `outcome_binding: "commitment"` elevates the `aligned`
+outcome to binding, under these rules:
 
-1. **Both** Mandates MUST pre-authorise binding outcomes
-   (`commitment_authority.max_binding_decisions ≥ 1` with the Parley's
-   purpose inside `binding_scope`); the server MUST refuse
-   `outcome_binding: "commitment"` at open otherwise
-   (`mandate.insufficient`).
-2. The closing `aligned` outcome MUST carry a **per-handler §17.6
-   `authorization_proof`** — one from each handler, verified per §17.7 —
-   before the server marks the outcome binding (SOQ4). Absent either proof,
-   the server MUST record the outcome as advisory and note the downgrade.
+1. **Machine gate:** each participating Mandate pre-authorises binding
+   outcomes iff `commitment_authority.max_binding_decisions ≥ 1`. This is
+   the only machine-enforced authority check. `binding_scope` and the
+   Parley's `purpose` are natural language: they are carried, surfaced to
+   every handler in `/state` and the outcome record, and never
+   machine-compared (the §20.2 `must_respect` treatment).
+2. **Phases:** the opener's own shortfall refuses the open
+   (§19.3.1 — draft decision); an acceptor's shortfall proceeds
+   open-with-deadlock (ratified Q2, §19.3.2) and caps the outcome at
+   advisory via `binding_downgraded`.
+3. **Proofs (SOQ4):** the closing `aligned` outcome becomes binding only
+   when it carries a **per-handler §17.6 `authorization_proof` from every
+   participating handler**, each verified per §17.7. Absent or failing any
+   proof, the server MUST record the outcome as advisory with
+   `binding_downgraded: true` and the reason.
 
 The outcome record (`schemas/parley-outcome.json`) contains the outcome
-label, the converged content (if any), each side's mandate digest, the
+label, the converged content (if any; content asserted by fewer than all
+parties is marked as such), every side's `mandate_digest` (§20.3), the
 per-handler proofs for binding outcomes, and the close reason. The server
 MUST deliver the outcome record to each Mandate's `escalation_hook` via §21
-on close, whatever the outcome.
+on close, whatever the outcome; a hook that dead-letters remains retrievable
+by its handler (§21.3).
 
 ### 19.7 Transcript, retention, and privacy
 
-The Parley transcript is the ordered event log of the negotiation
-(§6 envelope, `entityType` scoped to the parley). Access: participating
-agents, their handlers, and the facilitator (if any). Parleys are ephemeral:
-after close, implementations MUST retain the outcome record per their §15.1
+The Parley transcript is the ordered event log of the negotiation: §6.1
+envelopes with `entityType: "pact-parley"`, `entityId` = the Parley id, and
+`sequenceNumber` monotonic per Parley. Access: participating agents, their
+handlers, and the facilitator (if any). Parleys are ephemeral: after close,
+implementations MUST retain the outcome record per their §15.1
 `retentionPolicy` but MAY expire the transcript earlier; the state view MUST
 say which retention applies. Cross-organisation disclosure follows §17.13 —
 a Parley is not a privacy bypass.
@@ -2226,12 +2370,24 @@ pact.parley.closed              // closed with outcome: aligned | deadlocked | t
 
 ### 19.10 Open questions (v2.1 draft)
 
-1. **Facilitator authority.** D5 ships the opt-in facilitator role; whether a
-   facilitator may close a Parley over participant objection is unresolved —
-   current draft: MAY close as `deadlocked`, MUST NOT close as `aligned`.
-2. **Predecessor chains.** `predecessor_parley_id` is single-hop by design.
-   Whether chains (round N referencing round N−1 referencing…) grant
-   transitive outcome access is deferred; current draft: no transitivity.
+1. **Facilitator authority beyond close.** §19.3.4 fixes close authority
+   (MAY `deadlocked`, MUST NOT `aligned`); whether a facilitator may
+   suppress or reorder in-Parley operations beyond the §13 Mediator role is
+   unresolved.
+2. **Predecessor chains.** `predecessor_parley_id` is single-hop with
+   participant-gated access (§19.3.1). Whether chains grant transitive
+   outcome access is deferred; current draft: no transitivity.
+3. **Parley-scoped subscriptions.** §21 subscriptions are resource-scoped;
+   Parley events reach handlers only via the server-managed escalation-hook
+   subscription. A first-class Parley (or caller-scoped) subscription
+   surface is deferred.
+4. **In-Parley request schemas.** §19.4 reuses the §13 request shapes plus
+   optional `category` / `binding` members; formal Parley-scoped schema
+   variants (and whether the members join the §13 schemas proper) are
+   deferred to sign-off.
+5. **Opener-side commitment refusal.** §19.3.1's refusal when the opener's
+   own Mandate cannot complete a `commitment` Parley is a draft decision
+   diverging from a maximal reading of Q2; confirm or strike at sign-off.
 
 ---
 
@@ -2299,78 +2455,123 @@ and is carried in the §19.3 open/accept requests:
 | `commitment_authority.max_binding_decisions` | integer | No | Cap on binding decisions the agent may make alone. Exceeding it MUST escalate (§20.5), never silently fail. |
 | `commitment_authority.binding_scope` | string | No | What the binding decisions may be about. |
 | `disclosure_ceiling` | integer (1–4) | No | Maximum §10.3 graduated-disclosure level the agent may reveal. The effective limit is the **lower** of this and the agent's clearance (§10). |
-| `escalation_hook` | string (URI) | Yes | Where the server delivers outcomes and mandate-violation events, via §21. |
-| `expires_at` | string (ISO 8601) | Yes | Hard expiry in **server** time (§19.5). |
+| `escalation_hook` | string (HTTPS URI) | Conditional | Where the server delivers outcomes and mandate-violation events, via §21 (subject to §21.3's address rules). REQUIRED at Parley open/accept; MAY be absent only under §20.7 foreign-transport carriage, where escalation is in-band. |
+| `expires_at` | string (ISO 8601) | Yes | Hard expiry, judged against **server** time with the §17.7 freshness window applied in the Mandate's favour (§19.5, SOQ2). |
+| `alg` | string | Yes | Signature suite from the §20.3 registry (`eddsa-ed25519`, `ecdsa-es256`, `ecdsa-es384`). Inside the signed body. |
 | `signature` | string (base64url) | Yes | Handler signature over the canonical Mandate body (§20.3). |
 | `signing_key_id` | string (DID URL) | Yes | Key that produced `signature`. MUST belong to `handler_principal_id`; MUST be enrolled and unrevoked per §17.8. |
 
 Schema: `schemas/mandate.json`.
 
-### 20.3 Signature and canonicalisation
+### 20.3 Signature, digest, and canonicalisation
 
 The signed payload is the UTF-8 encoding of the **RFC 8785 (JCS) canonical
 JSON** of the Mandate object with the `signature` field removed — the same
-canonicalisation §6.4 already mandates for event `prev_hash`. Signature
-suites follow §18: the key type referenced by `signing_key_id` selects the
-algorithm, and the §18.2 algorithm allow-list applies (HMAC/symmetric
-schemes remain disallowed). Where `session_id` is present it is inside the
-signed body — binding the Mandate to one Parley; a Mandate signed with
-`session_id: null` is valid only for the single open call that carries it.
+canonicalisation §6.4 already mandates for event `prev_hash`.
+
+**Signature suites.** Mandate (and §21.3 delivery) signatures are detached
+raw signatures over that payload — they are NOT WebAuthn assertions, and the
+§17.6 `webauthn-*` whitelist does not apply here (it is scoped to §18
+attestation types, which carry authenticator data a machine key cannot
+produce). The v2.1 suite registry:
+
+| `alg` | Signature | Hash |
+|---|---|---|
+| `eddsa-ed25519` | Ed25519 (RFC 8032) | (intrinsic) |
+| `ecdsa-es256` | ECDSA P-256 | SHA-256 |
+| `ecdsa-es384` | ECDSA P-384 | SHA-384 |
+
+HMAC and other symmetric schemes remain disallowed. The key type resolved
+from `signing_key_id` MUST match the declared `alg`.
+
+**Mandate digest.** The *Mandate digest* — used by §19.6 outcome records,
+§19.3 responses, and §22.3 per-mandate scoping — is the **lowercase-hex
+SHA-256 of the same canonical payload** (body with `signature` removed).
+(§6.4's `prev_hash` uses base64url; the digest uses hex deliberately, for
+greppability in registries and scope grants. The two never interchange.)
+
+**Parley binding and single-use opens.** Where `session_id` is present it is
+inside the signed body, binding the Mandate to one Parley. A Mandate signed
+with `session_id: null` is valid only for a single open: servers MUST record
+the digest of every null-session Mandate consumed at open and MUST reject a
+subsequent open presenting the same digest (`mandate.invalid`), retaining
+ledger entries until the Mandate's `expires_at` (plus skew window).
 
 ### 20.4 Verification flow
 
 On receiving a Mandate (at open, at accept, and on every §20.5 enforcement
 check that re-reads it), the server MUST:
 
-1. **Shape** — all required fields (§20.2) present; unknown `version` ⇒
-   unverifiable.
-2. **Principal resolution** — resolve `handler_principal_id` per §17.4;
+1. **Shape** — all required fields (§20.2) present; unknown `version` or
+   `alg` ⇒ unverifiable.
+2. **Binding** — reject unless: on accept, `session_id` is non-null and
+   equals the path Parley id; on open, `session_id` is null or equals the
+   minted id; `agent_id` equals the joining agent's identity (§19.3.3); and
+   `handler_principal_id` equals the presenting handler where the transport
+   authenticates one. A signature-valid Mandate captured from another Parley
+   fails here.
+3. **Principal resolution** — resolve `handler_principal_id` per §17.4;
    tombstoned principal (§17.8) ⇒ reject.
-3. **Signature verification** — verify `signature` over the §20.3 canonical
-   payload against the key enrolled for `signing_key_id`. An unenrolled key
-   MUST be rejected, not treated as unverifiable-but-permitted — otherwise
-   revocation is bypassable by renaming the key.
-4. **Freshness** — `expires_at` not passed in server time.
-5. **Revocation** — `signing_key_id` not revoked per §17.8. Verifiers MUST
+4. **Signature verification** — verify `signature` over the §20.3 canonical
+   payload with the declared `alg`, against the key enrolled for
+   `signing_key_id`. An unenrolled key MUST be rejected, not treated as
+   unverifiable-but-permitted — otherwise revocation is bypassable by
+   renaming the key.
+5. **Freshness** — `expires_at` (plus the §19.5 skew window) not passed in
+   server time.
+6. **Revocation** — `signing_key_id` not revoked per §17.8. Verifiers MUST
    NOT cache verification verdicts across operations (caching resolved
    registry documents within the §17.7 freshness window is permitted).
-6. **Result** — any failure ⇒ reject the carrying operation, and where a
+7. **Result** — any failure ⇒ reject the carrying operation, and where a
    Parley is already active, terminate it per §20.6. The server SHOULD emit
    `pact.trust.violation` with `payloadJson.kind = "mandate_failed"` and the
    failing step.
 
 ### 20.5 Envelope enforcement
 
-For every in-Parley operation, in order:
+For every in-Parley operation (§19.4), in order:
 
-1. **Constraint envelope** — an operation publishing into a category outside
-   `may_publish` (when scoped) MUST be rejected. `must_respect` boundaries
-   are carried, not machine-enforced (§20.2).
-2. **Commitment authority** — an operation that would exceed
-   `max_binding_decisions` MUST NOT be rejected outright: the server MUST
-   suspend it and escalate to the handler via `escalation_hook`, resuming
-   only on a fresh §17.6 `authorization_proof` from
-   `handler_principal_id` — nonce-bound to the specific escalation and
-   consumed by the success of the operation it authorises (single-use).
+1. **Constraint envelope** — an operation whose `category` member falls
+   outside `may_publish` (when scoped) MUST be rejected; under a scoped
+   envelope, operations on the §19.4 surface MUST carry a `category`.
+   `must_respect` boundaries are carried, not machine-enforced (§20.2).
+2. **Commitment authority** — a binding decision (§19.4) that would exceed
+   `max_binding_decisions` MUST NOT be rejected outright: the server
+   suspends it, mints an `escalationId` and a server-held challenge nonce,
+   notifies the handler via `escalation_hook` (§21), and resumes only when
+   `POST /api/pact/parleys/{id}/escalations/{escalationId}/authorize`
+   presents a fresh §17.6 `authorization_proof` from
+   `handler_principal_id` echoing that nonce (§17.7 step 5, the server as
+   verifier). Approvals are single-use — consumed by the success of the
+   operation they authorise. A suspension expires with the earlier of an
+   implementation-defined TTL or the Parley TTL; an unknown or expired
+   `escalationId` is `404 escalation.not_found`.
 3. **Disclosure ceiling** — an operation that would reveal above
    `disclosure_ceiling` MUST be redacted to the ceiling (marked as redacted)
    or refused; never passed through.
 
-Rejections and escalations emit `pact.parley.mandate-violation`.
+Rejections and escalations emit `pact.parley.mandate-violation` (with the
+`escalationId` for suspensions).
 
 ### 20.6 Revocation
 
 A handler MAY revoke a Mandate at any time (key revocation per §17.8, or
-tombstoning). Revocation takes effect **immediately** (ratified Q1 —
+tombstoning). Revocation is **immediate** in the ratified Q1 sense —
 finish-the-round was considered and rejected: a revoked authorisation must
-not retroactively bless an in-flight commit):
+not retroactively bless an in-flight commit. Mechanically:
 
-- The next operation under the revoked Mandate fails §20.4 step 5.
-- If a Parley is active, the server MUST terminate it with outcome
+- §20.4 runs on **every in-Parley operation by any participant**, and
+  re-checks revocation for **all** participating Mandates, not only the
+  operator's. In addition, servers MUST revalidate every participating
+  Mandate on a cadence no coarser than the §17.7 freshness window while a
+  Parley is `active`.
+- Consequently revocation takes effect no later than the next in-Parley
+  operation by anyone, and in a quiet Parley within one freshness window —
+  that is the normative worst-case exposure.
+- On detection, the server MUST terminate the Parley with outcome
   `mandate_revoked` and deliver the outcome record to all hooks.
 
-Because §20.4 runs per-operation, there is no in-flight authority to wind
-down; transports that re-present the Mandate on every request (e.g. the MCP
+Transports that re-present the Mandate on every request (e.g. the MCP
 `2026-07-28` `_meta` carriage) get the enforcement half of this behaviour
 structurally.
 
@@ -2378,10 +2579,13 @@ structurally.
 
 The Mandate envelope travels beyond PACT's own API. The
 `au.tailor.pact/mandate` MCP extension
-(`docs/v2-prep/rfc-mcp-mandate-extension.md`) carries §20.2 verbatim in MCP
-request `_meta` with per-request verification; `@pact-protocol/mcp` ships a
-reference guard implementation and conformance vectors. That extension is a
-design record, not part of this specification.
+(`docs/v2-prep/rfc-mcp-mandate-extension.md`) carries the §20.2 envelope in
+MCP request `_meta` with per-request verification; `@pact-protocol/mcp`
+ships a reference guard implementation and conformance vectors. Carriage
+uses the §20.2 fields verbatim with one named omission: `escalation_hook`
+MAY be absent, because escalation on that transport is in-band
+(`input_required` suspension/retry) rather than push-delivered. That
+extension is a design record, not part of this specification.
 
 ### 20.8 Conformance
 
@@ -2413,21 +2617,38 @@ subscription scoped to one Mandate.
 | POST | `/api/pact/{resourceId}/subscriptions` | §21.3 | Create a subscription. |
 | GET | `/api/pact/{resourceId}/subscriptions` | — | List the caller's subscriptions. |
 | DELETE | `/api/pact/{resourceId}/subscriptions/{id}` | — | Delete a subscription. |
+| GET | `/api/pact/{resourceId}/subscriptions/{id}/dead-letters` | §21.3 | Deliveries that exhausted their retry budget. |
 
 Request body (`schemas/subscription-create-request.json`):
 
 ```json
 {
   "url": "https://relay.knox.example/pact/hooks",
-  "event_types": ["pact.escalation.human", "pact.parley.*"],
+  "event_types": ["pact.escalation.human", "pact.proposal.*"],
   "description": "on-call routing"
 }
 ```
 
 `event_types` entries are exact event types or a single trailing-`*` prefix
-pattern (`pact.parley.*`). Subscriptions are per-caller: a subscriber
-receives only events its clearances (§10) permit it to see, reduced per
-§17.13.
+pattern (`pact.proposal.*`). Subscriptions are **resource-scoped** and fire
+on that resource's events. Parley events are not resource events: they reach
+handlers through the **server-managed escalation-hook subscription** each
+Mandate's `escalation_hook` creates — owned by that Mandate's
+`handler_principal_id`, listable and dead-letter-queryable by that principal
+through these same endpoints using the subscription id returned in the
+Parley state view. (A first-class Parley-scoped subscription surface is
+deferred — §19.10.) Subscriptions are per-caller: a subscriber receives only
+events its clearances (§10) permit it to see, reduced per §17.13. Servers
+SHOULD cap open subscriptions per caller and MUST answer breaches with
+`429 rate.limited`.
+
+**Endpoint safety.** `url` (and every Mandate `escalation_hook`, which these
+rules govern identically) MUST be `https://`, MUST NOT resolve to loopback,
+link-local, or private address ranges — re-checked at **delivery** time, not
+only at registration — and MUST pass a one-time ownership challenge before
+the first substantive delivery (the server posts a nonce; the endpoint
+echoes it). These three rules exist because a delivery target is otherwise
+an SSRF probe with a retry engine attached.
 
 ### 21.3 Delivery semantics
 
@@ -2437,8 +2658,8 @@ receives only events its clearances (§10) permit it to see, reduced per
 | Idempotency | The §6 event `id` is the idempotency key; receivers deduplicate on (`subscription_id`, `event.id`). |
 | Ordering | NOT guaranteed across deliveries; use `sequenceNumber` to reorder. |
 | Ack | Any `2xx` response acknowledges. Anything else (or timeout) schedules a retry. |
-| Retry | Exponential backoff with jitter; retries MUST continue for at least 24 h, then the delivery moves to a dead-letter record queryable by the subscriber. |
-| Signing | Every delivery is signed with the **server's principal key** (§17.4 DID). |
+| Retry | Exponential backoff with jitter, within a bounded budget: an implementation-defined maximum attempt count, total duration ≤ 24 h, stopping immediately on a permanent-failure signal (`410 Gone`, or a failed §21.2 ownership re-challenge). Exhaustion moves the delivery to a dead-letter record (`schemas/dead-letter-record.json`), queryable by the subscription's owner via `GET …/dead-letters` and retained per the §15.1 `retentionPolicy`. |
+| Signing | Every delivery is signed with the **server's principal key** (§17.4 DID), using a §20.3 registry suite. |
 
 Delivery is an HTTPS POST of an `event-delivery` envelope
 (`schemas/event-delivery.json`):
@@ -2452,7 +2673,7 @@ Delivery is an HTTPS POST of an `event-delivery` envelope
   "event": { "…§6.1 event envelope…" },
   "signature": {
     "signing_key_id": "did:web:pact.example#key-1",
-    "alg": "webauthn-eddsa",
+    "alg": "eddsa-ed25519",
     "value": "base64url-…"
   }
 }
@@ -2490,9 +2711,17 @@ Subscription lifecycle emits `pact.subscription.created` /
 
 A **service account** is a non-interactive principal credential: a scoped
 API key for daemons, CI jobs, and long-running agents. It authenticates with
-the `X-Api-Key` header. Keys SHOULD carry the `pact_sa_` prefix so leaked
-keys are greppable. The key value is returned **once**, at create/rotate;
-servers MUST store only a hash.
+the `X-Api-Key` header. Key security floor:
+
+- The secret MUST be ≥128 bits from a CSPRNG, formatted
+  `pact_sa_<base64url>`; the `pact_sa_` prefix is REQUIRED (leak-scanning is
+  the point of a prefix — an optional one scans nothing).
+- The key value is returned **once**, at create/rotate; servers MUST store
+  only a hash of the full key — SHA-256 at minimum, a KDF where offline
+  compromise of the store is in the threat model — and MUST compare in
+  constant time.
+- Servers MUST rate-limit failed authentications per key prefix and per
+  source (`429 rate.limited`).
 
 ### 22.2 Endpoints
 
@@ -2521,15 +2750,30 @@ Request body (`schemas/service-account-create-request.json`):
 }
 ```
 
-Scoping dimensions (all narrowing; an omitted dimension means unrestricted
-*within the others*):
+Scoping dimensions (all narrowing; an omitted dimension — other than
+`resource_id`, which is always present, with `"*"` as the all-resources
+escape — means unrestricted *within the others*):
 
 | Dimension | Meaning |
 |---|---|
 | `resource_id` | Per-resource. `"*"` grants all resources the owner can reach — servers SHOULD warn on wildcard grants. |
 | `sections` | Per-section within the resource (§14 field addressing). |
-| `operations` | Per-operation allow-list (the §7.1/§13.6/§19.3 operation names). |
-| `mandate_digest` | Per-mandate: the key is valid only for operations under the Mandate whose §20.3 canonical digest matches. Ties a daemon's key to one Parley's authority. |
+| `operations` | Per-operation allow-list from the operation-name registry below. |
+| `mandate_digest` | Per-mandate: the key is valid only for operations under the Mandate whose §20.3 digest matches. Ties a daemon's key to one Parley's authority. |
+
+**Operation-name registry** (normative — these names, not paths, appear in
+`operations` grants):
+
+| Name | Endpoint(s) |
+|---|---|
+| `join`, `leave`, `onboard` | §7.1 join/leave, §4.4.5 `_onboard` |
+| `intent`, `constrain`, `salience` | §7.1 intents/constraints/salience |
+| `propose`, `object`, `done`, `poll` | §7.1 proposals/object/done/events |
+| `lock`, `unlock`, `escalate`, `ask` | §7.1 locks + escalation, §13 ask-human |
+| `message.send`, `query.submit`, `negotiate.position` | §13.4/§13.5 (and their §19.4 Parley-scoped forms) |
+| `parley.open`, `parley.accept`, `parley.join`, `parley.close` | §19.3 |
+| `subscription.create`, `subscription.delete` | §21.2 |
+| `status`, `manifest`, `heartbeat`, `mark-read` | §4.4 |
 
 A request outside every granted scope MUST fail `403 auth.forbidden`.
 Scope-narrowing is the only in-place mutation allowed: `rotate` MAY carry a
@@ -2666,6 +2910,10 @@ The `errors` array contains one or more error objects. Each error has a machine-
 | `parley.not_found` | 404 | Parley ID does not exist (v2.1 — §19) |
 | `parley.closed` | 409 | Parley already closed; operation rejected (v2.1 — §19.2) |
 | `parley.not_participant` | 403 | Caller is not a participant, handler, or facilitator of this Parley |
+| `parley.invite_invalid` | 403 | Accept without a valid invite token (v2.1 — §19.3.1) |
+| `parley.invite_consumed` | 409 | Invite token already used for its party slot (v2.1 — §19.3.1) |
+| `parley.full` | 409 | All declared party slots are filled (v2.1 — §19.2) |
+| `escalation.not_found` | 404 | Escalation id unknown, expired, or already consumed (v2.1 — §20.5) |
 | `subscription.not_found` | 404 | Subscription ID does not exist (v2.1 — §21) |
 | `service_account.revoked` | 401 | Service-account key has been revoked or rotated away (v2.1 — §22.4) |
 
@@ -2673,7 +2921,7 @@ Implementations MAY define additional error codes under custom namespaces (e.g.,
 
 ### A.2 Request/Response Schemas
 
-Full JSON Schema (2020-12) definitions for all API endpoints are available in the [schemas directory](https://github.com/TailorAU/pact/tree/main/spec/v2.0/schemas). Older spec versions (v0.3 / v0.4 / v1.0 / v1.1) use draft-07; v2.0 schemas were bumped to draft 2020-12 on 2026-05-13.
+Full JSON Schema (2020-12) definitions for all API endpoints are available in the [schemas directory](https://github.com/TailorAU/pact/tree/main/spec/v2.1/schemas). Older spec versions (v0.3 / v0.4 / v1.0 / v1.1) use draft-07; v2.0 schemas were bumped to draft 2020-12 on 2026-05-13.
 
 | Schema | Endpoint | Description |
 |---|---|---|
@@ -2704,7 +2952,9 @@ Full JSON Schema (2020-12) definitions for all API endpoints are available in th
 | `mandate.json` | Parley open / accept | Handler-signed Mandate envelope (v2.1 — §20.2) |
 | `parley-create-request.json` | `POST /parleys` | Open a Parley (v2.1 — §19.3.1) |
 | `parley-create-response.json` | `POST /parleys` | Parley id + peer invite URL (v2.1 — §19.3.1) |
-| `parley-accept-request.json` | `POST /parleys/{id}/accept` | Counterparty Mandate (v2.1 — §19.3.2) |
+| `parley-accept-request.json` | `POST /parleys/{id}/accept` | Counterparty Mandate + invite authorisation (v2.1 — §19.3.2) |
+| `parley-accept-response.json` | `POST /parleys/{id}/accept` | Acceptor's join token + mandate digest (v2.1 — §19.3.2) |
+| `dead-letter-record.json` | `GET …/subscriptions/{id}/dead-letters` | Exhausted-delivery record (v2.1 — §21.3) |
 | `parley-outcome.json` | `GET /parleys/{id}/outcome` | Outcome record incl. per-handler proofs on binding outcomes (v2.1 — §19.6) |
 | `subscription-create-request.json` | `POST /{resourceId}/subscriptions` | Push subscription (v2.1 — §21.2) |
 | `event-delivery.json` | Webhook POST body | Signed event delivery envelope (v2.1 — §21.3) |

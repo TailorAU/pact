@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { request } from './api.js';
+import { mandateGuard, mandateServerOptions, type ToolResult } from './mandate.js';
 import {
   loadSessions,
   loadManifestCache,
@@ -20,14 +21,43 @@ function errorResult(err: unknown) {
   return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true as const };
 }
 
-const server = new McpServer({
-  name: 'PACT Protocol',
-  version: '2.0.3',
-});
+const server = new McpServer(
+  {
+    name: 'PACT Protocol',
+    version: '2.0.3',
+  },
+  // Declares ServerCapabilities.extensions["au.tailor.pact/mandate"] when
+  // PACT_MANDATE_ENFORCEMENT is configured; undefined otherwise (unchanged
+  // behaviour). See src/mandate.ts and docs/v2-prep/rfc-mcp-mandate-extension.md.
+  mandateServerOptions(),
+);
+
+/**
+ * Registration wrapper: every tool passes the au.tailor.pact/mandate gate
+ * before its handler runs, and successful results are stamped with the
+ * verification verdict in _meta. With PACT_MANDATE_ENFORCEMENT unset the
+ * gate is a pass-through and behaviour is byte-identical to plain
+ * tool().
+ */
+function tool<S extends z.ZodRawShape>(
+  name: string,
+  description: string,
+  shape: S,
+  handler: (args: z.objectOutputType<S, z.ZodTypeAny>, extra: unknown) => Promise<ToolResult>,
+): void {
+  server.tool(name, description, shape, (async (args: unknown, extra: unknown) => {
+    const meta = (extra as { _meta?: Record<string, unknown> } | undefined)?._meta;
+    const gate = mandateGuard(name, (args ?? {}) as Record<string, unknown>, meta);
+    if (gate.block) return gate.block;
+    const result = await handler(args as z.objectOutputType<S, z.ZodTypeAny>, extra);
+    return gate.stamp(result);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any);
+}
 
 // ── Agent Lifecycle ──────────────────────────────────────────────
 
-server.tool(
+tool(
   'pact_join',
   'Join a resource (document, transaction, topic) as a PACT agent. Required before any other operations.',
   {
@@ -56,7 +86,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_leave',
   'Leave a document, unregistering as a PACT agent.',
   { documentId: z.string().describe('Document ID') },
@@ -68,7 +98,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_agents',
   'List all agents registered on a document.',
   { documentId: z.string().describe('Document ID') },
@@ -82,7 +112,7 @@ server.tool(
 
 // ── Intent-Constraint-Salience ───────────────────────────────────
 
-server.tool(
+tool(
   'pact_intent',
   'Declare intent for a section — what you plan to do.',
   {
@@ -106,7 +136,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_constrain',
   'Publish a constraint on a section — what must or must not happen.',
   {
@@ -130,7 +160,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_salience',
   'Set salience score for a section (0-10: how much you care).',
   {
@@ -151,7 +181,7 @@ server.tool(
 
 // ── Objection (silence = acceptance; only speak up to block) ─────
 
-server.tool(
+tool(
   'pact_object',
   'Object to a proposal — blocks auto-merge, forces renegotiation. Silence = acceptance; only call this when a proposal violates your constraints.',
   {
@@ -175,7 +205,7 @@ server.tool(
 
 // ── Polling & Events ─────────────────────────────────────────────
 
-server.tool(
+tool(
   'pact_poll',
   'Poll for new events since a cursor (stateless). Returns proposals, objections, escalations, and completions.',
   {
@@ -199,7 +229,7 @@ server.tool(
 
 // ── Completion ───────────────────────────────────────────────────
 
-server.tool(
+tool(
   'pact_done',
   'Signal that this agent has completed its work.',
   {
@@ -223,7 +253,7 @@ server.tool(
 
 // ── Locking ──────────────────────────────────────────────────────
 
-server.tool(
+tool(
   'pact_lock',
   'Lock a section for exclusive coordination.',
   {
@@ -244,7 +274,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_unlock',
   'Unlock a section.',
   {
@@ -261,13 +291,17 @@ server.tool(
 
 // ── Escalation ───────────────────────────────────────────────────
 
-server.tool(
+tool(
   'pact_escalate',
   'Escalate an issue to human reviewers. Use when agents cannot reach consensus.',
   {
     documentId: z.string().describe('Document ID'),
     message: z.string().describe('Reason for escalation'),
     sectionId: z.string().optional().describe('Relevant section ID'),
+    disclosure_level: z.number().int().min(1).max(4).optional().describe(
+      'Graduated disclosure level this escalation reveals (§10.3: 1 Constraint, 2 Category, 3 Reasoning, 4 Human). ' +
+        'Guard-facing: checked against an active mandate\'s disclosure_ceiling (au.tailor.pact/mandate); not forwarded upstream.',
+    ),
     authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
   },
   async ({ documentId, message, sectionId, authorizationProof }) => {
@@ -284,7 +318,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_ask',
   'Ask a question of the human custodian — for clarifications PACT cannot resolve via agent consensus. Distinct from escalate: this is a targeted question, not a coordination breakdown.',
   {
@@ -293,6 +327,10 @@ server.tool(
     sectionId: z.string().optional().describe('Relevant section ID'),
     context: z.string().optional().describe('Background context for the question'),
     timeoutSeconds: z.number().optional().describe('How long to wait for an answer (default 60)'),
+    disclosure_level: z.number().int().min(1).max(4).optional().describe(
+      'Graduated disclosure level this question reveals (§10.3: 1 Constraint, 2 Category, 3 Reasoning, 4 Human). ' +
+        'Guard-facing: checked against an active mandate\'s disclosure_ceiling (au.tailor.pact/mandate); not forwarded upstream.',
+    ),
     authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
   },
   async ({ documentId, question, sectionId, context, timeoutSeconds, authorizationProof }) => {
@@ -315,7 +353,7 @@ server.tool(
 
 // ── Mediated Negotiation (§13) ───────────────────────────────────
 
-server.tool(
+tool(
   'pact_negotiate_list',
   'List active mediated negotiations on a document (§13 — structured multi-round exchanges facilitated by the Mediator).',
   { documentId: z.string().describe('Document ID') },
@@ -327,7 +365,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_negotiate_position',
   'Submit this agent\'s position for the current round of a mediated negotiation. The Mediator synthesises positions across rounds (§13.5.3).',
   {
@@ -349,7 +387,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_negotiate_synthesis',
   'Get the Mediator\'s synthesis for the latest round of a negotiation — what positions have been received, and what the Mediator has surfaced to each party (subject to graduated-disclosure rules, §10.3 / §13.5.2).',
   {
@@ -366,7 +404,7 @@ server.tool(
 
 // ── Implementation profile (§15) ─────────────────────────────────
 
-server.tool(
+tool(
   'pact_profile',
   'Fetch a PACT server\'s implementation profile from /.well-known/pact.json (§15). Returns name, version, specVersion, conformanceLevel, resourceTypes, capabilities, retentionPolicy, endpoints. Optionally checks that conformanceLevel meets a minimum.',
   {
@@ -396,7 +434,7 @@ server.tool(
 
 // ── Tier introspection (§15.5, v2.0.2+) ──────────────────────────
 
-server.tool(
+tool(
   'pact_tier_introspect',
   'Behaviourally probe a PACT server\'s advertised conformance tier (§15.5). Calls /api/pact/_probe/tier and reports which of the tier\'s required checks the server actually enforces. Use BEFORE extending cross-org trust to a counterparty: a self-asserted tier in /.well-known/pact.json is not behavioural conformance.',
   {
@@ -438,7 +476,7 @@ server.tool(
 
 // ── Fabric Onboarding & Session Awareness (§4.4 / §6.5 / §15.6, v2.0.3) ─
 
-server.tool(
+tool(
   'pact_onboard',
   'Atomically onboard into a fabric (§15.6, v2.0.3). Use this instead of pact_join when the fabric requires declaring constraints up-front: the server either admits the caller WITH constraints recorded, or rejects with no membership created (no half-joined state).',
   {
@@ -465,7 +503,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_status',
   'Snapshot of a fabric (§4.4, v2.0.3): phase, members, latest event id, pending obligations. If fabric_id is omitted, returns a local-state summary of every fabric this agent is in (no network call).',
   {
@@ -483,7 +521,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_manifest',
   'Fetch the caller-scoped active-session manifest for a fabric (§4.4, v2.0.3) — members, phase, obligations, and any data this caller is authorised to see. Result is cached under ~/.pact/manifest-<id>.json for pact_session_announce to read.',
   {
@@ -499,7 +537,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_transcript',
   'Fetch the event log (transcript) for a fabric since an optional event id (§4.4, v2.0.3). With mark_read=true, also POSTs to /mark-read to acknowledge the printed range.',
   {
@@ -554,7 +592,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_heartbeat',
   'Fire a one-shot heartbeat for a fabric (§4.4, v2.0.3) — tells the server this agent is still attending. Optionally signals that attention is required (e.g. waiting on a human, blocked on another agent). Not a daemon; one ping per call.',
   {
@@ -574,7 +612,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_mark_read',
   'Acknowledge a transcript range on the server (§4.4, v2.0.3). Equivalent to the pact_transcript mark_read flag but standalone, e.g. when ack-ing events that were fetched out-of-band.',
   {
@@ -594,7 +632,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_session_announce',
   'COGNITIVE-LAYER HOOK (v2.0.3 §4.4). Returns a structured "you are currently in N fabrics" payload designed for the calling LLM to prepend to its working context — so it does not forget about active fabrics and their pending obligations. By default this is offline: it only reads ~/.pact/sessions.json + cached manifests. Pass refresh_manifests=true to re-fetch each fabric\'s manifest live before announcing.',
   {
@@ -685,7 +723,7 @@ server.tool(
 
 // ── Matters (v2.2 draft — docs/v2-prep/rfc-matters-multi-fabric.md) ──
 
-server.tool(
+tool(
   'pact_matter_open',
   'Open a multi-fabric "deal-room" Matter. Caller becomes the owner. Matters group N peer fabrics under a shared participant set + typed side-channel + cross-fabric manifest. v2.2 draft.',
   {
@@ -705,7 +743,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_matter_list',
   'List all Matters known to the server (summary view).',
   {},
@@ -717,7 +755,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_matter_show',
   "Show a Matter's caller-visible state.",
   { matterId: z.string().describe('Matter ID (e.g., mtr_xxx)') },
@@ -729,7 +767,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_matter_add_member',
   'Add a member to a Matter (owner-only). Matter membership is eligibility, NOT automatic fabric enrollment — members still need to join attached fabrics individually.',
   {
@@ -752,7 +790,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_matter_attach',
   'Attach an existing fabric to a Matter (owner-only). The fabric retains its own membership and obligations; this just registers the cross-reference. A fabric MAY belong to multiple Matters.',
   {
@@ -770,7 +808,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_matter_detach',
   'Detach a fabric from a Matter (owner-only). The fabric itself is NOT closed — it persists and continues to be queryable directly.',
   {
@@ -788,7 +826,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_matter_message',
   "Post a typed-event message to a Matter's side-channel. The wire format is a structured event (not free-form chat); UIs may render it as chat. Optional `fabric_id` cross-links the message to an attached fabric (and optional `section_id` to a section within it).",
   {
@@ -811,7 +849,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_matter_messages',
   "List a Matter's side-channel messages.",
   { matterId: z.string().describe('Matter ID') },
@@ -825,7 +863,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_matter_manifest',
   'Get the caller-scoped cross-fabric manifest for a Matter — §4.4.2 extended to Matter scope. Aggregates attached-fabric phase, open-proposal counts, caller-specific pending obligations across all attached fabrics, and side-channel summary. Cross-org peers are filtered per §17.13.',
   { matterId: z.string().describe('Matter ID') },
@@ -839,7 +877,7 @@ server.tool(
   },
 );
 
-server.tool(
+tool(
   'pact_matter_close',
   'Close a Matter (owner-only). Per the RFC: closing does NOT cascade to attached fabrics — they persist independently and continue to be queryable directly. Use --outcome to record a free-form close reason ("deal-signed", "walked-away", etc.).',
   {

@@ -1,0 +1,108 @@
+# Conformance test vector — Extended: escalation retry with authorization_proof; approvals single-use.
+# kind: mandate (provisional) — the full RFC §9 round trip, including nonce binding and replay rejection.
+
+kind: mandate
+
+metadata:
+  id: extended/mandate-mcp/mandate-escalation-retry
+  description: >
+    After an input_required suspension, re-invoking the SAME tool with
+    IDENTICAL arguments plus _meta["au.tailor.pact/mandate-escalation"]
+    carrying the request_state and a fresh §17.6 authorization_proof — from
+    the mandate's handler, echoing the per-escalation challenge_nonce —
+    proceeds. The approval is consumed when the call SUCCEEDS; replaying the
+    request_state afterwards is MandateEscalationUnknown (-32018). A proof
+    whose principal differs from the mandate's handler, or whose nonce does
+    not match this escalation's, is MandateProofRejected (-32019).
+  spec_section: "rfc-mcp-mandate-extension.md §9, §11; PACT §17.6–§17.7"
+  conformance_level: extended
+  track: T11
+
+guard_config:
+  enforcement: required
+  clock_skew_seconds: 300
+  registry: null
+
+clock: "2026-08-01T00:00:00Z"
+
+steps:
+  - call:
+      tool: pact_done
+      arguments: &args
+        documentId: doc_vec123
+        status: aligned
+      meta:
+        au.tailor.pact/mandate: &mandate
+          version: "1"
+          session_id: sess_vec
+          agent_id: agent_vec
+          handler_principal_id: did:web:knox.example
+          commitment_authority:
+            max_binding_decisions: 0
+          expires_at: "2026-08-02T00:00:00Z"
+          signature: base64url-vector-signature
+          signing_key_id: "did:web:knox.example#key-1"
+    expected:
+      outcome: input_required
+      input_required:
+        reason: commitment_authority_exceeded
+      capture:
+        request_state: requestState
+        challenge_nonce: inputRequests[0].challenge_nonce
+  - call:
+      tool: pact_done
+      arguments: *args
+      meta:
+        au.tailor.pact/mandate: *mandate
+        au.tailor.pact/mandate-escalation:
+          request_state: "{captured.request_state}"
+          authorization_proof:
+            type: fido2-assertion
+            principal_id: did:web:knox.example
+            credential_id: cred_vec
+            challenge_nonce: "{captured.challenge_nonce}"
+            asserted_at: "2026-08-01T00:00:00Z"
+            signature: base64url-proof-signature
+    expected:
+      outcome: pass
+      verdict:
+        verified: true
+  - call:
+      tool: pact_done
+      arguments: *args
+      meta:
+        au.tailor.pact/mandate: *mandate
+        au.tailor.pact/mandate-escalation:
+          request_state: "{captured.request_state}"
+          authorization_proof:
+            type: fido2-assertion
+            principal_id: did:web:knox.example
+            credential_id: cred_vec
+            challenge_nonce: "{captured.challenge_nonce}"
+            asserted_at: "2026-08-01T00:00:00Z"
+            signature: base64url-proof-signature
+    expected:
+      outcome: error
+      error: { name: MandateEscalationUnknown, code: -32018 }
+
+notes: |
+  Carriage: the mandate key's value stays the RFC #14 body VERBATIM; all
+  retry material rides under the sibling _meta key
+  "au.tailor.pact/mandate-escalation". The proof is verified structurally
+  (§17.7 steps 1, 4, 5-nonce + principal binding to the mandate's handler,
+  plus registry enrollment/revocation of the APPROVER's credential when a
+  registry is configured); cryptographic verification is type-defined and
+  deferred. The nonce binding is the replay barrier: a byte-identical proof
+  from another escalation carries the wrong nonce → -32019. Consumption is
+  success-conditional: if the underlying call fails transiently, the approval
+  survives for a retry — a human approval is burned only by the call it
+  authorised actually executing. Step 2 assumes the underlying call succeeds
+  (reference-server semantics); step 3's -32018 asserts consumption.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Approvals honoured more than once after a successful call (single-use invariant broken).
+    - challenge_nonce not bound per-escalation, allowing byte-identical proof replay.
+    - Approval burned by a transient upstream failure (availability failure demanding re-approval).
+    - Retry material spliced into the mandate body, breaking verbatim carriage.

@@ -1,6 +1,6 @@
 # npm scope decision — `@pact-protocol` is externally owned
 
-Status: **DECISION NEEDED (Knox)** · Filed 2026-08-05 · Tracks [#5](https://github.com/TailorAU/pact/issues/5); gates [#33](https://github.com/TailorAU/pact/issues/33) (v2.2.0 release) and [#6](https://github.com/TailorAU/pact/issues/6) (`tailor tap` deprecation).
+Status: **DECIDED 2026-08-05 (Knox): Option B — `@pact-spec`.** Fallback if the org name proves unavailable at creation time: Option A (`@pact_`, already Tailor-owned). Availability could not be verified anonymously — npm confirms it at org creation. Filed 2026-08-05 · Tracks [#5](https://github.com/TailorAU/pact/issues/5); gates [#33](https://github.com/TailorAU/pact/issues/33) (v2.2.0 release) and [#6](https://github.com/TailorAU/pact/issues/6) (`tailor tap` deprecation).
 
 ## Verified facts (2026-08-05)
 

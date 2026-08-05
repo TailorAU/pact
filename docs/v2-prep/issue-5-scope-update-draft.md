@@ -1,6 +1,6 @@
-# DRAFT comment for issue #5 — not yet posted
+# Comment for issue #5 — POSTED 2026-08-05 (adapted with the decided scope: `@pact-spec`)
 
-> Post with: `gh issue comment 5 --repo TailorAU/pact --body-file docs/v2-prep/issue-5-scope-update-draft.md` (strip this header block first).
+> Historical draft. The live comment on #5 supersedes this file; scope decision recorded in `docs/npm-scope-decision.md`.
 
 ---
 

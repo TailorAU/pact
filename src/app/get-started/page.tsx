@@ -36,13 +36,13 @@ export default function GetStartedPage() {
         <p className="text-sm text-pact-dim mb-2">
           The standalone{" "}
           <a href="https://github.com/TailorAU/pact/tree/main/cli" className="text-pact-cyan hover:underline">
-            @pact-protocol/cli
+            PACT CLI
           </a>{" "}
-          (see{" "}
+          (install from source via{" "}
           <a href="https://github.com/TailorAU/pact" className="text-pact-cyan hover:underline">
             PACT on GitHub
           </a>
-          ) implements <strong className="text-foreground">coordination-only</strong> commands for document-oriented PACT servers (e.g. Tailor). It does{" "}
+          {" "}— not yet on npm; do not install <code className="text-pact-cyan">@pact-protocol/*</code> from the registry, that scope is not controlled by this project) implements <strong className="text-foreground">coordination-only</strong> commands for document-oriented PACT servers (e.g. Tailor). It does{" "}
           <strong className="text-foreground">not</strong> expose PACT knowledge-graph content operations such as reading topic markdown, creating proposals,
           or approving positions—use the REST API above for those.
         </p>

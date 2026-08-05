@@ -4,8 +4,14 @@ LangChain and CrewAI tool wrappers for the **Source** verified knowledge graph.
 
 ## Install
 
+> **Not yet published to PyPI** — the name `source-tailor-tools` is currently
+> unregistered on the index, so `pip install source-tailor-tools` will not
+> resolve to this package. Until publication (tracked with the packaging
+> decisions in [TailorAU/pact#5](https://github.com/TailorAU/pact/issues/5)),
+> install from this directory:
+
 ```bash
-pip install source-tailor-tools
+pip install -e .
 ```
 
 ## Quick Start

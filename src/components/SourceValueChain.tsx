@@ -39,7 +39,6 @@ const AGENT_OUTPUTS: Tile[] = [
   { label: "A2A agent-card", href: "/.well-known/agent-card.json" },
   { label: "PACT REST", href: "https://github.com/TailorAU/pact" },
   { label: "OpenAPI 3.1", href: "/openapi.json" },
-  { label: "Python tools", href: "https://pypi.org/project/source-tailor-tools/" },
   { label: "Gemini functions", href: "/gemini-functions.json" },
   { label: "ChatGPT Actions", href: "/.well-known/ai-plugin.json" },
 ];

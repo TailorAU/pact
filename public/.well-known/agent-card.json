@@ -140,7 +140,7 @@
     {
       "id": "discover-related-manifests",
       "name": "Discover Related Manifests",
-      "description": "Related machine-readable manifests for this service: OpenAPI at https://source.tailor.au/openapi.json; MCP package @source-tailor/mcp on npm (see https://source.tailor.au/mcp for tool list); PACT protocol spec at https://github.com/TailorAU/pact; Python tools at pypi.org/project/source-tailor-tools; Gemini functions at https://source.tailor.au/gemini-functions.json; ChatGPT plugin manifest at https://source.tailor.au/.well-known/ai-plugin.json.",
+      "description": "Related machine-readable manifests for this service: OpenAPI at https://source.tailor.au/openapi.json; MCP tool list at https://source.tailor.au/mcp (MCP server not yet on npm — install from source at https://github.com/TailorAU/pact); PACT protocol spec at https://github.com/TailorAU/pact; Gemini functions at https://source.tailor.au/gemini-functions.json; ChatGPT plugin manifest at https://source.tailor.au/.well-known/ai-plugin.json.",
       "tags": ["discovery", "manifests", "integration"],
       "examples": ["Show me all the ways to consume Source", "Where is the OpenAPI spec?"]
     }

@@ -48,7 +48,7 @@ TailorAU/pact/
 
 | # | Title | Status | Owner |
 |---|---|---|---|
-| [#5](https://github.com/TailorAU/pact/issues/5) | Publish `@pact-protocol/cli` + `@pact-protocol/mcp` | **Reopened** — npm still 404; no `NPM_TOKEN`. Knox-only. | Knox |
+| [#5](https://github.com/TailorAU/pact/issues/5) | Publish the CLI + MCP packages | **Reopened — plan invalidated (2026-08-05):** the `@pact-protocol` npm org name is **owned by an unrelated third party** (publishes `@pact-protocol/sdk`, "Protocol for Agent Credentials and Trust"). A Tailor-controlled scope must be chosen first — see `docs/npm-scope-decision.md`. No `NPM_TOKEN`. Knox-only. | Knox |
 | [#33](https://github.com/TailorAU/pact/issues/33) | Cut v2.2.0 release | Blocked on #5. Checklist: `RELEASING_v2.2.md`. | Knox → agent |
 | [#32](https://github.com/TailorAU/pact/issues/32) | Matter add-member idempotency (§24.6) | **`ready`** — decision (a) different-role = no-op. | agent |
 | [#35](https://github.com/TailorAU/pact/issues/35) | Author `spec/v2.1/` §19–22 (Parley) | **`ready`** — RFC #14 converged. | agent |
@@ -70,12 +70,12 @@ TailorAU/pact/
 
 ## Things you should NOT do
 
-1. **Do not run `npm publish`** on `cli/` or `mcp/`. The `pact-protocol` npm org does not exist yet — see [#5](https://github.com/TailorAU/pact/issues/5). Publishes will 401/403/404 and clutter the registry on retry.
+1. **Do not run `npm publish`** on `cli/` or `mcp/`. The `pact-protocol` npm org is **not ours** — it is owned by an unrelated third party (verified 2026-08-05; it publishes `@pact-protocol/sdk`). See [#5](https://github.com/TailorAU/pact/issues/5) and `docs/npm-scope-decision.md`. Any publish attempt against that scope will fail — and must not be retried under any scope until Knox picks one.
 2. **Do not force-push** any branch. If a push is rejected, `git pull --rebase && git push`.
 3. **Do not promote a draft `spec/vX.Y/` to stable** without explicit sign-off. (`spec/v2.0/` promoted 2026-05-14; `spec/v2.2/` Matter-line promoted 2026-05-27.) The next promotion is `spec/v2.1/` once #35 lands and is signed off — then absorb §19–22 into a v2.2 re-issue per `spec/v2.2/README.md`. v2.0.x patches inline are fine — they're not promotions.
 4. **Do not edit the normative text or schemas of frozen versions: `spec/v0.3/`, `spec/v0.4/`, `spec/v1.0/`, `spec/v1.1/`, `spec/v2.0/`.** Older versions are frozen for citation stability. v2.0 is the current stable and is patched only via additive `ERRATA.md`, the cold-eye-audit v2.0.1 patch (which lands inline as the spec's stated-stable-but-patched-once), and any future minor/major (which goes to a new directory). `spec/v1.1/ERRATA.md` is the documented additive pattern; the same applies to v2.0 if defects are discovered post-release.
 5. **Do not invent spec text.** Normative spec text (`spec/v2.0/SPECIFICATION.md`, schemas, or any future `spec/v2.1/`) is authored **here** — `pact-repo` is canonical (see the Source-of-truth note above) — but still requires explicit maintainer sign-off: agents MUST NOT freehand normative changes. `docs/v2-plan.yaml` and `docs/v2-prep/` are the design record; normative text lands via reviewed change, then mirrors **out** to tailor-app via `tools/mirror-spec.ps1` (never the old draft-in-tailor-app, back-port-here dance — that direction is superseded; the v2.0 mirror via [TailorAU/tailor-app#1616](https://github.com/TailorAU/tailor-app/pull/1616) and the v2.0.x patches #1673 / #1679 / #1701 are now all script-produced). **One exception:** HMAN-co-designed surfaces — currently the §18.3 `voice-biometric` crypto — remain authoritative in HMAN's coordinated [#3](https://github.com/TailorAU/pact/issues/3) PR per §18.6 and the `docs/v2-prep/v2.0.4-voice-biometric-lockdown.yaml` contract; mirror that in when it lands, don't freehand it. Cosmetic/typo/link/structure-only edits (no normative meaning change) are exempt.
-6. **Do not rename `cli/` or `mcp/`.** Their package names (`@pact-protocol/cli`, `@pact-protocol/mcp`) are publicly referenced in external docs and the [issue #5 acceptance criteria](https://github.com/TailorAU/pact/issues/5).
+6. **Do not rename `cli/` or `mcp/` unilaterally.** The eventual published scope is a pending Knox decision ([#5](https://github.com/TailorAU/pact/issues/5), `docs/npm-scope-decision.md`) — the current `@pact-protocol/*` package names **cannot publish as-is** because that npm scope is owned by an unrelated third party. Until #5 resolves: do not rename anything, do not publish anywhere, and do not add `@pact-protocol/*` install commands to any doc (install-from-source is the only documented path).
 
 ## Quick start
 
@@ -108,8 +108,8 @@ Both packages live in this repo and are version-pinned together (currently `2.0.
 
 | Package | Path | Status | Install (when published) |
 |---|---|---|---|
-| `@pact-protocol/cli` | `cli/` | Built, **not yet on npm** ([#5](https://github.com/TailorAU/pact/issues/5)) | `npm i -g @pact-protocol/cli` |
-| `@pact-protocol/mcp` | `mcp/` | Built, **not yet on npm** ([#5](https://github.com/TailorAU/pact/issues/5)) | `npx @pact-protocol/mcp` |
+| `@pact-protocol/cli` | `cli/` | Built, **not yet on npm**; scope pending decision ([#5](https://github.com/TailorAU/pact/issues/5)) | TBD — scope pending #5 |
+| `@pact-protocol/mcp` | `mcp/` | Built, **not yet on npm**; scope pending decision ([#5](https://github.com/TailorAU/pact/issues/5)) | TBD — scope pending #5 |
 
 Until #5 unblocks, install from source:
 

@@ -1,5 +1,7 @@
 # Releasing `@pact-protocol/cli` and `@pact-protocol/mcp`
 
+> **⚠️ BLOCKED (verified 2026-08-05):** the `@pact-protocol` npm organization is **not available** — it is owned by an unrelated third party (publishes `@pact-protocol/sdk`). Do not attempt to create or join that org. The steps below cannot run until [#5](https://github.com/TailorAU/pact/issues/5) selects a Tailor-controlled scope (see `docs/npm-scope-decision.md`) and the packages are renamed accordingly.
+
 ## Prerequisites
 
 1. An [npm](https://www.npmjs.com/) account with publish rights to the `@pact-protocol` organization.

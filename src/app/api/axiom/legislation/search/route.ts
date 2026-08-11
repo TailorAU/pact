@@ -11,6 +11,7 @@ import {
   titleMatchBoost,
   tokenizeQuery,
 } from "@/lib/legislation-ranking";
+import { formatSourceRef, sectionKindOf } from "@/lib/section-citability";
 
 export const OPTIONS = corsPreflight;
 
@@ -303,7 +304,18 @@ export async function GET(req: NextRequest) {
       status: row.section_status,
       relevanceScore: score,
       crossReferences: row.cross_references ? JSON.parse(row.cross_references as string) : [],
-      sourceRef: `${row.short_title || row.doc_title} ${row.section_id}`,
+      // #5092 — the API-side mirror of the Tailor-side #5083 fix. A
+      // synthetic storage key (`chunk-1`, a raw GUID, missing) is never
+      // composed into the citation string: the hit stays findable, but
+      // `sourceRef` degrades to the DOC-level citation and `sectionKind`
+      // carries the machine-readable signal. A real pinpoint keeps the
+      // pre-existing `"<short||doc> <id>"` shape byte-identically.
+      sectionKind: sectionKindOf(row.section_id as string),
+      sourceRef: formatSourceRef(
+        row.short_title as string | null,
+        row.doc_title as string,
+        row.section_id as string
+      ),
     };
   });
 
@@ -360,6 +372,7 @@ export async function GET(req: NextRequest) {
     status: string;
     relevanceScore: number;
     crossReferences: unknown[];
+    sectionKind: string;
     sourceRef: string;
   };
 
@@ -457,6 +470,10 @@ export async function GET(req: NextRequest) {
           status: rowStatus || "proposed",
           relevanceScore: score,
           crossReferences: [],
+          // #5092 — topics are claims, not sections; their sourceRef is
+          // already a curated citation. `sectionKind: "claim"` completes
+          // the pinpoint | extract | claim vocabulary for consumers.
+          sectionKind: "claim",
           sourceRef: (row.source_ref as string | null) || title,
         };
       });

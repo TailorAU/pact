@@ -2428,7 +2428,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Search results with relevance scoring"
+            "description": "Search results with relevance scoring. Every hit carries `sectionKind`: `pinpoint` (a real, citable section id — `sourceRef` is `\"<title> <sectionId>\"`), `extract` (the section id is an internal storage key such as `chunk-1`; `sourceRef` degrades to the document-level citation and the id is never composed into it), or `claim` (a PACT topic hit; `sourceRef` is its curated citation). Cite `sourceRef` verbatim; treat `extract` hits as background from the instrument, not a pinpointed provision."
           },
           "401": {
             "description": "Missing or invalid Axiom key"

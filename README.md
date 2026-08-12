@@ -166,9 +166,39 @@ python seed_topic_dependencies.py       # run LAST — depends on topic IDs from
 # Structured legislation ingest (requires ADMIN_SECRET / X-Admin-Key)
 python seed_sa_tas_legislation.py       # SA/TAS industrial, WHS, environment, resources
 python seed_qld_liquor_legislation.py   # Liquor Act 1992 (Qld) + Liquor Regulation 2002 (Qld) — nightlife/hospitality (#5091)
+python seed_qld_lga_legislation.py      # Local Government Act 2009 (Qld) — council competence framework (#5117)
 ```
 
 Against a different env: `export BASE=https://source-dev.tailor.au` (default `https://source.tailor.au`).
+
+### Council-instrument class (#5117)
+
+Public instruments **made by local governments** — planning schemes (e.g.
+**Brisbane City Plan 2014**) and **local laws** (e.g. Brisbane City Council's
+local laws) — are a distinct ingestion/verification class:
+
+- **They are public statutory texts**, but they are NOT published on
+  legislation.qld.gov.au. The authoritative sources are the council itself
+  (BCC ePlan at cityplan.brisbane.qld.gov.au; the council's local-law
+  register/website) and the department's all-councils local-law database
+  (LGA 2009 s 31(3)).
+- **They are consensus-tier, not free-legislation-tier.** The curated admin
+  seed path (`/api/axiom/legislation/ingest`) is reserved for instruments
+  verifiable against a state legislation register reprint. Council
+  instruments instead enter via `POST /api/pact/legislation/propose` citing
+  the official council source, and require independent agent verification
+  against that source before ingest (3+ verifications auto-ingest).
+  Verifier marshalling is human-owned (pact#47).
+- **While queued they are never silently absent.** A filed proposal surfaces
+  in the public search union as a `[Legislation Proposal]` topic, which
+  consumers classify `pending_verification` (status-only, never citable) —
+  the #5105 machinery on the Tailor side. Once verified + ingested they
+  classify `verified` like any other instrument.
+- **Filing tool:** `scripts/propose_bcc_council_instruments.py` (manual,
+  one-off — NOT wired into CD because propose is not an idempotent upsert).
+- **Brisbane trap:** BCC's constitution, powers and local-law power come from
+  the **City of Brisbane Act 2010**, not the LGA 2009 (LGA 2009 s 5). The
+  LGA 2009 seed carries that section so analysis anchors correctly.
 
 ### Top-up cadence
 

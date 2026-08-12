@@ -1,3 +1,7 @@
 // @pact-tailor/ontology — canonical envelopes, validators, and ID grammar.
-// Populated in the ontology commit; this placeholder keeps the workspace building.
-export {};
+
+export * from "./types.js";
+export * from "./ids.js";
+export * from "./ulid.js";
+export * from "./metrics.js";
+export * from "./validate.js";

@@ -206,42 +206,68 @@ JURISDICTION = "AU-QLD"
 
 STATE_LEVEL_TOPICS = [
     {
+        # #5115 — statutory basis + dates verified against primary sources:
+        # Qld Government Gazette Extraordinary No 94, Vol 394, 15 Dec 2023,
+        # p 694 ("pursuant to section 10 of the Planning Act 2016 …
+        # ShapingSEQ 2023 was made on 12 December 2023 … takes effect on the
+        # date of this gazettal notice") and the current Planning Act 2016
+        # (Qld) text (s 10 = making/amending State planning instruments;
+        # s 11 is minor amendments only; s 8(2)(b) makes a regional plan a
+        # State planning instrument). The prior record ("made 4 August 2023
+        # under s 11") was wrong on both facts.
+        # The canonical_claim is deliberately concise (#5102 — this record's
+        # paragraph-length descriptor was pasted verbatim into customer
+        # documents); the detail lives in `content`, with no information lost.
         "id": "topic.shapingseq-2023",
         "title": "ShapingSEQ 2023 — South East Queensland Regional Plan",
         "canonical_claim": (
             "ShapingSEQ 2023 is the statutory regional plan for South East "
-            "Queensland under the Planning Act 2016. It sets the population, "
-            "dwelling, and employment targets to 2046, designates the Urban "
-            "Footprint, the Regional Landscape and Rural Production Area, and "
-            "the Rural Living Area, and establishes the regional growth-pattern "
-            "for 12 LGAs including Logan City."
+            "Queensland, made by the Minister under section 10 of the "
+            "Planning Act 2016 (Qld) on 12 December 2023 and in effect from "
+            "15 December 2023."
         ),
         "content": (
             "ShapingSEQ 2023 supersedes the SEQRP 2017 as the Queensland "
-            "Government's regional plan for South East Queensland. Made under "
-            "section 11 of the Planning Act 2016 (Qld), it is a statutory "
-            "instrument that local planning schemes (including the Logan "
-            "Planning Scheme) must reflect via the State Planning Policy and "
-            "the Minister's planning powers under the Planning Act. Key "
-            "components include the regional growth pattern (Urban Footprint, "
-            "Regional Landscape and Rural Production Area, Rural Living Area), "
-            "12-LGA dwelling targets to 2046, the SEQ Liveability Score "
-            "framework, and the Trade and Enterprise corridors that overlap "
-            "with the Faster Rail program."
+            "Government's regional plan for South East Queensland. It was "
+            "made by the Minister on 12 December 2023 under section 10 of "
+            "the Planning Act 2016 (Qld) — the power to make or amend State "
+            "planning instruments; a regional plan is a State planning "
+            "instrument under s 8(2)(b) — and took effect on gazettal on "
+            "15 December 2023 (Queensland Government Gazette Extraordinary "
+            "No 94, Vol 394, p 694). It is a statutory instrument that local "
+            "planning schemes (including the Logan Planning Scheme) must "
+            "reflect via the State Planning Policy and the Minister's "
+            "planning powers under the Planning Act. It sets the population, "
+            "dwelling, and employment targets to 2046 and establishes the "
+            "regional growth pattern for the 12 SEQ LGAs including Logan "
+            "City. Key components include the regional growth pattern (Urban "
+            "Footprint, Regional Landscape and Rural Production Area, Rural "
+            "Living Area), 12-LGA dwelling targets to 2046, the SEQ "
+            "Liveability Score framework, and the Trade and Enterprise "
+            "corridors that overlap with the Faster Rail program."
         ),
-        "effective_date": "2023-08-04",
+        "effective_date": "2023-12-15",
         "source_ref": (
-            "ShapingSEQ 2023 (made 4 August 2023 under Planning Act 2016 (Qld) s 11). "
+            "ShapingSEQ 2023 (made 12 December 2023 under Planning Act 2016 (Qld) s 10; "
+            "took effect 15 December 2023 — Qld Government Gazette Extraordinary No 94, Vol 394, p 694). "
             "https://planning.statedevelopment.qld.gov.au/planning-framework/regional-planning/shapingseq-2023"
         ),
-        "doc_version_id": "ShapingSEQ-2023-2023-08-04",
+        "doc_version_id": "ShapingSEQ-2023-2023-12-15",
     },
     {
+        # #5115 — statutory basis verified against the current Planning Act
+        # 2016 (Qld) text: the SPP is made/amended by the Minister under
+        # s 10 (making or amending State planning instruments); it is a
+        # State planning instrument per s 8(2)(a). The prior record's
+        # "sections 8 and 22" was wrong on both counts — s 8 is definitional
+        # ("What are planning instruments") and s 22 governs LOCAL planning
+        # scheme policies made by local governments.
         "id": "topic.qld-state-planning-policy",
         "title": "Queensland State Planning Policy (SPP)",
         "canonical_claim": (
-            "The State Planning Policy (SPP), made under sections 8 and 22 of "
-            "the Planning Act 2016 (Qld), expresses the State's planning "
+            "The State Planning Policy (SPP), made by the Minister under "
+            "section 10 of the Planning Act 2016 (Qld) as a State planning "
+            "instrument (s 8(2)(a)), expresses the State's planning "
             "interests as policies that local planning schemes must reflect "
             "and that assessment managers must apply when there is no "
             "compliant local planning scheme provision."
@@ -257,7 +283,7 @@ STATE_LEVEL_TOPICS = [
         ),
         "effective_date": "2017-07-03",
         "source_ref": (
-            "State Planning Policy (made under Planning Act 2016 (Qld) ss 8, 22). "
+            "State Planning Policy (made under Planning Act 2016 (Qld) s 10). "
             "https://planning.statedevelopment.qld.gov.au/planning-framework/plan-making/state-planning-policy"
         ),
         "doc_version_id": "QLD-SPP-July-2017",
@@ -1227,9 +1253,21 @@ def main() -> int:
                 "errors": [f"crashed: {exc}"],
             })
 
-    # Phase 2 + 3 only run if phase 1 succeeded — otherwise the scenarios
-    # would carry edges to topics/legislation that don't exist yet.
-    if legislation_ok and args.phase in ("all", "topics-and-scenarios", "topics"):
+    # Phase 2 (topics) runs regardless of phase-1 outcome (#5115): the
+    # institutional topics are official-instrument rows with NO dependency
+    # on the phase-1 legislation ingest, and gating them on phase 1 meant
+    # the broken QLD Legislation API fetch (#2901) silently blocked topic
+    # corrections (e.g. the #5115 SPP / ShapingSEQ record fixes) from ever
+    # reaching the live DB via the cd-source.yml post-deploy re-seed.
+    # Phase 3 (scenarios) stays gated on phase-1 success — its
+    # `applies_when` edges reference legislation docs that may not exist
+    # when phase 1 failed on a fresh database.
+    if args.phase in ("all", "topics-and-scenarios", "topics"):
+        if not legislation_ok:
+            print(
+                "WARN: phase 1 failed — still running phase 2 (topics): "
+                "topic upserts do not depend on legislation ingestion (#5115)."
+            )
         try:
             summary["phases"].append(seed_topics())
         except Exception as exc:

@@ -165,6 +165,7 @@ python seed_topic_dependencies.py       # run LAST — depends on topic IDs from
 
 # Structured legislation ingest (requires ADMIN_SECRET / X-Admin-Key)
 python seed_sa_tas_legislation.py       # SA/TAS industrial, WHS, environment, resources
+python seed_qld_liquor_legislation.py   # Liquor Act 1992 (Qld) + Liquor Regulation 2002 (Qld) — nightlife/hospitality (#5091)
 ```
 
 Against a different env: `export BASE=https://source-dev.tailor.au` (default `https://source.tailor.au`).

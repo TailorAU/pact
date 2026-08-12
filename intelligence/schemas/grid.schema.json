@@ -4,13 +4,23 @@
   "title": "Grid registry record",
   "description": "Registry record for a power grid / synchronous area / market (richer than a Grid entity).",
   "type": "object",
-  "required": ["grid_id", "name", "kind", "countries", "frequency_hz", "live_data", "sources"],
+  "required": [
+    "grid_id",
+    "name",
+    "kind",
+    "countries",
+    "frequency_hz",
+    "live_data",
+    "sources"
+  ],
   "properties": {
     "grid_id": {
       "type": "string",
       "pattern": "^grid:[a-z0-9-]+$"
     },
-    "name": { "type": "string" },
+    "name": {
+      "type": "string"
+    },
     "kind": {
       "enum": [
         "synchronous_area",
@@ -27,45 +37,81 @@
     },
     "countries": {
       "type": "array",
-      "items": { "$ref": "defs.schema.json#/$defs/countryCode" },
+      "items": {
+        "$ref": "defs.schema.json#/$defs/countryCode"
+      },
       "minItems": 1
     },
-    "frequency_hz": { "enum": [50, 60] },
+    "frequency_hz": {
+      "enum": [
+        50,
+        60
+      ]
+    },
     "live_data": {
       "type": "object",
-      "required": ["availability"],
+      "required": [
+        "availability"
+      ],
       "properties": {
         "availability": {
-          "enum": ["rich", "partial", "minimal", "none"]
+          "enum": [
+            "rich",
+            "partial",
+            "minimal",
+            "none"
+          ]
         },
-        "notes": { "type": "string" },
+        "notes": {
+          "type": "string"
+        },
         "source_ids": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false
     },
     "sources": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "minItems": 1
     },
     "parent_grid": {
       "anyOf": [
-        { "type": "string", "pattern": "^grid:[a-z0-9-]+$" },
-        { "type": "null" }
+        {
+          "type": "string",
+          "pattern": "^grid:[a-z0-9-]+$"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "operators": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "role"],
+        "required": [
+          "name",
+          "role"
+        ],
         "properties": {
-          "name": { "type": "string" },
+          "name": {
+            "type": "string"
+          },
           "role": {
-            "enum": ["system_operator", "market_operator", "tso", "transmission_owner", "regulator"]
+            "enum": [
+              "system_operator",
+              "market_operator",
+              "tso",
+              "transmission_owner",
+              "regulator"
+            ]
           }
         },
         "additionalProperties": false
@@ -76,26 +122,54 @@
         {
           "type": "object",
           "properties": {
-            "structure": { "type": "string" },
-            "price_mechanism": { "type": "string" },
-            "dispatch_interval": { "type": "string" }
+            "structure": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "price_mechanism": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "dispatch_interval": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           },
           "additionalProperties": false
         },
-        { "type": "null" }
+        {
+          "type": "null"
+        }
       ]
     },
-    "timezone": { "type": "string" },
+    "timezone": {
+      "type": "string"
+    },
     "interconnections": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["to_grid"],
+        "required": [
+          "to_grid"
+        ],
         "properties": {
-          "to_grid": { "type": "string" },
-          "name": { "type": "string" },
+          "to_grid": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
           "capacity_mw": {
-            "type": ["number", "null"]
+            "type": [
+              "number",
+              "null"
+            ]
           }
         },
         "additionalProperties": false
@@ -106,15 +180,23 @@
         {
           "type": "object",
           "properties": {
-            "min": { "type": "number" },
-            "max": { "type": "number" }
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            }
           },
           "additionalProperties": false
         },
-        { "type": "null" }
+        {
+          "type": "null"
+        }
       ]
     },
-    "notes": { "type": "string" }
+    "notes": {
+      "type": "string"
+    }
   },
   "additionalProperties": false
 }

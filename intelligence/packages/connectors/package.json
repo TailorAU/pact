@@ -9,11 +9,16 @@
   "exports": {
     ".": "./dist/index.js"
   },
+  "bin": {
+    "pt-ingest": "dist/cli.js"
+  },
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test \"test/*.test.mjs\"",
+    "make-fixtures": "node scripts/make-fixtures.mjs"
   },
   "dependencies": {
     "@pact-tailor/ontology": "*",

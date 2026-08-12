@@ -21,6 +21,7 @@ records:
       flag: pa
     external_ids:
       imo: "9000001"
+      mmsi: "503000001"
     sources: [source:gpc:cargo-statistics]
     notes: >-
       SYNTHETIC EXEMPLAR for demo purposes - not a real ship. Represents a typical capesize coal carrier
@@ -45,6 +46,7 @@ records:
       flag: sg
     external_ids:
       imo: "9000002"
+      mmsi: "503000002"
     sources: [source:gpc:cargo-statistics]
     notes: >-
       SYNTHETIC EXEMPLAR for demo purposes - not a real ship. Represents the regular aluminium ingot liner
@@ -69,6 +71,7 @@ records:
       flag: bs
     external_ids:
       imo: "9000003"
+      mmsi: "503000003"
     sources: [source:gpc:cargo-statistics]
     notes: >-
       SYNTHETIC EXEMPLAR for demo purposes - not a real ship. Represents a standard 174,000 m3 LNG carrier

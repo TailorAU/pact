@@ -13,11 +13,13 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test \"test/*.test.mjs\""
   },
   "dependencies": {
     "@pact-tailor/graph": "*",
     "@pact-tailor/ontology": "*",
-    "@pact-tailor/state": "*"
+    "@pact-tailor/state": "*",
+    "@pact-tailor/store": "*"
   }
 }

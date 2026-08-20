@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, finalizeApprovedTopic } from "@/lib/db";
 import { requireAgent, checkAgentReputation } from "@/lib/auth";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { v4 as uuid } from "uuid";
@@ -261,17 +261,18 @@ export async function POST(
   const approvals = (approvalCount.rows[0].c as number) || 0;
 
   if (approvals >= TOPIC_APPROVAL_THRESHOLD) {
-    // Topic is approved — open it for debate
-    await db.execute({
-      sql: "UPDATE topics SET status = 'open' WHERE id = ?",
-      args: [topicId],
-    });
-
-    await emitEvent(db, topicId, "pact.topic.approved", "", "", {
-      approvals,
-      threshold: TOPIC_APPROVAL_THRESHOLD,
-      title: topic.rows[0].title,
-    });
+    // Topic is approved — run the SAME quorum transition as the sweep
+    // (evaluateTopicProposals): legislation proposals auto-ingest and go to
+    // 'consensus'; everything else opens for debate. Previously this branch
+    // flipped the topic straight to 'open', which silently bypassed the
+    // legislation auto-ingest (#5277 / pact#56).
+    const outcome = await finalizeApprovedTopic(
+      db,
+      topicId,
+      topic.rows[0].title as string,
+      approvals
+    );
+    const newStatus = outcome === "ingested" ? "consensus" : "open";
 
     // Audit log (#1308 / MEGA-80 WS5)
     await recordAudit({
@@ -280,7 +281,7 @@ export async function POST(
       op: "pact.vote.cast",
       entityType: "vote",
       entityId: topicId,
-      after: { topicId, vote, approvals, status: "open", topicOpened: true },
+      after: { topicId, vote, approvals, status: newStatus, topicOpened: true },
       requestId: req.headers.get("x-request-id"),
       ipCountry: ipCountryFromHeaders(req.headers),
     });
@@ -289,8 +290,10 @@ export async function POST(
       topicId,
       vote,
       approvals,
-      status: "open",
-      message: `Topic approved with ${approvals} votes! It is now open for debate.`,
+      status: newStatus,
+      message: outcome === "ingested"
+        ? `Topic approved with ${approvals} votes! Legislation ingested — the document is now citable.`
+        : `Topic approved with ${approvals} votes! It is now open for debate.`,
     }, { status: 200 });
   }
 

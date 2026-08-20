@@ -984,6 +984,65 @@ export async function autoMergeExpired(db: DbClient) {
 
 const TOPIC_APPROVAL_THRESHOLD = 3;
 
+/**
+ * Quorum transition for a single topic that has reached the approval
+ * threshold. Shared by the sweep (`evaluateTopicProposals`) and the vote
+ * route's threshold branch (#5277) so that quorum reached via
+ * POST /api/pact/{topicId}/vote triggers the SAME legislation auto-ingest
+ * path as the sweep — previously the vote route flipped the topic straight
+ * to 'open', which the sweep (scanning only status='proposed') could never
+ * ingest afterwards.
+ *
+ * Legislation proposals: ingest the proposed document, mark the topic
+ * 'consensus', emit `pact.legislation.ingested`. Everything else (including
+ * a legislation proposal whose payload is missing/corrupt, or whose ingest
+ * throws): open the topic for debate and emit `pact.topic.approved`.
+ */
+export async function finalizeApprovedTopic(
+  db: DbClient,
+  topicId: string,
+  title: string,
+  approvals: number
+): Promise<"ingested" | "opened"> {
+  // Auto-ingest legislation proposals on consensus
+  if (title.startsWith("[Legislation Proposal]")) {
+    try {
+      const legislationEvent = await db.execute({
+        sql: "SELECT data FROM events WHERE topic_id = ? AND type = 'pact.legislation.proposed' LIMIT 1",
+        args: [topicId],
+      });
+      if (legislationEvent.rows.length > 0) {
+        const payload = JSON.parse(legislationEvent.rows[0].data as string);
+        if (payload.document) {
+          const { ingestDocuments } = await import("./legislation-sync");
+          await ingestDocuments(db, [payload.document]);
+          await db.execute({ sql: "UPDATE topics SET status = 'consensus' WHERE id = ?", args: [topicId] });
+          await emitEvent(db, topicId, "pact.legislation.ingested", payload.proposedBy || "", "", {
+            approvals,
+            docId: payload.document.id,
+            title: payload.document.title,
+            sectionsCount: payload.document.sections?.length ?? 0,
+          });
+          return "ingested";
+        }
+      }
+    } catch (e) {
+      console.error(`Legislation auto-ingest failed for topic ${topicId}:`, e);
+    }
+  }
+
+  await db.execute({
+    sql: "UPDATE topics SET status = 'open' WHERE id = ?",
+    args: [topicId],
+  });
+  await emitEvent(db, topicId, "pact.topic.approved", "", "", {
+    approvals,
+    threshold: TOPIC_APPROVAL_THRESHOLD,
+    title,
+  });
+  return "opened";
+}
+
 export async function evaluateTopicProposals(db: DbClient) {
   const proposed = await db.execute(`
     SELECT t.id, t.title,
@@ -996,46 +1055,7 @@ export async function evaluateTopicProposals(db: DbClient) {
   for (const t of proposed.rows) {
     const approvals = (t.approvals as number) || 0;
     if (approvals >= TOPIC_APPROVAL_THRESHOLD) {
-      const title = t.title as string;
-      const topicId = t.id as string;
-
-      // Auto-ingest legislation proposals on consensus
-      if (title.startsWith("[Legislation Proposal]")) {
-        try {
-          const legislationEvent = await db.execute({
-            sql: "SELECT data FROM events WHERE topic_id = ? AND type = 'pact.legislation.proposed' LIMIT 1",
-            args: [topicId],
-          });
-          if (legislationEvent.rows.length > 0) {
-            const payload = JSON.parse(legislationEvent.rows[0].data as string);
-            if (payload.document) {
-              const { ingestDocuments } = await import("./legislation-sync");
-              await ingestDocuments(db, [payload.document]);
-              await db.execute({ sql: "UPDATE topics SET status = 'consensus' WHERE id = ?", args: [topicId] });
-              await emitEvent(db, topicId, "pact.legislation.ingested", payload.proposedBy || "", "", {
-                approvals,
-                docId: payload.document.id,
-                title: payload.document.title,
-                sectionsCount: payload.document.sections?.length ?? 0,
-              });
-              opened++;
-              continue;
-            }
-          }
-        } catch (e) {
-          console.error(`Legislation auto-ingest failed for topic ${topicId}:`, e);
-        }
-      }
-
-      await db.execute({
-        sql: "UPDATE topics SET status = 'open' WHERE id = ?",
-        args: [topicId],
-      });
-      await emitEvent(db, topicId, "pact.topic.approved", "", "", {
-        approvals,
-        threshold: TOPIC_APPROVAL_THRESHOLD,
-        title,
-      });
+      await finalizeApprovedTopic(db, t.id as string, t.title as string, approvals);
       opened++;
     }
   }

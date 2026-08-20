@@ -583,6 +583,14 @@ Conflict resolution strategies (configurable):
 - `human-escalate` — always escalate conflicts to human
 - `merge-both` — attempt to merge both changes (LLM-assisted)
 
+#### Multi-cell conflicts (v2.3-draft)
+
+When the fabric's participant cell set (§15.4) has cardinality > 1, a contested clause must not resolve by timestamp or by model merge — `first-wins` silently prefers whichever replica's clock spoke first, and LLM-assisted `merge-both` silently prefers one cell's content across an isolation boundary. Therefore:
+
+- The conflict strategy **MUST** be `human-escalate`.
+- `first-wins` and `merge-both` **MUST NOT** be configured. As with the §5 approval-policy bans, a fabric establish or strategy change that would violate this MUST be refused (fail closed, never a silent downgrade).
+- `vote` is **not** a substitute unless it is itself cell-quorum — the vote is bucketed by `cell_id` per the §5 `cell-quorum` rules (every cell's bucket satisfied, self-approval rule inside each cell) — **and** it still escalates to a human whenever any cell in the fixed participant set is dark. A `vote` configuration meeting both conditions is a permitted refinement of `human-escalate`, not an alternative to it.
+
 ---
 
 ## 6. Event Schema

@@ -25,11 +25,17 @@ plus the **multi-cell fabric** rule set, authored from the design record
 
 - **Cells and the §15.4 cell trigger** (#53) — *cell* defined as a
   vendor-neutral isolation grouping identified by a cell DID; fabric
-  membership carries `cell_id`; the participant cell set is fixed at
-  fabric establish; a fifth §15.4 cross-organisation trigger fires when
-  two participants on the same fabric carry different `cell_id` values,
-  so §17.6 `authorization_proof` and the §17.9 Authorization-Required
-  checks apply on the cross-cell wire.
+  membership carries `cell_id`, **bound to a proof of control of the
+  cell DID** (a cell membership attestation carried in the
+  join/`_onboard`, or a cell-scoped invite minted under the cell DID's
+  authority — unproven `cell_id` claims are rejected, or at most
+  bucketed as the joining operator's own cell, never the claimed one);
+  the participant cell set is declared at establish
+  (`participant_cells`) or constituted at first-join binding, and is
+  fixed from then on; a fifth §15.4 cross-organisation trigger fires
+  when two participants on the same fabric carry different `cell_id`
+  values, so §17.6 `authorization_proof` and the §17.9
+  Authorization-Required checks apply on the cross-cell wire.
 - **`cell-quorum` approval policy + multi-cell policy bans** (#54) —
   a new `ApprovalPolicy` requiring ≥1 counted approval from **each**
   cell in the fixed participant set (bucketed by `cell_id`, not
@@ -56,9 +62,15 @@ of v2.2.
 
 - **Core**: identical to v2.2. Single-cell fabrics are unaffected by
   every rule in this line.
-- **Extended**: v2.2 Extended + implementations advertising
-  `capabilities.cellQuorum` MUST enforce the §5 multi-cell policy bans
-  and the §5 multi-cell conflict rule.
+- **Extended**: v2.2 Extended + the §5 multi-cell policy bans and the
+  §5 multi-cell conflict rule. These bind on **behaviour, not
+  advertisement**: any server that accepts `cell_id`-bearing
+  memberships or a multi-cell establish MUST enforce them, whether or
+  not it advertises `capabilities.cellQuorum`. A server that does not
+  implement the multi-cell rules MUST reject multi-cell establishes
+  and `cell_id`-bearing joins / `_onboard`s (fail closed); the
+  `cellQuorum` flag advertises support only and is never an opt-in
+  switch for the MUSTs.
 - **Authorization-Required**: v2.2 Authorization-Required + the §15.4
   cell trigger MUST be evaluated on every message on a fabric whose
   participant cell set has cardinality > 1.
@@ -68,8 +80,8 @@ of v2.2.
 | Path | What |
 |---|---|
 | `SPECIFICATION.md` | v2.2 normative text + multi-cell rules (§5, §10.5, §15.1, §15.4) |
-| `schemas/` | unchanged from v2.2 (a `cell_id` membership schema field is expected before promotion) |
-| `conformance/` | unchanged from v2.2 (multi-cell vectors are expected before promotion) |
+| `schemas/` | unchanged from v2.2 (before promotion: a `cell_id` membership schema field, the §15.4 cell membership attestation / cell-scoped invite envelope, and the `participant_cells` establish field are expected) |
+| `conformance/` | unchanged from v2.2 (before promotion: multi-cell vectors are expected, including negative vectors for unproven-`cell_id` rejection and for the initiator-stuffs-counterparty-bucket attack §15.4 bans) |
 | `resource-types.yaml` | unchanged from v2.2 |
 | `GETTING_STARTED.md` | unchanged from v2.2 |
 

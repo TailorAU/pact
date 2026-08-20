@@ -1513,7 +1513,7 @@ Each implementation:
 - Publishes a conformance profile
 - Does NOT share code with other implementations (federation, not monolith)
 
-### 15.4 Cross-organisation boundary (v2.0.2+)
+### 15.4 Cross-organisation boundary (v2.0.2+; cell trigger v2.3-draft)
 
 The `Authorization-Required` tier (§17.9) and several other normative rules (§17.4's CT monitoring SHOULD, §17.13's trust-floor framing) reference "cross-organisation messages." v2.0 left "organisation" implicit; v2.0.2 defines it deterministically so the rules trigger consistently:
 
@@ -1523,8 +1523,21 @@ A message from agent A to agent B is **cross-organisation** if any of the follow
 - Both DIDs use `did:web` but their domain components differ at the registrable-domain level (per [Mozilla's Public Suffix List](https://publicsuffix.org/)) — `did:web:org-a.example` and `did:web:org-b.example` are cross-org; `did:web:org.example` and `did:web:api.org.example` are intra-org (same eTLD+1).
 - Either DID is unresolvable against the receiving server's federated registry (the message arrived from a counterparty whose registry the server does not directly mirror).
 - An explicit `cross_org_assertion` field on the message says so. The sender MAY assert cross-org status even when the heuristics above don't trigger; the receiver MUST honour it (more checks, not fewer).
+- **(v2.3-draft)** A and B are members of the same fabric and their memberships carry **different `cell_id` values** (see "Cells" below). Two participants in different cells are cross-organisation for every rule that references this section, regardless of DID method, eTLD+1, or registry resolvability.
 
-A message is **intra-organisation** only if none of the above is true. Implementations SHOULD log their cross-org / intra-org determination on every message bearing `authorization_proof`; the determination is itself an audit-trail artifact and MUST be preserved in the event log when the resource policy requires it (e.g. for Authorization-Required tier deployments under regulated audit).
+A message is **intra-organisation** only if none of the above is true.
+
+#### Cells (v2.3-draft)
+
+A **cell** is a vendor-neutral isolation grouping of agents — a deployment boundary within which agents share a trust and data domain (a sealed on-premises enclave, a tenant, a sovereign region, an air-gapped rack). Cells are a core protocol concept, not a vendor extension.
+
+- A cell is identified by a **cell DID**. The cell DID SHOULD use `did:key`; any resolvable DID method is permitted.
+- Fabric membership carries a **`cell_id`** field (the member's cell DID). `cell_id` is declared at join / `_onboard` time (§15.6) and is immutable for the life of the membership.
+- The **participant cell set** of a fabric is the set of distinct `cell_id` values across its memberships. It is **fixed at fabric establish**: every membership added later MUST declare a `cell_id` already in the set. Extending the set is a re-establishment of the fabric, not a membership operation.
+- Implementations MUST NOT infer cell boundaries from DID method or DID contents. Two `did:key` agents in one cell is normal; the first four triggers above continue to operate independently of cells.
+- A membership without a `cell_id` on a fabric whose participant cell set has cardinality > 1 is invalid: the join or `_onboard` MUST be rejected. On single-cell fabrics `cell_id` MAY be omitted (the fabric is then a one-cell fabric by construction and this line changes nothing for it).
+
+**Why this trigger exists.** The first four triggers are heuristics over identity infrastructure; they cannot see deployment isolation. Two sealed cells whose agents all use `did:key` against a shared federated registry classify as intra-organisation under v2.0.2, so `authorization_proof` (§17.6) and the Authorization-Required checks (§17.9) never fire on precisely the boundary they exist to protect. The cell trigger makes the isolation boundary itself the classification input: the cross-cell wire is always a cross-organisation wire, and the Human Authorization Layer applies to it. The multi-cell approval and conflict rules (§5) build on this classification and land in the same line. Implementations SHOULD log their cross-org / intra-org determination on every message bearing `authorization_proof`; the determination is itself an audit-trail artifact and MUST be preserved in the event log when the resource policy requires it (e.g. for Authorization-Required tier deployments under regulated audit).
 
 Implementations MAY refuse to act on a message they classify as cross-org without an `authorization_proof` envelope, even at Core conformance — they simply MUST document that refusal in their Implementation Profile.
 

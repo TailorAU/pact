@@ -542,6 +542,7 @@ The number of approvals required before auto-merge is configurable per document:
 | `unanimous` | All registered agents approve |
 | `human-only` | Only a human can approve (agents can only propose) |
 | `objection-based` | Auto-merge after TTL unless an agent objects (silence = consent) |
+| `cell-quorum` | **(v2.3-draft)** At least one counted approval from **each** cell in the fabric's fixed participant cell set (§15.4). Approvals are bucketed by `cell_id`, not head-count. |
 
 #### Self-approval
 
@@ -549,7 +550,26 @@ By default, the agent that authored a proposal **cannot** count as an approver o
 
 Resources MAY set a per-resource boolean **`allowSelfApproval`** (default `false`). When `true`, an author's approval of their own proposal counts normally — appropriate for low-stakes resources, or where the operator deliberately wants self-approval and accepts the reduced check.
 
-**Recommendation for multi-agent-under-one-operator deployments** (the common cloud / managed-service case — see issue [#13](https://github.com/TailorAU/pact/issues/13) Q1): rather than flipping `allowSelfApproval`, use the **`objection-based`** policy. It has no approval step at all — proposals auto-merge after TTL unless an agent objects — so the self-approval question simply does not arise. For new agent-to-agent flows that aren't long-lived collaborations, ephemeral **Sessions** (§19–20, when finalised) sidestep it entirely (Sessions have no merge/approve step; outcomes are reported back to each handler).
+**Recommendation for multi-agent-under-one-operator deployments** (the common cloud / managed-service case — see issue [#13](https://github.com/TailorAU/pact/issues/13) Q1): rather than flipping `allowSelfApproval`, use the **`objection-based`** policy. It has no approval step at all — proposals auto-merge after TTL unless an agent objects — so the self-approval question simply does not arise. For new agent-to-agent flows that aren't long-lived collaborations, ephemeral **Sessions** (§19–20, when finalised) sidestep it entirely (Sessions have no merge/approve step; outcomes are reported back to each handler). *(v2.3-draft: this recommendation applies to single-cell fabrics only — `objection-based` MUST NOT be configured on a multi-cell fabric; see below.)*
+
+#### Multi-cell fabrics: `cell-quorum` and policy restrictions (v2.3-draft)
+
+On a fabric whose participant cell set (§15.4) has cardinality > 1, approval is a question of isolation boundaries, not head-count: agent-count policies let the agents of one cell speak for another cell, and silence policies write foreign replica content into a sealed cell without any approval from it. v2.3 therefore adds the `cell-quorum` policy and restricts the others:
+
+**`cell-quorum` semantics.**
+
+- A proposal is APPROVED when it has **at least one counted approval from each cell** in the fabric's fixed participant cell set. Approvals are bucketed by the approving membership's `cell_id`; the number of agents per cell is irrelevant.
+- The **self-approval rule above applies within each cell**: the proposal author's own approval does not count toward its cell's bucket unless the resource sets `allowSelfApproval: true`. Other members of the author's cell can satisfy that cell's bucket.
+- **A dark cell does not shrink the set (fail closed).** The participant cell set is the one fixed at establish. If a cell has no live members — heartbeats lapsed, memberships left, or the cell is unreachable — its bucket cannot be satisfied and the proposal MUST NOT merge. Implementations MUST NOT recompute the quorum denominator from liveness, `last_seen`, or membership counts.
+- **`human-only` on a multi-cell fabric is evaluated as `human-only` AND `cell-quorum`**: each cell's bucket must contain at least one counted *human* approval. `human-only` approvals from a single cell do not merge a multi-cell proposal.
+
+**Policy restrictions (MUST).**
+
+- When the participant cell set has cardinality > 1, implementations **MUST NOT** configure `objection-based`, `auto`, `single`, `majority`, or `unanimous` as the approval policy. The permitted policies are `cell-quorum` and `human-only` (evaluated as above).
+- A fabric establish that combines a multi-cell participant set with a prohibited policy **MUST be refused**. A policy change that would introduce a prohibited policy on a multi-cell fabric **MUST be refused**. In both cases the implementation fails closed: no fabric, no policy change, no merge — never a silent downgrade to a permitted policy.
+- Note `unanimous` is banned too: all-agents unanimity is still an agent-count rule (a cell running many agents outweighs nothing, but a compromised or misconfigured cell's agents are indistinguishable from consensus). `cell-quorum` is the multi-cell analogue of unanimity at the correct granularity.
+
+The consensus/legal-execution boundary work on the v2.1 line (§25, [#41](https://github.com/TailorAU/pact/issues/41) / PR [#45](https://github.com/TailorAU/pact/pull/45)) already establishes that consensus — silence included — is not a legal signature. This section is complementary and orthogonal: it stops the *draft merge itself* from crossing an isolation boundary without every cell's approval. Sovereignty, not signature law.
 
 ### Conflict Detection
 
@@ -1058,6 +1078,7 @@ Agent A: proposal.create(section, content, ttl=60)
 - Agents with salience = 10 (critical) **must** explicitly approve or object; auto-merge is blocked
 - If no agents have salience > 0 on a section, the proposal merges immediately
 - The `ObjectionBased` approval policy enables this flow
+- **(v2.3-draft)** Objection-based merge is a single-cell mechanism: on a fabric whose participant cell set (§15.4) has cardinality > 1 it MUST NOT be configured (§5, "Multi-cell fabrics"). A quiet peer cell must never have foreign replica bytes merged into it by silence.
 
 ### 10.6 Example Flow
 
@@ -1477,7 +1498,7 @@ Each PACT server SHOULD publish an **Implementation Profile** describing its cap
 | `conformanceLevel` | Yes | One of `core` / `extended` / `authorization-required`. |
 | `resourceTypes` | Yes | Resource types this server supports (must intersect with the v2.0 registry, §14.3). |
 | `retentionPolicy` | **Yes (v2.0+)** | Event-log retention policy per §6.3: `{ minimumDays: int, indefinite: bool, tombstoneAfter: int\|null }`. |
-| `capabilities` | SHOULD | Boolean capability flags. v2.0 well-known flags: `mediatedCommunication`, `informationBarriers`, `structuredNegotiation`, `inviteTokens`, `authorizationProof`, `agentIdentityTransfer`, `didDocumentPinning`, `recoverySingleChannel`, `atomicOnboard` (v2.0.3), `manifest` (v2.0.3), `sessionAwareness` (v2.0.3), `pushDelivery` (when v2.1 lands), `sessions` (v2.1). |
+| `capabilities` | SHOULD | Boolean capability flags. v2.0 well-known flags: `mediatedCommunication`, `informationBarriers`, `structuredNegotiation`, `inviteTokens`, `authorizationProof`, `agentIdentityTransfer`, `didDocumentPinning`, `recoverySingleChannel`, `atomicOnboard` (v2.0.3), `manifest` (v2.0.3), `sessionAwareness` (v2.0.3), `pushDelivery` (when v2.1 lands), `sessions` (v2.1), `cellQuorum` (v2.3-draft — the implementation enforces the §15.4 cell trigger, the §5 `cell-quorum` policy and multi-cell policy bans, and the §5 multi-cell conflict rule). |
 | `endpoints` | SHOULD | At minimum `rest`. SHOULD include `realtime` for SignalR/WebSocket and `credentialsRegistry` for §17.8. |
 
 ### 15.2 Conformance Levels

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.0/heartbeat-request.json",
+  "title": "PACT Heartbeat Request",
+  "description": "Request body for POST /api/pact/{fabricId}/_heartbeat. The agent declares it is still alive and aware of the fabric, optionally flagging active presence. Idempotent over (member_id, client_heartbeat_id). Added in PACT v2.0.3 (§4.4.3).",
+  "type": "object",
+  "required": ["client_heartbeat_id"],
+  "properties": {
+    "client_heartbeat_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID chosen by the caller. The server treats (member_id, client_heartbeat_id) as the idempotency key — a duplicate POST within the implementation's idempotency window MUST return the cached response and MUST NOT emit a second event. Window SHOULD be at least 60 seconds."
+    },
+    "attention_required": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, the caller signals 'I am actively present and want my counterparty to know it.' The server emits pact.agent.attention-required so counterparties can prioritise."
+    },
+    "client_observed_event_id": {
+      "type": ["string", "null"],
+      "description": "Latest event id the caller has processed locally. Implementations MAY use this to surface drift (caller is behind server) in the response."
+    },
+    "authorization_proof": {
+      "description": "Optional. When present, §17.7 verification rules apply; verifier_id MUST equal the receiving server's DID.",
+      "$ref": "https://pact-spec.dev/schemas/v2.0/authorization-proof.json"
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "client_heartbeat_id": "5a8b9d2e-1c3f-4a6e-b8c1-2d4f6a8c9e0b",
+      "attention_required": false,
+      "client_observed_event_id": "evt_5a2c"
+    },
+    {
+      "client_heartbeat_id": "11111111-2222-3333-4444-555555555555",
+      "attention_required": true
+    }
+  ]
+}

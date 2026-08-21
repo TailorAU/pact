@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { DbClient } from "./db";
 import {
@@ -32,6 +33,18 @@ function dbWithBatch(
 function normalizeOne(overrides: Record<string, unknown> = {}): NormalizedLegislationDocument {
   return normalizeLegislationDocuments([document(overrides)])[0];
 }
+
+interface LegislationUrlVector {
+  name: string;
+  url: string;
+  sourceAccepts: boolean;
+  runnerAccepts: boolean;
+}
+
+const legislationUrlVectors = JSON.parse(readFileSync(
+  new URL("../../scripts/tests/fixtures/legislation_url_vectors.json", import.meta.url),
+  "utf8",
+)) as LegislationUrlVector[];
 
 describe("legislation ingest validation and normalization", () => {
   it("normalizes every replacement-controlled field deterministically", () => {
@@ -139,6 +152,19 @@ describe("legislation ingest validation and normalization", () => {
     "accepts the live %s proposal type",
     (type) => {
       expect(normalizeOne({ type }).type).toBe(type);
+    },
+  );
+
+  it.each(legislationUrlVectors)(
+    "classifies shared URL vector: $name",
+    ({ url, sourceAccepts }) => {
+      if (sourceAccepts) {
+        expect(() => normalizeOne({ legislationUrl: url })).not.toThrow();
+      } else {
+        expect(() => normalizeOne({ legislationUrl: url })).toThrow(
+          LegislationValidationError,
+        );
+      }
     },
   );
 

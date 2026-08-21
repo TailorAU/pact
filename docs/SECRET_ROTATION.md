@@ -9,20 +9,30 @@
 
 ## Overview
 
-Source uses the following credentials. They are stored as **GitHub Actions
-Secrets** under the `TailorAU/tailor-app` repository (`prod` environment)
-and injected as Container App environment variables at deploy time via
-`cd-source.yml`.
+Source uses the following credentials. Production application secrets are
+stored in protected GitHub environments and injected as Container App
+environment variables at deploy time via `cd-source.yml`. Scheduled Source
+jobs read their cron credential only from the protected `source-prod-cron`
+environment.
 
 The canonical secret enumeration is `cd-source.yml` — this document tracks
 every `${{ secrets.* }}` reference in that file plus the two WS3 Cloudflare
 secrets not yet wired but policy-active.
 
-**Important bug noted (2026-05-09):** `ADMIN_SECRET` and `CRON_SECRET` in
-the running Container App are both populated from `SOURCE_CRON_SECRET`. They
-share the same value. A future rotation should either split them (preferred)
-or document this as deliberate. Until split, rotating `SOURCE_CRON_SECRET`
-rotates both in one step.
+**Incident remediation in progress (2026-08-21):** the legacy value populated
+both `ADMIN_SECRET` and `CRON_SECRET` and was accidentally rendered during an
+authorised audit, so both runtime slots must be treated as exposed. A distinct
+admin replacement is staged in the main-restricted `prod` and
+`source-prod-ingest` environments. Immediately before the reviewed deployment,
+stage a distinct fresh cron value in both `prod` and the main-restricted
+`source-prod-cron` environment. The deployment must rotate both Azure slots;
+then verify a cron workflow and delete the repository-level
+`SOURCE_CRON_SECRET`. Verify admin ingest separately before marking the admin
+rotation complete; neither rotation is complete without its production proof.
+Never copy the admin key into a repository-level secret or collapse the two
+runtime slots again. Delete only the Source repository secret named
+`SOURCE_CRON_SECRET`; the unrelated `PACT_CRON_SECRET` is not part of this
+incident and must remain untouched.
 
 ---
 
@@ -32,7 +42,8 @@ rotates both in one step.
 
 | Secret name (GitHub) | Runtime env var | Purpose | Next due |
 |---|---|---|---|
-| `SOURCE_CRON_SECRET` | `CRON_SECRET` + `ADMIN_SECRET` | Authenticates cron routes (`/api/cron/*`) and admin endpoints (`/api/admin/*`). Both env vars receive the same value — see bug note above. | 2026-08-07 |
+| `SOURCE_CRON_SECRET` | `CRON_SECRET` | Authenticates cron routes (`/api/cron/*`). Store the fresh value only in main-restricted `prod` and `source-prod-cron`; delete the legacy repository secret after production proof. | Immediate — incident rotation; then 2026-11-19 |
+| `SOURCE_INGEST_ADMIN_KEY` | `ADMIN_SECRET` | Authenticates protected admin ingestion. Stored only in main-restricted `prod` and `source-prod-ingest`. | Production proof pending; then 2026-11-19 |
 | `CF_API_TOKEN` | — (CI only) | Cloudflare API token used by `cd-source.yml` purge step (WS3). Not yet wired in workflow; policy-active from WS3 go-live. | 2026-08-07 |
 | `ORIGIN_SHARED_SECRET` | `ORIGIN_SHARED_SECRET` | Shared secret between Cloudflare Workers and the Container App origin-check middleware (`src/middleware.ts`). Not yet wired; policy-active from WS3 go-live. | 2026-08-07 |
 | `GOOGLE_MAPS_API_KEY` | Build-time `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Google Maps API key injected at Docker build time. | 2026-08-07 |
@@ -83,24 +94,61 @@ The deploy is the distribution mechanism — GitHub Secrets flow to Container Ap
 
 ---
 
-### SOURCE_CRON_SECRET (90 days)
+### SOURCE_CRON_SECRET (90 days; immediate incident rotation pending)
 
 **Where generated:** any cryptographically secure random generator.
 
 ```bash
-# Generate a 40-character hex secret
-openssl rand -hex 40
+# Generate 32 random bytes locally. Never emit the value in CI/agent logs.
+openssl rand -hex 32
 ```
 
 **Update steps:**
-1. Copy the new value.
-2. GitHub → `TailorAU/tailor-app` → Settings → Secrets → Actions → prod environment → `SOURCE_CRON_SECRET` → Update.
-3. `gh workflow run cd-source.yml -f environment=prod --ref main`
-4. Wait for deploy to complete. Check health: `curl -s https://source.tailor.au/api/health`.
-5. Verify cron auth: `curl -s -H "X-Cron-Secret: <new_value>" https://source.tailor.au/api/cron/sync-legislation | head -c 200`.
-6. Verify admin auth: `curl -s -H "X-Admin-Key: <new_value>" https://source.tailor.au/api/admin/freshness | jq '.overallStatus'`.
+1. Generate one fresh value without printing it in captured output.
+2. Immediately before the reviewed merge, set that same value as
+   `SOURCE_CRON_SECRET` in both the protected `prod` and
+   `source-prod-cron` environments. Keep the repository-level secret until
+   the deployment and cron proof succeed.
+3. Merge the reviewed change so `cd-source.yml` injects the fresh value into
+   Azure `CRON_SECRET`; avoid an unrelated delay between steps 2 and 3.
+4. Wait for deployment, confirm `/api/health`, and confirm the deployed Source
+   version is the reviewed `main` commit.
+5. Dispatch the manual-only, read-only authentication proof from `main` and
+   record its green Action run without recording the credential:
+   `gh workflow run cron-source.yml -f job=auth-check --ref main`. Do not use a
+   mutating maintenance job to prove a credential rotation.
+6. Confirm cron and admin authentication remain distinct. After the cron
+   production proof succeeds, delete the repository-level
+   `SOURCE_CRON_SECRET` and mark the cron rotation complete. Leave the unrelated
+   repository-level `PACT_CRON_SECRET` untouched. Admin completion remains
+   gated on its separate exact-ingest proof.
 
-**Note:** Until `ADMIN_SECRET` and `CRON_SECRET` are split into separate secrets, one rotation covers both.
+---
+
+### SOURCE_INGEST_ADMIN_KEY (90 days)
+
+**Where generated:** any cryptographically secure random generator.
+
+```bash
+# Generate a 32-byte hex secret. Never print it in CI logs or issue evidence.
+openssl rand -hex 32
+```
+
+**Update steps:**
+1. Generate one new value without deleting the currently active value.
+2. Update `SOURCE_INGEST_ADMIN_KEY` in both the `prod` and
+   `source-prod-ingest` GitHub environments. Both environments must remain
+   restricted to protected branches; `main` is the protected branch.
+3. Trigger `cd-source.yml` from `main` so Azure receives the new
+   `ADMIN_SECRET`. Routine admin rotations do not change `CRON_SECRET`; the
+   2026-08-21 shared-value incident is the explicit coordinated exception.
+4. Verify health and a bounded canonical read, then run one reviewed ingest
+   through `source-legislation-ingest.yml`.
+5. Confirm cron auth still succeeds with `SOURCE_CRON_SECRET` and does not use
+   the new admin value.
+6. Only after all verification succeeds, retire superseded admin-only
+   credential material. For the 2026-08-21 incident, do not mark this rotation
+   complete until the separate cron rotation and proof also succeed.
 
 ---
 
@@ -239,6 +287,7 @@ Run this checklist at the start of each calendar quarter and at annual review:
 | Cadence | Secrets to rotate | Next due |
 |---|---|---|
 | **Q3 2026 (2026-08-07)** | `SOURCE_CRON_SECRET`, `CF_API_TOKEN` (post-WS3), `ORIGIN_SHARED_SECRET` (post-WS3), `GOOGLE_MAPS_API_KEY` | 2026-08-07 |
+| **Q4 2026 (2026-11-19)** | `SOURCE_INGEST_ADMIN_KEY` | 2026-11-19 |
 | **End of 2026-H1 (2026-11-05)** | `SOURCE_PG_PASSWORD`, `AZURE_REDIS_PASSWORD`, `AZURE_OPENAI_KEY` | 2026-11-05 |
 | **Annual 2027 (2027-05-09)** | `QLD_LEGISLATION_USERNAME/PASSWORD`, all affiliate tags | 2027-05-09 |
 | **Q1 2027 (2027-02-05)** | `SOURCE_CRON_SECRET` (90d cycle from Q3), `GOOGLE_MAPS_API_KEY` | 2027-02-05 |
@@ -253,11 +302,11 @@ After each rotation, update the "Next due" column in the inventory table above a
 # Health — confirms DB and Redis are accepting the new credentials
 curl -s https://source.tailor.au/api/health | jq '.checks'
 
-# Admin auth — confirms SOURCE_CRON_SECRET (ADMIN_SECRET slot)
+# Admin auth — confirms SOURCE_INGEST_ADMIN_KEY (ADMIN_SECRET slot)
 curl -s -H "X-Admin-Key: $ADMIN_SECRET" https://source.tailor.au/api/admin/freshness | jq '.overallStatus'
 
-# Cron auth — confirms SOURCE_CRON_SECRET (CRON_SECRET slot)
-curl -s -H "X-Cron-Secret: $CRON_SECRET" "https://source.tailor.au/api/cron/sync-legislation"
+# Cron auth — read-only proof of SOURCE_CRON_SECRET (CRON_SECRET slot)
+gh workflow run cron-source.yml -f job=auth-check --ref main
 
 # Azure OpenAI — confirm LLM path still works (scenario matching proxy)
 curl -s -H "X-Source-Agent-Key: $AGENT_KEY" \
@@ -274,7 +323,8 @@ The following secrets have **never been rotated** since Source launched. Knox
 should complete this ceremony at the next available opportunity (recommended:
 within 30 days of this document being committed, i.e. before 2026-06-09).
 
-- [ ] `SOURCE_CRON_SECRET` — generate new 40-char hex, update GitHub Secret, deploy, verify admin + cron auth
+- [ ] `SOURCE_CRON_SECRET` — exposed legacy value remains live; stage a fresh value in protected `prod` + `source-prod-cron` immediately before #5309 merge, deploy, verify the read-only `auth-check` Action, then delete only this repository secret; leave unrelated `PACT_CRON_SECRET` untouched
+- [ ] `SOURCE_INGEST_ADMIN_KEY` — distinct replacement staged in protected `prod` + `source-prod-ingest`; mark complete only after deployment and exact-ingest proof under #5309
 - [ ] `SOURCE_PG_PASSWORD` — update Azure PG password, update GitHub Secret, deploy, verify DB health check
 - [ ] `AZURE_REDIS_PASSWORD` — key-swap pattern (secondary → regenerate primary → swap back), verify cache health check
 - [ ] `AZURE_OPENAI_KEY` — key-swap pattern, verify LLM scenario match

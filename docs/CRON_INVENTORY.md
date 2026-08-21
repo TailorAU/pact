@@ -1,8 +1,9 @@
 # Source — Cron Inventory
 
-Canonical reference for every scheduled job that touches `source.tailor.au`
-or its backing data stores. One row per distinct trigger. Updated 2026-05-09
-as part of WS10 (Source production-readiness plan).
+Canonical reference for every scheduled job that touches the Source knowledge
+graph or its backing data stores. One row per distinct trigger. Updated
+2026-08-21 for the protected cron environment and read-only authentication
+proof.
 
 All times are UTC unless noted. AEST = UTC+10 (non-DST). AEDT = UTC+11 (DST).
 
@@ -10,21 +11,34 @@ All times are UTC unless noted. AEST = UTC+10 (non-DST). AEDT = UTC+11 (DST).
 
 ## Workflow: `cron-source.yml` — Source Maintenance
 
-Single workflow, multiple jobs dispatched by schedule. All jobs call
-`https://source.tailor.au/api/cron/<name>` with a `Bearer ${SOURCE_CRON_SECRET}`.
+Single workflow, multiple jobs dispatched by schedule. The maintenance jobs
+call `https://source.tailor.au/api/cron/<name>` with a
+`Bearer ${SOURCE_CRON_SECRET}`. The manual-only authentication proof calls the
+canonical `https://pact.tailor.au` host directly so the bearer credential is
+never forwarded across the legacy Source redirect.
 
 | Name | Schedule | AEST equivalent | Purpose | Owner | Alert path | Last-success check |
 |---|---|---|---|---|---|---|
+| **auth-check** | Manual only; never scheduled or included by `all` | N/A | Read-only proof that the deployed `CRON_SECRET` matches the protected workflow credential. Calls `GET /api/cron/auth-check`; no database access or maintenance mutation | Source platform | GitHub Actions job failure → workflow summary email | `gh run list --workflow cron-source.yml` |
 | **cleanup** | `0 3 * * *` | 1:00 pm daily | Prune expired proposals, stale joins, orphaned PACT sessions, old API key rotation tokens | Source platform | GitHub Actions job failure → workflow summary email | `gh run list --workflow cron-source.yml` |
 | **yield** | `0 4 * * 0` | 2:00 pm Sunday | Distribute Axiom Yield revenue pro-rata to contributing agent wallets | Source platform | GitHub Actions job failure → workflow summary email | `gh run list --workflow cron-source.yml` |
 | **staleness** | `0 5 * * *` | 3:00 pm daily | Mark legislation documents as stale when `last_synced` > threshold; sets `is_stale` flag consumed by `/api/admin/freshness` (#1401 Round B) | Source platform | GitHub Actions job failure → workflow summary email | `gh run list --workflow cron-source.yml` |
 | **legislation-sync** | `0 6 * * 0` | 4:00 pm Sunday | Full legislation re-sync from AU government sources (CTH, QLD) into `legislation_sections`. Runs with `timeout-minutes: 30` | Source platform | GitHub Actions job failure → workflow summary email | `gh run list --workflow cron-source.yml` |
 | **spatial-snapshot** | `0 2 * * *` | 12:00 pm daily | Logan City ArcGIS REST API snapshot — fetches planning layers into `spatial_features` table (#874). Non-fatal: ArcGIS throttle returns warning not error | Source platform | `::warning::` annotation in Actions; non-blocking | `gh run list --workflow cron-source.yml` |
 | **gtfs-sync** | `0 17 * * 1` | 3:00 am Tuesday | Translink SEQ GTFS static feed into `transit_stops`, `transit_routes`, `transit_trips`, `transit_stop_times` (#875). Weekly cadence matches GTFS feed publication cycle | Source platform | GitHub Actions job failure → workflow summary email | `gh run list --workflow cron-source.yml` |
+| **fiscal-sync** | `0 18 * * *` | 4:00 am daily | Reconstruct QLD fiscal source data. Runs with `timeout-minutes: 30` (#3053) | Source platform | GitHub Actions job failure → workflow summary email | `gh run list --workflow cron-source.yml` |
 
-**Endpoint base:** `https://source.tailor.au/api/cron/<name>`
-**Auth:** `Authorization: Bearer ${SOURCE_CRON_SECRET}` (GitHub Actions secret)
-**Repo secret:** `SOURCE_CRON_SECRET`
+**Endpoint bases:** scheduled maintenance uses
+`https://source.tailor.au/api/cron/<name>`; `auth-check` uses
+`https://pact.tailor.au/api/cron/auth-check`.
+
+**Auth:** `Authorization: Bearer ${SOURCE_CRON_SECRET}`. Jobs read this secret
+from the protected, main-only `source-prod-cron` GitHub environment. The legacy
+repository-level `SOURCE_CRON_SECRET` remains only for the coordinated rotation
+window and must be deleted after the protected credential is deployed and the
+read-only auth check succeeds. The unrelated repository secret
+`PACT_CRON_SECRET` is not part of this workflow or incident and must remain
+untouched.
 
 ---
 
@@ -119,7 +133,10 @@ surface for each workflow:
 ## Quick commands
 
 ```bash
-# Trigger a specific cron manually (requires GitHub Actions token)
+# Prove cron authentication without mutating production data
+gh workflow run cron-source.yml -f job=auth-check --ref main
+
+# Trigger a specific maintenance cron manually (mutates production data)
 gh workflow run cron-source.yml -f job=legislation-sync --ref main
 gh workflow run cron-source.yml -f job=gtfs-sync --ref main
 gh workflow run cron-source.yml -f job=all --ref main

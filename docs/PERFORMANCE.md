@@ -54,25 +54,30 @@ Read-through Redis cache via the shared `src/lib/redis-client.ts` async-singleto
 - `GET /api/axiom/legislation/search` — uncached today. Wrapping requires extracting ~280 lines of search logic into a thunk for `cache.getOrSet`. Large mechanical edit; lands as a separate handoff (M, ~1 day) when the latency on this endpoint becomes a measurable hot spot.
 - `GET /api/scenarios/match` — similar shape; defer to the same round 2.
 
-### CDN strategy (Knox-action — deferred)
+### CDN strategy — API cache fail-closed
 
-Source today is direct-to-ACA — no CDN in front. Tier-1 is achievable without one (ACA + Azure Postgres Flexible Server + Azure Cache for Redis are all low-latency in `australiaeast`; verified 3ms Redis probe + 52ms DB probe via `/api/health`), but a CDN unlocks:
+Tier-1 is achievable from ACA without edge response caching (ACA + Azure Postgres Flexible Server + Azure Cache for Redis are all low-latency in `australiaeast`; verified 3ms Redis probe + 52ms DB probe via `/api/health`). Cloudflare can still provide:
 
-- Global edge caching of public reads (legislation read endpoints are unauthenticated; ideal for edge caching).
 - DDoS absorption layer.
 - TLS termination + HTTP/3 + compression at the edge.
+- Origin proxying and WAF enforcement.
 
-**Recommended:** Cloudflare in front of `source.tailor.au`. Source already sets `Cache-Control: public, max-age=86400` on legislation read endpoints (see `src/app/api/axiom/legislation/route.ts`), so Cloudflare's edge cache picks them up automatically. Legislation search endpoints set `s-maxage` for stale-while-revalidate.
+All `/api/*` responses now carry origin, generic-CDN, and
+Cloudflare-specific no-store controls from `next.config.ts`. This is a
+deliberate default-deny policy: even unauthenticated legislation and
+health reads remain uncacheable until an audited allowlist is approved.
 
-Implementation steps when Knox provisions:
+Required edge posture:
 
-1. Add `source.tailor.au` to Cloudflare zone with proxy enabled.
-2. Cache rule: cache by URL on `*/api/axiom/legislation/*` (matches existing Cache-Control headers).
-3. Bypass rule: never cache `/api/admin/*`, `/api/work/*`, `/api/pact/*` (mutation routes + admin reads).
-4. Page rule: respect origin `Cache-Control` for everything else.
-5. Update `cd-source.yml` to wire the Cloudflare token if needed for purges.
+1. Bypass cache for all `/api/*` paths, regardless of method or apparent public status.
+2. Respect the origin's three no-store headers.
+3. Continue using Cloudflare WAF, DDoS protection, and origin proxying.
+4. Cache only content-addressed/static assets under their existing policies.
+5. Introduce an API allowlist only with route-level data/auth review, matching edge rules, and production-shape tests.
 
-Source's existing `Cache-Control` headers are already CDN-friendly. CDN is enhancement, not Tier-1 prerequisite.
+The internal Redis read-through cache is unaffected; it remains
+server-side in `australiaeast` and currently caches only reviewed public
+hub statistics.
 
 ### Load-test CI integration
 

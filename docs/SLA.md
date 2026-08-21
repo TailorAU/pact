@@ -19,8 +19,9 @@ These targets match those committed in [`PERFORMANCE.md`](PERFORMANCE.md)
 
 ## Latency targets — by surface
 
-Measured at the origin (ACA ingress). Cloudflare edge cache (when wired
-per Phase 1 WS3) will improve cached-read latencies further.
+Measured at the origin (ACA ingress). API responses are not edge-cached;
+Cloudflare transport, WAF, and proxying may improve network handling but
+do not change the origin-measured latency SLA.
 
 | Surface | p50 | p95 | p99 |
 |---|---|---|---|
@@ -93,8 +94,8 @@ when paid tiers ship so procurement reviewers can plan against it.
   outage, undersea cable cuts).
 - Customer-side issues (caller's network, caller's API key revoked).
 - Rate-limit responses (429) — these are correct behaviour.
-- Failures in optional surfaces (e.g. Cloudflare edge cache miss when
-  origin is healthy).
+- Failures in optional observability surfaces (e.g. delayed Cloudflare
+  security analytics when request proxying and the origin are healthy).
 - LLM-fallback latency on `/api/scenarios/match` when Azure OpenAI is
   the dominating term.
 

@@ -83,26 +83,22 @@ Caveats:
 
 ## Cloudflare-edge sovereignty footnote
 
-When Cloudflare is wired in front of `source.tailor.au` (Phase 1 WS3, not
-yet shipped), the sovereignty story acquires one nuance.
+Cloudflare's edge network is **global**, so API response caching is
+disabled fail-closed. Every `/api/*` response carries origin,
+generic-CDN, and Cloudflare-specific no-store controls, and the edge
+policy must bypass the entire API namespace. There is currently no API
+cache allowlist, including for unauthenticated legislation, scenario,
+health, or hub reads.
 
-[`PERFORMANCE.md`](PERFORMANCE.md):74–75 documents this: Cloudflare's edge
-network is **global**. Cached responses can be served from a Cloudflare
-Point-of-Presence outside Australia. The data classes that hit the edge
-cache are:
+Only content-addressed/static assets such as `_next/static/**` may use
+normal edge caching. An API exception requires a separate route-level
+data/auth audit, matching origin and edge configuration, and
+production-shape regression tests before this document can claim it is
+safe.
 
-- Public legislation reads (`/api/axiom/legislation*`)
-- Static page assets (`_next/static/**`)
-- Public scenario reads (where cached)
-
-These data classes are **public knowledge** by definition. There is no
-customer-private data in any cached path. A Cloudflare edge cache hit in
-Singapore or Frankfurt serves the same public legislation text that is
-freely downloadable from `legislation.gov.au` itself.
-
-Cloudflare WAF and DDoS protection apply at the edge regardless of cache
-behaviour. Cloudflare's own SOC 2 / ISO 27001 certifications cover the
-edge platform.
+Cloudflare WAF, DDoS protection, TLS termination, and origin proxying
+apply regardless of cache behaviour. Cloudflare's own SOC 2 / ISO 27001
+certifications cover the edge platform.
 
 A reviewer who requires "no edge POPs outside AU under any circumstance"
 can deploy without Cloudflare; the origin posture remains 100% AU.

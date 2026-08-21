@@ -11,9 +11,9 @@
 
 Cloudflare sits in front of `source.tailor.au` as the public edge:
 
-- **Cache** — public legislation reads + static assets are cached at the
-  edge with a 5-minute TTL and stale-while-revalidate, dropping origin
-  load and giving global p95 < 100 ms on cache-warm reads.
+- **Cache** — API response caching is disabled fail-closed at the origin
+  while the public-route allowlist and edge bypass policy are audited.
+  Build-hashed static assets remain eligible for normal immutable caching.
 - **WAF + DDoS** — Cloudflare's managed OWASP ruleset, bot management,
   and L3/L4 + L7 DDoS protection apply at the edge before traffic
   reaches Azure Container Apps.
@@ -25,10 +25,10 @@ Cloudflare sits in front of `source.tailor.au` as the public edge:
   `/purge_cache` API after a successful image deploy, so callers see
   the new build without waiting for TTLs to expire.
 
-Sovereignty caveat: Cloudflare's edge network is **global**. Only
-**public legislation + static assets** are eligible for edge cache; no
-customer-private data passes through the cache. See § Sovereignty
-posture and [`SOVEREIGNTY.md`](SOVEREIGNTY.md):84–108.
+Sovereignty caveat: Cloudflare's edge network is **global**. API
+responses are currently ineligible for edge cache; only static assets
+may be cached. See § Sovereignty posture and
+[`SOVEREIGNTY.md`](SOVEREIGNTY.md):84–108.
 
 ---
 
@@ -117,15 +117,16 @@ for bot-management JS challenges.
 
 ## Cache rules
 
-Source already sets `Cache-Control` headers at `next.config.ts:38`
-(`public, s-maxage=300, stale-while-revalidate=600` on `/api/:path*`).
-Cloudflare honours origin headers when **Respect Existing Headers** is
-the cache TTL setting. The rules below pin the contract per route.
+Source sets a fail-closed API policy at `next.config.ts`: every
+`/api/:path*` response carries `Cache-Control: no-store` plus explicit
+generic-CDN and Cloudflare-CDN no-store headers. There is currently no
+public API cache allowlist. Cloudflare must use **Respect Existing
+Headers** and an explicit `/api/*` bypass rule so an edge configuration
+cannot broaden the origin contract.
 
 | Match | Cache behaviour | Why |
 |---|---|---|
-| `/api/axiom/legislation*` | Cache 5 min, stale-while-revalidate 10 min | Public knowledge by definition (`SOVEREIGNTY.md`:96–101). High-volume agent reads. Source-side `Cache-Control` already aligns. |
-| `/api/hub/stats`, `/api/hub/graph` | Cache 30 s | Homepage hero + graph view. App-side cache is 30 s; mirror at edge to absorb burst. |
+| `/api/*` | Bypass cache | Default-deny until every candidate public GET has a route-level data/auth audit and production-shape tests. |
 | `/_next/static/**` | Cache 1 year, immutable | Build-hashed assets — content-addressed, never mutate. |
 | `/_next/image/**` | Cache 1 day | Optimised images; safe to cache, infrequent change. |
 | `/favicon.ico`, `/robots.txt`, `/sitemap.xml` | Cache 1 day | Static, low-churn. |
@@ -135,10 +136,7 @@ the cache TTL setting. The rules below pin the contract per route.
 
 | Match | Why |
 |---|---|
-| `/api/admin/*` | Admin gate (`X-Admin-Key`) — never cache. |
-| `/api/pact/*` | PACT mutations + agent reads with per-key state. |
-| `/api/work/*` | Agent work-economy mutations + ledger reads. |
-| `/api/cron/*` | Cron-secret-gated invocation paths. |
+| `/api/*` | All API responses are no-store until an audited allowlist is deliberately introduced. This includes admin, audit, PACT, work, usage, cron, health, and currently-public reads. |
 | Any path with a request body (POST/PUT/PATCH/DELETE) | Cloudflare bypasses by default; pin explicitly. |
 | Any request carrying `Authorization`, `X-Admin-Key`, or `X-Source-Agent-Key` | Cookie-equivalent — never cache cross-tenant. |
 
@@ -146,7 +144,7 @@ Implementation note: Cloudflare's **Cache Rules** (replacement for Page
 Rules) use the wirefilter syntax. Example for the bypass set:
 
 ```
-(http.request.uri.path matches "^/api/(admin|pact|work|cron)/")
+(starts_with(http.request.uri.path, "/api/"))
 or (any(http.request.headers.names[*] in {"authorization" "x-admin-key" "x-source-agent-key"}))
 ```
 
@@ -165,11 +163,11 @@ curl -fsS -X POST \
   --data '{"purge_everything":true}'
 ```
 
-Whole-zone purge is acceptable: Source's edge cache footprint is small
-(public legislation + a handful of homepage endpoints), and the purge
-runs once per deploy. The step is `continue-on-error: true` so a
-transient Cloudflare API blip doesn't fail the workflow — the deploy
-has already succeeded by this point.
+Whole-zone purge remains acceptable: API responses are bypassed, so
+Source's cache footprint is limited to static/content-addressed assets,
+and the purge runs once per deploy. The step is `continue-on-error:
+true` so a transient Cloudflare API blip doesn't fail the workflow —
+the deploy has already succeeded by this point.
 
 ---
 
@@ -223,26 +221,17 @@ Cloudflare → **Security → Events**.
 
 ## Sovereignty posture
 
-Cloudflare's edge network is **global**. Cached responses can be served
-from a Cloudflare Point-of-Presence outside Australia.
-
-The data classes that hit the edge cache are **public knowledge** by
-definition:
-
-- Australian legislation (`/api/axiom/legislation*`) — same content
-  freely downloadable from `legislation.gov.au` and the QLD parliament
-  site.
-- Static page assets (`_next/static/**`).
-- Public scenario reads (where cached).
-
-There is **no customer-private data** in any cached path. Authenticated
-agent reads (with `X-Source-Agent-Key`) are explicitly bypassed (see
-§ Cache bypass rules). Admin paths are bypassed. PACT mutation paths
-are bypassed.
+Cloudflare's edge network is **global**, but API response caching is
+currently disabled fail-closed. Only static assets such as
+`_next/static/**` are eligible for edge cache; no legislation, scenario,
+agent, admin, audit, work, usage, cron, health, or PACT API payload is
+cacheable. An API allowlist requires a separate route-level data/auth
+audit, matching origin and edge rules, and production-shape tests.
 
 This is the position documented in [`SOVEREIGNTY.md`](SOVEREIGNTY.md):84–108
-and [`PERFORMANCE.md`](PERFORMANCE.md):74–75 — the edge is a public-
-content amplifier, not a substrate for customer data.
+and [`PERFORMANCE.md`](PERFORMANCE.md):57–78. Cloudflare WAF, DDoS
+protection, TLS, and origin proxying remain active independently of
+cache eligibility.
 
 A reviewer who requires "no edge POPs outside AU under any circumstance"
 can be served by **Cloudflare's Regional Services** (paid feature, AU
@@ -271,10 +260,11 @@ curl -sIL https://source.tailor.au/_next/static/chunks/main-* \
   | grep -i 'cf-cache-status\|cf-ray\|server'
 # Expected: cf-cache-status (HIT|MISS|EXPIRED|REVALIDATED) + cf-ray.
 
-# 3. Legislation endpoint is cached (after a warmup hit)
-curl -sIL "https://source.tailor.au/api/axiom/legislation?id=test" \
-  | grep -iE 'cache-control|cf-cache-status|age'
-# Expected: cache-control: public,s-maxage=300; cf-cache-status: HIT after 2nd call.
+# 3. API responses fail closed against origin and edge caching
+curl -sS -D - -o /dev/null \
+  "https://pact.tailor.au/api/axiom/legislation?id=qld%2Freg-2017-165&format=canonical&cb=cache-policy-check"
+# Expected: Cache-Control, CDN-Cache-Control, and
+# Cloudflare-CDN-Cache-Control all prohibit storage.
 
 # 4. Origin lock-down is enforced (direct ACA hit returns 403)
 ACA_FQDN=$(az containerapp show \
@@ -297,8 +287,7 @@ curl -sI "https://${ACA_FQDN}/api/health" \
 curl -sI "https://source.tailor.au/api/health?id=' OR 1=1--" | head -1
 # Expected: HTTP/2 403 (Cloudflare Managed Rules)
 
-# 7. Deploy purge worked (cf-cache-status shows MISS or REVALIDATED on first
-#    request after a fresh `cd-source.yml` run, then HIT thereafter)
+# 7. The latest Source deployment completed (purge still protects static assets)
 gh run list --workflow cd-source.yml --limit 1 \
   --repo TailorAU/tailor-app --json databaseId,conclusion,status
 ```

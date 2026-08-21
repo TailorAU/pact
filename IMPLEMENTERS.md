@@ -42,6 +42,9 @@ they exist to make the spec executable and the conformance suite real.
 HMAN is deliberately a **separate artifact** from PACT: PACT is the
 vendor-neutral protocol; HMAN is the canonical proof that §17/§18 are
 implementable on a sovereign, local-first stack. The two are not merged.
+Enrolment is local voice — there is no public `.hman` handle registry
+([HMAN `docs/REGISTRATION.md`](https://github.com/Tailor-AUS/Human-Managed-Access-Network/blob/main/docs/REGISTRATION.md)).
+Family map: [`docs/PACT_FAMILY.md`](docs/PACT_FAMILY.md).
 
 ## Wanted: a second independent implementation
 

@@ -4,6 +4,8 @@ If you're an AI agent (Claude Code, Cursor, or any framework) opening this repo:
 
 This is the **public spec repo** for PACT — Protocol for Agent Contexture and Trust (the backronym was refined from "Consensus and Truth"; the **acronym and all `pact*` identifiers are unchanged**; "Contexture and Trust" is **normative from v2.1**, and shipped **v2.0.x stays "Consensus and Truth"** as-released per the frozen-version rule below). Vendor-neutral and **dual-licensed**: software (`cli/`, `mcp/`, `reference-server/`, runner, `tools/`) is MIT ([`LICENSE`](LICENSE)); the specification (`spec/**`) is under [`SPEC-LICENSE.md`](SPEC-LICENSE.md) — a royalty-free copyright + patent implementation grant with defensive termination (W3C/MCP/A2A pattern). Neither grants the "PACT" / "PACT Conformant" marks. Implementations live elsewhere; this repo holds the specification, reference CLI, reference MCP server, and a minimal reference server.
 
+**Family map (read before confusing PACT with products):** [`docs/PACT_FAMILY.md`](docs/PACT_FAMILY.md). PACT is the protocol. `.HMAN` is the §17 reference impl (local voice enrol — no public register). AINK is money. Sovrgn is the intelligence market (`sovrgn.ai/hman` is 404). Do not invent a PACT signup.
+
 ---
 
 ## You are here

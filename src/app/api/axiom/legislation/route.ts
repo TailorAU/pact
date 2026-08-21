@@ -1,8 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
-import { formatLegislation, type LegislationDoc, type LegislationSection } from "@/lib/legislation-format";
+import { getDb, type DbResult } from "@/lib/db";
+import { formatLegislation, type LegislationDoc } from "@/lib/legislation-format";
+import { buildCanonicalLegislationState } from "@/lib/legislation-canonical";
 import { corsPreflight, withCors } from "@/lib/cors";
+import { log } from "@/lib/logger";
 
 export const OPTIONS = corsPreflight;
 
@@ -12,13 +14,151 @@ export const OPTIONS = corsPreflight;
 // Australian legislation is a public good.
 //
 // Query params:
+//   id            — Exact canonical document ID (requires format=canonical)
 //   jurisdiction  — Filter: "QLD", "CTH", "NSW", etc. Prefix matching (QLD matches QLD-*)
 //   type          — Filter: "act", "regulation", "standard", "guidance"
 //   q             — Keyword search across title + section content
 //   act           — Filter by short title (e.g. "Criminal Code 1899")
-//   format        — Response format: json (default), sections, text, citation, markdown
+//   format        — Response format: json (default), sections, text, citation, markdown, canonical
 //   include       — "sections" to include section content (default), "metadata" for docs only
 //   limit/offset  — Pagination
+const CANONICAL_NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, max-age=0",
+};
+
+function canonicalJson(body: unknown, status = 200): NextResponse {
+  return withCors(NextResponse.json(body, {
+    status,
+    headers: CANONICAL_NO_STORE_HEADERS,
+  }));
+}
+
+async function getCanonicalLegislation(searchParams: URLSearchParams): Promise<NextResponse> {
+  const ids = searchParams.getAll("id");
+  const docId = ids[0]?.trim();
+  if (ids.length !== 1 || !docId) {
+    return canonicalJson({
+      error: "canonical_id_required",
+      hint: "Use exactly one non-empty id query parameter with format=canonical",
+    }, 400);
+  }
+  if (docId.length > 256 || /[\u0000-\u001f\u007f]/.test(docId)) {
+    return canonicalJson({
+      error: "canonical_id_invalid",
+      hint: "Canonical IDs must be at most 256 characters and contain no control characters",
+    }, 400);
+  }
+
+  const incompatibleParams = [
+    "jurisdiction",
+    "type",
+    "q",
+    "act",
+    "limit",
+    "offset",
+    "section",
+    "since",
+  ].filter((name) => searchParams.has(name));
+  const includes = searchParams.getAll("include");
+  if (includes.some((include) => include !== "sections")) {
+    incompatibleParams.push("include");
+  }
+  if (incompatibleParams.length > 0) {
+    return canonicalJson({
+      error: "canonical_filters_not_supported",
+      incompatibleParams,
+      hint: "Canonical reads always return the complete exact-ID replacement state",
+    }, 400);
+  }
+
+  let result: DbResult;
+  try {
+    const db = await getDb();
+    // One PostgreSQL statement means one MVCC snapshot: metadata, sections,
+    // and the replacement-owned outbound relation set cannot come from
+    // different committed replacements.
+    result = await db.execute({
+      sql: `SELECT
+        d.id,
+        d.jurisdiction,
+        d.doc_type,
+        d.title,
+        d.short_title,
+        d.year,
+        d.number,
+        d.in_force_date,
+        d.last_amended_date,
+        d.repealed_date,
+        d.administered_by,
+        d.legislation_url,
+        COALESCE(section_state.sections, '[]'::jsonb) AS sections,
+        COALESCE(relation_state.related_docs, '[]'::jsonb) AS related_docs
+      FROM legislation_docs d
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'section_id', ls.section_id,
+            'title', ls.title,
+            'content', ls.content,
+            'depth', ls.depth,
+            'parent_section', ls.parent_section,
+            'order', ls.sort_order,
+            'status', ls.status,
+            'amended_by', ls.amended_by,
+            'cross_references', ls.cross_references,
+            'notes', ls.notes
+          ) ORDER BY ls.sort_order ASC, ls.section_id ASC
+        ) AS sections
+        FROM legislation_sections ls
+        WHERE ls.doc_id = d.id
+      ) AS section_state ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(lr.to_doc_id ORDER BY lr.to_doc_id ASC) AS related_docs
+        FROM legislation_relations lr
+        WHERE lr.from_doc_id = d.id
+          AND lr.relation_type = 'subordinate'
+      ) AS relation_state ON TRUE
+      WHERE d.id = ?
+        LIMIT 1`,
+      args: [docId],
+    });
+  } catch (err) {
+    const databaseCode = typeof err === "object" && err !== null && "code" in err
+      ? String(err.code)
+      : null;
+    log.error({
+      op: "axiom.legislation.canonical.query_failed",
+      docId,
+      databaseCode,
+    }, "canonical legislation state query failed");
+    return canonicalJson({
+      error: "canonical_state_unavailable",
+      id: docId,
+    }, 500);
+  }
+
+  if (result.rows.length === 0) {
+    return canonicalJson({
+      error: "legislation_not_found",
+      id: docId,
+    }, 404);
+  }
+
+  try {
+    return canonicalJson(buildCanonicalLegislationState(result.rows[0]));
+  } catch (err) {
+    log.error({
+      op: "axiom.legislation.canonical.invalid_state",
+      docId,
+      err,
+    }, "persisted legislation state cannot be canonicalized");
+    return canonicalJson({
+      error: "canonical_state_invalid",
+      id: docId,
+    }, 500);
+  }
+}
+
 export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
@@ -30,6 +170,10 @@ export async function GET(req: NextRequest) {
   const include = searchParams.get("include") || "sections";
   const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 200);
   const offset = parseInt(searchParams.get("offset") || "0");
+
+  if (format === "canonical") {
+    return getCanonicalLegislation(searchParams);
+  }
 
   const db = await getDb();
 

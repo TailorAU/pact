@@ -6,6 +6,10 @@ import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { sanitizeContent } from "@/lib/sanitize";
 import { v4 as uuid } from "uuid";
 import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bounded";
+import {
+  LegislationValidationError,
+  normalizeLegislationDocuments,
+} from "@/lib/legislation-ingest";
 
 /**
  * POST /api/pact/legislation/propose — Agent-contributed legislation.
@@ -18,7 +22,7 @@ import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bo
  *   document: {
  *     id: string,           // e.g. "qld/act-1999-039"
  *     jurisdiction: string,  // e.g. "QLD"
- *     type: string,          // "act" | "regulation" | "standard" | "guidance"
+ *     type: string,          // act | regulation | standard | guidance | local_law | planning_scheme
  *     title: string,
  *     shortTitle?: string,
  *     year?: number,
@@ -45,7 +49,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body;
+  let body: unknown;
   const bounded = await readBodyBounded(req, ADMIN_INGEST_MAX_BODY_BYTES);
   if (!bounded.ok) return bounded.response;
   try {
@@ -54,19 +58,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { document, summary, gazetteUrl } = body;
-  if (!document || typeof document !== "object") {
-    return NextResponse.json({ error: "document object is required" }, { status: 400 });
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return NextResponse.json({ error: "JSON body must be an object" }, { status: 400 });
   }
-  if (!document.title || typeof document.title !== "string" || document.title.trim().length < 5) {
-    return NextResponse.json({ error: "document.title is required (min 5 characters)" }, { status: 400 });
-  }
-  if (!document.jurisdiction || typeof document.jurisdiction !== "string") {
-    return NextResponse.json({ error: "document.jurisdiction is required (e.g. QLD, CTH, NSW)" }, { status: 400 });
-  }
-  if (!Array.isArray(document.sections) || document.sections.length === 0) {
-    return NextResponse.json({ error: "document.sections must be a non-empty array" }, { status: 400 });
-  }
+  const payload = body as Record<string, unknown>;
+  const summary = payload.summary;
+  const gazetteUrl = typeof payload.gazetteUrl === "string" ? payload.gazetteUrl : null;
   if (!summary || typeof summary !== "string" || summary.trim().length < 10) {
     return NextResponse.json({ error: "summary is required (min 10 characters)" }, { status: 400 });
   }
@@ -74,6 +71,24 @@ export async function POST(req: NextRequest) {
   const summaryResult = sanitizeContent(summary, 2000);
   if (!summaryResult.valid) {
     return NextResponse.json({ error: `summary: ${summaryResult.error}` }, { status: 400 });
+  }
+
+  let document: ReturnType<typeof normalizeLegislationDocuments>[number];
+  try {
+    [document] = normalizeLegislationDocuments([payload.document]);
+  } catch (error) {
+    if (error instanceof LegislationValidationError) {
+      return NextResponse.json({
+        error: error.code,
+        message: error.message,
+        issues: error.issues,
+        truncated: error.truncated,
+      }, { status: 422 });
+    }
+    throw error;
+  }
+  if (document.title.length < 5) {
+    return NextResponse.json({ error: "document.title is required (min 5 characters)" }, { status: 400 });
   }
 
   const db = await getDb();
@@ -95,9 +110,9 @@ export async function POST(req: NextRequest) {
   });
 
   const answerId = `sec:answer-${proposalTopicId.slice(0, 8)}`;
-  const sectionsPreview = document.sections.slice(0, 5).map(
-    (s: { sectionId: string; title?: string }) => `${s.sectionId}: ${s.title || "untitled"}`
-  ).join("\n");
+  const sectionsPreview = document.sections.slice(0, 5)
+    .map((section) => `${section.sectionId}: ${section.title || "untitled"}`)
+    .join("\n");
   const answerContent = `Proposed legislation: ${document.title}\nJurisdiction: ${document.jurisdiction}\nSections: ${document.sections.length}\n\nPreview:\n${sectionsPreview}\n\nVerification required: Agents must confirm this text matches the official gazette at ${gazetteUrl || document.legislationUrl || "the official legislation website"}.`;
 
   await db.execute({

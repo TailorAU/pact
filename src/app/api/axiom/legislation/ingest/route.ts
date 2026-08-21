@@ -1,9 +1,15 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { randomUUID } from "crypto";
 import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
 import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bounded";
+import { requireAdmin } from "@/lib/admin-auth";
+import {
+  LegislationValidationError,
+  normalizeLegislationRequest,
+  replaceLegislationDocuments,
+} from "@/lib/legislation-ingest";
+import { log } from "@/lib/logger";
 
 // POST /api/axiom/legislation/ingest — Bulk-ingest legislation documents with sections
 //
@@ -16,7 +22,7 @@ import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bo
 //   "documents": [{
 //     "id": "qld/act-1899-009",                              // Canonical doc ID
 //     "jurisdiction": "QLD",
-//     "type": "act",                                          // act | regulation | standard | guidance
+//     "type": "act",                         // act | regulation | standard | guidance | local_law | planning_scheme
 //     "title": "Criminal Code Act 1899 (Qld)",
 //     "shortTitle": "Criminal Code 1899",
 //     "year": 1899,
@@ -42,106 +48,70 @@ import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bo
 //
 // Auth: Requires admin secret in X-Admin-Key header (env: ADMIN_SECRET)
 export async function POST(req: NextRequest) {
-  // Admin auth
-  const adminKey = req.headers.get("x-admin-key");
-  const expectedKey = process.env.ADMIN_SECRET;
-  if (!expectedKey || adminKey !== expectedKey) {
-    return NextResponse.json({ error: "Unauthorized. Requires X-Admin-Key header." }, { status: 401 });
-  }
+  const denied = requireAdmin(req);
+  if (denied) return denied;
 
   const bounded = await readBodyBounded(req, ADMIN_INGEST_MAX_BODY_BYTES);
   if (!bounded.ok) return bounded.response;
-  const body = JSON.parse(bounded.text);
-  const documents = body.documents;
-  if (!Array.isArray(documents) || documents.length === 0) {
-    return NextResponse.json({ error: "Body must contain a non-empty 'documents' array." }, { status: 400 });
+
+  let body: unknown;
+  try {
+    body = JSON.parse(bounded.text);
+  } catch {
+    return NextResponse.json(
+      { error: "invalid_json", message: "Request body must be valid JSON." },
+      { status: 400 },
+    );
   }
 
-  const db = await getDb();
-  const results: { id: string; title: string; sectionsInserted: number }[] = [];
-
-  for (const doc of documents) {
-    const docId = doc.id || `${(doc.jurisdiction || "unknown").toLowerCase()}/act-${doc.year || "0000"}-${randomUUID().slice(0, 8)}`;
-
-    // Upsert doc
-    await db.execute({
-      sql: `INSERT INTO legislation_docs (id, jurisdiction, doc_type, title, short_title, year, number, in_force_date, last_amended_date, repealed_date, administered_by, legislation_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          title = excluded.title,
-          short_title = excluded.short_title,
-          last_amended_date = excluded.last_amended_date,
-          repealed_date = excluded.repealed_date,
-          administered_by = excluded.administered_by,
-          legislation_url = excluded.legislation_url`,
-      args: [
-        docId,
-        (doc.jurisdiction || "UNKNOWN").toUpperCase(),
-        doc.type || "act",
-        doc.title,
-        doc.shortTitle || null,
-        doc.year || null,
-        doc.number || null,
-        doc.inForceDate || null,
-        doc.lastAmendedDate || null,
-        doc.repealedDate || null,
-        doc.administeredBy || null,
-        doc.legislationUrl || null,
-      ],
-    });
-
-    // Insert sections
-    let sectionsInserted = 0;
-    if (Array.isArray(doc.sections)) {
-      // Delete existing sections for this doc (idempotent re-ingest)
-      await db.execute({
-        sql: "DELETE FROM legislation_sections WHERE doc_id = ?",
-        args: [docId],
-      });
-
-      for (let i = 0; i < doc.sections.length; i++) {
-        const s = doc.sections[i];
-        const sectionPk = `${docId}/${s.sectionId}`;
-        await db.execute({
-          sql: `INSERT INTO legislation_sections (id, doc_id, section_id, title, content, depth, parent_section, sort_order, status, amended_by, cross_references, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [
-            sectionPk,
-            docId,
-            s.sectionId,
-            s.title || null,
-            s.content || "",
-            s.depth ?? 2,
-            s.parentSection || null,
-            s.order ?? i,
-            s.status || "in_force",
-            s.amendedBy || null,
-            s.crossReferences ? JSON.stringify(s.crossReferences) : null,
-            s.notes || null,
-          ],
-        });
-        sectionsInserted++;
-      }
+  let documents: ReturnType<typeof normalizeLegislationRequest>;
+  try {
+    // The complete payload is validated before getDb() can initialize a pool
+    // or schema, so malformed input cannot perform any database work.
+    documents = normalizeLegislationRequest(body);
+  } catch (error) {
+    if (error instanceof LegislationValidationError) {
+      return NextResponse.json(
+        {
+          error: error.code,
+          message: error.message,
+          issues: error.issues,
+          truncated: error.truncated,
+        },
+        { status: 422 },
+      );
     }
-
-    // Insert related doc links
-    if (Array.isArray(doc.relatedDocs)) {
-      for (const relatedId of doc.relatedDocs) {
-        try {
-          await db.execute({
-            sql: `INSERT INTO legislation_relations (id, from_doc_id, to_doc_id, relation_type)
-              VALUES (?, ?, ?, 'subordinate')
-              ON CONFLICT (from_doc_id, to_doc_id, relation_type) DO NOTHING`,
-            args: [randomUUID(), docId, relatedId],
-          });
-        } catch { /* Related doc may not exist yet — that's OK */ }
-      }
-    }
-
-    results.push({ id: docId, title: doc.title, sectionsInserted });
+    throw error;
   }
 
-  const totalSections = results.reduce((sum, r) => sum + r.sectionsInserted, 0);
+  let db: Awaited<ReturnType<typeof getDb>>;
+  let result: Awaited<ReturnType<typeof replaceLegislationDocuments>>;
+  try {
+    db = await getDb();
+    result = await replaceLegislationDocuments(db, documents);
+  } catch (error) {
+    const databaseCode = typeof error === "object" && error !== null && "code" in error
+      ? String(error.code)
+      : null;
+    if (databaseCode === "23503") {
+      return NextResponse.json(
+        {
+          error: "invalid_reference",
+          message: "Every relatedDocs entry must reference an existing document or one in this request.",
+        },
+        { status: 422 },
+      );
+    }
+
+    log.error(
+      { op: "axiom.legislation.ingest.failed", databaseCode },
+      "legislation replacement transaction failed",
+    );
+    return NextResponse.json(
+      { error: "ingest_failed", message: "Legislation replacement could not be committed." },
+      { status: 500 },
+    );
+  }
 
   // Audit log — WS2 mutation backfill (one entry for the whole batch)
   await recordAudit({
@@ -149,20 +119,20 @@ export async function POST(req: NextRequest) {
     actorLabel: "admin",
     op: "axiom.legislation.ingest",
     entityType: "legislation_batch",
-    entityId: results[0]?.id ?? null,
+    entityId: result.documents[0]?.id ?? null,
     before: null,
     after: {
-      documentCount: results.length,
-      totalSections,
-      documentIds: results.map((r) => r.id),
+      documentCount: result.ingested,
+      totalSections: result.sectionsTotal,
+      documentIds: result.documents.map((document) => document.id),
     },
     requestId: req.headers.get("x-request-id"),
     ipCountry: ipCountryFromHeaders(req.headers),
-  });
+  }, db);
 
   return NextResponse.json({
-    ingested: results.length,
-    documents: results,
-    message: `Successfully ingested ${results.length} legislation document(s) with ${totalSections} total sections.`,
+    ingested: result.ingested,
+    documents: result.documents,
+    message: `Successfully ingested ${result.ingested} legislation document(s) with ${result.sectionsTotal} total sections.`,
   });
 }

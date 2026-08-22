@@ -47,6 +47,29 @@
         "payment assistance"
       ]
     },
+    "mobile-network-coverage-maps-standard-2026": {
+      "relativePath": "build_mobile_network_coverage_maps_industry_standard_2026_payload.py",
+      "builderSha256": "26edd203d005dd743333ec0581b8372de7ae17c85f5447bd6730e26ac301ae7b",
+      "rawPayloadSha256": "bf58b97cb7d0d423dbc15b6431c8e718d6a48e7235fbcef5188f4f967bc795f0",
+      "rawPayloadBytes": 22304,
+      "normalizedPayloadSha256": "618a3a8d89e16ec988a2007ec1292611a87c596bf6f2a96b1cc323c7e6d2fcd0",
+      "requiredFiles": {
+        "build_planning_act_2016_payload.py": "922301d1d3f20ac0cd2636321e8e80ca59689b70ea6604c06fa781c8fc6d9cb9",
+        "mobile-network-coverage-maps-industry-standard-2026.batch-a.json": "cb6bd199184f3e0aaf9d54ff18a7aee5509e8ace1f981ce527c2a17abf9ac02a",
+        "mobile-network-coverage-maps-industry-standard-2026.batch-b.json": "11182fc2f835b062ce3949aa5b5064b9a4f4dc5c016751a80ca16c628f8daccd",
+        "mobile-network-coverage-maps-industry-standard-2026.batch-c.json": "cdbf9981a4308206dbf5c4d85d70866f451a190e1c5f69b99d0dc13b353a001d",
+        "validate_cth_sections.py": "c7583a732f352e4fdc76ce7833b300be5a841eea3b4f5c22aed51960ab3b978c",
+        "validate_mobile_network_coverage_maps_standard_2026_sections.py": "0ba72383f4c4dde7f92ed5da35abccb59d669ea256af7ccdce69244cc3397fb3"
+      },
+      "documentId": "cth/standard-2026-381",
+      "expectedSections": 13,
+      "lastAmendedDate": "2026-03-31",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "predictive coverage modelling",
+        "underlying geospatial map data"
+      ]
+    },
     "planning-act-2016": {
       "relativePath": "build_planning_act_2016_payload.py",
       "builderSha256": "922301d1d3f20ac0cd2636321e8e80ca59689b70ea6604c06fa781c8fc6d9cb9",

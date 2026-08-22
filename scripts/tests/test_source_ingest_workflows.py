@@ -151,6 +151,7 @@ class WorkflowTests(unittest.TestCase):
                 "customer-service-guarantee-standard-2023",
                 "financial-hardship-standard-2024",
                 "mobile-network-coverage-maps-standard-2026",
+                "mobile-number-pre-porting-standard-2020",
                 "payphones-determination-2022",
                 "planning-act-2016",
             },

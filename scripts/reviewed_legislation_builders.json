@@ -93,6 +93,27 @@
         "underlying geospatial map data"
       ]
     },
+    "mobile-number-pre-porting-standard-2020": {
+      "relativePath": "build_mobile_number_pre_porting_standard_2020_payload.py",
+      "builderSha256": "bf139eef99f0223dfb004f9fb310604f191090e64944eaf44e4ce56605f95a05",
+      "rawPayloadSha256": "3fc65567afe06953b26b37f18c31b0ab60006ac67b0cbe843ba02e1c4c968f91",
+      "rawPayloadBytes": 22603,
+      "normalizedPayloadSha256": "8ca1163865ab0c05ed0d3134785bc1871ac91c6ddff53ab96c640e0f22ab7ea4",
+      "requiredFiles": {
+        "mobile-number-pre-porting-standard-2020.batch-a.json": "579f7119b1c1849fdcab74674884875c840c99410f62b5dcbd43b1d0ae4319b5",
+        "mobile-number-pre-porting-standard-2020.batch-b.json": "d28c30ea8d1f68551b7431f8078531ac32c416ba96945b1787eadad3e8ca9e76",
+        "mobile-number-pre-porting-standard-2020.batch-c.json": "1b95370ed4184c5d4098980b66395c1d2d24822c33a246d6d2b707706d773016",
+        "validate_mobile_number_pre_porting_standard_2020_sections.py": "c01c04486285a48a0d0e31010f6e3b38ceca21b34a703f4c61e3c2106af9167f"
+      },
+      "documentId": "cth/standard-2020-179",
+      "expectedSections": 10,
+      "lastAmendedDate": "2020-02-28",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "additional identity verification process",
+        "government online verification service"
+      ]
+    },
     "payphones-determination-2022": {
       "relativePath": "build_payphones_determination_2022_payload.py",
       "builderSha256": "4af7e79dc2f01d1e8380160b62f33851fd7cd1320ffb68a03fce88ec7ba6a9cb",

@@ -93,6 +93,27 @@
         "underlying geospatial map data"
       ]
     },
+    "payphones-determination-2022": {
+      "relativePath": "build_payphones_determination_2022_payload.py",
+      "builderSha256": "4af7e79dc2f01d1e8380160b62f33851fd7cd1320ffb68a03fce88ec7ba6a9cb",
+      "rawPayloadSha256": "75b1af64496282836a3cd26d91e95c0c9cf9e636a1d0804030dd008ada98bed2",
+      "rawPayloadBytes": 59742,
+      "normalizedPayloadSha256": "1e87ff100e637827e27b38a5fd31eaa6a419760069eeba4af6655de4c3ae6a68",
+      "requiredFiles": {
+        "payphones-determination-2022.batch-a.json": "72449f81d2387f905acc9acd212318e50de89abdb57b6981ad3c757e1a9f2406",
+        "payphones-determination-2022.batch-b.json": "02d9e7bf95522f3712b68fa580a086d394a5590aeb3661d8904f7e49315fcf6f",
+        "payphones-determination-2022.batch-c.json": "6c601c741b062473aa2fcf34bec636e5eaef125306221b41bd6f9f6a2e737fd1",
+        "validate_payphones_determination_2022_sections.py": "8d047affa5484844a84d2f2bc31abe55f4cb63606a2d686c7a497bc6d4caaeb1"
+      },
+      "documentId": "cth/determination-2022-440",
+      "expectedSections": 43,
+      "lastAmendedDate": "2022-03-31",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "payphone performance standard",
+        "payphone removal consultation document"
+      ]
+    },
     "planning-act-2016": {
       "relativePath": "build_planning_act_2016_payload.py",
       "builderSha256": "922301d1d3f20ac0cd2636321e8e80ca59689b70ea6604c06fa781c8fc6d9cb9",

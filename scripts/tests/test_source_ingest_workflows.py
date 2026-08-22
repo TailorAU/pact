@@ -152,6 +152,7 @@ class WorkflowTests(unittest.TestCase):
                 "financial-hardship-standard-2024",
                 "mobile-network-coverage-maps-standard-2026",
                 "mobile-number-pre-porting-standard-2020",
+                "nbn-consumer-information-standard-2018",
                 "payphones-determination-2022",
                 "planning-act-2016",
             },

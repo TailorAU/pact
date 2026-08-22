@@ -147,6 +147,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(
             set(manifest["builders"]),
             {
+                "customer-identity-authentication-determination-2022",
                 "customer-service-guarantee-standard-2023",
                 "financial-hardship-standard-2024",
                 "mobile-network-coverage-maps-standard-2026",

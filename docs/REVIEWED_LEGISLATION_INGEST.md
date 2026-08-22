@@ -83,6 +83,11 @@ python dispatch_reviewed_legislation_ingest.py `
   --builder-key mobile-network-coverage-maps-standard-2026 `
   --builder-root C:\TailorOS\pact-ingest `
   --dry-run
+
+python dispatch_reviewed_legislation_ingest.py `
+  --builder-key customer-identity-authentication-determination-2022 `
+  --builder-root C:\TailorOS\pact-ingest `
+  --dry-run
 ```
 
 A dry run executes the builder twice with a minimal environment and checks
@@ -152,18 +157,18 @@ reviewed.
 After the PR is green, independently reviewed and merged, wait for the Source
 deployment to report the exact merge SHA and recheck the canonical pre-write
 state. Then dispatch from merged `main`, not the feature branch. For the current
-Mobile Network Coverage Maps addition:
+Customer Identity Authentication addition:
 
 ```powershell
 cd C:\TailorOS\tailor-app\sites\source\scripts
 
 python dispatch_reviewed_legislation_ingest.py `
-  --builder-key mobile-network-coverage-maps-standard-2026 `
+  --builder-key customer-identity-authentication-determination-2022 `
   --builder-root C:\TailorOS\pact-ingest `
   --watch
 ```
 
-The first successful run must verify all 13 sections and the complete canonical
+The first successful run must verify all 16 sections and the complete canonical
 hash. Run the same command once more and require `exact-skip` with zero POST
 attempts. Record the manifest PR, deploy SHA, both Action run IDs, stored hash,
 section count and any warning-only diagnostics in the document's requirement

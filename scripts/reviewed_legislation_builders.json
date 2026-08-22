@@ -1,6 +1,29 @@
 {
   "version": 1,
   "builders": {
+    "customer-identity-authentication-determination-2022": {
+      "relativePath": "build_customer_identity_authentication_determination_2022_payload.py",
+      "builderSha256": "2db4db4b2b5c3a1a6363580c88024d9db6a6f1f07cd577c8592bbbe52963eb5e",
+      "rawPayloadSha256": "9e919ff61eba8bed3f73485d68476e9b8f603e339e8ea49de871e378207ccc33",
+      "rawPayloadBytes": 39928,
+      "normalizedPayloadSha256": "0f5bcc0590f2b19bb6ee7ee57f8278f068b377c8940c6995d5c7a1ae1dd5ce52",
+      "requiredFiles": {
+        "build_planning_act_2016_payload.py": "922301d1d3f20ac0cd2636321e8e80ca59689b70ea6604c06fa781c8fc6d9cb9",
+        "customer-identity-authentication-determination-2022.batch-a.json": "41dcf50a7b0e525abd384fb80bd6887f50e1a643e6a8a9962d8ff463a1cfb652",
+        "customer-identity-authentication-determination-2022.batch-b.json": "4cdad89e8b69a41d71cf87e146af47386476f5a8387ed77a039095df20ec4a7b",
+        "customer-identity-authentication-determination-2022.batch-c.json": "7268345b5ca20c469a62f587ab63a51c1f8e3c744bd21b3f4c83bf89d7e32813",
+        "validate_cth_sections.py": "c7583a732f352e4fdc76ce7833b300be5a841eea3b4f5c22aed51960ab3b978c",
+        "validate_customer_identity_authentication_determination_2022_sections.py": "9688731c7936fe9971a4779ab1dda167290c97d2367396bbb4171db90ede0597"
+      },
+      "documentId": "cth/determination-2022-548",
+      "expectedSections": 16,
+      "lastAmendedDate": "2022-04-06",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "high-risk customer interaction",
+        "unlisted authorised representative"
+      ]
+    },
     "customer-service-guarantee-standard-2023": {
       "relativePath": "build_customer_service_guarantee_standard_2023_payload.py",
       "builderSha256": "72a89b95f4d53596520b1668ecbb0caac2859183a2abf156b963ddd95bc84e2b",

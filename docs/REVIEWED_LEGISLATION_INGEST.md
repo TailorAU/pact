@@ -90,6 +90,11 @@ python dispatch_reviewed_legislation_ingest.py `
   --dry-run
 
 python dispatch_reviewed_legislation_ingest.py `
+  --builder-key nbn-consumer-information-standard-2018 `
+  --builder-root C:\TailorOS\pact-ingest `
+  --dry-run
+
+python dispatch_reviewed_legislation_ingest.py `
   --builder-key customer-identity-authentication-determination-2022 `
   --builder-root C:\TailorOS\pact-ingest `
   --dry-run
@@ -167,21 +172,21 @@ reviewed.
 After the PR is green, independently reviewed and merged, wait for the Source
 deployment to report the exact merge SHA and recheck the canonical pre-write
 state. Then dispatch from merged `main`, not the feature branch. For the current
-Mobile Number Pre-Porting addition:
+NBN Consumer Information addition:
 
 ```powershell
 cd C:\TailorOS\tailor-app\sites\source\scripts
 
 python dispatch_reviewed_legislation_ingest.py `
-  --builder-key mobile-number-pre-porting-standard-2020 `
+  --builder-key nbn-consumer-information-standard-2018 `
   --builder-root C:\TailorOS\pact-ingest `
   --watch
 ```
 
 The first successful run must make exactly one POST attempt, then post-verify
-all 10 sections and the complete canonical hash. Run the same command once more
-and require `exact-skip` with zero POST attempts. Record the manifest PR, deploy
-SHA, both Action run IDs, stored hash,
+all 12 sections, `lastAmendedDate=2021-04-01`, and the complete canonical hash.
+Run the same command once more and require `exact-skip` with zero POST attempts.
+Record the manifest PR, deploy SHA, both Action run IDs, stored hash,
 section count and any warning-only diagnostics in the document's requirement
 and the sole durable population ledger at `C:\TailorOS\progress.md`. Stop before
 the next document if exact verification or the no-op proof fails.

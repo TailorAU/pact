@@ -114,6 +114,27 @@
         "government online verification service"
       ]
     },
+    "nbn-consumer-information-standard-2018": {
+      "relativePath": "build_nbn_consumer_information_standard_2018_payload.py",
+      "builderSha256": "3a61bfb48f68be9a2d0963240c1b0ffd07ccb5fb42ea4cf27d3db4532c811498",
+      "rawPayloadSha256": "edb7d78683d7251cc1c7ade67e7f3574172686801a75d2ba1ea8f25bd4fa6cfb",
+      "rawPayloadBytes": 20810,
+      "normalizedPayloadSha256": "36d79101f18cdcc4a6b2a68209e170d400399f311e7af46db1c6cfcb2379f3d1",
+      "requiredFiles": {
+        "nbn-consumer-information-standard-2018.batch-a.json": "cb07d5270b73067e82557060ab7a9af04401ea72ebb666cc9cb5412c37cb41af",
+        "nbn-consumer-information-standard-2018.batch-b.json": "aea4ccc2650c6b3026012f0785ed12654f3bf7b5d89d8906e52c4d39b20a83ce",
+        "nbn-consumer-information-standard-2018.batch-c.json": "051de68e2eb2adf033d9659c3c361ea9fb124143f64cf1c75b7d06d0f3742bf0",
+        "validate_nbn_consumer_information_standard_2018_sections.py": "8b713d8bfda37042cfd895d49826c1dd2e1043a547db64bf98011b8f3559f276"
+      },
+      "documentId": "cth/standard-2018-814",
+      "expectedSections": 12,
+      "lastAmendedDate": "2021-04-01",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "typical busy period download speed",
+        "NBN Medical Alarm Register"
+      ]
+    },
     "payphones-determination-2022": {
       "relativePath": "build_payphones_determination_2022_payload.py",
       "builderSha256": "4af7e79dc2f01d1e8380160b62f33851fd7cd1320ffb68a03fce88ec7ba6a9cb",

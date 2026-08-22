@@ -1,6 +1,29 @@
 {
   "version": 1,
   "builders": {
+    "customer-service-guarantee-standard-2023": {
+      "relativePath": "build_customer_service_guarantee_standard_2023_payload.py",
+      "builderSha256": "72a89b95f4d53596520b1668ecbb0caac2859183a2abf156b963ddd95bc84e2b",
+      "rawPayloadSha256": "0954f84c6a192d3eb6f213187013f00893f43ef071af813f5377ba95caabe9ef",
+      "rawPayloadBytes": 41623,
+      "normalizedPayloadSha256": "283587c24f0ae1efec0159953d2ba5415f3d1cfbde0ebe050322b43b824d1779",
+      "requiredFiles": {
+        "build_planning_act_2016_payload.py": "922301d1d3f20ac0cd2636321e8e80ca59689b70ea6604c06fa781c8fc6d9cb9",
+        "customer-service-guarantee-standard-2023.batch-a.json": "4240798d535a43e56f9c2bc0f641708fa988aca53d6bdd467abf86f160cb4906",
+        "customer-service-guarantee-standard-2023.batch-b.json": "05bb90d3265bb7ef29c49c79da33a7d3c1216f59e8e62179dfe0743c2df3bac9",
+        "customer-service-guarantee-standard-2023.batch-c.json": "12cdf0afdde119808872edaf2a6a1513e12bb5083135e1bc4df15e76bd8566b6",
+        "validate_cth_sections.py": "c7583a732f352e4fdc76ce7833b300be5a841eea3b4f5c22aed51960ab3b978c",
+        "validate_customer_service_guarantee_standard_2023_sections.py": "a435c387afd624b6525842f2e86d0fc9395389ab4a1e3eeff98faf2dc92242dd"
+      },
+      "documentId": "cth/standard-2023-1140",
+      "expectedSections": 36,
+      "lastAmendedDate": "2026-08-19",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "guaranteed maximum connection period",
+        "damages payable"
+      ]
+    },
     "financial-hardship-standard-2024": {
       "relativePath": "build_financial_hardship_industry_standard_2024_payload.py",
       "builderSha256": "f928c7bee0a4b4110e815ee137ffa0244410c89116903fe59a58ad2645084cb5",

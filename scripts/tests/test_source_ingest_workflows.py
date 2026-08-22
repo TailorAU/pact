@@ -138,7 +138,7 @@ class WorkflowTests(unittest.TestCase):
         ):
             self.assertIn(required, gate)
 
-    def test_manifest_contains_only_wave_two_reviewed_builders(self) -> None:
+    def test_manifest_contains_reviewed_builders(self) -> None:
         manifest = json.loads(
             (SCRIPTS / "reviewed_legislation_builders.json").read_text(
                 encoding="utf-8"
@@ -146,7 +146,11 @@ class WorkflowTests(unittest.TestCase):
         )
         self.assertEqual(
             set(manifest["builders"]),
-            {"financial-hardship-standard-2024", "planning-act-2016"},
+            {
+                "customer-service-guarantee-standard-2023",
+                "financial-hardship-standard-2024",
+                "planning-act-2016",
+            },
         )
         for entry in manifest["builders"].values():
             self.assertRegex(entry["relativePath"], r"^build_[a-z0-9_]+_payload\.py$")

@@ -73,6 +73,11 @@ python dispatch_reviewed_legislation_ingest.py `
   --builder-key planning-act-2016 `
   --builder-root C:\TailorOS\pact-ingest `
   --dry-run
+
+python dispatch_reviewed_legislation_ingest.py `
+  --builder-key customer-service-guarantee-standard-2023 `
+  --builder-root C:\TailorOS\pact-ingest `
+  --dry-run
 ```
 
 A dry run executes the builder twice with a minimal environment and checks
@@ -128,6 +133,37 @@ following the queued two-job workflow.
     repository-level `SOURCE_CRON_SECRET`, both ingest runs, both no-op reruns,
     exact stored/expected hashes and counts, and protected-environment
     configuration in #5309/#5310 without recording any credential value.
+
+## Ongoing document additions
+
+For each later reviewed document, add exactly one manifest entry and update the
+manifest-key test and this runbook in a requirement-scoped PR. Do not modify the
+workflow merely to add a document. The external builder and every transitive
+local dependency must be immutable and listed by SHA-256; review and pin both
+the raw builder output and normalized payload hash. Keep `relatedDocsPolicy`
+explicit and preserve omitted relations unless replacement was separately
+reviewed.
+
+After the PR is green, independently reviewed and merged, wait for the Source
+deployment to report the exact merge SHA and recheck the canonical pre-write
+state. Then dispatch from merged `main`, not the feature branch. For the current
+CSG addition:
+
+```powershell
+cd C:\TailorOS\tailor-app\sites\source\scripts
+
+python dispatch_reviewed_legislation_ingest.py `
+  --builder-key customer-service-guarantee-standard-2023 `
+  --builder-root C:\TailorOS\pact-ingest `
+  --watch
+```
+
+The first successful run must verify all 36 sections and the complete canonical
+hash. Run the same command once more and require `exact-skip` with zero POST
+attempts. Record the manifest PR, deploy SHA, both Action run IDs, stored hash,
+section count and any warning-only diagnostics in the document's requirement
+and the sole durable population ledger. Stop before the next document if exact
+verification or the no-op proof fails.
 
 If verification fails, stop further dispatches. Leave the admin/cron secret
 split in place, preserve the protected scopes, and fix or roll forward the

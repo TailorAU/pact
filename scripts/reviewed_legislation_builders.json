@@ -197,6 +197,27 @@
         "development assessment"
       ]
     },
+    "telecommunications-cabling-provider-rules-2025": {
+      "relativePath": "build_telecommunications_cabling_provider_rules_2025_payload.py",
+      "builderSha256": "18e6777b1109251c9e71a2fb4b7105e2ec3ef001c382e645d03f920229641835",
+      "rawPayloadSha256": "90f1b6d33cb0aa1cd9d22d5acea85df633c6e9121dd1efc07dc7ced0f8cb156e",
+      "rawPayloadBytes": 42457,
+      "normalizedPayloadSha256": "d1406d2269173ef5cf4ab0843438540f838584b4f81a96a489a1ca4142a69e57",
+      "requiredFiles": {
+        "telecommunications-cabling-provider-rules-2025.batch-a.json": "e326ff3063d9dfb3125ee0a3e5ce25e0c367670b973769b3273a26c4d4b6e4d3",
+        "telecommunications-cabling-provider-rules-2025.batch-b.json": "d18226ccbe3c44aa460973739680f840a067437582dc4b995976bb31f6215848",
+        "telecommunications-cabling-provider-rules-2025.batch-c.json": "99a6a8c48b78344e9ce517c6da49d5c45623bb8513113a669f20a7f35045cf29",
+        "validate_telecommunications_cabling_provider_rules_2025_sections.py": "2874a4d75b5a2caf48fd3e888aba0e3878a5a96e466f33d33383fd9431d6c624"
+      },
+      "documentId": "cth/rules-2025-386",
+      "expectedSections": 46,
+      "lastAmendedDate": "2025-03-21",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "cabling regulations test",
+        "jumperable distributor"
+      ]
+    },
     "telecommunications-consumer-protection-act-1999": {
       "relativePath": "build_telecommunications_consumer_protection_service_standards_act_1999_payload.py",
       "builderSha256": "8c8b755a1f5dd2b32012abf40698e29fb0953e56522260089610028d5fa14dba",

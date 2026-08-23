@@ -217,6 +217,27 @@
         "customer service guarantee",
         "universal service obligation"
       ]
+    },
+    "telecommunications-numbering-plan-2025": {
+      "relativePath": "build_telecommunications_numbering_plan_2025_payload.py",
+      "builderSha256": "b5df5ca310cf73313272cce3db057354ae131a150f2c541e4a044559e065af55",
+      "rawPayloadSha256": "c1b325eb525081b02194e4434674d6f7cb16923a7aa94c22f693473ea2d30208",
+      "rawPayloadBytes": 154462,
+      "normalizedPayloadSha256": "653f88330cafcafbf45ba1dcaed1b53e9417b0b4745976cf079e4f56eb37a390",
+      "requiredFiles": {
+        "telecommunications-numbering-plan-2025.batch-a.json": "fa1abbe2775775e2650af44eba28fd4bc570228bac420d0f9d771c4ca1c9112b",
+        "telecommunications-numbering-plan-2025.batch-b.json": "3006d17e9ec25527add514c494c8d9f39c414256b9e8da9d787e82263db44587",
+        "telecommunications-numbering-plan-2025.batch-c.json": "54a164f4eec9ef307686277f77df5a0d6406c4a54f0b154431c346b3c256cf61",
+        "validate_telecommunications_numbering_plan_2025_sections.py": "3be324a94a15c021a97783fb9cd2bd4726a1eda1917731876bf4198e31bce4ea"
+      },
+      "documentId": "cth/plan-2025-409",
+      "expectedSections": 132,
+      "lastAmendedDate": "2025-03-24",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "enhanced rights of use",
+        "geographic numbers for central east region"
+      ]
     }
   }
 }

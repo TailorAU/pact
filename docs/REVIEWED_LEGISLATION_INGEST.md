@@ -113,6 +113,11 @@ python dispatch_reviewed_legislation_ingest.py `
   --builder-key international-mobile-roaming-determination-2019 `
   --builder-root C:\TailorOS\pact-ingest `
   --dry-run
+
+python dispatch_reviewed_legislation_ingest.py `
+  --builder-key telecommunications-numbering-plan-2025 `
+  --builder-root C:\TailorOS\pact-ingest `
+  --dry-run
 ```
 
 A dry run executes the builder twice with a minimal environment and checks
@@ -182,19 +187,19 @@ reviewed.
 After the PR is green, independently reviewed and merged, wait for the Source
 deployment to report the exact merge SHA and recheck the canonical pre-write
 state. Then dispatch from merged `main`, not the feature branch. For the current
-International Mobile Roaming Determination addition:
+Telecommunications Numbering Plan 2025 addition:
 
 ```powershell
 cd C:\TailorOS\tailor-app\sites\source\scripts
 
 python dispatch_reviewed_legislation_ingest.py `
-  --builder-key international-mobile-roaming-determination-2019 `
+  --builder-key telecommunications-numbering-plan-2025 `
   --builder-root C:\TailorOS\pact-ingest `
   --watch
 ```
 
 The first successful run must make exactly one POST attempt, then post-verify
-all 11 sections, `lastAmendedDate=2019-12-18`, and the complete canonical hash.
+all 132 sections, `lastAmendedDate=2025-03-24`, and the complete canonical hash.
 Run the same command once more and require `exact-skip` with zero POST attempts.
 Record the manifest PR, deploy SHA, both Action run IDs, stored hash,
 section count and any warning-only diagnostics in the document's requirement

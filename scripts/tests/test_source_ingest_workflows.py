@@ -155,6 +155,7 @@ class WorkflowTests(unittest.TestCase):
                 "nbn-consumer-information-standard-2018",
                 "payphones-determination-2022",
                 "planning-act-2016",
+                "telecommunications-consumer-protection-act-1999",
             },
         )
         for entry in manifest["builders"].values():

@@ -103,6 +103,11 @@ python dispatch_reviewed_legislation_ingest.py `
   --builder-key payphones-determination-2022 `
   --builder-root C:\TailorOS\pact-ingest `
   --dry-run
+
+python dispatch_reviewed_legislation_ingest.py `
+  --builder-key telecommunications-consumer-protection-act-1999 `
+  --builder-root C:\TailorOS\pact-ingest `
+  --dry-run
 ```
 
 A dry run executes the builder twice with a minimal environment and checks
@@ -172,19 +177,19 @@ reviewed.
 After the PR is green, independently reviewed and merged, wait for the Source
 deployment to report the exact merge SHA and recheck the canonical pre-write
 state. Then dispatch from merged `main`, not the feature branch. For the current
-NBN Consumer Information addition:
+Telecommunications Consumer Protection Act addition:
 
 ```powershell
 cd C:\TailorOS\tailor-app\sites\source\scripts
 
 python dispatch_reviewed_legislation_ingest.py `
-  --builder-key nbn-consumer-information-standard-2018 `
+  --builder-key telecommunications-consumer-protection-act-1999 `
   --builder-root C:\TailorOS\pact-ingest `
   --watch
 ```
 
 The first successful run must make exactly one POST attempt, then post-verify
-all 12 sections, `lastAmendedDate=2021-04-01`, and the complete canonical hash.
+all 248 sections, `lastAmendedDate=2025-10-31`, and the complete canonical hash.
 Run the same command once more and require `exact-skip` with zero POST attempts.
 Record the manifest PR, deploy SHA, both Action run IDs, stored hash,
 section count and any warning-only diagnostics in the document's requirement

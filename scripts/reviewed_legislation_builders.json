@@ -175,6 +175,27 @@
         "planning instruments",
         "development assessment"
       ]
+    },
+    "telecommunications-consumer-protection-act-1999": {
+      "relativePath": "build_telecommunications_consumer_protection_service_standards_act_1999_payload.py",
+      "builderSha256": "8c8b755a1f5dd2b32012abf40698e29fb0953e56522260089610028d5fa14dba",
+      "rawPayloadSha256": "a112defb55eca317c3b08032086dd58727446b43f922b2b3e0298ed7c5ea9aae",
+      "rawPayloadBytes": 187559,
+      "normalizedPayloadSha256": "634f22b43a5038318d5993f63b5d88213279e8f10d9323d5332630674962d76a",
+      "requiredFiles": {
+        "telecommunications-consumer-protection-service-standards-act-1999.batch-a.json": "689d7020ac548b8e5bc26d0e1ba96afe540672b8e26be64222701a5682072ab9",
+        "telecommunications-consumer-protection-service-standards-act-1999.batch-b.json": "5183da6f3ad42fc637cc92f0022191daa6d4ac473ffb98dd7301187429e3316e",
+        "telecommunications-consumer-protection-service-standards-act-1999.batch-c.json": "ae2e8b22d9da88cb24556d9000e780c31b7df8acc5a758a3bf2d1cdd9720a69a",
+        "validate_telecommunications_consumer_protection_service_standards_act_1999_sections.py": "904282ad48f2fa3220e3c0ddd752cd7a32c9d31af412fd6df97a3f9ef5bcb448"
+      },
+      "documentId": "cth/act-1999-050",
+      "expectedSections": 248,
+      "lastAmendedDate": "2025-10-31",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "customer service guarantee",
+        "universal service obligation"
+      ]
     }
   }
 }

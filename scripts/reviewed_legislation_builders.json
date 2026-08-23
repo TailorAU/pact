@@ -70,6 +70,27 @@
         "payment assistance"
       ]
     },
+    "international-mobile-roaming-determination-2019": {
+      "relativePath": "build_international_mobile_roaming_determination_2019_payload.py",
+      "builderSha256": "331dd1973e55fd864cf44521980a60e3c2a9b2be71669ce5c52ce9b42b150c47",
+      "rawPayloadSha256": "28459ea00359fa2cb59278bdde6b1c6844385f1e04397bf75c30b171f1acfd47",
+      "rawPayloadBytes": 23349,
+      "normalizedPayloadSha256": "8232b1baa4e65065546aeed0a9fd9bd7afeaf98629c557a70c51a5b45309db77",
+      "requiredFiles": {
+        "international-mobile-roaming-determination-2019.batch-a.json": "4cb0f5ab6c6b1a750aafd05a8ebdce84ddf7fe7db9308c013911da0d829d18ed",
+        "international-mobile-roaming-determination-2019.batch-b.json": "2be5776e32ba57786127a1bbf0c51c8441c67b5acc1429f5cb720d5e9bcd688b",
+        "international-mobile-roaming-determination-2019.batch-c.json": "0d741e9b2d4b9ed1c4edd248efe20fb454daf9b574209b5e7f32852e9f563975",
+        "validate_international_mobile_roaming_determination_2019_sections.py": "0b3c4fc4ae0e6aacf7441b78cfc2d38bb8f3384f0135c70f439d25b219a35589"
+      },
+      "documentId": "cth/determination-2019-1655",
+      "expectedSections": 11,
+      "lastAmendedDate": "2019-12-18",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "maximum charge information",
+        "spend management tools"
+      ]
+    },
     "mobile-network-coverage-maps-standard-2026": {
       "relativePath": "build_mobile_network_coverage_maps_industry_standard_2026_payload.py",
       "builderSha256": "26edd203d005dd743333ec0581b8372de7ae17c85f5447bd6730e26ac301ae7b",

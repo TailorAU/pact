@@ -156,6 +156,7 @@ class WorkflowTests(unittest.TestCase):
                 "nbn-consumer-information-standard-2018",
                 "payphones-determination-2022",
                 "planning-act-2016",
+                "telecommunications-cabling-provider-rules-2025",
                 "telecommunications-consumer-protection-act-1999",
                 "telecommunications-numbering-plan-2025",
             },

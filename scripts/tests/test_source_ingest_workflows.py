@@ -157,6 +157,7 @@ class WorkflowTests(unittest.TestCase):
                 "payphones-determination-2022",
                 "planning-act-2016",
                 "telecommunications-consumer-protection-act-1999",
+                "telecommunications-numbering-plan-2025",
             },
         )
         for entry in manifest["builders"].values():

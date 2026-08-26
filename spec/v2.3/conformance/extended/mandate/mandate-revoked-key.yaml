@@ -1,0 +1,55 @@
+# Conformance test vector — Extended: revoked signing key rejected with MandateRevoked.
+# kind: mandate (provisional) — registry-backed §17.8-style revocation at the MCP boundary.
+
+kind: mandate
+
+metadata:
+  id: extended/mandate/mandate-revoked-key
+  description: >
+    With a principal registry configured, a mandate whose signing_key_id
+    resolves to a revoked credential is rejected with MandateRevoked (-32013).
+    A tombstoned principal is rejected identically.
+  spec_section: "spec/v2.3 §20.3, §20.4; rfc-mcp-mandate-extension.md §7, §11; PACT §17.8"
+  conformance_level: extended
+  track: T11
+
+guard_config:
+  enforcement: required
+  clock_skew_seconds: 300
+  registry:
+    principals:
+      - id: did:web:knox.example
+        credentials:
+          - id: key-1
+            revoked: true
+
+clock: "2026-08-01T00:00:00Z"
+
+steps:
+  - call:
+      tool: pact_agents
+      arguments:
+        documentId: doc_vec123
+      meta:
+        au.tailor.pact/mandate:
+          version: "1"
+          session_id: sess_vec
+          agent_id: agent_vec
+          handler_principal_id: did:web:knox.example
+          expires_at: "2026-08-02T00:00:00Z"
+          signature: base64url-vector-signature
+          signing_key_id: "did:web:knox.example#key-1"
+    expected:
+      outcome: error
+      error: { name: MandateRevoked, code: -32013 }
+
+notes: |
+  The registry shape is the same one `pact verify-proof --registry` accepts.
+  Credential lookup accepts either the full signing_key_id or its fragment
+  ("key-1") as the credential id.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Revocation checked at session start only, not per request.
+    - Fragment vs full-DID credential id mismatch causing revoked keys to pass.

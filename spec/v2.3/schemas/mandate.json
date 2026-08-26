@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.3/mandate.json",
+  "title": "PACT Mandate",
+  "description": "Handler-signed capability grant (PACT Specification §19.2) — the RFC #14 shape, verbatim. Attests that the identified handler HumanPrincipal authorized THIS AGENT, WITHIN THESE BOUNDS, UNTIL THIS TIME. Carried untouched (MCP: _meta[\"au.tailor.pact/mandate\"], §20.1); carriers MUST NOT add, remove, or rewrite fields — the §20.3 signature covers the RFC 8785 canonical encoding of the body with the `signature` member absent, so drift breaks verification. SCOPE (§19.1, normative): a verified Mandate is a protocol-level grant only. It is NOT an authorization_proof and MUST NOT be accepted in place of one; it MUST NOT release the §25.6 apply guard on an external-irreversible effect; and per §17.14 / §25.3 it establishes no legal identity, capacity, or authority to bind an entity.",
+  "type": "object",
+  "required": ["version", "session_id", "agent_id", "handler_principal_id", "expires_at", "signature", "signing_key_id"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Mandate shape version. This revision defines \"1\".",
+      "enum": ["1"]
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "The Parley (§21) or session this Mandate is scoped to. Outside the issuing fabric the scope is advisory (§20.1) — recorded, never the sole rejection ground. Enforcement counters are keyed by the digest of the canonical body, NOT by this client-chosen value (§19.4)."
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "The agent (§23.1) this Mandate authorizes."
+    },
+    "handler_principal_id": {
+      "type": "string",
+      "pattern": "^did:[a-z0-9]+:.+",
+      "description": "The handler — the §17.4 HumanPrincipal (W3C DID, strictly 1:1 with a human) granting the authority. Verifiers MUST support `did:web` and `did:key`."
+    },
+    "identity_claim": {
+      "type": "string",
+      "description": "Human-readable assertion of what the agent represents. Informational only — like the §17.5 persona claim, it MUST NOT be used in any access-control, trust, or identity decision."
+    },
+    "constraint_envelope": {
+      "type": "object",
+      "description": "Pre-loaded negotiating envelope (§19.5 check 1).",
+      "properties": {
+        "may_publish": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Categories the agent may publish into. When present, an out-of-category publish MUST be rejected, and an uncategorised publish on a surface that can carry a category MUST be rejected (fail closed — §19.5 check 1). Absent = no category restriction from this Mandate."
+        },
+        "must_respect": {
+          "type": "array",
+          "description": "Natural-language boundary assertions. Carried for the human at the escalation point and for the record — NOT machine-evaluable; implementations MUST NOT claim to enforce them (§19.5).",
+          "items": {
+            "type": "object",
+            "required": ["boundary"],
+            "properties": {
+              "boundary": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "commitment_authority": {
+      "type": "object",
+      "description": "Caps on binding decisions (§19.4). Exceeding it escalates — never rejects (§19.5 check 2, §20.6).",
+      "properties": {
+        "max_binding_decisions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cap on binding decisions taken under this Mandate. Counters MUST be derived from durable records to claim enforcement, are keyed by the canonical-body digest, and commit only on the SUCCESS of the operation they authorize (§19.4)."
+        },
+        "binding_scope": {
+          "type": "string",
+          "description": "Human-readable scope of the binding authority. Advisory outside the issuing fabric (§20.1)."
+        }
+      },
+      "additionalProperties": true
+    },
+    "disclosure_ceiling": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "description": "Maximum §10.3 graduated-disclosure level (1–4) this Mandate allows the agent to reveal. Composes with clearances: the effective limit is the LOWER of this ceiling and what §10.3 / §17.13 already permit. Above-ceiling content MUST be redacted (flagged `redacted: true`) or escalated, never returned unredacted (§19.5 check 3)."
+    },
+    "escalation_hook": {
+      "type": "string",
+      "format": "uri",
+      "description": "Push endpoint where outcomes and mandate-violation events are delivered. The signed delivery format is reserved (§22); until it lands, delivery is implementation-defined and MUST be reported truthfully (§20.6 `escalation_hook_notified`)."
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Expiry instant (ISO 8601), evaluated against the RECEIVING implementation's clock — server clock is authoritative (RFC #14 Q6, ratified; §19.3). Skew tolerance reuses the §17.7 window (default ±5 minutes). The body carries no client-time field; no skew check applies to the body itself."
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "Base64url (unpadded) signature over the RFC 8785 (JCS) canonical JSON encoding of this body with the `signature` member absent, per the §20.3 suite (Ed25519 / `EdDSA` baseline; `ES256` / `ES384` MAY be accepted; symmetric algorithms MUST be rejected). Produced by the handler's enrolled credential — implementations carry pre-signed Mandates and MUST NOT mint or sign one (§19.3)."
+    },
+    "signing_key_id": {
+      "type": "string",
+      "pattern": "^did:[a-z0-9]+:.+",
+      "description": "DID URL of the handler credential that produced `signature` (e.g. `did:web:knox.example#key-1`); SHOULD carry the verification-method fragment. Resolved via the handler principal's credential-registry entry (§17.8) or DID Document (§17.4 pinning applies). An unenrolled key MUST be rejected — fail closed (§20.3); a revoked credential or tombstoned principal MUST be rejected."
+    }
+  },
+  "additionalProperties": true,
+  "examples": [
+    {
+      "version": "1",
+      "session_id": "sess_xyz",
+      "agent_id": "agent_abc",
+      "handler_principal_id": "did:web:knox.example",
+      "identity_claim": "this agent represents Knox on API contract negotiation",
+      "constraint_envelope": {
+        "may_publish": ["interface", "performance", "security"],
+        "must_respect": [
+          { "boundary": "no breaking changes to event v1 schema" },
+          { "boundary": "p99 latency < 200ms" }
+        ]
+      },
+      "commitment_authority": {
+        "max_binding_decisions": 1,
+        "binding_scope": "interface contract draft"
+      },
+      "disclosure_ceiling": 2,
+      "escalation_hook": "https://my-relay.example/agent_abc/escalations",
+      "expires_at": "2026-05-12T18:00:00Z",
+      "signature": "base64url-signature-over-jcs-canonical-body",
+      "signing_key_id": "did:web:knox.example#key-1"
+    }
+  ]
+}

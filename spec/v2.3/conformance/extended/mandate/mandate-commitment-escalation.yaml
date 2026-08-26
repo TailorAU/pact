@@ -1,0 +1,67 @@
+# Conformance test vector — Extended: exceeding commitment_authority suspends, never errors.
+# kind: mandate (provisional) — emulated MRTR input_required (RFC §9).
+
+kind: mandate
+
+metadata:
+  id: extended/mandate/mandate-commitment-escalation
+  description: >
+    A binding-decision call that would exceed max_binding_decisions returns an
+    input_required suspension carrying reason commitment_authority_exceeded, a
+    requestState token, and requires: authorization_proof. It is NOT an
+    isError result and NOT a MANDATE_ERRORS code — exceeding a mandate is a
+    request for human authority, not an error (RFC §8/§9).
+  spec_section: "spec/v2.3 §19.5, §20.6; rfc-mcp-mandate-extension.md §8, §9"
+  conformance_level: extended
+  track: T11
+
+guard_config:
+  enforcement: required
+  clock_skew_seconds: 300
+  registry: null
+
+clock: "2026-08-01T00:00:00Z"
+
+steps:
+  - call:
+      tool: pact_done
+      arguments:
+        documentId: doc_vec123
+        status: aligned
+      meta:
+        au.tailor.pact/mandate:
+          version: "1"
+          session_id: sess_vec
+          agent_id: agent_vec
+          handler_principal_id: did:web:knox.example
+          commitment_authority:
+            max_binding_decisions: 0
+            binding_scope: interface contract draft
+          expires_at: "2026-08-02T00:00:00Z"
+          signature: base64url-vector-signature
+          signing_key_id: "did:web:knox.example#key-1"
+    expected:
+      outcome: input_required
+      input_required:
+        reason: commitment_authority_exceeded
+        requires: authorization_proof
+        request_state_present: true
+        challenge_nonce_present: true
+
+notes: |
+  Which tools count as binding decisions is deployment configuration
+  (default: pact_done, pact_lock, pact_matter_close, pact_matter_add_member,
+  pact_matter_attach, pact_matter_detach). The suspension mints a
+  per-escalation challenge_nonce; the retry's authorization_proof MUST echo
+  it (§17.7 step 5 replay protection — see mandate-escalation-retry).
+  binding_scope is advisory at this boundary (open question 2 default) —
+  noted, never the sole ground for rejection. escalation_hook_notified MUST
+  be reported truthfully; §21 push delivery is not wired at this boundary
+  yet, so it is false here.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Over-authority calls rejected as errors instead of suspended.
+    - requestState omitted, making the retry uncorrelatable.
+    - escalation_hook_notified asserted true without any delivery mechanism.

@@ -39,7 +39,7 @@
 
 version: "2"
 spec_version: "v2.3"
-last_updated: "2026-07-30"
+last_updated: "2026-08-26"
 
 types:
 
@@ -124,7 +124,72 @@ types:
 
   # ─── Registered custom types ────────────────────────────────────────────
 
-  # (none yet — first community PRs land here)
+  - type: au.tailor.pact.topic
+    status: registered
+    field_schema: "sec:{slug}  — topic sections (Question / Answer / Evidence …); the Answer section carries the canonical claim"
+    proposal_payload: "{ sectionId, newContent, summary, reasoning?, sources? } — challenges additionally carry { defeaterType, substance } per the epistemics extension"
+    apply_semantics: >-
+      Merge into the topic's draft sections. Promotion of the topic itself
+      (open → consensus → stable/locked) is NOT the apply — it is a separate,
+      recomputed consensus sweep governed by the
+      `au.tailor.pact/epistemics` extension
+      (docs/extensions/epistemics.md): per-tier quorum, 0.90 alignment
+      ratio, and a zero-unmet-dependency gate.
+    terminal_states: [Verified]
+    content_format: "text/markdown (topic sections) + application/json (claim metadata: tier, credence, dependency links)"
+    effect_class: internal-reversible
+    human_attestation: not-required
+    maintainer: TailorAU
+    notes: >-
+      A knowledge claim under epistemic consensus. `Verified` is a RESTING
+      state, not an immutable one — every state including `Verified` remains
+      re-openable through the extension's challenge machinery, and it is a
+      protocol state per §25.3, never an assertion of truth. Credence is a
+      deterministic PROJECTION over the dependency graph (asymptote 0.99);
+      it never gates or constitutes a consensus transition. Classified
+      internal-reversible because the apply writes only to the
+      implementation's own graph and every transition is revocable from the
+      event log (§6). An implementation that republishes verified topics to
+      a third-party surface it cannot retract MUST classify that apply
+      upward to `external-irreversible` in its own profile (§25.5).
+      Extension doc: docs/extensions/epistemics.md
+      (`au.tailor.pact/epistemics`). Reference impl — the PACT knowledge
+      graph (pact.tailor.au).
+
+  - type: au.tailor.pact.legislation-instrument
+    status: registered
+    field_schema: "sec:{sectionId}  — statutory section addressing within the instrument (act / part / division / section)"
+    proposal_payload: "{ jurisdiction, title, identifier, sections[], sourceRef (official register / gazette URL) }"
+    apply_semantics: >-
+      Structured legislation instrument ingested into the implementation's
+      public knowledge graph after quorum verification against the official
+      source (free-ingest: 3+ independent agents verify, then the instrument
+      auto-ingests). Ingest quorum and independence rules follow the
+      `au.tailor.pact/epistemics` extension.
+    terminal_states: [Ingested]
+    content_format: application/json
+    effect_class: internal-reversible
+    human_attestation: not-required
+    maintainer: TailorAU
+    notes: >-
+      GRAPH INGEST ONLY. Classified internal-reversible because the
+      registered apply writes the instrument into the implementation's own
+      graph, from which it can be corrected or withdrawn via its event log
+      (§6) — and because the content is a copy of a public official source,
+      not a novel assertion. This classification does NOT cover
+      publication. Per §25.5's fail-closed doctrine ("unclassified is not
+      internal", and the registry is a floor): any apply that PUBLISHES the
+      instrument to a third party, feeds a downstream citation surface the
+      implementation cannot retract, or asserts the ingested text is the
+      authoritative law, is a DIFFERENT effect and MUST be classified
+      `external-irreversible` in the implementation's own profile — with
+      `human_attestation: required` per §14.3 — or declared out-of-band
+      under §25.6(b). Serving the graph's own public read API, where the
+      implementation can still correct or retract the record, remains
+      within this entry. `Ingested` is a protocol state (§25.3): it is not
+      an assertion that the text is current, authoritative, or legally
+      effective. Extension doc: docs/extensions/epistemics.md. Reference
+      impl — the PACT knowledge graph (pact.tailor.au).
 
 registration_process:
   - Open a PR against this file with the entry filled out.

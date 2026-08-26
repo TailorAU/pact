@@ -82,6 +82,10 @@ capability that captured each signer's intentional act.
 | `conformance/extended/execution-boundary/` | 11 new vectors + README |
 | `conformance/README.md` | New directory listed |
 | `GETTING_STARTED.md` | "silence = consent" heading and prose qualified |
+| §6.1 event structure | `sequenceNumber` row: per-**resource**, monotonic **and gapless**, pointing at the §6.4 rules ([#59](https://github.com/TailorAU/pact/issues/59)) |
+| §6.4 event-log integrity | Precision pass (#59): signature-algorithm registry (`ed25519` REQUIRED default, registry-extensible) replaces hard-coded Ed25519; per-resource `sequenceNumber` monotonic-gapless rules normative (never assigning it = non-conformant at Extended); daily signed-root payload as a normative field list (window, resource set, chain heads, `root_hash`, `alg`, `signing_key`, `signature`); concrete `pact-log-anchor/1` transparency-anchor object with a non-normative public-Git-signed-tag example |
+| `resource-types.yaml` (registered types) | First two registered custom types (#59): `au.tailor.pact.topic` and `au.tailor.pact.legislation-instrument`, both `internal-reversible` / `not-required` for the graph-side apply, with an explicit upward-classification note for any publication / non-retractable citation surface (§25.5) |
+| `docs/extensions/epistemics.md` (NEW, repo-level) | Extension `au.tailor.pact/epistemics` (#59): tier quorums, 0.90 / 0.80 thresholds, credence-as-projection (0.99 asymptote, MUST NOT gate), blast-radius challenge reopen quorum, `builds_on` / `assumes` dependency gate, independence counting, §15.1 `extensions` advertisement |
 
 Nothing else in the carry-forward differs from `spec/v2.2/`.
 

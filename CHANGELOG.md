@@ -36,6 +36,41 @@ attestation, and legal execution. Raised as
 **Not yet done:** no reference-server implementation of §25, and no CI job runs
 the v2.3 vectors (`conformance.yml` targets `spec/v2.0/conformance`).
 
+**2026-08-26 — registry + epistemics + §6.4 precision
+([#59](https://github.com/TailorAU/pact/issues/59)).** Registers the
+knowledge-graph resource types running in production at `pact.tailor.au`,
+documents their epistemic machinery as an extension, and tightens the §6.4
+provenance layer:
+
+- **`spec/v2.3/resource-types.yaml`** — first two registered custom types:
+  `au.tailor.pact.topic` (knowledge claim under epistemic consensus;
+  `internal-reversible` / `not-required`) and
+  `au.tailor.pact.legislation-instrument` (structured legislation ingested
+  into a public knowledge graph; `internal-reversible` / `not-required`
+  **for graph ingest only** — the entry states explicitly that third-party
+  publication or a non-retractable downstream citation surface is a
+  different effect that MUST be classified `external-irreversible` per
+  §25.5).
+- **`docs/extensions/epistemics.md` (NEW)** — extension
+  `au.tailor.pact/epistemics`, and the new `docs/extensions/` home for
+  graduated extension docs: tier vocabulary with per-tier quorums, 0.90
+  promote / 0.80 stable-break ratios, credence as a deterministic
+  projection that MUST NOT gate transitions (0.99 asymptote — no live
+  claim reaches certainty), typed challenges with a
+  `base + floor(sqrt(dependents))` blast-radius reopen quorum,
+  `builds_on` / `assumes` dependency links with a zero-unmet-dependency
+  promotion gate, independence-of-principals counting rules, and the §15.1
+  `extensions` profile advertisement shape.
+- **§6.4** — signature-algorithm registry (`ed25519` REQUIRED default,
+  registry-extensible) replaces hard-coded Ed25519; per-resource
+  `sequenceNumber` monotonic-gapless rules are normative (a store that
+  never assigns it is non-conformant at Extended); the daily signed-root
+  payload is a normative field list (window, covered resource set, chain
+  heads, `root_hash`, `alg`, key id, signature); the external
+  transparency anchor gets a concrete `pact-log-anchor/1` object with a
+  public-Git-signed-tag example (named as an example, not a normative
+  dependency).
+
 ## v2.0.3 — 2026-05-15
 
 Third patch on v2.0. Introduces **Fabric Onboarding & Session Awareness** — five additive operations and six new events that close the "cognitive layer" gap between *being registered in a fabric* and an agent *knowing it is in a fabric, with these obligations, with these counterparties*. **Additive — no breaking changes to v2.0 / v2.0.1 / v2.0.2 clients.**

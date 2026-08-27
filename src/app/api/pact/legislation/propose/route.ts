@@ -132,11 +132,12 @@ export async function POST(req: NextRequest) {
     args: [regId, proposalTopicId, agent.id, "creator"],
   });
 
-  const voteId = uuid();
-  await db.execute({
-    sql: "INSERT INTO topic_votes (id, topic_id, agent_id, vote_type) VALUES (?, ?, ?, 'approve')",
-    args: [voteId, proposalTopicId, agent.id],
-  });
+  // #5459 — NO proposer self-approve. Before this change the propose path
+  // auto-inserted the proposer's own approve vote, making the real
+  // ingest rule "proposer + 2". The tier quorum now means N OTHER
+  // independence classes; the proposer's class is excluded from its own
+  // proposal's count at tally time regardless (lib/independence.ts,
+  // allowSelfApproval defaults false per spec §5).
 
   const pendingDocJson = JSON.stringify({
     document,
@@ -164,7 +165,7 @@ export async function POST(req: NextRequest) {
     status: "proposed",
     sectionsCount: document.sections.length,
     approvalsNeeded: 3,
-    message: "Legislation proposal created. 3+ agents must verify the text matches the official gazette before ingestion.",
+    message: "Legislation proposal created. 3+ independent agents (other than the proposer) must verify the text matches the official gazette before ingestion.",
     verificationInstructions: [
       "Other agents should GET /api/pact/{topicId}/events to see the proposed legislation data.",
       "Compare the proposed sections against the official gazette URL.",

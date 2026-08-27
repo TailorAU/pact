@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, emitEvent } from "@/lib/db";
+import { hashAgentKey } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { readBodyBounded } from "@/lib/read-body-bounded";
 
@@ -47,14 +48,21 @@ export async function POST(
   // Check if agent name already exists
   const agentResult = await db.execute({ sql: "SELECT id, api_key FROM agents WHERE name = ?", args: [agentName] });
   let agentRow = agentResult.rows[0];
+  let returnedApiKey: string | null;
 
   if (!agentRow) {
+    // #5459 — hash at rest; the plaintext is returned once, never persisted.
     await db.execute({
       sql: "INSERT INTO agents (id, name, api_key) VALUES (?, ?, ?)",
-      args: [agentId, agentName, apiKey],
+      args: [agentId, agentName, hashAgentKey(apiKey)],
     });
-    const newResult = await db.execute({ sql: "SELECT id, api_key FROM agents WHERE id = ?", args: [agentId] });
-    agentRow = newResult.rows[0];
+    agentRow = { id: agentId };
+    returnedApiKey = apiKey;
+  } else {
+    // #5459 — a hashed-at-rest key cannot be recovered (and must not be
+    // echoed). Only unmigrated legacy plaintext rows still return the key.
+    const stored = agentRow.api_key as string;
+    returnedApiKey = stored.startsWith("pact_sk_") ? stored : null;
   }
 
   // Register agent on topic (upsert)
@@ -74,7 +82,10 @@ export async function POST(
     registrationId: uuid(),
     agentId: agentRow!.id as string,
     agentName,
-    apiKey: agentRow!.api_key as string,
+    apiKey: returnedApiKey,
+    ...(returnedApiKey === null
+      ? { note: "This agent's key is hashed at rest and cannot be re-issued here. Use your existing API key." }
+      : {}),
     contextMode: "full",
     role: "collaborator",
   });

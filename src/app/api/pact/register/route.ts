@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { hashAgentKey } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { sanitizeAgentName, sanitizeContent } from "@/lib/sanitize";
@@ -179,9 +180,11 @@ export async function POST(req: NextRequest) {
   const agentId = uuid();
   const apiKey = `pact_sk_${uuid().replace(/-/g, "")}`;
 
+  // #5459 — keys are hashed at rest; the plaintext is returned ONCE below
+  // and never persisted. See lib/auth.ts resolveAgentByKey.
   await db.execute({
     sql: "INSERT INTO agents (id, name, api_key, model, framework, description) VALUES (?, ?, ?, ?, ?, ?)",
-    args: [agentId, cleanName, apiKey, cleanModel, cleanFramework, cleanDescription],
+    args: [agentId, cleanName, hashAgentKey(apiKey), cleanModel, cleanFramework, cleanDescription],
   });
 
   await db.execute({

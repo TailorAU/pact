@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent, finalizeApprovedTopic, finalizeRejectedTopic, getTopicApprovalQuorum } from "@/lib/db";
+import { getDb, emitEvent, finalizeApprovedTopic, finalizeRejectedTopic, getTopicApprovalQuorum, computeTopicVoteTally } from "@/lib/db";
+import { usesClassCounting } from "@/lib/independence";
 import { requireAgent, checkAgentReputation } from "@/lib/auth";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { v4 as uuid } from "uuid";
@@ -19,25 +20,22 @@ export async function GET(
   const db = await getDb();
 
   const topic = await db.execute({
-    sql: "SELECT id, title, status, tier FROM topics WHERE id = ?",
+    sql: "SELECT id, title, status, tier, created_at FROM topics WHERE id = ?",
     args: [topicId],
   });
   if (!topic.rows[0]) {
     return NextResponse.json({ error: "Topic not found" }, { status: 404 });
   }
 
-  const votes = await db.execute({
-    sql: `SELECT tv.vote_type, tv.reason, tv.created_at, tv.need_info_topic_id, a.name as agentName
-      FROM topic_votes tv
-      JOIN agents a ON a.id = tv.agent_id
-      WHERE tv.topic_id = ?
-      ORDER BY tv.created_at ASC`,
-    args: [topicId],
-  });
+  // #5459 — post-cutoff topics count DISTINCT independence classes toward
+  // quorum (proposer's class excluded, standing-gated); grandfathered
+  // topics keep legacy raw counting. Every vote stays visible either way,
+  // additively annotated with counted/countedReason/independenceClass.
+  const countingMode = usesClassCounting(topic.rows[0].created_at as string | null)
+    ? "class-v1"
+    : "legacy";
+  const tally = await computeTopicVoteTally(db, topicId, countingMode);
 
-  const approvals = votes.rows.filter((v) => v.vote_type === "approve").length;
-  const rejections = votes.rows.filter((v) => v.vote_type === "reject").length;
-  const needInfo = votes.rows.filter((v) => v.vote_type === "need_info").length;
   // #5425 — the quorum is tier-based (single-sourced in db.ts) and applies
   // symmetrically to approvals and rejections.
   const quorum = getTopicApprovalQuorum(topic.rows[0].tier as string | null);
@@ -45,13 +43,25 @@ export async function GET(
   return NextResponse.json({
     topicId,
     status: topic.rows[0].status,
-    approvals,
-    rejections,
-    needInfo,
-    approvalsNeeded: Math.max(0, quorum - approvals),
+    approvals: tally.approvals,
+    rejections: tally.rejections,
+    needInfo: tally.needInfo,
+    countedApprovals: tally.countedApprovals,
+    countedRejections: tally.countedRejections,
+    countingMode,
+    approvalsNeeded: Math.max(0, quorum - tally.countedApprovals),
     approvalQuorum: quorum,
-    rejectionsNeeded: Math.max(0, quorum - rejections),
-    votes: votes.rows,
+    rejectionsNeeded: Math.max(0, quorum - tally.countedRejections),
+    votes: tally.votes.map((v) => ({
+      vote_type: v.voteType,
+      reason: v.reason,
+      created_at: v.createdAt,
+      need_info_topic_id: v.needInfoTopicId,
+      agentName: v.agentName,
+      counted: v.counted,
+      countedReason: v.countedReason,
+      independenceClass: v.independenceClass,
+    })),
   });
 }
 
@@ -120,7 +130,7 @@ export async function POST(
 
   // Check topic exists and is in "proposed" status
   const topic = await db.execute({
-    sql: "SELECT id, title, status, tier FROM topics WHERE id = ?",
+    sql: "SELECT id, title, status, tier, created_at FROM topics WHERE id = ?",
     args: [topicId],
   });
   if (!topic.rows[0]) {
@@ -258,22 +268,42 @@ export async function POST(
 
   // #5425 — tally both decisive vote kinds against the SAME tier-based
   // quorum (single-sourced in db.ts; replaces the duplicated flat 3).
+  // #5459 — quorum satisfaction on post-cutoff topics counts DISTINCT
+  // independence classes (proposer's class excluded, standing-gated);
+  // grandfathered topics (created before the cutoff) keep raw counting.
   const quorum = getTopicApprovalQuorum(topic.rows[0].tier as string | null);
-  const approvalCount = await db.execute({
-    sql: "SELECT COUNT(*) as c FROM topic_votes WHERE topic_id = ? AND vote_type = 'approve'",
-    args: [topicId],
-  });
-  const approvals = (approvalCount.rows[0].c as number) || 0;
-  const rejectCount = await db.execute({
-    sql: "SELECT COUNT(*) as c FROM topic_votes WHERE topic_id = ? AND vote_type = 'reject'",
-    args: [topicId],
-  });
-  const rejections = (rejectCount.rows[0].c as number) || 0;
+  const countingMode = usesClassCounting(topic.rows[0].created_at as string | null)
+    ? "class-v1"
+    : "legacy";
+  let approvals: number;
+  let rejections: number;
+  let countedApprovals: number;
+  let countedRejections: number;
+  if (countingMode === "class-v1") {
+    const tally = await computeTopicVoteTally(db, topicId, countingMode);
+    approvals = tally.approvals;
+    rejections = tally.rejections;
+    countedApprovals = tally.countedApprovals;
+    countedRejections = tally.countedRejections;
+  } else {
+    const approvalCount = await db.execute({
+      sql: "SELECT COUNT(*) as c FROM topic_votes WHERE topic_id = ? AND vote_type = 'approve'",
+      args: [topicId],
+    });
+    approvals = (approvalCount.rows[0].c as number) || 0;
+    const rejectCount = await db.execute({
+      sql: "SELECT COUNT(*) as c FROM topic_votes WHERE topic_id = ? AND vote_type = 'reject'",
+      args: [topicId],
+    });
+    rejections = (rejectCount.rows[0].c as number) || 0;
+    countedApprovals = approvals;
+    countedRejections = rejections;
+  }
 
   // Race rule (#5425): approval is checked FIRST — when both quorums are
   // met in the same tally, approval wins, because an opened topic is still
   // recoverable (challenges, demotion) while 'rejected' is terminal.
-  if (approvals >= quorum) {
+  if (countedApprovals >= quorum) {
     // Topic is approved — run the SAME quorum transition as the sweep
     // (evaluateTopicProposals): legislation proposals auto-ingest and go to
     // 'consensus'; everything else opens for debate. Previously this branch
@@ -283,7 +313,7 @@ export async function POST(
       db,
       topicId,
       topic.rows[0].title as string,
-      approvals,
+      countedApprovals,
       quorum
     );
     if (outcome !== "skipped") {
@@ -296,7 +326,7 @@ export async function POST(
         op: "pact.vote.cast",
         entityType: "vote",
         entityId: topicId,
-        after: { topicId, vote, approvals, status: newStatus, topicOpened: true },
+        after: { topicId, vote, approvals, countedApprovals, countingMode, status: newStatus, topicOpened: true },
         requestId: req.headers.get("x-request-id"),
         ipCountry: ipCountryFromHeaders(req.headers),
       });
@@ -305,22 +335,25 @@ export async function POST(
         topicId,
         vote,
         approvals,
+        countedApprovals,
+        countedRejections,
+        countingMode,
         status: newStatus,
         message: outcome === "ingested"
-          ? `Topic approved with ${approvals} votes! Legislation ingested — the document is now citable.`
-          : `Topic approved with ${approvals} votes! It is now open for debate.`,
+          ? `Topic approved with ${countedApprovals} counting votes! Legislation ingested — the document is now citable.`
+          : `Topic approved with ${countedApprovals} counting votes! It is now open for debate.`,
       }, { status: 200 });
     }
     // "skipped": the topic left 'proposed' concurrently — fall through to
     // the vote-recorded response with the live status.
-  } else if (rejections >= quorum) {
+  } else if (countedRejections >= quorum) {
     // #5425 — first-class rejection: reject quorum reached before approval
     // quorum. Terminal; rejected legislation proposals never ingest.
     const transitioned = await finalizeRejectedTopic(
       db,
       topicId,
       topic.rows[0].title as string,
-      rejections,
+      countedRejections,
       quorum
     );
     if (transitioned) {
@@ -331,7 +364,7 @@ export async function POST(
         op: "pact.vote.cast",
         entityType: "vote",
         entityId: topicId,
-        after: { topicId, vote, approvals, rejections, status: "rejected", topicOpened: false },
+        after: { topicId, vote, approvals, rejections, countedRejections, countingMode, status: "rejected", topicOpened: false },
         requestId: req.headers.get("x-request-id"),
         ipCountry: ipCountryFromHeaders(req.headers),
       });
@@ -341,8 +374,11 @@ export async function POST(
         vote,
         approvals,
         rejections,
+        countedApprovals,
+        countedRejections,
+        countingMode,
         status: "rejected",
-        message: `Topic rejected with ${rejections} reject votes (quorum ${quorum}). This is terminal — it will not open or ingest.`,
+        message: `Topic rejected with ${countedRejections} counting reject votes (quorum ${quorum}). This is terminal — it will not open or ingest.`,
       }, { status: 200 });
     }
     // Not transitioned: the topic left 'proposed' concurrently — fall
@@ -356,7 +392,7 @@ export async function POST(
     op: "pact.vote.cast",
     entityType: "vote",
     entityId: topicId,
-    after: { topicId, vote, approvals, rejections, status: "proposed", topicOpened: false },
+    after: { topicId, vote, approvals, rejections, countedApprovals, countedRejections, countingMode, status: "proposed", topicOpened: false },
     requestId: req.headers.get("x-request-id"),
     ipCountry: ipCountryFromHeaders(req.headers),
   });
@@ -366,9 +402,12 @@ export async function POST(
     vote,
     approvals,
     rejections,
-    approvalsNeeded: Math.max(0, quorum - approvals),
-    rejectionsNeeded: Math.max(0, quorum - rejections),
+    countedApprovals,
+    countedRejections,
+    countingMode,
+    approvalsNeeded: Math.max(0, quorum - countedApprovals),
+    rejectionsNeeded: Math.max(0, quorum - countedRejections),
     status: "proposed",
-    message: `Vote recorded. ${Math.max(0, quorum - approvals)} more approval(s) needed to open this topic.`,
+    message: `Vote recorded. ${Math.max(0, quorum - countedApprovals)} more counting approval(s) needed to open this topic.`,
   }, { status: 200 });
 }

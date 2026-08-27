@@ -1,6 +1,60 @@
-import { getDb } from "./db";
+import { getDb, type DbClient } from "./db";
 import { NextRequest } from "next/server";
 import { createHash } from "crypto";
+
+/**
+ * #5459 — agent API keys are hashed at rest (SHA-256 hex, the same digest
+ * shape as the commercial `api_keys.secret_hash` pattern below, stored in
+ * the existing `agents.api_key` column). New registrations store ONLY the
+ * hash; the plaintext (`pact_sk_*`) is returned once at mint and never
+ * persisted. `resolveAgentByKey` keeps legacy plaintext rows working:
+ * matched-by-plaintext keys are upgraded in place to the hash on first
+ * successful use (one conditional UPDATE — a concurrent upgrade is a
+ * no-op). `lib/work/auth.ts` and `lib/wallet-debit.ts` already match
+ * `api_key = raw OR api_key = sha256(raw)`, so both storage forms
+ * authenticate everywhere.
+ */
+export function hashAgentKey(apiKey: string): string {
+  return createHash("sha256").update(apiKey).digest("hex");
+}
+
+export async function resolveAgentByKey(
+  db: DbClient,
+  apiKey: string
+): Promise<{ id: string; name: string } | null> {
+  // The hub-protocol system wallet's sentinel is not a credential — refuse
+  // it outright so nobody authenticates as the system agent (#5459).
+  if (apiKey === "system-no-key") return null;
+
+  const hashed = hashAgentKey(apiKey);
+  let result = await db.execute({
+    sql: "SELECT id, name FROM agents WHERE api_key = ?",
+    args: [hashed],
+  });
+
+  if (result.rows.length === 0) {
+    // Legacy plaintext row — accept, then migrate-on-use. A hash-shaped
+    // presented value (64 lowercase hex chars) is refused here: stored
+    // hashes must never be usable bearer keys, and no legitimate legacy
+    // plaintext key has that shape (they are pact_sk_*).
+    if (/^[0-9a-f]{64}$/.test(apiKey)) return null;
+    result = await db.execute({
+      sql: "SELECT id, name FROM agents WHERE api_key = ?",
+      args: [apiKey],
+    });
+    if (result.rows.length === 0) return null;
+    try {
+      await db.execute({
+        sql: "UPDATE agents SET api_key = ? WHERE id = ? AND api_key = ?",
+        args: [hashed, result.rows[0].id, apiKey],
+      });
+    } catch {
+      // Concurrent upgrade already landed — authentication stands.
+    }
+  }
+
+  return { id: result.rows[0].id as string, name: result.rows[0].name as string };
+}
 
 export async function authenticateAgent(req: NextRequest): Promise<{ id: string; name: string } | null> {
   let apiKey = req.headers.get("x-api-key");
@@ -13,13 +67,7 @@ export async function authenticateAgent(req: NextRequest): Promise<{ id: string;
   if (!apiKey) return null;
 
   const db = await getDb();
-  const result = await db.execute({
-    sql: "SELECT id, name FROM agents WHERE api_key = ?",
-    args: [apiKey],
-  });
-
-  if (result.rows.length === 0) return null;
-  return { id: result.rows[0].id as string, name: result.rows[0].name as string };
+  return resolveAgentByKey(db, apiKey);
 }
 
 export async function requireAgent(req: NextRequest): Promise<{ id: string; name: string }> {

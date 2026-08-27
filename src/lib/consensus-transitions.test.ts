@@ -37,15 +37,55 @@ type ProposedRow = {
   tier: string;
   approvals: number;
   rejections: number;
+  /** #5459 — post-cutoff rows switch the sweep to class counting. */
+  created_at?: string;
 };
+
+/** #5459 — one row of the computeTopicVoteTally votes query. */
+type MockVoteRow = {
+  agent_id: string;
+  vote_type: string;
+  reason?: string | null;
+  created_at?: string;
+  need_info_topic_id?: string | null;
+  agent_name?: string;
+  independence_class?: string | null;
+  agent_age_days?: number;
+  merged_contributions?: number;
+  earned_credit_events?: number;
+};
+
+function mockVote(
+  agentId: string,
+  voteType: string,
+  opts: Partial<MockVoteRow> = {}
+): MockVoteRow {
+  return {
+    agent_id: agentId,
+    vote_type: voteType,
+    agent_name: agentId,
+    independence_class: null,
+    // Defaults clear the standing gate (age 30d, 2 merged contributions).
+    agent_age_days: 30,
+    merged_contributions: 2,
+    earned_credit_events: 0,
+    ...opts,
+  };
+}
 
 /**
  * Stateful mock: tracks per-topic status so the conditional
  * `UPDATE ... WHERE id = ? AND status = 'proposed'` transitions report an
  * honest rowsAffected, and the finalizeApprovedTopic guard SELECT sees the
- * live status.
+ * live status. #5459: also serves the computeTopicVoteTally vote/creator
+ * queries from `voteRows` / `creators` (keyed by topic id).
  */
-function makeDb(opts: { proposed?: ProposedRow[]; statusById: Record<string, string> }) {
+function makeDb(opts: {
+  proposed?: ProposedRow[];
+  statusById: Record<string, string>;
+  voteRows?: Record<string, MockVoteRow[]>;
+  creators?: Record<string, { agent_id: string; independence_class?: string | null }[]>;
+}) {
   const statements: Stmt[] = [];
   const statusById = { ...opts.statusById };
   const db: DbClient = {
@@ -56,6 +96,19 @@ function makeDb(opts: { proposed?: ProposedRow[]; statusById: Record<string, str
 
       if (sql.includes("WHERE t.status = 'proposed'")) {
         return { rows: (opts.proposed ?? []).map((p) => ({ ...p })) };
+      }
+      // #5459 — computeTopicVoteTally: votes with class + standing metadata.
+      if (sql.includes("FROM topic_votes tv")) {
+        return { rows: (opts.voteRows?.[args[0] as string] ?? []).map((v) => ({ ...v })) };
+      }
+      // #5459 — computeTopicVoteTally: the proposer's class(es).
+      if (sql.includes("r.role = 'creator'")) {
+        return {
+          rows: (opts.creators?.[args[0] as string] ?? []).map((c) => ({
+            independence_class: null,
+            ...c,
+          })),
+        };
       }
       if (sql.includes("SELECT status FROM topics WHERE id = ?")) {
         const status = statusById[args[0] as string];
@@ -264,5 +317,152 @@ describe("evaluateTopicProposals sweep (#5425)", () => {
     expect(opened).toBe(0);
     expect(statusById.t1).toBe("proposed");
     expect(eventTypes(statements)).toHaveLength(0);
+  });
+});
+
+// ─── #5459 — independence-class counting in the sweep ─────────────────
+
+const POST_CUTOFF = "2026-09-01T00:00:00Z";
+const PRE_CUTOFF = "2026-08-01T00:00:00Z";
+
+function classRow(overrides: Partial<ProposedRow> = {}): ProposedRow {
+  return {
+    id: "t1",
+    title: "[Legislation Proposal] Class Counted Act 2026",
+    tier: "institutional",
+    approvals: 3,
+    rejections: 0,
+    created_at: POST_CUTOFF,
+    ...overrides,
+  };
+}
+
+describe("evaluateTopicProposals — independence classes (#5459)", () => {
+  it("proposer self-approve no longer opens: proposer + 2 others counts as 2 (< quorum 3)", async () => {
+    const { db, statements, statusById } = makeDb({
+      proposed: [classRow()],
+      statusById: { t1: "proposed" },
+      voteRows: {
+        t1: [
+          mockVote("proposer", "approve"),
+          mockVote("a1", "approve"),
+          mockVote("a2", "approve"),
+        ],
+      },
+      creators: { t1: [{ agent_id: "proposer" }] },
+    });
+
+    const opened = await evaluateTopicProposals(db);
+
+    expect(opened).toBe(0);
+    expect(statusById.t1).toBe("proposed");
+    expect(ingestDocuments).not.toHaveBeenCalled();
+    expect(eventTypes(statements)).toHaveLength(0);
+  });
+
+  it("3 distinct-class standing-eligible approvals from OTHERS reach quorum (legislation ingests)", async () => {
+    const { db, statements, statusById } = makeDb({
+      proposed: [classRow()],
+      statusById: { t1: "proposed" },
+      voteRows: {
+        t1: [
+          mockVote("proposer", "approve"),
+          mockVote("a1", "approve"),
+          mockVote("a2", "approve"),
+          mockVote("a3", "approve"),
+        ],
+      },
+      creators: { t1: [{ agent_id: "proposer" }] },
+    });
+
+    const opened = await evaluateTopicProposals(db);
+
+    expect(opened).toBe(1);
+    expect(statusById.t1).toBe("consensus");
+    expect(ingestDocuments).toHaveBeenCalledTimes(1);
+    expect(eventTypes(statements)).toContain("pact.legislation.ingested");
+  });
+
+  it("class collapse: two same-class agents + one distinct = 2 counted (< quorum 3)", async () => {
+    const { db, statusById } = makeDb({
+      proposed: [classRow()],
+      statusById: { t1: "proposed" },
+      voteRows: {
+        t1: [
+          mockVote("a1", "approve", { independence_class: "operator.example" }),
+          mockVote("a2", "approve", { independence_class: "operator.example" }),
+          mockVote("a3", "approve"),
+        ],
+      },
+      creators: { t1: [{ agent_id: "proposer" }] },
+    });
+
+    const opened = await evaluateTopicProposals(db);
+
+    expect(opened).toBe(0);
+    expect(statusById.t1).toBe("proposed");
+    expect(ingestDocuments).not.toHaveBeenCalled();
+  });
+
+  it("standing gate: young / zero-contribution votes are recorded but do not count", async () => {
+    const { db, statusById } = makeDb({
+      proposed: [classRow()],
+      statusById: { t1: "proposed" },
+      voteRows: {
+        t1: [
+          mockVote("a1", "approve"),
+          mockVote("a2", "approve"),
+          // Too young AND no accepted contributions — recorded, not counted.
+          mockVote("newborn", "approve", { agent_age_days: 0.01, merged_contributions: 0 }),
+        ],
+      },
+      creators: { t1: [{ agent_id: "proposer" }] },
+    });
+
+    const opened = await evaluateTopicProposals(db);
+
+    expect(opened).toBe(0);
+    expect(statusById.t1).toBe("proposed");
+  });
+
+  it("rejection counts symmetrically: 3 distinct non-proposer classes reject → terminal", async () => {
+    const { db, statements, statusById } = makeDb({
+      proposed: [classRow({ approvals: 0, rejections: 3 })],
+      statusById: { t1: "proposed" },
+      voteRows: {
+        t1: [
+          mockVote("a1", "reject"),
+          mockVote("a2", "reject"),
+          mockVote("a3", "reject"),
+        ],
+      },
+      creators: { t1: [{ agent_id: "proposer" }] },
+    });
+
+    const opened = await evaluateTopicProposals(db);
+
+    expect(opened).toBe(0);
+    expect(statusById.t1).toBe("rejected");
+    expect(eventTypes(statements)).toContain("pact.topic.rejected");
+    expect(ingestDocuments).not.toHaveBeenCalled();
+  });
+
+  it("grandfather boundary: a pre-cutoff topic still opens under legacy raw counting (proposer + 2)", async () => {
+    const { db, statements, statusById } = makeDb({
+      proposed: [classRow({ title: "Old ordinary topic", created_at: PRE_CUTOFF, approvals: 3 })],
+      statusById: { t1: "proposed" },
+      // NO voteRows needed: the legacy path never queries per-vote metadata.
+    });
+
+    const opened = await evaluateTopicProposals(db);
+
+    expect(opened).toBe(1);
+    expect(statusById.t1).toBe("open");
+    expect(eventTypes(statements)).toContain("pact.topic.approved");
+    // The class tally was never consulted for a grandfathered topic.
+    const tallyQueries = statements.filter(
+      (s) => s.sql.includes("FROM topic_votes tv") && !s.sql.includes("WHERE t.status = 'proposed'")
+    );
+    expect(tallyQueries).toHaveLength(0);
   });
 });

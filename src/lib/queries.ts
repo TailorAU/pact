@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { publicIndependenceProfile } from "./independence";
 
 // =====================================================
 // Shared query functions — used by both API routes AND
@@ -125,6 +126,10 @@ export async function getHubStats() {
     stats,
     recentEvents: recentEvents.rows,
     topTopics: topTopics.rows,
+    // #5459 — additive: the enforced independence-class counting
+    // parameters, advertised per the epistemics extension (§9: advertised
+    // values MUST be the values actually enforced).
+    independence: publicIndependenceProfile(),
   };
 }
 

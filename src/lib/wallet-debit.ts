@@ -70,6 +70,20 @@ export async function debitIfAuthenticated(
     // Anonymous / free-tier read — nothing to debit.
     return { ok: true, agentId: null, debited: 0 };
   }
+  if (rawKey === "system-no-key" || /^[0-9a-f]{64}$/.test(rawKey)) {
+    // #5459 — neither the hub-protocol system wallet's sentinel nor a
+    // hash-shaped value (a leaked at-rest digest) is a credential; the raw
+    // arm of the OR-match below would otherwise accept the stored hash
+    // verbatim. Legitimate plaintext keys are pact_sk_*.
+    return {
+      ok: false,
+      status: 401,
+      body: {
+        error: "Invalid x-source-agent-key. Register via POST /api/pact/register.",
+        code: "invalid_agent_key",
+      },
+    };
+  }
 
   const db = await getDb();
 

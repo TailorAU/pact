@@ -4,6 +4,16 @@ import pg from "pg";
 import { v4 as uuid } from "uuid";
 import { dependencyGateOk, VERIFIED_TOPIC_STATUSES } from "./consensus-gate";
 import { computeEffectiveCredences, credenceFromRatio } from "./epistemic";
+import {
+  type CountingMode,
+  type TallyVote,
+  type TalliedVote,
+  INDEPENDENCE_CONFIG,
+  deriveClassKey,
+  meetsStanding,
+  tallyVotes,
+  usesClassCounting,
+} from "./independence";
 
 // Load DDL from sql/<filename>. Splits on ";\n" to recover individual
 // statement strings that initSchema passes to db.execute(), matching the
@@ -541,6 +551,13 @@ async function initSchema(db: DbClient) {
     `ALTER TABLE topics ADD COLUMN IF NOT EXISTS claim_atomicity_status TEXT`,
     // Typed defeaters on challenge proposals (#3691 W4).
     `ALTER TABLE proposals ADD COLUMN IF NOT EXISTS defeater_type TEXT`,
+    // Independence classes v1 (#5459): the agent's verified handler-domain
+    // when a mandate-bearing/verified registration exists — collapses all
+    // its agents into ONE counting class in the pre-open quorum tally.
+    // NULL = per-agent singleton class weighted by earned standing.
+    // DERIVED, never client-writable; no write surface sets it today.
+    // Additive; see lib/independence.ts for the counting rule + config.
+    `ALTER TABLE agents ADD COLUMN IF NOT EXISTS independence_class TEXT`,
     // Legacy axiom-tier migration (#3691 W1): "axiom" was a privileged rank;
     // it becomes institutional warrant + the convention_stop flag, with
     // provenance kept in tier_migrated_from. Idempotent — the second UPDATE
@@ -1156,9 +1173,136 @@ export async function finalizeRejectedTopic(
   return true;
 }
 
+// ─── Independence-class vote tally (#5459) ─────────────────────────
+
+export interface TopicVoteTallyRow extends TalliedVote {
+  agentName: string;
+  independenceClass: string | null;
+  reason: string | null;
+  createdAt: string | null;
+  needInfoTopicId: string | null;
+}
+
+export interface TopicVoteTally {
+  mode: CountingMode;
+  approvals: number;
+  rejections: number;
+  needInfo: number;
+  countedApprovals: number;
+  countedRejections: number;
+  votes: TopicVoteTallyRow[];
+}
+
+/**
+ * #5459 — the single tally used by the vote route (GET + POST) and the
+ * sweep (evaluateTopicProposals). Fetches every vote on the topic with the
+ * voter's class + standing metadata, then applies the PURE counting rule
+ * from lib/independence.ts:
+ *
+ *   class-v1  — quorum satisfaction counts DISTINCT independence classes;
+ *               the proposer's class (role='creator') is excluded from its
+ *               own proposal's count; singleton classes count only with
+ *               earned standing (age + accepted contributions). Approve
+ *               and reject are counted symmetrically.
+ *   legacy    — the pre-#5459 raw counting, kept for grandfathered topics
+ *               (created before INDEPENDENCE_CONFIG.grandfatherCutoff).
+ *
+ * Accepted contributions (v1, documented): merged proposals + credit
+ * receipts other than starter credits — the existing credits machinery.
+ * Non-counting votes stay recorded and visible (counted=false + reason).
+ */
+let _loggedCountingCutoff = false;
+
+export async function computeTopicVoteTally(
+  db: DbClient,
+  topicId: string,
+  mode: CountingMode
+): Promise<TopicVoteTally> {
+  if (!_loggedCountingCutoff) {
+    _loggedCountingCutoff = true;
+    console.log(
+      `[#5459] independence-class vote counting v1 active; grandfather cutoff ` +
+      `${INDEPENDENCE_CONFIG.grandfatherCutoff} — topics created before it tally under legacy raw counting`
+    );
+  }
+  const voteRows = await db.execute({
+    sql: `SELECT tv.agent_id, tv.vote_type, tv.reason, tv.created_at, tv.need_info_topic_id,
+        a.name AS agent_name, a.independence_class,
+        EXTRACT(EPOCH FROM NOW() - a.created_at) / 86400.0 AS agent_age_days,
+        (SELECT COUNT(*) FROM proposals p WHERE p.agent_id = tv.agent_id AND p.status = 'merged') AS merged_contributions,
+        (SELECT COUNT(*) FROM ledger_txs lt WHERE lt.to_wallet = tv.agent_id AND lt.reason != 'starter-credits') AS earned_credit_events
+      FROM topic_votes tv
+      JOIN agents a ON a.id = tv.agent_id
+      WHERE tv.topic_id = ?
+      ORDER BY tv.created_at ASC`,
+    args: [topicId],
+  });
+
+  // The proposer's counting class(es) — excluded from the topic's own
+  // quorum count in class mode (spec §5 allowSelfApproval defaults false).
+  const proposerClassKeys = new Set<string>();
+  if (mode === "class-v1") {
+    const creators = await db.execute({
+      sql: `SELECT r.agent_id, a.independence_class
+            FROM registrations r
+            JOIN agents a ON a.id = r.agent_id
+            WHERE r.topic_id = ? AND r.role = 'creator'`,
+      args: [topicId],
+    });
+    for (const row of creators.rows) {
+      proposerClassKeys.add(
+        deriveClassKey(row.agent_id as string, row.independence_class as string | null)
+      );
+    }
+  }
+
+  const tallyInput: (TallyVote & {
+    agentName: string;
+    independenceClass: string | null;
+    reason: string | null;
+    createdAt: string | null;
+    needInfoTopicId: string | null;
+  })[] = voteRows.rows.map((row) => {
+    const agentId = row.agent_id as string;
+    const independenceClass = (row.independence_class as string | null) ?? null;
+    const acceptedContributions =
+      Number(row.merged_contributions ?? 0) + Number(row.earned_credit_events ?? 0);
+    return {
+      agentId,
+      voteType: row.vote_type as string,
+      classKey: deriveClassKey(agentId, independenceClass),
+      standingEligible: meetsStanding(row.agent_age_days as number, acceptedContributions),
+      agentName: (row.agent_name as string | null) ?? "",
+      independenceClass,
+      reason: (row.reason as string | null) ?? null,
+      createdAt: (row.created_at as string | null) ?? null,
+      needInfoTopicId: (row.need_info_topic_id as string | null) ?? null,
+    };
+  });
+
+  const tally = tallyVotes(tallyInput, { mode, proposerClassKeys });
+
+  return {
+    mode: tally.mode,
+    approvals: tally.approvals,
+    rejections: tally.rejections,
+    needInfo: tally.needInfo,
+    countedApprovals: tally.countedApprovals,
+    countedRejections: tally.countedRejections,
+    votes: tally.votes.map((vote, i) => ({
+      ...vote,
+      agentName: tallyInput[i].agentName,
+      independenceClass: tallyInput[i].independenceClass,
+      reason: tallyInput[i].reason,
+      createdAt: tallyInput[i].createdAt,
+      needInfoTopicId: tallyInput[i].needInfoTopicId,
+    })),
+  };
+}
+
 export async function evaluateTopicProposals(db: DbClient) {
   const proposed = await db.execute(`
-    SELECT t.id, t.title, t.tier,
+    SELECT t.id, t.title, t.tier, t.created_at,
       (SELECT COUNT(*) FROM topic_votes tv WHERE tv.topic_id = t.id AND tv.vote_type = 'approve') as approvals,
       (SELECT COUNT(*) FROM topic_votes tv WHERE tv.topic_id = t.id AND tv.vote_type = 'reject') as rejections
     FROM topics t
@@ -1167,8 +1311,17 @@ export async function evaluateTopicProposals(db: DbClient) {
 
   let opened = 0;
   for (const t of proposed.rows) {
-    const approvals = (t.approvals as number) || 0;
-    const rejections = (t.rejections as number) || 0;
+    let approvals = (t.approvals as number) || 0;
+    let rejections = (t.rejections as number) || 0;
+    // #5459 — post-cutoff topics count DISTINCT independence classes
+    // (proposer's class excluded, standing-gated); grandfathered topics
+    // (created before the cutoff, or rows without a parseable created_at)
+    // keep the raw counts above.
+    if (usesClassCounting(t.created_at as string | null)) {
+      const tally = await computeTopicVoteTally(db, t.id as string, "class-v1");
+      approvals = tally.countedApprovals;
+      rejections = tally.countedRejections;
+    }
     const quorum = getTopicApprovalQuorum(t.tier as string | null);
     // Race rule (#5425): when BOTH quorums are met in the same tally,
     // approval wins — approval is recoverable downstream (challenges,

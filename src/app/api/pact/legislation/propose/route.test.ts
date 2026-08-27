@@ -114,4 +114,26 @@ describe("POST /api/pact/legislation/propose", () => {
       crossReferences: [],
     });
   });
+
+  it("#5459 — does NOT insert a proposer self-approve vote (quorum means N OTHER voters)", async () => {
+    const response = await POST(request({
+      document: document(),
+      summary: "Authoritative gazette transcription.",
+    }) as never);
+
+    expect(response.status).toBe(201);
+    const voteInserts = mockDb.execute.mock.calls
+      .map(([statement]) => statement)
+      .filter((statement): statement is Statement =>
+        typeof statement !== "string" && statement.sql.includes("INSERT INTO topic_votes"));
+    expect(voteInserts).toEqual([]);
+
+    // The proposer is still registered as creator — that registration is
+    // what excludes the proposer's class from its own quorum count.
+    const creatorRegistration = mockDb.execute.mock.calls
+      .map(([statement]) => statement)
+      .find((statement): statement is Statement =>
+        typeof statement !== "string" && statement.sql.includes("INSERT INTO registrations"));
+    expect(creatorRegistration?.args).toContain("creator");
+  });
 });

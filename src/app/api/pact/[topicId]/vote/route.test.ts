@@ -72,8 +72,29 @@ const legislationPayload = {
   },
 };
 
-function topicRow(id: string, title: string, tier = "institutional") {
-  return { id, title, status: "proposed", tier };
+function topicRow(id: string, title: string, tier = "institutional", createdAt?: string) {
+  return { id, title, status: "proposed", tier, ...(createdAt ? { created_at: createdAt } : {}) };
+}
+
+/** #5459 — one row of the computeTopicVoteTally votes query. */
+function tallyVoteRow(
+  agentId: string,
+  voteType: string,
+  opts: Partial<Record<string, unknown>> = {}
+) {
+  return {
+    agent_id: agentId,
+    vote_type: voteType,
+    reason: null,
+    created_at: "2026-09-01T00:00:00Z",
+    need_info_topic_id: null,
+    agent_name: agentId,
+    independence_class: null,
+    agent_age_days: 30,
+    merged_contributions: 2,
+    earned_credit_events: 0,
+    ...opts,
+  };
 }
 
 /**
@@ -82,11 +103,15 @@ function topicRow(id: string, title: string, tier = "institutional") {
  * emitEvent can interleave their own statements freely. Every statement is
  * recorded for assertions. UPDATE statements report rowsAffected: 1 so the
  * #5425 conditional-transition guards see the transition succeed.
+ * #5459: topics with a post-cutoff created_at route through the class
+ * tally, served from `voteRows` / `creators`.
  */
 function armDb(opts: {
-  topic: { id: string; title: string; tier?: string };
+  topic: { id: string; title: string; tier?: string; createdAt?: string };
   approveCount: number;
   rejectCount?: number;
+  voteRows?: Record<string, unknown>[];
+  creators?: Record<string, unknown>[];
 }) {
   mockDb.execute.mockImplementation(async (stmt: ExecuteArg) => {
     const sql = typeof stmt === "string" ? stmt : stmt.sql;
@@ -94,7 +119,9 @@ function armDb(opts: {
     executedStatements.push({ sql, args });
 
     if (sql.includes("FROM topics WHERE id = ?")) {
-      return { rows: [topicRow(opts.topic.id, opts.topic.title, opts.topic.tier)] };
+      return {
+        rows: [topicRow(opts.topic.id, opts.topic.title, opts.topic.tier, opts.topic.createdAt)],
+      };
     }
     if (sql.startsWith("INSERT INTO topic_votes")) {
       return { rows: [] };
@@ -104,6 +131,14 @@ function armDb(opts: {
     }
     if (sql.includes("SELECT COUNT(*) as c FROM topic_votes") && sql.includes("vote_type = 'reject'")) {
       return { rows: [{ c: opts.rejectCount ?? 0 }] };
+    }
+    // #5459 — computeTopicVoteTally: votes with class + standing metadata.
+    if (sql.includes("FROM topic_votes tv")) {
+      return { rows: (opts.voteRows ?? []).map((v) => ({ ...v })) };
+    }
+    // #5459 — computeTopicVoteTally: the proposer's class(es).
+    if (sql.includes("r.role = 'creator'")) {
+      return { rows: (opts.creators ?? []).map((c) => ({ independence_class: null, ...c })) };
     }
     if (sql.includes("type = 'pact.legislation.proposed'")) {
       return { rows: [{ data: JSON.stringify(legislationPayload) }] };
@@ -315,5 +350,122 @@ describe("POST /api/pact/{topicId}/vote — first-class rejection (#5425)", () =
     expect(body.status).toBe("proposed");
     expect(statusUpdates()).toHaveLength(0);
     expect(eventInserts()).not.toContain("pact.topic.rejected");
+  });
+});
+
+describe("POST /api/pact/{topicId}/vote — independence-class counting (#5459)", () => {
+  const POST_CUTOFF = "2026-09-01T00:00:00Z";
+
+  it("post-cutoff topic: 3 distinct-class approvals from OTHERS ingest the legislation", async () => {
+    armDb({
+      topic: {
+        id: LEGISLATION_TOPIC_ID,
+        title: "[Legislation Proposal] Moonside Report 2026",
+        createdAt: POST_CUTOFF,
+      },
+      approveCount: 0, // legacy COUNT path must not be consulted
+      voteRows: [
+        tallyVoteRow("proposer", "approve"),
+        tallyVoteRow("a1", "approve"),
+        tallyVoteRow("a2", "approve"),
+        tallyVoteRow("a3", "approve"),
+      ],
+      creators: [{ agent_id: "proposer" }],
+    });
+
+    const res = await callPost(LEGISLATION_TOPIC_ID);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("consensus");
+    expect(body.countingMode).toBe("class-v1");
+    expect(body.countedApprovals).toBe(3); // proposer's vote excluded
+    expect(body.approvals).toBe(4); // raw count stays visible
+    expect(ingestDocuments).toHaveBeenCalledTimes(1);
+    expect(eventInserts()).toContain("pact.legislation.ingested");
+  });
+
+  it("post-cutoff topic: proposer + 2 others is NO LONGER quorum (the old hole)", async () => {
+    armDb({
+      topic: {
+        id: LEGISLATION_TOPIC_ID,
+        title: "[Legislation Proposal] Moonside Report 2026",
+        createdAt: POST_CUTOFF,
+      },
+      approveCount: 0,
+      voteRows: [
+        tallyVoteRow("proposer", "approve"),
+        tallyVoteRow("a1", "approve"),
+        tallyVoteRow("a2", "approve"),
+      ],
+      creators: [{ agent_id: "proposer" }],
+    });
+
+    const res = await callPost(LEGISLATION_TOPIC_ID);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("proposed");
+    expect(body.countedApprovals).toBe(2);
+    expect(body.approvalsNeeded).toBe(1);
+    expect(ingestDocuments).not.toHaveBeenCalled();
+    expect(statusUpdates()).toHaveLength(0);
+  });
+
+  it("post-cutoff topic: same-class votes collapse to one quorum count", async () => {
+    armDb({
+      topic: { id: PLAIN_TOPIC_ID, title: "Ordinary post-cutoff topic", createdAt: POST_CUTOFF },
+      approveCount: 0,
+      voteRows: [
+        tallyVoteRow("a1", "approve", { independence_class: "operator.example" }),
+        tallyVoteRow("a2", "approve", { independence_class: "operator.example" }),
+        tallyVoteRow("a3", "approve"),
+      ],
+      creators: [{ agent_id: "proposer" }],
+    });
+
+    const res = await callPost(PLAIN_TOPIC_ID);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("proposed");
+    expect(body.approvals).toBe(3);
+    expect(body.countedApprovals).toBe(2);
+    expect(statusUpdates()).toHaveLength(0);
+  });
+
+  it("post-cutoff topic: standing-gated votes are recorded but never counted", async () => {
+    armDb({
+      topic: { id: PLAIN_TOPIC_ID, title: "Ordinary post-cutoff topic", createdAt: POST_CUTOFF },
+      approveCount: 0,
+      voteRows: [
+        tallyVoteRow("a1", "approve"),
+        tallyVoteRow("a2", "approve"),
+        tallyVoteRow("newborn", "approve", { agent_age_days: 0.01, merged_contributions: 0 }),
+      ],
+      creators: [{ agent_id: "proposer" }],
+    });
+
+    const res = await callPost(PLAIN_TOPIC_ID);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("proposed");
+    expect(body.approvals).toBe(3);
+    expect(body.countedApprovals).toBe(2);
+  });
+
+  it("grandfathered topic (no created_at in row → legacy) keeps raw counting: proposer + 2 opens", async () => {
+    armDb({
+      topic: { id: PLAIN_TOPIC_ID, title: "Some ordinary institutional topic" },
+      approveCount: 3, // raw count incl. a proposer self-approve
+    });
+
+    const res = await callPost(PLAIN_TOPIC_ID);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("open");
+    expect(body.countingMode).toBe("legacy");
   });
 });

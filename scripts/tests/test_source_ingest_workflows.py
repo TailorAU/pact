@@ -89,8 +89,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(
             infra.count("CRON_SECRET=${{ secrets.SOURCE_CRON_SECRET }}"), 1
         )
-        self.assertEqual(cron.count("environment: source-prod-cron"), 8)
-        self.assertEqual(cron.count("secrets.SOURCE_CRON_SECRET"), 8)
+        # 9 cron jobs since #5425 added the consensus-sweep (auto-merge)
+        # job — every job pins the source-prod-cron environment and the
+        # cron secret, never the admin key (asserted below). This count
+        # was stale at 8 after #5426 merged; #5459 is the first change to
+        # re-run this suite in CI and fixes it forward.
+        self.assertEqual(cron.count("environment: source-prod-cron"), 9)
+        self.assertEqual(cron.count("secrets.SOURCE_CRON_SECRET"), 9)
         self.assertNotIn("SOURCE_INGEST_ADMIN_KEY", cron)
 
     def test_cron_auth_check_is_manual_only_and_read_only(self) -> None:

@@ -1370,7 +1370,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Vote tally and individual votes"
+            "description": "Vote tally and individual votes. #5459 additive: countedApprovals / countedRejections / countingMode (class-v1 for topics created at/after the grandfather cutoff, legacy before it); each vote row also carries counted (boolean), countedReason (need_info | standing | proposer-class | class-collapsed | null) and independenceClass. Quorum satisfaction counts DISTINCT independence classes, with the proposer's class excluded from its own proposal's count."
           },
           "404": {
             "description": "Topic not found"
@@ -1410,7 +1410,7 @@
         },
         "responses": {
           "200": {
-            "description": "Vote recorded"
+            "description": "Vote recorded. #5459 additive: countedApprovals / countedRejections / countingMode; approvalsNeeded and rejectionsNeeded derive from the class-counted tallies on post-cutoff topics (raw counts on grandfathered topics); approvals / rejections stay the raw vote counts."
           },
           "401": {
             "description": "Missing or invalid agent key"

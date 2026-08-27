@@ -16,6 +16,12 @@ export async function resolveAgentFromKey(
 ): Promise<ResolvedAgent | null> {
   const key = req.headers.get("x-source-agent-key");
   if (!key || key.trim().length === 0) return null;
+  // #5459 — the hub-protocol system wallet's sentinel is not a credential.
+  if (key === "system-no-key") return null;
+  // #5459 — a stored hash is never a usable bearer key: the raw arm of the
+  // OR-match below would otherwise accept a leaked 64-hex digest verbatim.
+  // No legitimate plaintext key has that shape (they are pact_sk_*).
+  if (/^[0-9a-f]{64}$/.test(key)) return null;
 
   const hashed = createHash("sha256").update(key).digest("hex");
   const db = await getDb();

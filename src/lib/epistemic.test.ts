@@ -40,6 +40,9 @@ describe("Axis B — state + credence (#3691 W1)", () => {
     expect(consensusStateFor("consensus")).toBe("aligned");
     expect(consensusStateFor("stable")).toBe("verified");
     expect(consensusStateFor("locked")).toBe("verified");
+    // #5425 — terminal rejection of a proposed topic surfaces as its own
+    // state, never as "open".
+    expect(consensusStateFor("rejected")).toBe("rejected");
   });
 
   it("credence cannot produce 1.0 by construction — even at unanimity", () => {

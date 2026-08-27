@@ -980,9 +980,68 @@ export async function autoMergeExpired(db: DbClient) {
   return result.rows.length;
 }
 
-// ─── Topic Proposal Evaluation ──────────────────────────────────────
+// #5425 — Postgres advisory-lock key for the consensus sweep. Arbitrary
+// app-unique constant; only this code path uses it. Session-level lock,
+// acquired and released on the SAME pooled connection (see below).
+export const CONSENSUS_SWEEP_LOCK_KEY = 542501;
 
-const TOPIC_APPROVAL_THRESHOLD = 3;
+/**
+ * #5425 — the ONLY production entry point to the consensus engine.
+ * Cron routes (/api/cron/auto-merge, /api/cron/cleanup) call this; no read
+ * path invokes the engine any more (a source-level test enforces that).
+ *
+ * The whole sweep runs on ONE dedicated pooled connection so the
+ * session-level advisory lock is guaranteed to be released by the same
+ * session that acquired it (pool.query round-robins connections, which
+ * would strand the lock). When the lock is already held — an overlapping
+ * sweep elsewhere — the sweep is skipped with a single log line rather
+ * than double-running promotions.
+ */
+export async function runConsensusSweep(): Promise<{ ran: boolean; merged: number }> {
+  await getDb(); // ensure the schema is initialized via the normal path
+  const pool = getPool();
+  const client = await pool.connect();
+  const scoped: DbClient = {
+    async execute(stmtOrSql) {
+      const sql = typeof stmtOrSql === "string" ? stmtOrSql : stmtOrSql.sql;
+      const args = typeof stmtOrSql === "string" ? [] : stmtOrSql.args;
+      const result = await client.query(pgify(sql), args);
+      return { rows: result.rows, rowsAffected: result.rowCount ?? 0 };
+    },
+    async batch(stmts) {
+      try {
+        await client.query("BEGIN");
+        for (const stmt of stmts) {
+          await client.query(pgify(stmt.sql), stmt.args);
+        }
+        await client.query("COMMIT");
+      } catch (e) {
+        await client.query("ROLLBACK");
+        throw e;
+      }
+    },
+  };
+  try {
+    const lockResult = await client.query(
+      "SELECT pg_try_advisory_lock($1) AS acquired",
+      [CONSENSUS_SWEEP_LOCK_KEY]
+    );
+    if (lockResult.rows[0]?.acquired !== true) {
+      console.log("Consensus sweep skipped: advisory lock held by a concurrent sweep");
+      return { ran: false, merged: 0 };
+    }
+    try {
+      const merged = await autoMergeExpired(scoped);
+      return { ran: true, merged };
+    } finally {
+      await client.query("SELECT pg_advisory_unlock($1)", [CONSENSUS_SWEEP_LOCK_KEY]);
+    }
+  } finally {
+    client.release();
+  }
+}
+
+// ─── Topic Proposal Evaluation ──────────────────────────────────────
 
 /**
  * Quorum transition for a single topic that has reached the approval
@@ -997,13 +1056,30 @@ const TOPIC_APPROVAL_THRESHOLD = 3;
  * 'consensus', emit `pact.legislation.ingested`. Everything else (including
  * a legislation proposal whose payload is missing/corrupt, or whose ingest
  * throws): open the topic for debate and emit `pact.topic.approved`.
+ *
+ * #5425 guard: this transition can NEVER run on a topic that has left
+ * 'proposed' — in particular a 'rejected' topic (terminal) is re-checked
+ * here and every status UPDATE is conditional on status = 'proposed', so a
+ * concurrent rejection cannot be overwritten by a late approval tally.
+ * Returns "skipped" when the topic is no longer 'proposed'.
  */
 export async function finalizeApprovedTopic(
   db: DbClient,
   topicId: string,
   title: string,
-  approvals: number
-): Promise<"ingested" | "opened"> {
+  approvals: number,
+  quorum: number = DEFAULT_BASE
+): Promise<"ingested" | "opened" | "skipped"> {
+  // #5425 — re-read the live status: never approve a topic that already
+  // transitioned (rejected topics are terminal).
+  const current = await db.execute({
+    sql: "SELECT status FROM topics WHERE id = ?",
+    args: [topicId],
+  });
+  if ((current.rows[0]?.status as string | undefined) !== "proposed") {
+    return "skipped";
+  }
+
   // Auto-ingest legislation proposals on consensus
   if (title.startsWith("[Legislation Proposal]")) {
     try {
@@ -1016,7 +1092,11 @@ export async function finalizeApprovedTopic(
         if (payload.document) {
           const { ingestDocuments } = await import("./legislation-sync");
           await ingestDocuments(db, [payload.document]);
-          await db.execute({ sql: "UPDATE topics SET status = 'consensus' WHERE id = ?", args: [topicId] });
+          const updated = await db.execute({
+            sql: "UPDATE topics SET status = 'consensus' WHERE id = ? AND status = 'proposed'",
+            args: [topicId],
+          });
+          if ((updated.rowsAffected ?? 0) === 0) return "skipped";
           await emitEvent(db, topicId, "pact.legislation.ingested", payload.proposedBy || "", "", {
             approvals,
             docId: payload.document.id,
@@ -1031,22 +1111,56 @@ export async function finalizeApprovedTopic(
     }
   }
 
-  await db.execute({
-    sql: "UPDATE topics SET status = 'open' WHERE id = ?",
+  const opened = await db.execute({
+    sql: "UPDATE topics SET status = 'open' WHERE id = ? AND status = 'proposed'",
     args: [topicId],
   });
+  if ((opened.rowsAffected ?? 0) === 0) return "skipped";
   await emitEvent(db, topicId, "pact.topic.approved", "", "", {
     approvals,
-    threshold: TOPIC_APPROVAL_THRESHOLD,
+    threshold: quorum,
     title,
   });
   return "opened";
 }
 
+/**
+ * #5425 — first-class rejection transition. A proposed topic whose reject
+ * count reaches the SAME tier-based quorum it would need to approve
+ * (getTopicApprovalQuorum) — before approvals reach theirs — transitions to
+ * the terminal 'rejected' status. Rejected legislation proposals never
+ * ingest; rejected topics never open, never enter the consensus sweep's
+ * promotion phases, and refuse further votes/proposals at the routes.
+ *
+ * The UPDATE is conditional on status = 'proposed' so a concurrent
+ * approval/rejection cannot double-fire: returns false (and emits nothing)
+ * when the topic already transitioned.
+ */
+export async function finalizeRejectedTopic(
+  db: DbClient,
+  topicId: string,
+  title: string,
+  rejections: number,
+  quorum: number
+): Promise<boolean> {
+  const updated = await db.execute({
+    sql: "UPDATE topics SET status = 'rejected' WHERE id = ? AND status = 'proposed'",
+    args: [topicId],
+  });
+  if ((updated.rowsAffected ?? 0) === 0) return false;
+  await emitEvent(db, topicId, "pact.topic.rejected", "", "", {
+    rejections,
+    threshold: quorum,
+    title,
+  });
+  return true;
+}
+
 export async function evaluateTopicProposals(db: DbClient) {
   const proposed = await db.execute(`
-    SELECT t.id, t.title,
-      (SELECT COUNT(*) FROM topic_votes tv WHERE tv.topic_id = t.id AND tv.vote_type = 'approve') as approvals
+    SELECT t.id, t.title, t.tier,
+      (SELECT COUNT(*) FROM topic_votes tv WHERE tv.topic_id = t.id AND tv.vote_type = 'approve') as approvals,
+      (SELECT COUNT(*) FROM topic_votes tv WHERE tv.topic_id = t.id AND tv.vote_type = 'reject') as rejections
     FROM topics t
     WHERE t.status = 'proposed'
   `);
@@ -1054,9 +1168,16 @@ export async function evaluateTopicProposals(db: DbClient) {
   let opened = 0;
   for (const t of proposed.rows) {
     const approvals = (t.approvals as number) || 0;
-    if (approvals >= TOPIC_APPROVAL_THRESHOLD) {
-      await finalizeApprovedTopic(db, t.id as string, t.title as string, approvals);
+    const rejections = (t.rejections as number) || 0;
+    const quorum = getTopicApprovalQuorum(t.tier as string | null);
+    // Race rule (#5425): when BOTH quorums are met in the same tally,
+    // approval wins — approval is recoverable downstream (challenges,
+    // demotion), terminal rejection is not.
+    if (approvals >= quorum) {
+      await finalizeApprovedTopic(db, t.id as string, t.title as string, approvals, quorum);
       opened++;
+    } else if (rejections >= quorum) {
+      await finalizeRejectedTopic(db, t.id as string, t.title as string, rejections, quorum);
     }
   }
   return opened;
@@ -1092,6 +1213,25 @@ export const CONVENTION_STOP_BASE_AGENTS = 2;
 function getRequiredAgents(tier: string, conventionStop: boolean, uniqueProposers: number): number {
   const base = conventionStop ? CONVENTION_STOP_BASE_AGENTS : (TIER_BASE_AGENTS[tier] ?? DEFAULT_BASE);
   return Math.max(base, uniqueProposers);
+}
+
+/**
+ * #5425 — the single source of truth for the pre-open topic-proposal
+ * quorum (replaces the flat TOPIC_APPROVAL_THRESHOLD = 3 that was
+ * duplicated here and in the vote route). The quorum is the tier's
+ * participation floor from TIER_BASE_AGENTS — the same base the consensus
+ * engine's getRequiredAgents uses — and applies SYMMETRICALLY to approve
+ * and reject: rejections reaching this quorum before approvals do
+ * transition the topic to terminal 'rejected'.
+ *
+ * Deliberately NOT applied pre-open: the convention-stop reduced quorum
+ * (CONVENTION_STOP_BASE_AGENTS ratifies the agreement-to-stop at the
+ * consensus stage, not proposal triage) and the uniqueProposers floor
+ * (content proposals are refused on 'proposed' topics, so it is
+ * definitionally 0 here).
+ */
+export function getTopicApprovalQuorum(tier: string | null | undefined): number {
+  return TIER_BASE_AGENTS[tier ?? ""] ?? DEFAULT_BASE;
 }
 
 export async function updateConsensusStatuses(db: DbClient) {

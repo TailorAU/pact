@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb, autoMergeExpired } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { log } from "@/lib/logger";
 import { warrantKindFromTier, consensusStateFor, credenceFromRatio } from "@/lib/epistemic";
 
@@ -23,7 +23,9 @@ export async function GET(
   const { topicId } = await params;
   const db = await getDb();
 
-  try { await autoMergeExpired(db); } catch (e) { log.warn({ op: "pact.topic.get.autoMerge.warn", err: e }, "autoMergeExpired failed (non-fatal on read path)"); }
+  // #5425 — reads never run the consensus engine (it used to be invoked
+  // here); the advisory-locked cron sweep (/api/cron/auto-merge,
+  // /api/cron/cleanup) is the sole invoker.
 
   const topicResult = await db.execute({
     sql: `SELECT t.id, t.title, t.content, t.tier, t.status, t.created_at,

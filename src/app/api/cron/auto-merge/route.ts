@@ -1,10 +1,17 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, autoMergeExpired } from "@/lib/db";
+import { runConsensusSweep } from "@/lib/db";
 
 /**
- * Trigger Silence=Consent auto-merge for all expired proposals.
- * Proposals whose TTL has passed with no objections get auto-merged.
+ * Trigger the consensus sweep: Silence=Consent auto-merge for all expired
+ * proposals, then topic-proposal evaluation (approve/reject quorums),
+ * consensus promotion/demotion, and challenge evaluation.
+ *
+ * #5425 — this cron surface (plus /api/cron/cleanup) is the ONLY invoker
+ * of the engine; read paths never run it. The sweep runs under a Postgres
+ * advisory lock, so an overlapping invocation reports sweepRan: false
+ * instead of double-running promotions.
+ *
  * Protected by CRON_SECRET.
  */
 export async function POST(req: NextRequest) {
@@ -21,12 +28,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const db = await getDb();
-  const merged = await autoMergeExpired(db);
+  const { ran, merged } = await runConsensusSweep();
 
   return NextResponse.json({
     merged,
-    message: `Auto-merged ${merged} proposal(s) via Silence=Consent`,
+    sweepRan: ran,
+    message: ran
+      ? `Auto-merged ${merged} proposal(s) via Silence=Consent`
+      : "Sweep skipped: advisory lock held by a concurrent sweep",
     timestamp: new Date().toISOString(),
   });
 }

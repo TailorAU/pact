@@ -22,7 +22,6 @@ const mockDb: MockDb = {
 
 vi.mock("@/lib/db", () => ({
   getDb: async () => mockDb as unknown as DbClient,
-  autoMergeExpired: async () => {},
 }));
 
 import { GET } from "./route";

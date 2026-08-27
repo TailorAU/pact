@@ -49,7 +49,9 @@ export function tierFromWarrantKind(warrant: string): string | null {
 
 /**
  * Axis-B user-facing consensus state over the internal status column:
- * open → contested → aligned → verified (plus the pre-open "proposed").
+ * open → contested → aligned → verified (plus the pre-open "proposed" and
+ * its terminal sibling "rejected", #5425 — a proposed topic whose reject
+ * votes reached the tier quorum before approvals did).
  */
 export function consensusStateFor(status: string | null | undefined): string {
   switch (status) {
@@ -62,6 +64,8 @@ export function consensusStateFor(status: string | null | undefined): string {
       return "verified";
     case "proposed":
       return "proposed";
+    case "rejected":
+      return "rejected";
     default:
       return "open";
   }

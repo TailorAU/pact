@@ -27,6 +27,7 @@ never forwarded across the legacy Source redirect.
 | **spatial-snapshot** | `0 2 * * *` | 12:00 pm daily | Logan City ArcGIS REST API snapshot — fetches planning layers into `spatial_features` table (#874). Non-fatal: ArcGIS throttle returns warning not error | Source platform | `::warning::` annotation in Actions; non-blocking | `gh run list --workflow cron-source.yml` |
 | **gtfs-sync** | `0 17 * * 1` | 3:00 am Tuesday | Translink SEQ GTFS static feed into `transit_stops`, `transit_routes`, `transit_trips`, `transit_stop_times` (#875). Weekly cadence matches GTFS feed publication cycle | Source platform | GitHub Actions job failure → workflow summary email | `gh run list --workflow cron-source.yml` |
 | **fiscal-sync** | `0 18 * * *` | 4:00 am daily | Reconstruct QLD fiscal source data. Runs with `timeout-minutes: 30` (#3053) | Source platform | GitHub Actions job failure → workflow summary email | `gh run list --workflow cron-source.yml` |
+| **auto-merge** | `*/30 * * * *` | every 30 min | Consensus sweep: Silence=Consent auto-merge, topic-proposal approve/reject evaluation, promotion/demotion, challenges. #5425 removed the engine from GET read paths, so this schedule is the engine's heartbeat; the route takes a Postgres advisory lock and reports `sweepRan: false` when a concurrent sweep holds it | Source platform | GitHub Actions job failure → workflow summary email | `gh run list --workflow cron-source.yml` |
 
 **Endpoint bases:** scheduled maintenance uses
 `https://source.tailor.au/api/cron/<name>`; `auth-check` uses
@@ -88,13 +89,14 @@ untouched.
 
 ## Out-of-scope (cron routes without a workflow trigger)
 
-Two cron API routes exist in `sites/source/src/app/api/cron/` that do not
-have a corresponding scheduled workflow entry. They are documented here for
-completeness; adding schedules for them is out of scope for WS10.
+One cron API route exists in `sites/source/src/app/api/cron/` that does not
+have a corresponding scheduled workflow entry. It is documented here for
+completeness. (`/api/cron/auto-merge` used to sit in this table; #5425 wired
+its `*/30 * * * *` schedule when the engine came off the GET read paths —
+see the main table above.)
 
 | Cron route | Purpose | Why not scheduled |
 |---|---|---|
-| `/api/cron/auto-merge` | Triggers Silence=Consent auto-merge for proposals whose TTL has passed with no objections | Currently invoked on-demand or per-PACT event; a schedule may be appropriate once proposal volume justifies it. Track as a future requirement. |
 | `/api/cron/quote-rates-assignments` | Opens fresh `agent_work_assignment` records per stale `(item_key, retailer)` pair so agents can mine retail prices (#1216) | Daily cadence is described in the route comment but no GitHub Actions trigger has been wired. Adding this is a distinct piece of work; file a requirement when BestPrice agent mining ramps up. |
 
 ---

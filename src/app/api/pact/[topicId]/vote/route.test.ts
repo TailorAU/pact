@@ -72,44 +72,56 @@ const legislationPayload = {
   },
 };
 
-function topicRow(id: string, title: string) {
-  return { id, title, status: "proposed", tier: "institutional" };
+function topicRow(id: string, title: string, tier = "institutional") {
+  return { id, title, status: "proposed", tier };
 }
 
 /**
  * SQL-shape-dispatching db mock: responds by statement content (not call
- * order) so the real finalizeApprovedTopic / emitEvent can interleave their
- * own statements freely. Every statement is recorded for assertions.
+ * order) so the real finalizeApprovedTopic / finalizeRejectedTopic /
+ * emitEvent can interleave their own statements freely. Every statement is
+ * recorded for assertions. UPDATE statements report rowsAffected: 1 so the
+ * #5425 conditional-transition guards see the transition succeed.
  */
-function armDb(opts: { topic: { id: string; title: string }; approveCount: number }) {
+function armDb(opts: {
+  topic: { id: string; title: string; tier?: string };
+  approveCount: number;
+  rejectCount?: number;
+}) {
   mockDb.execute.mockImplementation(async (stmt: ExecuteArg) => {
     const sql = typeof stmt === "string" ? stmt : stmt.sql;
     const args = typeof stmt === "string" ? [] : stmt.args;
     executedStatements.push({ sql, args });
 
     if (sql.includes("FROM topics WHERE id = ?")) {
-      return { rows: [topicRow(opts.topic.id, opts.topic.title)] };
+      return { rows: [topicRow(opts.topic.id, opts.topic.title, opts.topic.tier)] };
     }
     if (sql.startsWith("INSERT INTO topic_votes")) {
       return { rows: [] };
     }
-    if (sql.includes("SELECT COUNT(*) as c FROM topic_votes")) {
+    if (sql.includes("SELECT COUNT(*) as c FROM topic_votes") && sql.includes("vote_type = 'approve'")) {
       return { rows: [{ c: opts.approveCount }] };
+    }
+    if (sql.includes("SELECT COUNT(*) as c FROM topic_votes") && sql.includes("vote_type = 'reject'")) {
+      return { rows: [{ c: opts.rejectCount ?? 0 }] };
     }
     if (sql.includes("type = 'pact.legislation.proposed'")) {
       return { rows: [{ data: JSON.stringify(legislationPayload) }] };
     }
-    // INSERT INTO events (emitEvent), UPDATE topics SET status = ...
+    if (sql.startsWith("UPDATE")) {
+      return { rows: [], rowsAffected: 1 };
+    }
+    // INSERT INTO events (emitEvent), etc.
     return { rows: [] };
   });
 }
 
-function callPost(topicId: string) {
+function callPost(topicId: string, vote: "approve" | "reject" = "approve") {
   return POST(
     new Request(`http://localhost/api/pact/${topicId}/vote`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ vote: "approve" }),
+      body: JSON.stringify({ vote }),
       // @ts-expect-error -- Node fetch requires duplex for streamed bodies
       duplex: "half",
     }) as never,
@@ -204,5 +216,104 @@ describe("POST /api/pact/{topicId}/vote — quorum transition (#5277)", () => {
     expect(statusUpdates()).toHaveLength(0);
     expect(eventInserts()).not.toContain("pact.legislation.ingested");
     expect(eventInserts()).not.toContain("pact.topic.approved");
+  });
+});
+
+describe("POST /api/pact/{topicId}/vote — first-class rejection (#5425)", () => {
+  it("reject quorum reached before approval quorum → terminal 'rejected', event emitted, NO ingest", async () => {
+    armDb({
+      topic: { id: LEGISLATION_TOPIC_ID, title: "[Legislation Proposal] Moonside Report 2026" },
+      approveCount: 1,
+      rejectCount: 3, // institutional quorum = 3
+    });
+
+    const res = await callPost(LEGISLATION_TOPIC_ID, "reject");
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("rejected");
+    expect(body.rejections).toBe(3);
+
+    // Rejected legislation proposals NEVER ingest.
+    expect(ingestDocuments).not.toHaveBeenCalled();
+
+    const updates = statusUpdates();
+    expect(updates).toHaveLength(1);
+    expect(updates[0].sql).toContain("'rejected'");
+    // Terminal transition is guarded: only a still-proposed topic flips.
+    expect(updates[0].sql).toContain("AND status = 'proposed'");
+    expect(updates[0].args).toEqual([LEGISLATION_TOPIC_ID]);
+
+    const events = eventInserts();
+    expect(events).toContain("pact.topic.rejected");
+    expect(events).not.toContain("pact.topic.approved");
+    expect(events).not.toContain("pact.legislation.ingested");
+  });
+
+  it("race rule: BOTH quorums met in the same tally → approval wins (rejection is terminal, approval is recoverable)", async () => {
+    armDb({
+      topic: { id: PLAIN_TOPIC_ID, title: "Contested ordinary topic" },
+      approveCount: 3,
+      rejectCount: 3,
+    });
+
+    const res = await callPost(PLAIN_TOPIC_ID);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("open");
+
+    const events = eventInserts();
+    expect(events).toContain("pact.topic.approved");
+    expect(events).not.toContain("pact.topic.rejected");
+  });
+
+  it("below-quorum rejections change nothing (status stays 'proposed')", async () => {
+    armDb({
+      topic: { id: PLAIN_TOPIC_ID, title: "Some ordinary institutional topic" },
+      approveCount: 0,
+      rejectCount: 2,
+    });
+
+    const res = await callPost(PLAIN_TOPIC_ID, "reject");
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("proposed");
+    expect(body.rejectionsNeeded).toBe(1);
+    expect(statusUpdates()).toHaveLength(0);
+    expect(eventInserts()).not.toContain("pact.topic.rejected");
+  });
+
+  it("quorum is tier-based (single-sourced): 3 approvals on an interpretive topic (quorum 4) do NOT open it", async () => {
+    armDb({
+      topic: { id: PLAIN_TOPIC_ID, title: "Interpretive question", tier: "interpretive" },
+      approveCount: 3,
+      rejectCount: 0,
+    });
+
+    const res = await callPost(PLAIN_TOPIC_ID);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("proposed");
+    expect(body.approvalsNeeded).toBe(1);
+    expect(statusUpdates()).toHaveLength(0);
+  });
+
+  it("3 rejects on an interpretive topic (quorum 4) do NOT reject it", async () => {
+    armDb({
+      topic: { id: PLAIN_TOPIC_ID, title: "Interpretive question", tier: "interpretive" },
+      approveCount: 0,
+      rejectCount: 3,
+    });
+
+    const res = await callPost(PLAIN_TOPIC_ID, "reject");
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("proposed");
+    expect(statusUpdates()).toHaveLength(0);
+    expect(eventInserts()).not.toContain("pact.topic.rejected");
   });
 });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent, autoMergeExpired } from "@/lib/db";
+import { getDb, emitEvent } from "@/lib/db";
 import { requireAgent, checkReviewDuty } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
@@ -20,7 +20,8 @@ export async function GET(
   const offset = parseInt(req.nextUrl.searchParams.get("offset") || "0");
 
   const db = await getDb();
-  await autoMergeExpired(db);
+  // #5425 — reads never run the consensus engine; the cron sweep is the
+  // sole invoker.
 
   const result = await db.execute({
     sql: `SELECT p.id, p.section_id as sectionId, p.status, p.summary, p.created_at,
@@ -180,6 +181,16 @@ export async function POST(
   if (topicStatus === "proposed") {
     return NextResponse.json(
       { error: "This topic is still a proposal awaiting approval. Vote on it at POST /api/pact/{topicId}/vote before it can accept content proposals." },
+      { status: 403 }
+    );
+  }
+
+  // #5425 — 'rejected' is terminal: a rejected topic never opens, never
+  // ingests, and accepts no content proposals (which could otherwise be
+  // auto-merged into it by the sweep).
+  if (topicStatus === "rejected") {
+    return NextResponse.json(
+      { error: "This topic proposal was rejected by community vote. Rejected topics are terminal and accept no content proposals." },
       { status: 403 }
     );
   }

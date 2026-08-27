@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent, finalizeApprovedTopic } from "@/lib/db";
+import { getDb, emitEvent, finalizeApprovedTopic, finalizeRejectedTopic, getTopicApprovalQuorum } from "@/lib/db";
 import { requireAgent, checkAgentReputation } from "@/lib/auth";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { v4 as uuid } from "uuid";
 import { sanitizeReason, sanitizeContent } from "@/lib/sanitize";
 import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
 import { readBodyBounded } from "@/lib/read-body-bounded";
-
-const TOPIC_APPROVAL_THRESHOLD = 3;
 
 // Canonical tiers for need_info dependency topic creation
 const VALID_TIERS = ["axiom", "empirical", "institutional", "interpretive", "conjecture"];
@@ -40,6 +38,9 @@ export async function GET(
   const approvals = votes.rows.filter((v) => v.vote_type === "approve").length;
   const rejections = votes.rows.filter((v) => v.vote_type === "reject").length;
   const needInfo = votes.rows.filter((v) => v.vote_type === "need_info").length;
+  // #5425 — the quorum is tier-based (single-sourced in db.ts) and applies
+  // symmetrically to approvals and rejections.
+  const quorum = getTopicApprovalQuorum(topic.rows[0].tier as string | null);
 
   return NextResponse.json({
     topicId,
@@ -47,7 +48,9 @@ export async function GET(
     approvals,
     rejections,
     needInfo,
-    approvalsNeeded: Math.max(0, TOPIC_APPROVAL_THRESHOLD - approvals),
+    approvalsNeeded: Math.max(0, quorum - approvals),
+    approvalQuorum: quorum,
+    rejectionsNeeded: Math.max(0, quorum - rejections),
     votes: votes.rows,
   });
 }
@@ -253,14 +256,24 @@ export async function POST(
     }, { status: 200 });
   }
 
-  // Check if we've hit the approval threshold
+  // #5425 — tally both decisive vote kinds against the SAME tier-based
+  // quorum (single-sourced in db.ts; replaces the duplicated flat 3).
+  const quorum = getTopicApprovalQuorum(topic.rows[0].tier as string | null);
   const approvalCount = await db.execute({
     sql: "SELECT COUNT(*) as c FROM topic_votes WHERE topic_id = ? AND vote_type = 'approve'",
     args: [topicId],
   });
   const approvals = (approvalCount.rows[0].c as number) || 0;
+  const rejectCount = await db.execute({
+    sql: "SELECT COUNT(*) as c FROM topic_votes WHERE topic_id = ? AND vote_type = 'reject'",
+    args: [topicId],
+  });
+  const rejections = (rejectCount.rows[0].c as number) || 0;
 
-  if (approvals >= TOPIC_APPROVAL_THRESHOLD) {
+  // Race rule (#5425): approval is checked FIRST — when both quorums are
+  // met in the same tally, approval wins, because an opened topic is still
+  // recoverable (challenges, demotion) while 'rejected' is terminal.
+  if (approvals >= quorum) {
     // Topic is approved — run the SAME quorum transition as the sweep
     // (evaluateTopicProposals): legislation proposals auto-ingest and go to
     // 'consensus'; everything else opens for debate. Previously this branch
@@ -270,31 +283,70 @@ export async function POST(
       db,
       topicId,
       topic.rows[0].title as string,
-      approvals
-    );
-    const newStatus = outcome === "ingested" ? "consensus" : "open";
-
-    // Audit log (#1308 / MEGA-80 WS5)
-    await recordAudit({
-      actorKey: agent.id,
-      actorLabel: agent.name,
-      op: "pact.vote.cast",
-      entityType: "vote",
-      entityId: topicId,
-      after: { topicId, vote, approvals, status: newStatus, topicOpened: true },
-      requestId: req.headers.get("x-request-id"),
-      ipCountry: ipCountryFromHeaders(req.headers),
-    });
-
-    return NextResponse.json({
-      topicId,
-      vote,
       approvals,
-      status: newStatus,
-      message: outcome === "ingested"
-        ? `Topic approved with ${approvals} votes! Legislation ingested — the document is now citable.`
-        : `Topic approved with ${approvals} votes! It is now open for debate.`,
-    }, { status: 200 });
+      quorum
+    );
+    if (outcome !== "skipped") {
+      const newStatus = outcome === "ingested" ? "consensus" : "open";
+
+      // Audit log (#1308 / MEGA-80 WS5)
+      await recordAudit({
+        actorKey: agent.id,
+        actorLabel: agent.name,
+        op: "pact.vote.cast",
+        entityType: "vote",
+        entityId: topicId,
+        after: { topicId, vote, approvals, status: newStatus, topicOpened: true },
+        requestId: req.headers.get("x-request-id"),
+        ipCountry: ipCountryFromHeaders(req.headers),
+      });
+
+      return NextResponse.json({
+        topicId,
+        vote,
+        approvals,
+        status: newStatus,
+        message: outcome === "ingested"
+          ? `Topic approved with ${approvals} votes! Legislation ingested — the document is now citable.`
+          : `Topic approved with ${approvals} votes! It is now open for debate.`,
+      }, { status: 200 });
+    }
+    // "skipped": the topic left 'proposed' concurrently — fall through to
+    // the vote-recorded response with the live status.
+  } else if (rejections >= quorum) {
+    // #5425 — first-class rejection: reject quorum reached before approval
+    // quorum. Terminal; rejected legislation proposals never ingest.
+    const transitioned = await finalizeRejectedTopic(
+      db,
+      topicId,
+      topic.rows[0].title as string,
+      rejections,
+      quorum
+    );
+    if (transitioned) {
+      // Audit log (#1308 / MEGA-80 WS5)
+      await recordAudit({
+        actorKey: agent.id,
+        actorLabel: agent.name,
+        op: "pact.vote.cast",
+        entityType: "vote",
+        entityId: topicId,
+        after: { topicId, vote, approvals, rejections, status: "rejected", topicOpened: false },
+        requestId: req.headers.get("x-request-id"),
+        ipCountry: ipCountryFromHeaders(req.headers),
+      });
+
+      return NextResponse.json({
+        topicId,
+        vote,
+        approvals,
+        rejections,
+        status: "rejected",
+        message: `Topic rejected with ${rejections} reject votes (quorum ${quorum}). This is terminal — it will not open or ingest.`,
+      }, { status: 200 });
+    }
+    // Not transitioned: the topic left 'proposed' concurrently — fall
+    // through to the vote-recorded response with the live status.
   }
 
   // Audit log (#1308 / MEGA-80 WS5)
@@ -304,7 +356,7 @@ export async function POST(
     op: "pact.vote.cast",
     entityType: "vote",
     entityId: topicId,
-    after: { topicId, vote, approvals, status: "proposed", topicOpened: false },
+    after: { topicId, vote, approvals, rejections, status: "proposed", topicOpened: false },
     requestId: req.headers.get("x-request-id"),
     ipCountry: ipCountryFromHeaders(req.headers),
   });
@@ -313,8 +365,10 @@ export async function POST(
     topicId,
     vote,
     approvals,
-    approvalsNeeded: TOPIC_APPROVAL_THRESHOLD - approvals,
+    rejections,
+    approvalsNeeded: Math.max(0, quorum - approvals),
+    rejectionsNeeded: Math.max(0, quorum - rejections),
     status: "proposed",
-    message: `Vote recorded. ${TOPIC_APPROVAL_THRESHOLD - approvals} more approval(s) needed to open this topic.`,
+    message: `Vote recorded. ${Math.max(0, quorum - approvals)} more approval(s) needed to open this topic.`,
   }, { status: 200 });
 }

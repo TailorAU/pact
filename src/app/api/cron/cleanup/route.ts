@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, autoMergeExpired } from "@/lib/db";
+import { getDb, runConsensusSweep } from "@/lib/db";
 import { classifyClaimAtomicity } from "@/lib/claim";
 import { ensureLegacySplitBounty } from "@/lib/economy";
 
@@ -46,8 +46,11 @@ export async function GET(req: NextRequest) {
     `DELETE FROM invite_tokens WHERE uses >= max_uses`
   );
 
-  // 5. Auto-merge expired proposals (Silence=Consent)
-  const autoMerged = await autoMergeExpired(db);
+  // 5. Consensus sweep (Silence=Consent auto-merge + topic-proposal
+  // approve/reject evaluation + promotion/demotion + challenges) — #5425:
+  // cron is the sole engine invoker, under a Postgres advisory lock.
+  const sweep = await runConsensusSweep();
+  const autoMerged = sweep.merged;
 
   // 6. #3691 W6 — read-only atomicity backfill. Classifies unclassified
   // canonical claims in bounded batches; rows keep their full text
@@ -85,6 +88,7 @@ export async function GET(req: NextRequest) {
     registrationsDeleted: regsResult.rowsAffected ?? 0,
     tokensDeleted: tokensResult.rowsAffected ?? 0,
     autoMerged,
+    sweepRan: sweep.ran,
     claimsClassified,
     splitBountiesSeeded,
   };

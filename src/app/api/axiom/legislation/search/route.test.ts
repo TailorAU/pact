@@ -39,7 +39,6 @@ const mockDb: MockDb = {
 
 vi.mock("@/lib/db", () => ({
   getDb: async () => mockDb as unknown as DbClient,
-  autoMergeExpired: async () => {},
 }));
 
 // The search route debits anonymous callers as a no-op and paid callers

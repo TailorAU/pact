@@ -3,7 +3,12 @@ import path from "path";
 import pg from "pg";
 import { v4 as uuid } from "uuid";
 import { dependencyGateOk, VERIFIED_TOPIC_STATUSES } from "./consensus-gate";
-import { computeEffectiveCredences, credenceFromRatio } from "./epistemic";
+import {
+  computeEffectiveCredences,
+  credenceFromRatio,
+  type CredenceEdge,
+  type CredenceNode,
+} from "./epistemic";
 import {
   type CountingMode,
   type TallyVote,
@@ -284,6 +289,11 @@ async function initSchema(db: DbClient) {
       section_id TEXT,
       data TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS sweep_state (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
     `CREATE TABLE IF NOT EXISTS invite_tokens (
       token TEXT PRIMARY KEY,
@@ -954,7 +964,7 @@ export async function emitEvent(
   });
 }
 
-export async function autoMergeExpired(db: DbClient) {
+export async function autoMergeExpired(db: DbClient, sweepOptions: ConsensusSweepOptions = {}) {
   const result = await db.execute(`
     SELECT p.* FROM proposals p
     WHERE p.status = 'pending'
@@ -991,7 +1001,7 @@ export async function autoMergeExpired(db: DbClient) {
   }
 
   await evaluateTopicProposals(db);
-  await updateConsensusStatuses(db);
+  await updateConsensusStatuses(db, sweepOptions);
   await evaluateChallenges(db);
 
   return result.rows.length;
@@ -1014,7 +1024,10 @@ export const CONSENSUS_SWEEP_LOCK_KEY = 542501;
  * sweep elsewhere — the sweep is skipped with a single log line rather
  * than double-running promotions.
  */
-export async function runConsensusSweep(): Promise<{ ran: boolean; merged: number }> {
+export async function runConsensusSweep(
+  sweepOptions: ConsensusSweepOptions = {}
+): Promise<{ ran: boolean; merged: number }> {
+  const sweepStartedAt = Date.now();
   await getDb(); // ensure the schema is initialized via the normal path
   const pool = getPool();
   const client = await pool.connect();
@@ -1048,7 +1061,8 @@ export async function runConsensusSweep(): Promise<{ ran: boolean; merged: numbe
       return { ran: false, merged: 0 };
     }
     try {
-      const merged = await autoMergeExpired(scoped);
+      const merged = await autoMergeExpired(scoped, sweepOptions);
+      console.log(`[consensus-sweep] full sweep completed in ${Date.now() - sweepStartedAt}ms (merged=${merged})`);
       return { ran: true, merged };
     } finally {
       await client.query("SELECT pg_advisory_unlock($1)", [CONSENSUS_SWEEP_LOCK_KEY]);
@@ -1387,14 +1401,120 @@ export function getTopicApprovalQuorum(tier: string | null | undefined): number 
   return TIER_BASE_AGENTS[tier ?? ""] ?? DEFAULT_BASE;
 }
 
-export async function updateConsensusStatuses(db: DbClient) {
-  // --- Phase 1: Check open/challenged topics for NEW consensus ---
-  const openTopics = await db.execute(`
-    SELECT t.id, t.status, t.tier, t.convention_stop, t.consensus_since,
+// ─── #5427 — Keyset-paged sweep machinery ────────────────────────────
+//
+// Every phase of updateConsensusStatuses used to run one unbounded
+// full-class scan (5–9 correlated subqueries per row) plus a graph-wide
+// credence recompute. Each phase now keyset-pages over topics.id (TEXT
+// primary key — '' sorts before every non-empty id, so it is the natural
+// start cursor) in SCAN-THEN-APPLY shape: every page of a phase is read
+// BEFORE any of that phase's writes, which preserves the original
+// single-snapshot semantics exactly (a row's computed stats never observe
+// a write made by the same phase) while bounding every individual
+// statement to `pageSize` rows. The Phase-5 credence recompute is scoped
+// to the dirty subgraph (credence-as-projection, triggered by events)
+// with a periodic full recompute as the convergence backstop.
+
+export interface ConsensusSweepOptions {
+  /** Rows fetched per keyset page in each phase scan. A bound, not a flag
+   *  — paging is unconditional. */
+  pageSize?: number;
+  /** Soft wall-time budget for one updateConsensusStatuses invocation.
+   *  Checked between pages and phases; on overrun the sweep applies what
+   *  it has already scanned, logs the truncation, and leaves the rest to
+   *  the next (cron) invocation. */
+  timeBudgetMs?: number;
+  /** Above this many dirty/affected topics, the Phase-5 credence
+   *  recompute falls back to the full (still keyset-paged) recompute
+   *  rather than walking an enormous subgraph query-by-query. */
+  dirtyMaxTopics?: number;
+  /** Cadence backstop for a full credence recompute — covers anything an
+   *  event-triggered dirty walk could miss (e.g. an events-id watermark
+   *  race against an in-flight insert). */
+  fullRecomputeIntervalMs?: number;
+  /** Clock seam for tests. */
+  now?: () => number;
+}
+
+export const CONSENSUS_SWEEP_DEFAULTS = {
+  pageSize: 200,
+  timeBudgetMs: 60_000,
+  dirtyMaxTopics: 1_000,
+  fullRecomputeIntervalMs: 24 * 60 * 60 * 1000,
+} as const;
+
+const SWEEP_STATE_CREDENCE_WATERMARK = "credence_events_watermark";
+const SWEEP_STATE_FULL_RECOMPUTE_AT = "credence_full_recompute_at";
+/** Max ids per `= ANY(?)` statement in the Phase-5 subgraph walks. */
+const SWEEP_ANY_CHUNK = 500;
+/** Defensive cap on subgraph-walk iterations (the DAG gate at edge
+ *  creation makes deep chains legitimate but bounded). */
+const SWEEP_MAX_WALK_HOPS = 100;
+
+function chunked<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+async function readSweepState(db: DbClient, key: string): Promise<string | null> {
+  const result = await db.execute({
+    sql: "SELECT value FROM sweep_state WHERE key = ?",
+    args: [key],
+  });
+  const value = result.rows[0]?.value;
+  return value === undefined || value === null ? null : String(value);
+}
+
+async function writeSweepState(db: DbClient, key: string, value: string): Promise<void> {
+  await db.execute({
+    sql: `INSERT INTO sweep_state (key, value, updated_at) VALUES (?, ?, NOW())
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    args: [key, value],
+  });
+}
+
+/**
+ * Keyset-paged scan. `pageSql` must filter `<id> > ?`, `ORDER BY <id>`,
+ * and `LIMIT ?`, taking exactly (cursor, limit) as its args. The cursor is
+ * the last row's own id, so a row is visited exactly once per scan even
+ * when the underlying status class shrinks or grows between pages: rows
+ * already visited sort at-or-below the cursor, and a row can never
+ * straddle two pages (strict `>` excludes the boundary row from the next
+ * page). Rows are NOT mutated during the scan (scan-then-apply), so the
+ * class itself is stable modulo concurrent writers — which the pre-#5427
+ * single-snapshot scan was equally exposed to.
+ */
+async function scanKeyset(
+  db: DbClient,
+  pageSql: string,
+  pageSize: number,
+  isPastDeadline: () => boolean,
+  onRow: (row: Record<string, unknown>) => void,
+  idKey = "id"
+): Promise<{ scanned: number; truncated: boolean }> {
+  let cursor = "";
+  let scanned = 0;
+  for (;;) {
+    const page = await db.execute({ sql: pageSql, args: [cursor, pageSize] });
+    for (const row of page.rows) {
+      onRow(row);
+      cursor = String(row[idKey]);
+    }
+    scanned += page.rows.length;
+    if (page.rows.length < pageSize) return { scanned, truncated: false };
+    if (isPastDeadline()) return { scanned, truncated: true };
+  }
+}
+
+// Phase page queries. Identical stat subqueries to the pre-#5427 scans,
+// minus columns the phase never read (mergedCount / totalDoneCount /
+// totalProposals — dead weight dropped outright), plus the keyset window.
+const SWEEP_PHASE1_PAGE_SQL = `
+    SELECT t.id, t.tier, t.convention_stop,
       (SELECT COUNT(DISTINCT p.agent_id) FROM proposals p
         WHERE p.topic_id = t.id AND p.status != 'rejected') as uniqueProposers,
       (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'pending') as pendingCount,
-      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id AND p.status = 'merged') as mergedCount,
       (SELECT COUNT(*) FROM proposals p
         JOIN sections s ON s.id = p.section_id AND s.topic_id = p.topic_id
         WHERE p.topic_id = t.id AND p.status = 'merged' AND s.heading = 'Answer') as answerMergedCount,
@@ -1402,84 +1522,16 @@ export async function updateConsensusStatuses(db: DbClient) {
         WHERE r.topic_id = t.id AND r.done_status = 'aligned') as alignedCount,
       (SELECT COUNT(*) FROM registrations r
         WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as dissentingCount,
-      (SELECT COUNT(*) FROM registrations r
-        WHERE r.topic_id = t.id AND r.done_status IS NOT NULL) as totalDoneCount,
       (SELECT COUNT(*) FROM topic_dependencies td
         JOIN topics dep ON dep.id = td.depends_on
         WHERE td.topic_id = t.id
         AND dep.status NOT IN ('consensus', 'stable', 'locked')) as unmetDependencies
     FROM topics t
-    WHERE t.status IN ('open', 'challenged')
-  `);
+    WHERE t.status IN ('open', 'challenged') AND t.id > ?
+    ORDER BY t.id
+    LIMIT ?`;
 
-  let updated = 0;
-  for (const t of openTopics.rows) {
-    const tier = (t.tier as string) || "practice";
-    const uniqueProposers = t.uniqueProposers as number;
-    const pending = t.pendingCount as number;
-    const answerMerged = t.answerMergedCount as number;
-    const aligned = t.alignedCount as number;
-    const dissenting = t.dissentingCount as number;
-    const totalVoters = aligned + dissenting;
-    const requiredAgents = getRequiredAgents(tier, !!t.convention_stop, uniqueProposers);
-    const unmetDeps = t.unmetDependencies as number;
-
-    const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
-
-    const depsOk = dependencyGateOk(tier, unmetDeps); // #2888 — re-enabled post-bootstrap (blast radius zero)
-
-    if (
-      pending === 0 &&
-      answerMerged > 0 &&
-      aligned >= requiredAgents &&
-      alignmentRatio >= CONSENSUS_RATIO &&
-      depsOk
-    ) {
-      await db.execute({
-        sql: `UPDATE topics SET
-          status = 'consensus',
-          consensus_ratio = ?,
-          consensus_voters = ?,
-          consensus_since = COALESCE(consensus_since, NOW())
-        WHERE id = ?`,
-        args: [alignmentRatio, totalVoters, t.id as string],
-      });
-      await emitEvent(db, t.id as string, "pact.topic.consensus-reached", "", "", {
-        alignmentRatio: `${Math.round(alignmentRatio * 100)}%`,
-        alignedAgents: aligned,
-        dissentingAgents: dissenting,
-        requiredAgents,
-        uniqueProposers,
-        tier,
-      });
-
-      try {
-        const { distributeBounty } = await import("./economy");
-        await distributeBounty(db, t.id as string);
-      } catch (e) {
-        console.error(`Bounty distribution failed for ${t.id}:`, e);
-      }
-
-      updated++;
-    } else if (
-      pending === 0 &&
-      answerMerged > 0 &&
-      aligned >= requiredAgents &&
-      alignmentRatio >= CONSENSUS_RATIO &&
-      !depsOk
-    ) {
-      await emitEvent(db, t.id as string, "pact.consensus.blocked-by-dependencies", "", "", {
-        alignmentRatio: `${Math.round(alignmentRatio * 100)}%`,
-        alignedAgents: aligned,
-        unmetDependencies: unmetDeps,
-        tier,
-        reason: `${unmetDeps} dependency topic(s) have not yet reached consensus`,
-      });
-    }
-  }
-
-  // --- Phase 2: Check existing consensus topics ---
-  const consensusTopics = await db.execute(`
+const SWEEP_PHASE2_PAGE_SQL = `
     SELECT t.id, t.tier, t.convention_stop, t.consensus_since,
       (SELECT COUNT(DISTINCT p.agent_id) FROM proposals p
         WHERE p.topic_id = t.id AND p.status != 'rejected') as uniqueProposers,
@@ -1493,99 +1545,496 @@ export async function updateConsensusStatuses(db: DbClient) {
         WHERE td.topic_id = t.id
         AND dep.status NOT IN ('consensus', 'stable', 'locked')) as unmetDependencies
     FROM topics t
-    WHERE t.status = 'consensus'
-  `);
+    WHERE t.status = 'consensus' AND t.id > ?
+    ORDER BY t.id
+    LIMIT ?`;
 
-  for (const t of consensusTopics.rows) {
-    const tier = (t.tier as string) || "practice";
-    const uniqueProposers = t.uniqueProposers as number;
-    const pending = t.pendingCount as number;
-    const aligned = t.alignedCount as number;
-    const dissenting = t.dissentingCount as number;
-    const totalVoters = aligned + dissenting;
-    const requiredAgents = getRequiredAgents(tier, !!t.convention_stop, uniqueProposers);
-    const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
-    const consensusSince = t.consensus_since as string;
-    const unmetDeps = t.unmetDependencies as number;
-
-    const depsOkForBreaking = dependencyGateOk(tier, unmetDeps); // #2888 — re-enabled post-bootstrap
-
-    const wasForced = totalVoters === 0;
-    if (!wasForced && (alignmentRatio < CONSENSUS_RATIO || aligned < requiredAgents || pending > 0 || !depsOkForBreaking)) {
-      await db.execute({
-        sql: "UPDATE topics SET status = 'open', consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
-        args: [t.id as string],
-      });
-      await emitEvent(db, t.id as string, "pact.consensus.broken", "", "", {
-        alignmentRatio: `${Math.round(alignmentRatio * 100)}%`,
-        reason: unmetDeps > 0 ? "Dependency topic(s) lost consensus" :
-                pending > 0 ? "New proposals pending" :
-                alignmentRatio < CONSENSUS_RATIO ? "Alignment dropped below 90%" :
-                "Not enough aligned agents",
-      });
-      updated++;
-      continue;
-    }
-
-    if (consensusSince) {
-      const sinceDate = new Date(String(consensusSince));
-      const daysSince = (Date.now() - sinceDate.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysSince >= STABLE_DAYS) {
-        await db.execute({
-          sql: "UPDATE topics SET status = 'stable', locked_at = NOW(), consensus_ratio = ?, consensus_voters = ? WHERE id = ?",
-          args: [alignmentRatio, totalVoters, t.id as string],
-        });
-        await emitEvent(db, t.id as string, "pact.topic.stable", "", "", {
-          alignmentRatio: `${Math.round(alignmentRatio * 100)}%`,
-          daysSinceConsensus: Math.floor(daysSince),
-          tier,
-        });
-        updated++;
-      }
-    }
-  }
-
-  // --- Phase 3: Check stable topics for consensus breakdown ---
-  const stableTopics = await db.execute(`
-    SELECT t.id, t.tier,
-      (SELECT COUNT(*) FROM proposals p WHERE p.topic_id = t.id) as totalProposals,
+const SWEEP_PHASE3_PAGE_SQL = `
+    SELECT t.id,
       (SELECT COUNT(*) FROM registrations r
         WHERE r.topic_id = t.id AND r.done_status = 'aligned') as alignedCount,
       (SELECT COUNT(*) FROM registrations r
         WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as dissentingCount
     FROM topics t
-    WHERE t.status = 'stable'
-  `);
+    WHERE t.status = 'stable' AND t.id > ?
+    ORDER BY t.id
+    LIMIT ?`;
 
-  for (const t of stableTopics.rows) {
-    const aligned = t.alignedCount as number;
-    const dissenting = t.dissentingCount as number;
-    const totalVoters = aligned + dissenting;
-    const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
+const SWEEP_PHASE4_PAGE_SQL = `
+    SELECT DISTINCT t.id FROM topics t
+    JOIN topic_dependencies td ON td.topic_id = t.id AND td.relationship = 'assumes'
+    JOIN topics dep ON dep.id = td.depends_on
+    WHERE t.status IN ('stable', 'locked')
+      AND dep.status NOT IN ('consensus', 'stable', 'locked')
+      AND t.id > ?
+    ORDER BY t.id
+    LIMIT ?`;
 
-    if (alignmentRatio < 0.80) {
-      await db.execute({
-        sql: "UPDATE topics SET status = 'open', locked_at = NULL, consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
-        args: [t.id as string],
-      });
-      await emitEvent(db, t.id as string, "pact.stable.broken", "", "", {
-        alignmentRatio: `${Math.round(alignmentRatio * 100)}%`,
-        reason: "Alignment dropped below 80% — stable consensus broken",
-      });
+const SWEEP_CREDENCE_NODE_COLUMNS = `
+    SELECT t.id, t.status, t.consensus_ratio, t.credence,
+      (SELECT COUNT(*) FROM registrations r WHERE r.topic_id = t.id AND r.done_status = 'aligned') as alignedCount,
+      (SELECT COUNT(*) FROM registrations r WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as dissentingCount
+    FROM topics t`;
 
-      const deps = await db.execute({
-        sql: "SELECT topic_id FROM topic_dependencies WHERE depends_on = ?",
-        args: [t.id as string],
+const SWEEP_CREDENCE_NODES_PAGE_SQL = `${SWEEP_CREDENCE_NODE_COLUMNS}
+    WHERE t.id > ?
+    ORDER BY t.id
+    LIMIT ?`;
+
+const SWEEP_CREDENCE_NODES_BY_ID_SQL = `${SWEEP_CREDENCE_NODE_COLUMNS}
+    WHERE t.id = ANY(?)`;
+
+function rowToCredenceNode(r: Record<string, unknown>, verified: Set<string>): CredenceNode {
+  const aligned = (r.alignedCount as number) || 0;
+  const dissenting = (r.dissentingCount as number) || 0;
+  const live = aligned + dissenting > 0 ? aligned / (aligned + dissenting) : 0;
+  const ratio = (r.consensus_ratio as number | null) ?? live;
+  return { id: r.id as string, base: credenceFromRatio(ratio), defeated: !verified.has(r.status as string) };
+}
+
+async function writeChangedCredences(
+  db: DbClient,
+  nodes: CredenceNode[],
+  edges: CredenceEdge[],
+  prior: Map<string, number | null>
+): Promise<number> {
+  const effective = computeEffectiveCredences(nodes, edges);
+  let writes = 0;
+  for (const n of nodes) {
+    const value = effective.get(n.id);
+    if (value === undefined) continue;
+    const before = prior.get(n.id);
+    if (typeof before === "number" && Math.abs(before - value) < 1e-9) continue;
+    await db.execute({ sql: "UPDATE topics SET credence = ? WHERE id = ?", args: [value, n.id] });
+    writes++;
+  }
+  return writes;
+}
+
+/**
+ * Full-graph credence recompute — identical outcome to the pre-#5427
+ * graph-wide pass, but every statement is keyset-paged. Used on cold
+ * start (no watermark), on the periodic backstop cadence, and when the
+ * dirty subgraph overflows `dirtyMaxTopics`.
+ */
+async function fullCredenceRecompute(
+  db: DbClient,
+  pageSize: number,
+  isPastDeadline: () => boolean
+): Promise<{ writes: number; truncated: boolean }> {
+  const verified = new Set<string>(VERIFIED_TOPIC_STATUSES);
+  const nodes: CredenceNode[] = [];
+  const prior = new Map<string, number | null>();
+  const nodeScan = await scanKeyset(db, SWEEP_CREDENCE_NODES_PAGE_SQL, pageSize, isPastDeadline, (r) => {
+    nodes.push(rowToCredenceNode(r, verified));
+    prior.set(r.id as string, r.credence as number | null);
+  });
+  if (nodeScan.truncated) return { writes: 0, truncated: true };
+
+  // Edge scan keysets over the (topic_id, depends_on) primary key.
+  const edges: CredenceEdge[] = [];
+  let cursorTopic = "";
+  let cursorDep = "";
+  for (;;) {
+    const page = await db.execute({
+      sql: `SELECT topic_id, depends_on, relationship FROM topic_dependencies
+        WHERE (topic_id, depends_on) > (?, ?)
+        ORDER BY topic_id, depends_on
+        LIMIT ?`,
+      args: [cursorTopic, cursorDep, pageSize],
+    });
+    for (const r of page.rows) {
+      edges.push({
+        topicId: r.topic_id as string,
+        dependsOn: r.depends_on as string,
+        relationship: r.relationship as string,
       });
-      for (const dep of deps.rows) {
-        await emitEvent(db, dep.topic_id as string, "pact.dependency.unstable", "", "", {
-          dependencyId: t.id as string,
-          reason: "A dependency topic lost stable consensus",
+      cursorTopic = r.topic_id as string;
+      cursorDep = r.depends_on as string;
+    }
+    if (page.rows.length < pageSize) break;
+    if (isPastDeadline()) return { writes: 0, truncated: true };
+  }
+
+  const writes = await writeChangedCredences(db, nodes, edges, prior);
+  return { writes, truncated: false };
+}
+
+/**
+ * Dirty-subgraph credence recompute. Seeds are the topics touched by
+ * events since the watermark plus this invocation's own status changes.
+ * The affected set is the seeds' transitive DEPENDENTS (whose effective
+ * credence can change) closed downward over `depends_on` (whose values
+ * feed the computation) — closure under `depends_on` means the pure
+ * computeEffectiveCredences produces exactly the same values on the
+ * subgraph as it would on the whole graph. Returns null when the walk
+ * overflows `maxTopics` (caller falls back to the full recompute).
+ */
+async function recomputeCredencesForSubgraph(
+  db: DbClient,
+  seeds: Set<string>,
+  maxTopics: number
+): Promise<{ writes: number } | null> {
+  const affected = new Set<string>(seeds);
+
+  // Upward closure: transitive dependents of the seeds.
+  let frontier = [...affected];
+  let hops = 0;
+  while (frontier.length > 0) {
+    if (++hops > SWEEP_MAX_WALK_HOPS) return null;
+    const next: string[] = [];
+    for (const chunk of chunked(frontier, SWEEP_ANY_CHUNK)) {
+      const rows = await db.execute({
+        sql: "SELECT DISTINCT topic_id FROM topic_dependencies WHERE depends_on = ANY(?)",
+        args: [chunk],
+      });
+      for (const r of rows.rows) {
+        const id = String(r.topic_id);
+        if (!affected.has(id)) {
+          affected.add(id);
+          next.push(id);
+        }
+      }
+    }
+    if (affected.size > maxTopics) return null;
+    frontier = next;
+  }
+
+  // Downward closure + edge collection: fetch every affected node's
+  // out-edges once, pulling in transitive dependencies.
+  const edges: CredenceEdge[] = [];
+  frontier = [...affected];
+  hops = 0;
+  while (frontier.length > 0) {
+    if (++hops > SWEEP_MAX_WALK_HOPS) return null;
+    const next: string[] = [];
+    for (const chunk of chunked(frontier, SWEEP_ANY_CHUNK)) {
+      const rows = await db.execute({
+        sql: "SELECT topic_id, depends_on, relationship FROM topic_dependencies WHERE topic_id = ANY(?)",
+        args: [chunk],
+      });
+      for (const r of rows.rows) {
+        edges.push({
+          topicId: String(r.topic_id),
+          dependsOn: String(r.depends_on),
+          relationship: String(r.relationship),
+        });
+        const dep = String(r.depends_on);
+        if (!affected.has(dep)) {
+          affected.add(dep);
+          next.push(dep);
+        }
+      }
+    }
+    if (affected.size > maxTopics) return null;
+    frontier = next;
+  }
+
+  const verified = new Set<string>(VERIFIED_TOPIC_STATUSES);
+  const nodes: CredenceNode[] = [];
+  const prior = new Map<string, number | null>();
+  for (const chunk of chunked([...affected], SWEEP_ANY_CHUNK)) {
+    const rows = await db.execute({ sql: SWEEP_CREDENCE_NODES_BY_ID_SQL, args: [chunk] });
+    for (const r of rows.rows) {
+      nodes.push(rowToCredenceNode(r, verified));
+      prior.set(r.id as string, r.credence as number | null);
+    }
+  }
+
+  const writes = await writeChangedCredences(db, nodes, edges, prior);
+  return { writes };
+}
+
+/**
+ * Phase 5 driver: credence as a projection, triggered by events. Reads
+ * the events-id watermark, recomputes the dirty subgraph, and advances
+ * the watermark only after a completed recompute. Falls back to the full
+ * (paged) recompute on cold start, on the periodic backstop cadence, and
+ * when the dirty set overflows.
+ */
+async function recomputeCredences(
+  db: DbClient,
+  ctx: {
+    pageSize: number;
+    dirtyMaxTopics: number;
+    fullRecomputeIntervalMs: number;
+    now: () => number;
+    isPastDeadline: () => boolean;
+    changedTopicIds: Set<string>;
+  }
+): Promise<{ mode: "full" | "dirty" | "noop"; writes: number; truncated: boolean }> {
+  const watermarkRaw = await readSweepState(db, SWEEP_STATE_CREDENCE_WATERMARK);
+  const lastFullRaw = await readSweepState(db, SWEEP_STATE_FULL_RECOMPUTE_AT);
+  const watermark = watermarkRaw === null ? null : Number(watermarkRaw);
+  const lastFull = lastFullRaw === null ? null : Number(lastFullRaw);
+  // Captured AFTER phases 1–4 committed their events on this connection,
+  // so this sweep's own mutations fall inside the consumed window.
+  const maxEventResult = await db.execute("SELECT COALESCE(MAX(id), 0) as max_event_id FROM events");
+  const maxEventId = Number(maxEventResult.rows[0]?.max_event_id ?? 0);
+
+  const fullDue =
+    watermark === null ||
+    !Number.isFinite(watermark) ||
+    lastFull === null ||
+    !Number.isFinite(lastFull) ||
+    ctx.now() - lastFull >= ctx.fullRecomputeIntervalMs;
+
+  if (!fullDue) {
+    const dirty = new Set<string>(ctx.changedTopicIds);
+    const seedRows = await db.execute({
+      sql: "SELECT DISTINCT topic_id FROM events WHERE id > ? LIMIT ?",
+      args: [watermark, ctx.dirtyMaxTopics + 1],
+    });
+    for (const r of seedRows.rows) dirty.add(String(r.topic_id));
+
+    if (dirty.size === 0) {
+      await writeSweepState(db, SWEEP_STATE_CREDENCE_WATERMARK, String(maxEventId));
+      return { mode: "noop", writes: 0, truncated: false };
+    }
+    if (dirty.size <= ctx.dirtyMaxTopics) {
+      const scoped = await recomputeCredencesForSubgraph(db, dirty, ctx.dirtyMaxTopics);
+      if (scoped) {
+        await writeSweepState(db, SWEEP_STATE_CREDENCE_WATERMARK, String(maxEventId));
+        return { mode: "dirty", writes: scoped.writes, truncated: false };
+      }
+    }
+    // Dirty set or its closure overflowed the bound — full recompute.
+  }
+
+  const full = await fullCredenceRecompute(db, ctx.pageSize, ctx.isPastDeadline);
+  if (full.truncated) {
+    // Watermark deliberately NOT advanced: the next sweep retries.
+    return { mode: "full", writes: full.writes, truncated: true };
+  }
+  await writeSweepState(db, SWEEP_STATE_CREDENCE_WATERMARK, String(maxEventId));
+  await writeSweepState(db, SWEEP_STATE_FULL_RECOMPUTE_AT, String(ctx.now()));
+  return { mode: "full", writes: full.writes, truncated: false };
+}
+
+export async function updateConsensusStatuses(db: DbClient, options: ConsensusSweepOptions = {}) {
+  const pageSize = Math.max(1, options.pageSize ?? CONSENSUS_SWEEP_DEFAULTS.pageSize);
+  const timeBudgetMs = options.timeBudgetMs ?? CONSENSUS_SWEEP_DEFAULTS.timeBudgetMs;
+  const dirtyMaxTopics = Math.max(1, options.dirtyMaxTopics ?? CONSENSUS_SWEEP_DEFAULTS.dirtyMaxTopics);
+  const fullRecomputeIntervalMs =
+    options.fullRecomputeIntervalMs ?? CONSENSUS_SWEEP_DEFAULTS.fullRecomputeIntervalMs;
+  const now = options.now ?? Date.now;
+  const startedAt = now();
+  const deadline = startedAt + timeBudgetMs;
+  const isPastDeadline = () => now() > deadline;
+
+  let updated = 0;
+  let scannedTotal = 0;
+  let truncated = false;
+  // This invocation's own status changes — Phase-5 dirty seeds alongside
+  // the events window (belt-and-braces: every phase mutation also emits
+  // an event, but the in-memory set is race-free by construction).
+  const changedTopicIds = new Set<string>();
+
+  // --- Phase 1: Check open/challenged topics for NEW consensus ---
+  type Phase1Decision = {
+    id: string;
+    kind: "promote" | "blocked";
+    tier: string;
+    alignmentRatio: number;
+    totalVoters: number;
+    aligned: number;
+    dissenting: number;
+    requiredAgents: number;
+    uniqueProposers: number;
+    unmetDeps: number;
+  };
+  const phase1: Phase1Decision[] = [];
+  {
+    const scan = await scanKeyset(db, SWEEP_PHASE1_PAGE_SQL, pageSize, isPastDeadline, (t) => {
+      const tier = (t.tier as string) || "practice";
+      const uniqueProposers = t.uniqueProposers as number;
+      const pending = t.pendingCount as number;
+      const answerMerged = t.answerMergedCount as number;
+      const aligned = t.alignedCount as number;
+      const dissenting = t.dissentingCount as number;
+      const totalVoters = aligned + dissenting;
+      const requiredAgents = getRequiredAgents(tier, !!t.convention_stop, uniqueProposers);
+      const unmetDeps = t.unmetDependencies as number;
+      const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
+      const depsOk = dependencyGateOk(tier, unmetDeps); // #2888 — re-enabled post-bootstrap (blast radius zero)
+
+      if (pending === 0 && answerMerged > 0 && aligned >= requiredAgents && alignmentRatio >= CONSENSUS_RATIO) {
+        phase1.push({
+          id: t.id as string,
+          kind: depsOk ? "promote" : "blocked",
+          tier,
+          alignmentRatio,
+          totalVoters,
+          aligned,
+          dissenting,
+          requiredAgents,
+          uniqueProposers,
+          unmetDeps,
         });
       }
+    });
+    scannedTotal += scan.scanned;
+    truncated = truncated || scan.truncated;
+  }
+  for (const d of phase1) {
+    if (d.kind === "promote") {
+      await db.execute({
+        sql: `UPDATE topics SET
+          status = 'consensus',
+          consensus_ratio = ?,
+          consensus_voters = ?,
+          consensus_since = COALESCE(consensus_since, NOW())
+        WHERE id = ?`,
+        args: [d.alignmentRatio, d.totalVoters, d.id],
+      });
+      await emitEvent(db, d.id, "pact.topic.consensus-reached", "", "", {
+        alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
+        alignedAgents: d.aligned,
+        dissentingAgents: d.dissenting,
+        requiredAgents: d.requiredAgents,
+        uniqueProposers: d.uniqueProposers,
+        tier: d.tier,
+      });
 
+      try {
+        const { distributeBounty } = await import("./economy");
+        await distributeBounty(db, d.id);
+      } catch (e) {
+        console.error(`Bounty distribution failed for ${d.id}:`, e);
+      }
+
+      changedTopicIds.add(d.id);
       updated++;
+    } else {
+      await emitEvent(db, d.id, "pact.consensus.blocked-by-dependencies", "", "", {
+        alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
+        alignedAgents: d.aligned,
+        unmetDependencies: d.unmetDeps,
+        tier: d.tier,
+        reason: `${d.unmetDeps} dependency topic(s) have not yet reached consensus`,
+      });
     }
+  }
+
+  // --- Phase 2: Check existing consensus topics ---
+  type Phase2Decision = {
+    id: string;
+    kind: "demote" | "stabilize";
+    tier: string;
+    alignmentRatio: number;
+    totalVoters: number;
+    reason?: string;
+    daysSince?: number;
+  };
+  const phase2: Phase2Decision[] = [];
+  if (!truncated) {
+    const scan = await scanKeyset(db, SWEEP_PHASE2_PAGE_SQL, pageSize, isPastDeadline, (t) => {
+      const tier = (t.tier as string) || "practice";
+      const uniqueProposers = t.uniqueProposers as number;
+      const pending = t.pendingCount as number;
+      const aligned = t.alignedCount as number;
+      const dissenting = t.dissentingCount as number;
+      const totalVoters = aligned + dissenting;
+      const requiredAgents = getRequiredAgents(tier, !!t.convention_stop, uniqueProposers);
+      const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
+      const consensusSince = t.consensus_since as string;
+      const unmetDeps = t.unmetDependencies as number;
+      const depsOkForBreaking = dependencyGateOk(tier, unmetDeps); // #2888 — re-enabled post-bootstrap
+
+      const wasForced = totalVoters === 0;
+      if (
+        !wasForced &&
+        (alignmentRatio < CONSENSUS_RATIO || aligned < requiredAgents || pending > 0 || !depsOkForBreaking)
+      ) {
+        phase2.push({
+          id: t.id as string,
+          kind: "demote",
+          tier,
+          alignmentRatio,
+          totalVoters,
+          reason:
+            unmetDeps > 0 ? "Dependency topic(s) lost consensus" :
+            pending > 0 ? "New proposals pending" :
+            alignmentRatio < CONSENSUS_RATIO ? "Alignment dropped below 90%" :
+            "Not enough aligned agents",
+        });
+        return;
+      }
+
+      if (consensusSince) {
+        const sinceDate = new Date(String(consensusSince));
+        const daysSince = (Date.now() - sinceDate.getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSince >= STABLE_DAYS) {
+          phase2.push({ id: t.id as string, kind: "stabilize", tier, alignmentRatio, totalVoters, daysSince });
+        }
+      }
+    });
+    scannedTotal += scan.scanned;
+    truncated = truncated || scan.truncated;
+  }
+  for (const d of phase2) {
+    if (d.kind === "demote") {
+      await db.execute({
+        sql: "UPDATE topics SET status = 'open', consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
+        args: [d.id],
+      });
+      await emitEvent(db, d.id, "pact.consensus.broken", "", "", {
+        alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
+        reason: d.reason,
+      });
+    } else {
+      await db.execute({
+        sql: "UPDATE topics SET status = 'stable', locked_at = NOW(), consensus_ratio = ?, consensus_voters = ? WHERE id = ?",
+        args: [d.alignmentRatio, d.totalVoters, d.id],
+      });
+      await emitEvent(db, d.id, "pact.topic.stable", "", "", {
+        alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
+        daysSinceConsensus: Math.floor(d.daysSince ?? 0),
+        tier: d.tier,
+      });
+    }
+    changedTopicIds.add(d.id);
+    updated++;
+  }
+
+  // --- Phase 3: Check stable topics for consensus breakdown ---
+  const phase3: { id: string; alignmentRatio: number }[] = [];
+  if (!truncated) {
+    const scan = await scanKeyset(db, SWEEP_PHASE3_PAGE_SQL, pageSize, isPastDeadline, (t) => {
+      const aligned = t.alignedCount as number;
+      const dissenting = t.dissentingCount as number;
+      const totalVoters = aligned + dissenting;
+      const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
+      if (alignmentRatio < 0.80) {
+        phase3.push({ id: t.id as string, alignmentRatio });
+      }
+    });
+    scannedTotal += scan.scanned;
+    truncated = truncated || scan.truncated;
+  }
+  for (const d of phase3) {
+    await db.execute({
+      sql: "UPDATE topics SET status = 'open', locked_at = NULL, consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
+      args: [d.id],
+    });
+    await emitEvent(db, d.id, "pact.stable.broken", "", "", {
+      alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
+      reason: "Alignment dropped below 80% — stable consensus broken",
+    });
+
+    const deps = await db.execute({
+      sql: "SELECT topic_id FROM topic_dependencies WHERE depends_on = ?",
+      args: [d.id],
+    });
+    for (const dep of deps.rows) {
+      await emitEvent(db, dep.topic_id as string, "pact.dependency.unstable", "", "", {
+        dependencyId: d.id,
+        reason: "A dependency topic lost stable consensus",
+      });
+    }
+
+    changedTopicIds.add(d.id);
+    updated++;
   }
 
   // --- Phase 4 (#3691 W3): a defeated *necessary* premise re-opens contention ---
@@ -1593,62 +2042,60 @@ export async function updateConsensusStatuses(db: DbClient) {
   // and locked topics were previously immune. An `assumes` dependency that
   // has left the verified statuses forces the dependent to `challenged`
   // (contested). `builds_on` weakness flows through credence only (Phase 5).
-  const assumesDefeated = await db.execute(`
-    SELECT DISTINCT t.id FROM topics t
-    JOIN topic_dependencies td ON td.topic_id = t.id AND td.relationship = 'assumes'
-    JOIN topics dep ON dep.id = td.depends_on
-    WHERE t.status IN ('stable', 'locked')
-      AND dep.status NOT IN ('consensus', 'stable', 'locked')
-  `);
-  for (const t of assumesDefeated.rows) {
+  const phase4: string[] = [];
+  if (!truncated) {
+    const scan = await scanKeyset(db, SWEEP_PHASE4_PAGE_SQL, pageSize, isPastDeadline, (t) => {
+      phase4.push(t.id as string);
+    });
+    scannedTotal += scan.scanned;
+    truncated = truncated || scan.truncated;
+  }
+  for (const id of phase4) {
     await db.execute({
       sql: "UPDATE topics SET status = 'challenged', locked_at = NULL, consensus_since = NULL WHERE id = ?",
-      args: [t.id as string],
+      args: [id],
     });
-    await emitEvent(db, t.id as string, "pact.dependency.assumption-defeated", "", "", {
+    await emitEvent(db, id, "pact.dependency.assumption-defeated", "", "", {
       reason: "A necessary (assumes) dependency left verified status — claim re-opened for contention",
     });
+    changedTopicIds.add(id);
     updated++;
   }
 
-  // --- Phase 5 (#3691 W3): recompute effective credence for every topic ---
+  // --- Phase 5 (#3691 W3 / #5427): recompute effective credence ---
   // Derived, never latched: recomputed from the current dependency frontier
-  // on every sweep, so dependents attenuate transitively on a defeat (P1),
-  // are floored rather than zeroed or deleted (P2), and self-heal when the
-  // dependency recovers (P3).
-  try {
-    const all = await db.execute(`
-      SELECT t.id, t.status, t.consensus_ratio, t.credence,
-        (SELECT COUNT(*) FROM registrations r WHERE r.topic_id = t.id AND r.done_status = 'aligned') as alignedCount,
-        (SELECT COUNT(*) FROM registrations r WHERE r.topic_id = t.id AND r.done_status = 'dissenting') as dissentingCount
-      FROM topics t
-    `);
-    const edgesResult = await db.execute(`SELECT topic_id, depends_on, relationship FROM topic_dependencies`);
-    const verified = new Set<string>(VERIFIED_TOPIC_STATUSES);
-    const nodes = all.rows.map((r) => {
-      const aligned = (r.alignedCount as number) || 0;
-      const dissenting = (r.dissentingCount as number) || 0;
-      const live = aligned + dissenting > 0 ? aligned / (aligned + dissenting) : 0;
-      const ratio = (r.consensus_ratio as number | null) ?? live;
-      return { id: r.id as string, base: credenceFromRatio(ratio), defeated: !verified.has(r.status as string) };
-    });
-    const edges = edgesResult.rows.map((r) => ({
-      topicId: r.topic_id as string,
-      dependsOn: r.depends_on as string,
-      relationship: r.relationship as string,
-    }));
-    const effective = computeEffectiveCredences(nodes, edges);
-    const priorCredence = new Map(all.rows.map((r) => [r.id as string, r.credence as number | null]));
-    for (const n of nodes) {
-      const value = effective.get(n.id);
-      if (value === undefined) continue;
-      const prior = priorCredence.get(n.id);
-      if (typeof prior === "number" && Math.abs(prior - value) < 1e-9) continue;
-      await db.execute({ sql: "UPDATE topics SET credence = ? WHERE id = ?", args: [value, n.id] });
+  // so dependents attenuate transitively on a defeat (P1), are floored
+  // rather than zeroed or deleted (P2), and self-heal when the dependency
+  // recovers (P3). #5427 scopes the recompute to the dirty subgraph
+  // (events since the watermark + this sweep's own changes), with the
+  // periodic full recompute as the convergence backstop.
+  let credenceMode: "full" | "dirty" | "noop" | "skipped" | "failed" = "skipped";
+  let credenceWrites = 0;
+  if (!truncated) {
+    try {
+      const result = await recomputeCredences(db, {
+        pageSize,
+        dirtyMaxTopics,
+        fullRecomputeIntervalMs,
+        now,
+        isPastDeadline,
+        changedTopicIds,
+      });
+      credenceMode = result.mode;
+      credenceWrites = result.writes;
+      truncated = truncated || result.truncated;
+    } catch (e) {
+      credenceMode = "failed";
+      console.error("Credence recompute failed (non-fatal):", e);
     }
-  } catch (e) {
-    console.error("Credence recompute failed (non-fatal):", e);
   }
+
+  const elapsedMs = now() - startedAt;
+  console.log(
+    `[consensus-sweep] phases completed in ${elapsedMs}ms: scanned=${scannedTotal} updated=${updated} ` +
+      `credence=${credenceMode}(${credenceWrites} writes) pageSize=${pageSize}` +
+      (truncated ? ` TRUNCATED at time budget ${timeBudgetMs}ms — remainder deferred to the next sweep` : "")
+  );
 
   return updated;
 }

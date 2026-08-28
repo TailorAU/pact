@@ -93,6 +93,26 @@ const _fiscalMeterStatements: string[] = _loadSqlStatements("fiscal-compute-mete
 pg.types.setTypeParser(1114, (val: string) => val);
 pg.types.setTypeParser(1184, (val: string) => val);
 
+// #5525 — node-postgres has NO default parser for int8 (OID 20): COUNT(*),
+// SUM(<int>), and bigint columns come back as STRINGS. The consensus
+// sweep's strict checks (`pending === 0` in Phase 1, dependencyGateOk's
+// `unmetDeps === 0`, `support === 0` in evaluateChallenges) are false for
+// "0", and its ratio arithmetic concatenates ("3" + "1" === "31" makes
+// alignmentRatio 3/31 instead of 3/4) — so against real Postgres the sweep
+// could neither promote nor correctly tally. Parse int8 to a JS number.
+//
+// Bounds note: Number is exact only to 2^53 − 1 (9,007,199,254,740,991).
+// Every int8 this app reads is a row count or a SUM over small integers,
+// which cannot realistically approach that; precision loss beyond the safe
+// range is accepted over the string-comparison failure class.
+//
+// NUMERIC (OID 1700) is deliberately NOT parsed to Number: the fiscal
+// schema stores dollar figures as NUMERIC-never-float (see
+// sql/fiscal-reconstruction-schema.sql). The one numeric read on the sweep
+// path (agent_age_days in computeTopicVoteTally) is coerced downstream by
+// meetsStanding(), which Number()-wraps its inputs.
+pg.types.setTypeParser(20, (val: string) => Number(val));
+
 const { Pool } = pg;
 
 export interface DbResult {

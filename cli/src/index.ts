@@ -24,7 +24,15 @@ const program = new Command();
 
 program
   .name('pact')
-  .description('PACT — Like Signal, but for multi-agent and human consensus. Collapses gate reviews from weeks to days. Open, MIT-licensed protocol for multi-agent collaboration on any resource type (documents, transactions, knowledge, deal rooms, and beyond).')
+  .description(
+    'PACT — Like Signal, but for multi-agent and human consensus. Collapses gate reviews from weeks to days. ' +
+      'Open, MIT-licensed protocol for multi-agent collaboration on any resource type (documents, transactions, ' +
+      'knowledge, deal rooms, and beyond).\n\n' +
+      'Safety boundary (spec §25): every state this CLI reports — accepted, approved, auto-merged, aligned, ' +
+      'consensus reached, awaiting attestation — is a PACT protocol state. None of them is an electronic ' +
+      'signature, legal assent, proof of identity or authority to bind, or authority to perform an external or ' +
+      'irreversible effect. Silence and TTL expiry never create a human attestation.',
+  )
   .version('2.0.3')
   .option('--agent <key>', 'Override the API key for this invocation (simulate a specific agent)')
   .option('--as <did>', 'Act as a specific principal DID (dev/test: asserts X-Pact-Principal; honoured by the reference server, ignored by production servers that map principal from the credential)')

@@ -1,0 +1,103 @@
+# Conformance test vector — §25.7 check 1 negative: a guarded apply presented
+# with NO attestation at all is refused.
+#
+# kind: http — this is the one negative case that cannot be expressed as a
+# kind: verification vector, because there is no proof to verify. The absence
+# itself is the condition under test, and absence is only observable on the
+# apply path.
+#
+# §25.7 check 1 is explicit that absence is a refusal, not a warning: the
+# server MUST return 403 with `apply.attestation_required` and MUST NOT apply.
+
+kind: http
+
+metadata:
+  id: extended/execution-boundary/guarded-apply-attestation-missing-refused
+  description: An approve call on an external-irreversible transaction proposal, carrying no authorization_proof, is refused with 403 apply.attestation_required. The absence of an attestation is a refusal under §25.7 check 1, never a warning or a soft pass.
+  spec_section: "§25.6, §25.7, §25.9, Appendix A.1"
+  conformance_level: core
+  track: T-execution-boundary
+
+preconditions:
+  server_state:
+    resource_id: fab_payment_run
+    resource_type: transaction
+    effect_class: external-irreversible
+    human_attestation: required
+    proposal:
+      proposalId: prop_pay_9f2
+      status: AwaitingAttestation
+      required_principals:
+        - did:web:cfo.example
+  request_context:
+    auth: bearer
+    principal_id: did:web:treasury-bot.example
+
+request:
+  method: POST
+  path: /api/pact/fab_payment_run/proposals/prop_pay_9f2/approve
+  headers:
+    Content-Type: application/json
+    X-Pact-Principal: did:web:treasury-bot.example
+  body:
+    decision: approve
+    # No authorization_proof. Deliberately.
+
+expected_response:
+  status: 403
+  body_match:
+    mode: subset
+    value:
+      errors:
+        - code: apply.attestation_required
+  body_ignore_fields:
+    - traceId
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.apply.blocked
+      match:
+        mode: subset
+        value:
+          proposalId: prop_pay_9f2
+          effect_class: external-irreversible
+          reason: attestation_missing
+      body_ignore_fields:
+        - id
+        - epochMs
+        - sequenceNumber
+        - actorId
+        - required_principals
+        - policy
+
+postconditions:
+  server_state:
+    events_added: 1                      # the block itself is auditable
+    resource_modified: false
+    external_effects_performed: 0
+
+notes: |
+  Two ways implementations get this wrong, both seen in the wild:
+
+    1. The "agent approved it" shortcut — an agent's `approve` is accepted as
+       standing in for the human's attestation. §25.4 forbids it: a vote cast
+       by an agent rather than a HumanPrincipal never creates or substitutes
+       for an authorization_proof.
+    2. The soft-warning shortcut — the apply proceeds and an "unattested"
+       flag is logged. §25.7 check 1 forbids it: absence is a refusal.
+
+  The generic `auth.forbidden` code is not acceptable here. The caller needs
+  to distinguish "you may not do this" from "a human still has to sign this",
+  because the remedies are completely different. The `metadata` object SHOULD
+  carry `effect_class` and `required_principals` so the caller can route the
+  request to the right person without a second round trip (§25.9).
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Apply proceeds with an "unattested" warning instead of refusing
+    - An agent's approve vote accepted in place of a human attestation (§25.4)
+    - 403 returned with generic auth.forbidden instead of apply.attestation_required
+    - No pact.apply.blocked event emitted, so the refusal leaves no audit trail
+    - 200 returned with the proposal still unapplied (misleading success)

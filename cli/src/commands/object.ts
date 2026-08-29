@@ -5,7 +5,10 @@ import { loadProof } from '../proof.js';
 export function registerObjectCommand(program: Command): void {
   program
     .command('object <proposalId>')
-    .description('Object to a proposal — blocks auto-merge, forces renegotiation')
+    .description(
+      'Object to a proposal — blocks auto-merge, forces renegotiation. Not objecting means no protocol ' +
+        'objection was raised within the TTL (spec §25.3); it is not consent, a signature, or approval by you.',
+    )
     .requiredOption('--doc <docId>', 'Document ID')
     .requiredOption('--reason <text>', 'Why this violates your constraints')
     .option('--authorization-proof <file>', 'Path to JSON file with §17.6 authorization_proof envelope')

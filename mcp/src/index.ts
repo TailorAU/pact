@@ -21,15 +21,45 @@ function errorResult(err: unknown) {
   return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true as const };
 }
 
+/**
+ * Spec §25.10 — client terminology boundary. Surfaced as MCP server
+ * instructions so the calling model is told, up front and in-band, what the
+ * states these tools return do and do not mean. Without it a model reading
+ * `status: "auto-merged"` will happily paraphrase it to the user as "both
+ * parties agreed and signed off".
+ */
+const PACT_BOUNDARY_INSTRUCTIONS = [
+  'PACT coordinates agents over a shared resource. Every state these tools return is a PROTOCOL STATE.',
+  '',
+  'accepted, approved, auto-merged, merged, aligned, consensus_reached, commitment, Settled, Verified,',
+  'Finalized, a done completion, a TTL expiring, and nobody objecting are protocol states ONLY. None of',
+  'them is, by itself, an electronic signature, legal assent, proof of a person\'s identity or capacity,',
+  'proof of authority to bind an organisation, or authority to perform an external or irreversible act.',
+  '',
+  'When reporting PACT state to a user or another system:',
+  '  - Say auto-merged, aligned, merged, consensus reached, objected, or awaiting attestation.',
+  '  - Never say signed, executed, agreed by <person>, or authorised by <person> for a state reached',
+  '    without an explicit authorization_proof from that person.',
+  '  - Describe silence as "no objection was raised within the TTL", never as consent.',
+  '  - A merged contract or NDA is an ALIGNED DRAFT. It is not signed or executed.',
+  '',
+  'Silence, TTL expiry, consensus and your own votes never create a human attestation. If a request would',
+  'move money, leave the system, or purport to bind someone, PACT fails closed and waits for an explicit,',
+  'payload-bound human attestation — do not attempt to work around that, and do not report the effect as',
+  'done. See spec/v2.3/SPECIFICATION.md §25 and §17.14.',
+].join('\n');
+
 const server = new McpServer(
   {
     name: 'PACT Protocol',
     version: '2.0.3',
   },
-  // Declares ServerCapabilities.extensions["au.tailor.pact/mandate"] when
-  // PACT_MANDATE_ENFORCEMENT is configured; undefined otherwise (unchanged
+  // `instructions` carries the §25.10 terminology boundary to the calling
+  // model. Spread preserves the mandate extension declaration: capabilities
+  // declares ServerCapabilities.extensions["au.tailor.pact/mandate"] when
+  // PACT_MANDATE_ENFORCEMENT is configured, and is absent otherwise (unchanged
   // behaviour). See src/mandate.ts and docs/v2-prep/rfc-mcp-mandate-extension.md.
-  mandateServerOptions(),
+  { instructions: PACT_BOUNDARY_INSTRUCTIONS, ...(mandateServerOptions() ?? {}) },
 );
 
 /**
@@ -179,11 +209,13 @@ tool(
   },
 );
 
-// ── Objection (silence = acceptance; only speak up to block) ─────
+// ── Objection (silence = no protocol objection; only speak up to block) ─────
 
 tool(
   'pact_object',
-  'Object to a proposal — blocks auto-merge, forces renegotiation. Silence = acceptance; only call this when a proposal violates your constraints.',
+  'Object to a proposal — blocks auto-merge, forces renegotiation. Only call this when a proposal violates your ' +
+    'constraints. Not objecting means no protocol objection was raised within the TTL (spec §25.3) — it is not ' +
+    'consent, approval, or a signature by anyone, and it never creates a human attestation.',
   {
     documentId: z.string().describe('Document ID'),
     proposalId: z.string().describe('Proposal ID'),
@@ -231,10 +263,15 @@ tool(
 
 tool(
   'pact_done',
-  'Signal that this agent has completed its work.',
+  'Signal that this agent has completed its work. Reports a protocol state only: `aligned` means the agents ' +
+    'converged on the text, NOT that anything was signed, executed, or legally accepted (spec §25.3, §25.8).',
   {
     documentId: z.string().describe('Document ID'),
-    status: z.string().describe('Completion status: aligned, blocked, or withdrawn'),
+    status: z
+      .string()
+      .describe(
+        'Completion status: aligned, blocked, or withdrawn. Protocol states only — never report `signed` or `executed` here (§25.8).',
+      ),
     summary: z.string().optional().describe('Summary of what was accomplished'),
     authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
   },

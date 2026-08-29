@@ -1,0 +1,113 @@
+# Conformance test vector — §25.7 check 4 negative: a WRONG-PAYLOAD attestation
+# is rejected before any guarded apply. Verified with REAL cryptography.
+#
+# kind: verification, signature_check: real — this vector PASSes only if the
+# runner performs actual signature verification over the payload-bound message.
+#
+# Scenario. A human is shown a $250 supplier payment and attests to it. Their
+# credential signs the v2.3 guarded-apply message
+#
+#     UTF-8( challenge_nonce || asserted_at || payload_hash )
+#
+# where payload_hash is the base64url SHA-256 of the RFC 8785 canonical JSON of
+# the payload they saw. An attacker then swaps the payload for a $250,000 one
+# and rewrites `payload_hash` in the envelope to match the tampered payload —
+# the only way to defeat the §25.7 check-4 hash comparison. Because the
+# signature commits to the payload hash, the rewrite breaks the signature and
+# the proof is rejected at §17.7 step 3.
+#
+# Key material. Generated offline with Node
+# `crypto.generateKeyPairSync('ed25519')` and
+# `crypto.sign(null, Buffer.from(nonce + asserted_at + payload_hash_original), privateKey)`.
+# The private key was discarded; only verifier-side material is in the repo, so
+# the vector is self-contained and reproducible.
+#
+#   canonical original payload : {"amount":250,"currency":"AUD","method":"eft","recipient":"acct_supplier_44","reference":"INV-2026-0731"}
+#   payload_hash (original)    : vNpTpNSrqyjRjII7dlTxBr0JGgExDrVXfr_O51gNKW4   <- the signature commits to THIS
+#   canonical tampered payload : {"amount":250000,"currency":"AUD","method":"eft","recipient":"acct_supplier_44","reference":"INV-2026-0731"}
+#   payload_hash (tampered)    : Wz-PllyOwFFBZY627gcp3IfbjFSCI1w8QfD3gS80GrM   <- what the envelope now carries
+#
+# The positive control for the same key material is
+# `attest-payload-bound-verified.yaml`, which presents the ORIGINAL payload_hash
+# and MUST verify cryptographically. The pair together prove the binding is
+# real rather than the rejection being incidental.
+
+kind: verification
+
+metadata:
+  id: extended/execution-boundary/attest-wrong-payload-rejected
+  description: A guarded-apply attestation whose payload_hash was rewritten to a tampered $250,000 payload fails real Ed25519 signature verification at §17.7 step 3, because the signature commits to the hash of the $250 payload the human actually saw. The §25.6 guard is not released.
+  spec_section: "§17.6, §17.7, §25.6, §25.7"
+  conformance_level: extended
+  track: T-execution-boundary
+
+verification:
+  proof:
+    type: fido2-assertion
+    principal_id: did:web:cfo.example
+    credential_id: cred_cfo_payload_bound
+    challenge_nonce: nonce-pay-9f2-001
+    verifier_id: did:web:treasury.example
+    asserted_at: "2026-07-30T10:00:00Z"
+    # Real Ed25519 signature over UTF-8(challenge_nonce || asserted_at ||
+    # payload_hash_ORIGINAL). Genuine, unmodified, and produced by the enrolled
+    # credential — it simply does not authorise the payload now being applied.
+    signature: "YOVAUCIY6dQBptFEF4-jBw2sKStWTTbzgm32tRKqNIKvoh_emQLRp-gCYlChkHVgE1ay45loMjnR6-gI0PkOBw"
+    alg: webauthn-eddsa
+    alg_version: "1"
+    attestation_chain: []
+    # TAMPERED: the hash of the $250,000 payload, not the $250 one signed for.
+    payload_hash: "Wz-PllyOwFFBZY627gcp3IfbjFSCI1w8QfD3gS80GrM"
+    scope: "pact.apply.transaction:txn_9f2"
+    effect_class: external-irreversible
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:cfo.example
+        display_name: Chief Financial Officer
+        credentials:
+          - id: cred_cfo_payload_bound
+            type: fido2-assertion
+            # SPKI-DER Ed25519 public key, base64url-encoded.
+            public_key: "MCowBQYDK2VwAyEAvYuGuBCMCgURV6w7H3DezZRmdQDHB_EuDxoxR7KFt4Q"
+            enrolled_at: "2026-07-01T00:00:00Z"
+            revoked: false
+  verifier_clock: "2026-07-30T10:00:20Z"         # fresh — step 4 passes
+  issued_nonces:
+    - nonce-pay-9f2-001                          # outstanding — step 5 passes
+  receiving_verifier_id: did:web:treasury.example
+  operation_requires_uv: true
+  signature_check: real
+  expected:
+    result: rejected
+    failing_step: 3
+    emits_trust_violation: true
+
+notes: |
+  Every other check passes. The principal resolves, the credential is enrolled
+  and unrevoked, the timestamp is 20 seconds old, the nonce is one this
+  verifier issued, the scope names this exact transaction, and the effect class
+  is correct. The proof is a real signature from the real CFO credential.
+
+  It is still refused, because it authorises a different payload. That is the
+  whole content of §25.7 check 4: an attestation authorises ONE payload, and
+  "the CFO approved a payment to this supplier" is not the same fact as "the
+  CFO approved THIS payment to this supplier".
+
+  Two defences stack here and implementations need both:
+    - Check 4 proper — recompute the hash of the payload being applied and
+      compare it to `payload_hash`. Catches an attacker who tampers with the
+      payload and leaves the envelope alone.
+    - Signature-over-payload_hash (§17.6) — catches the attacker who also
+      rewrites the envelope, which is what this vector exercises. An
+      implementation that compares hashes but does not include payload_hash in
+      the signed message is defeated by a single field edit.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - The signed message omits payload_hash, so rewriting the field costs the attacker nothing
+    - Verifier compares payload_hash to the proof's own field rather than recomputing it from the applied payload
+    - Runner or verifier performs only structural verification and reports the forged binding as verified (the v2.0.1 "forged signature pass" class of bug, resurfacing at the apply guard)
+    - Payload canonicalisation differs from RFC 8785, so honest hashes disagree and implementations disable the check
+    - Guard released before signature verification completes (§25.7 ordering violated)

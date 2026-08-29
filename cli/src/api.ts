@@ -165,7 +165,7 @@ export async function getSalienceMap(docId: string): Promise<unknown> {
   return request(`/api/pact/${docId}/salience`);
 }
 
-// ── Objection (silence = acceptance; only speak up to block) ─────
+// ── Objection (not objecting = no protocol objection, §25.3; only speak up to block) ─────
 
 export async function objectToProposal(
   docId: string,

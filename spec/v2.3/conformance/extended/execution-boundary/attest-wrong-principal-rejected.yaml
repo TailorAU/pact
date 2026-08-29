@@ -1,0 +1,82 @@
+# Conformance test vector — §25.7 negative: a WRONG-PRINCIPAL attestation is
+# rejected before any guarded apply.
+#
+# kind: verification — exercises §17.7 step 2 (principal resolution). The
+# attestation presented at the payment guard names a principal this verifier
+# cannot resolve at all: the credential registry knows the CFO, not the
+# contractor whose DID the proof carries.
+#
+# NOTE ON SCOPE. This vector covers the UNRESOLVABLE-principal half of
+# "wrong principal", which is the half the §17.7 verification flow itself can
+# decide. The other half — a cryptographically valid proof from a principal
+# who IS enrolled but is NOT a required signer for this effect — is §25.7
+# check 3, an application-layer binding that no §17.7 verifier can evaluate on
+# its own. That half is pinned by
+# `guarded-apply-wrong-principal-refused.yaml` (kind: http).
+
+kind: verification
+
+metadata:
+  id: extended/execution-boundary/attest-wrong-principal-rejected
+  description: A guarded-apply attestation naming a principal absent from the verifier's credential registry is rejected at §17.7 step 2 before the §25.6 guard can be released. Correct scope, payload binding and freshness do not substitute for a resolvable principal.
+  spec_section: "§17.7, §17.8, §25.6, §25.7"
+  conformance_level: extended
+  track: T-execution-boundary
+
+verification:
+  proof:
+    type: fido2-assertion
+    # Not in the registry below. An unresolvable principal is not a principal.
+    principal_id: did:web:contractor.example
+    credential_id: cred_contractor_laptop
+    challenge_nonce: nonce-pay-9f2-001
+    verifier_id: did:web:treasury.example
+    asserted_at: "2026-07-30T10:00:00Z"
+    signature: "<placeholder — rejection occurs at step 2, before the crypto check>"
+    alg: webauthn-es256
+    alg_version: "2"
+    attestation_chain: []
+    payload_hash: "L2s1bqOX8T7Yy9m4Qv0pRt3aWc6JdKfHnB5xZgE7uMs"
+    scope: "pact.apply.transaction:txn_9f2"
+    effect_class: external-irreversible
+  registry:
+    version: "1.0"
+    principals:
+      # Only the CFO is enrolled. The contractor is not.
+      - id: did:web:cfo.example
+        display_name: Chief Financial Officer
+        credentials:
+          - id: cred_cfo_hsm
+            type: fido2-assertion
+            public_key: "<es256-public-key>"
+            enrolled_at: "2026-01-01T00:00:00Z"
+            revoked: false
+  verifier_clock: "2026-07-30T10:00:20Z"
+  issued_nonces:
+    - nonce-pay-9f2-001
+  receiving_verifier_id: did:web:treasury.example
+  operation_requires_uv: true
+  signature_check: structural
+  expected:
+    result: rejected
+    failing_step: 2
+    emits_trust_violation: true
+
+notes: |
+  §17.7 step 2 is deliberately unforgiving: resolution failure is a rejection,
+  not a downgrade to "unknown but probably fine". A guarded apply MUST NOT
+  proceed on an attestation the verifier cannot attribute to an enrolled
+  principal (§25.7 checks 2 and 3).
+
+  §17.14 is the companion point: even when the principal DOES resolve, that
+  resolution establishes only which enrolled credential signed. It does not
+  establish the human's legal identity, role, capacity, or authority to bind
+  the organisation — those are §25.7 check 6, application-layer.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Verifier treats an unresolvable principal as `unverifiable` and lets the apply through with a warning
+    - Verifier falls back to accepting any well-formed DID when registry lookup fails
+    - Registry resolution failure caught and swallowed by the apply path
+    - Guard released on the strength of a correct payload_hash alone

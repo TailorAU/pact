@@ -2,6 +2,20 @@ import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
 import { loadProof } from '../proof.js';
 
+/**
+ * Spec §17.14 (v2.3) — the scope limit on a verified authorization_proof.
+ * §17.14's export rule and §25.10 require every exported verification result to
+ * carry this statement, or an unambiguous reference to it, alongside the result.
+ * A verification result exported without it is a §25.3 misrepresentation.
+ */
+const PROOF_SCOPE_STATEMENT =
+  'A verified authorization_proof establishes only that the identified HumanPrincipal authorized this ' +
+  'exact PACT message, at asserted_at, to this verifier, using the enrolled credential. It does NOT ' +
+  'establish legal identity, role or capacity, authority to bind an entity, intention to sign a particular ' +
+  'instrument, satisfaction of witnessing/countersignature/statutory formalities, or enforceability. ' +
+  'Releasing a §25.6 apply guard additionally requires principal binding, payload binding, scope binding ' +
+  'and application-layer authority checks (§25.7 checks 3-6).';
+
 interface Credential {
   id: string;
   type: string;
@@ -161,7 +175,9 @@ export function registerVerifyProofCommand(program: Command): void {
         const result = verify(proof, registry, nowMs, clockSkewMs, opts.verifier ?? null);
 
         if (opts.json) {
-          console.log(JSON.stringify(result, null, 2));
+          // §17.14 / §25.10: a verification result MUST NOT be exported without
+          // the scope statement. Machine consumers get it as a field.
+          console.log(JSON.stringify({ ...result, scope_statement: PROOF_SCOPE_STATEMENT }, null, 2));
         } else {
           const status =
             result.result === 'verified' ? '✓ verified'
@@ -170,6 +186,15 @@ export function registerVerifyProofCommand(program: Command): void {
           console.log(status);
           if (result.reason) console.log(`  reason: ${result.reason}`);
           for (const note of result.notes) console.log(`  note: ${note}`);
+          if (result.result === 'verified') {
+            console.log('');
+            console.log('  SCOPE (§17.14) — a verified proof establishes ONLY that this HumanPrincipal');
+            console.log('  authorized this exact PACT message. It does NOT establish legal identity, role');
+            console.log('  or capacity, authority to bind an entity, intention to sign an instrument,');
+            console.log('  satisfaction of witnessing/countersignature formalities, or enforceability.');
+            console.log('  Releasing a §25.6 apply guard additionally requires principal, payload and scope');
+            console.log('  binding plus your own application-layer authority checks (§25.7 checks 3-6).');
+          }
         }
         process.exit(result.result === 'verified' ? 0 : 1);
       } catch (err) {

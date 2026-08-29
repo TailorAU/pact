@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.0/fabric-status.json",
+  "title": "PACT Fabric Status",
+  "description": "Response body for GET /api/pact/{fabricId}/_status. Whole-fabric snapshot — members, phase, latest event, pending obligations, per-member liveness. Filtered by §17.13 cross-org / clearance disclosure rules: fields the caller is not entitled to see are omitted, not nulled. Added in PACT v2.0.3 (§4.4.1).",
+  "type": "object",
+  "required": ["fabric_id", "spec_version", "phase", "members", "snapshot_at"],
+  "properties": {
+    "fabric_id": {
+      "type": "string",
+      "description": "Fabric (resource) identifier."
+    },
+    "spec_version": {
+      "type": "string",
+      "description": "PACT spec version this response conforms to (e.g. '2.0.3')."
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["forming", "negotiating", "converged", "escalated", "closed"],
+      "description": "Coarse-grained fabric lifecycle phase. 'forming' = members still onboarding; 'negotiating' = open proposals or intents; 'converged' = all open proposals resolved; 'escalated' = pending pact.escalation.human; 'closed' = fabric is terminal."
+    },
+    "latest_event_id": {
+      "type": ["string", "null"],
+      "description": "Event id of the most recent event in the fabric. Null only for a brand-new fabric with no events."
+    },
+    "latest_sequence_number": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Per-fabric monotonic sequence number of the most recent event."
+    },
+    "members": {
+      "type": "array",
+      "description": "Members currently joined to the fabric, filtered by cross-org / clearance rules.",
+      "items": {
+        "type": "object",
+        "required": ["agent_id"],
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "Server-portable agentId (§23.1)."
+          },
+          "agent_name": {
+            "type": "string",
+            "description": "Display name. May be omitted if the caller is not entitled to see it under §17.13."
+          },
+          "principal_id": {
+            "type": "string",
+            "description": "HumanPrincipal DID. May be omitted under §17.13."
+          },
+          "trust_level": {
+            "type": "string",
+            "enum": ["Observer", "Suggester", "Collaborator", "Autonomous"]
+          },
+          "clearance_level": {
+            "type": ["string", "null"],
+            "description": "Classification clearance level granted (if information barriers are active)."
+          },
+          "joined_at": { "type": "string", "format": "date-time" },
+          "last_seen": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Coarse-grained liveness timestamp. RECOMMENDED second-precision or coarser to avoid timing side channels (§17.13)."
+          },
+          "last_heartbeat_seq": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Sequence number of the most recent pact.agent.heartbeat-received event for this member."
+          },
+          "attention_required": {
+            "type": "boolean",
+            "default": false,
+            "description": "True if the member has flagged active presence via the most recent heartbeat (§4.4.3)."
+          },
+          "pending_obligation_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of currently pending obligations targeting this member."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "pending_obligations": {
+      "type": "array",
+      "description": "All pending obligations across the fabric, filtered by §17.13 disclosure rules. Implementations that do not support obligations (§6.5) MUST omit this field rather than returning [].",
+      "items": { "$ref": "https://pact-spec.dev/schemas/v2.0/pending-obligation.json" }
+    },
+    "open_proposals": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Count of proposals currently in PENDING / OBJECTED / CONFLICT states."
+    },
+    "open_intents": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Count of intents currently in PROPOSED state."
+    },
+    "snapshot_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the server constructed this snapshot."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "fabric_id": "doc_xyz",
+      "spec_version": "2.0.3",
+      "phase": "negotiating",
+      "latest_event_id": "evt_5a2c",
+      "latest_sequence_number": 412,
+      "members": [
+        {
+          "agent_id": "urn:pact:agent:k-1",
+          "agent_name": "Agent-Legal",
+          "principal_id": "did:web:knox.example",
+          "trust_level": "Collaborator",
+          "joined_at": "2026-05-15T18:02:11Z",
+          "last_seen": "2026-05-15T18:14:33Z",
+          "last_heartbeat_seq": 410,
+          "attention_required": false,
+          "pending_obligation_count": 0
+        },
+        {
+          "agent_id": "urn:pact:agent:b-1",
+          "agent_name": "Agent-Finance",
+          "principal_id": "did:web:bridget.example",
+          "trust_level": "Collaborator",
+          "joined_at": "2026-05-15T18:03:02Z",
+          "last_seen": "2026-05-15T18:14:30Z",
+          "last_heartbeat_seq": 411,
+          "attention_required": true,
+          "pending_obligation_count": 1
+        }
+      ],
+      "pending_obligations": [
+        {
+          "id": "obl_001",
+          "fabric_id": "doc_xyz",
+          "member_id": "urn:pact:agent:b-1",
+          "kind": "vote",
+          "event_ref": "evt_5a2c",
+          "created_at": "2026-05-15T18:15:00Z",
+          "due_by": "2026-05-15T18:20:00Z",
+          "overdue": false,
+          "discharged_at": null,
+          "discharge_kind": null,
+          "discharge_event_ref": null
+        }
+      ],
+      "open_proposals": 2,
+      "open_intents": 1,
+      "snapshot_at": "2026-05-15T18:14:40Z"
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+# Conformance test vector — §25.7 positive control: a correctly payload-bound
+# attestation verifies cryptographically.
+#
+# This is the paired control for `attest-wrong-payload-rejected.yaml`. Same
+# credential, same nonce, same clock, same scope — the only difference is that
+# `payload_hash` is the hash of the payload the signature actually commits to.
+#
+# Without this control, the negative vector proves nothing: a runner that
+# rejects EVERYTHING would pass it. Together the pair prove the payload binding
+# is genuinely being verified.
+#
+#   canonical payload : {"amount":250,"currency":"AUD","method":"eft","recipient":"acct_supplier_44","reference":"INV-2026-0731"}
+#   payload_hash      : vNpTpNSrqyjRjII7dlTxBr0JGgExDrVXfr_O51gNKW4
+#
+# Signed offline over UTF-8(challenge_nonce || asserted_at || payload_hash)
+# with an Ed25519 key whose private half was discarded.
+#
+# IMPORTANT: verifying this proof releases the §17.7 half of the guard only.
+# Checks 3 (principal binding), 5 (scope coverage) and 6 (application-layer
+# authority) of §25.7 remain to be evaluated by the implementation, and §17.14
+# still applies — this proves the CFO authorised this PACT message, not that
+# the CFO has authority to bind the company or that anything was legally
+# executed.
+
+kind: verification
+
+metadata:
+  id: extended/execution-boundary/attest-payload-bound-verified
+  description: A guarded-apply attestation carrying the correct payload_hash for the payload it authorises verifies end-to-end with real Ed25519 cryptography. Positive control proving the payload binding of attest-wrong-payload-rejected is genuinely checked, not incidentally failing.
+  spec_section: "§17.6, §17.7, §17.14, §25.7"
+  conformance_level: extended
+  track: T-execution-boundary
+
+verification:
+  proof:
+    type: fido2-assertion
+    principal_id: did:web:cfo.example
+    credential_id: cred_cfo_payload_bound
+    challenge_nonce: nonce-pay-9f2-001
+    verifier_id: did:web:treasury.example
+    asserted_at: "2026-07-30T10:00:00Z"
+    signature: "YOVAUCIY6dQBptFEF4-jBw2sKStWTTbzgm32tRKqNIKvoh_emQLRp-gCYlChkHVgE1ay45loMjnR6-gI0PkOBw"
+    alg: webauthn-eddsa
+    alg_version: "1"
+    attestation_chain: []
+    # CORRECT: the hash of the $250 payload the signature commits to.
+    payload_hash: "vNpTpNSrqyjRjII7dlTxBr0JGgExDrVXfr_O51gNKW4"
+    scope: "pact.apply.transaction:txn_9f2"
+    effect_class: external-irreversible
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:cfo.example
+        display_name: Chief Financial Officer
+        credentials:
+          - id: cred_cfo_payload_bound
+            type: fido2-assertion
+            public_key: "MCowBQYDK2VwAyEAvYuGuBCMCgURV6w7H3DezZRmdQDHB_EuDxoxR7KFt4Q"
+            enrolled_at: "2026-07-01T00:00:00Z"
+            revoked: false
+  verifier_clock: "2026-07-30T10:00:20Z"
+  issued_nonces:
+    - nonce-pay-9f2-001
+  receiving_verifier_id: did:web:treasury.example
+  operation_requires_uv: true
+  signature_check: real
+  expected:
+    result: verified
+    emits_trust_violation: false
+
+notes: |
+  What this vector establishes, exactly (§17.14): the HumanPrincipal
+  did:web:cfo.example authorised this PACT message, at 2026-07-30T10:00:00Z,
+  to verifier did:web:treasury.example, using credential
+  cred_cfo_payload_bound, over the payload whose canonical hash is
+  vNpTpNSrqyjRjII7dlTxBr0JGgExDrVXfr_O51gNKW4.
+
+  What it does NOT establish: that the signer is legally the CFO of anything,
+  that they have capacity or authority to bind the company, that they intended
+  to execute an instrument, that any witnessing or countersignature formality
+  is satisfied, or that anything resulting is enforceable. §25.7 checks 3, 5
+  and 6 still have to pass before the apply proceeds.
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Runner performs only structural verification and reports verified-structural rather than verified-cryptographic
+    - Signed-message composition differs from UTF-8(challenge_nonce || asserted_at || payload_hash)
+    - Ed25519 / SPKI-DER public-key decode path broken
+    - Verifier rejects a valid payload-bound proof because it does not recognise the v2.3 payload_hash / scope / effect_class fields (they are additive — §17.6)

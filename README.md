@@ -51,7 +51,9 @@ How do they collaborate on the same document without stepping on each other? Now
 
 PACT is a **coordination and consensus protocol**. Each agent arrives with its own private context and negotiating parameters. PACT handles how they declare positions, detect conflicts, and reach agreement — not the content itself.
 
-**Silence = acceptance.** Proposals auto-merge after TTL unless someone objects. Only disagreements require action.
+**Silence = no objection.** Proposals auto-merge into the draft after TTL unless someone objects. Only disagreements require action.
+
+> **What that does and does not mean.** "Silence" is the **absence of a protocol objection** within the TTL window — not legal consent, not an electronic signature, and not evidence that a human saw the proposal. Auto-merge applies to reversible, internal effects. Anything external, irreversible, financial, or purporting to bind someone **fails closed** and waits for an explicit human attestation. See the safety boundary, [PACT v2.3 §25](spec/v2.3/SPECIFICATION.md) (DRAFT) and the [v2.2 erratum](spec/v2.2/ERRATA.md).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -117,7 +119,7 @@ pact salience <documentId> --section sec:budget --score 9
 # Watch for proposals from other agents
 pact poll <documentId> --since evt_0
 
-# Object only if something violates your constraints (silence = accept)
+# Object only if something violates your constraints (silence = no objection raised)
 pact object <proposalId> --doc <documentId> --reason "Exceeds $2M budget cap"
 
 # Escalate to humans when agents can't agree
@@ -204,7 +206,7 @@ These packages handle **coordination only**. Content operations (reading documen
 
 ## Use Cases
 
-**Contract Negotiation** — Legal, commercial, and compliance agents negotiate terms. Each declares constraints. Proposals auto-merge unless objected to. The document converges through structured silence.
+**Contract Negotiation** — Legal, commercial, and compliance agents negotiate terms. Each declares constraints. Proposals auto-merge unless objected to. The document converges through structured silence into an **aligned draft** — PACT coordinates the negotiation; signing and execution happen in a separate system ([§25.8](spec/v2.3/SPECIFICATION.md)).
 
 **Multi-Agent Code Review** — Security, performance, and style agents review a design doc. High-salience sections get the most attention. Disagreements escalate to human architects.
 
@@ -215,7 +217,7 @@ These packages handle **coordination only**. Content operations (reading documen
 ## Design Principles
 
 1. **Humans always win.** Any human can override any agent decision, at any time, no exceptions.
-2. **Silence is consent.** Proposals auto-merge after TTL unless actively objected to.
+2. **Silence is absence of objection.** Proposals auto-merge after TTL unless actively objected to. That is a coordination default, not legal consent — and it never applies to external or irreversible effects, which fail closed pending explicit human attestation.
 3. **Agents bring their own context.** PACT coordinates — it doesn't read your mind or your data.
 4. **Field-level granularity.** Operations target addressable fields (sections, transaction fields, claims), not raw offsets.
 5. **Event-sourced truth.** The operation log is the source of truth. The resource state is a projection.
@@ -224,7 +226,7 @@ These packages handle **coordination only**. Content operations (reading documen
 ## Key Features (v2.0)
 
 - **Resource Types** — Consensus on any resource: documents, transactions, knowledge claims, clinical records
-- **Silence = Acceptance** — Proposals auto-merge after TTL unless objected to. Only disagreements need action.
+- **Silence = No Objection** — Proposals auto-merge into the draft after TTL unless objected to. Only disagreements need action. Not legal consent; external / irreversible effects fail closed (§25).
 - **Information Barriers** — Classification frameworks, agent clearance levels, dissemination controls
 - **Graduated Disclosure** — 4-level framework controlling what agents can see about each other
 - **Structured Negotiation** — Multi-round position exchanges facilitated by a mediator
@@ -238,7 +240,9 @@ These packages handle **coordination only**. Content operations (reading documen
 
 | Version | Status | Docs |
 |---------|--------|------|
-| **v2.0** | **Stable** (released 14 May 2026; patched to v2.0.3 on 15 May 2026) | [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Conformance](spec/v2.0/conformance/) · [Release notes](CHANGELOG.md#v203--2026-05-15) |
+| v2.3 | **DRAFT** — adds §25, the consensus / authorization / legal-execution safety boundary ([#41](https://github.com/TailorAU/pact/issues/41)). Not released, not tagged. | [Specification](spec/v2.3/SPECIFICATION.md) · [What's in it](spec/v2.3/README.md) · [Boundary vectors](spec/v2.3/conformance/extended/execution-boundary/) |
+| **v2.2** | **Stable** (Matter line, promoted 27 May 2026; not yet tagged as `v2.2.0` — [#33](https://github.com/TailorAU/pact/issues/33)) | [Specification](spec/v2.2/SPECIFICATION.md) · [Getting Started](spec/v2.2/GETTING_STARTED.md) · [Conformance](spec/v2.2/conformance/) · [Errata](spec/v2.2/ERRATA.md) |
+| v2.0 | Released 14 May 2026; patched to v2.0.3 on 15 May 2026 | [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Conformance](spec/v2.0/conformance/) · [Release notes](CHANGELOG.md#v203--2026-05-15) |
 | v1.1 | Previous | [Specification](spec/v1.1/SPECIFICATION.md) · [Getting Started](spec/v1.1/GETTING_STARTED.md) · [Errata](spec/v1.1/ERRATA.md) |
 | v1.0 | Previous | [Specification](spec/v1.0/SPECIFICATION.md) · [Getting Started](spec/v1.0/GETTING_STARTED.md) |
 | v0.3 | Legacy | [Specification](spec/v0.3/SPECIFICATION.md) · [Getting Started](spec/v0.3/GETTING_STARTED.md) |

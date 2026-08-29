@@ -1,14 +1,21 @@
 #!/usr/bin/env node
 /**
- * PACT v2.0 conformance runner.
+ * PACT v2.3 conformance runner.
  *
  * Loads test-vector YAML files (per ../test-vector-format.yaml) and executes
- * them. Two vector kinds:
+ * them. Four vector kinds:
  *   - kind: verification — runs the §17.7 authorization-proof verification
  *     flow locally (no server needed); compares result + failing_step against
  *     `expected`.
  *   - kind: http — executes the HTTP request against a server (--server),
  *     compares status + body (with body_ignore_fields).
+ *   - kind: session — sequenced HTTP steps with cross-call assertions
+ *     (--server required, like kind: http).
+ *   - kind: mandate — drives the §19–§20 Mandate guard locally (no server)
+ *     through mcp/src/mandate.ts's clock-injectable seam `mandateGuardAt`;
+ *     steps run sequentially against one guard instance. Requires the mcp
+ *     package to be built (`npm ci && npm run build` in mcp/) — the runner
+ *     depends on it via `file:../../../../mcp` and imports its dist.
  *
  * CLI:
  *   pact-conformance run --vectors '../**\/*.yaml' [--server <url>] [--filter <substr>] [--json]
@@ -17,9 +24,17 @@
  * reasons), 1 otherwise.
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, relative, resolve as resolvePath } from 'node:path';
-import { load as yamlLoad } from 'js-yaml';
+import { DEFAULT_SCHEMA, Type, load as yamlLoad } from 'js-yaml';
+import {
+  MANDATE_EXTENSION_ID,
+  mandateGuardAt,
+  resetMandateStateForTests,
+  type Gate,
+  type ToolResult,
+} from '@pact-protocol/mcp/dist/mandate.js';
 import { verifyFido2Assertion } from './webauthn.js';
 
 // ─── types ──────────────────────────────────────────────────────────────
@@ -65,8 +80,48 @@ interface SessionStep {
   cross_call_assertions?: CrossCallAssertion[];
 }
 
+interface MandateGuardConfig {
+  enforcement: 'required' | 'optional' | 'observed';
+  clock_skew_seconds?: number;
+  registry?: Record<string, unknown> | null;
+}
+
+interface MandateCall {
+  tool: string;
+  arguments: Record<string, unknown>;
+  meta?: Record<string, unknown>;
+}
+
+interface MandateExpected {
+  outcome: 'pass' | 'error' | 'input_required';
+  error?: { name?: string; code?: number };
+  verdict?: Record<string, unknown>;
+  input_required?: {
+    reason?: string;
+    requires?: string;
+    request_state_present?: boolean;
+    challenge_nonce_present?: boolean;
+    [key: string]: unknown;
+  };
+  capture?: Record<string, string>;
+}
+
+interface MandateCallStep {
+  call: MandateCall;
+  expected: MandateExpected;
+  registry_update?: never;
+}
+
+interface MandateRegistryStep {
+  registry_update: Record<string, unknown>;
+  call?: never;
+  expected?: never;
+}
+
+type MandateStep = MandateCallStep | MandateRegistryStep;
+
 interface Vector {
-  kind?: 'http' | 'verification' | 'session';
+  kind?: 'http' | 'verification' | 'session' | 'mandate';
   metadata: {
     id: string;
     description?: string;
@@ -75,13 +130,19 @@ interface Vector {
     track?: string;
   };
   // kind: http
-  preconditions?: unknown;
+  preconditions?: {
+    server_state?: unknown;
+    request_context?: unknown;
+  };
   request?: HttpRequest;
   expected_response?: HttpExpectedResponse;
   expected_events?: unknown;
   postconditions?: unknown;
-  // kind: session — sequenced HTTP steps with cross-call assertions
-  steps?: SessionStep[];
+  // kind: session / mandate — sequenced steps interpreted by the selected kind
+  steps?: Array<SessionStep | MandateStep>;
+  // kind: mandate — local MCP guard configuration and deterministic clock
+  guard_config?: MandateGuardConfig;
+  clock?: string;
   // kind: verification
   verification?: {
     proof: Record<string, unknown>;
@@ -131,6 +192,34 @@ type Outcome =
 
 // ─── vector loading ─────────────────────────────────────────────────────
 
+// js-yaml's default schema constructs unquoted ISO timestamps as Date objects.
+// Protocol timestamps must remain verbatim strings when passed to the Mandate
+// guard, so override only the timestamp tag while retaining anchors, merges,
+// and the rest of DEFAULT_SCHEMA.
+const YAML_TIMESTAMP = /^(?:\d{4}-\d{2}-\d{2}|\d{4}-\d{1,2}-\d{1,2}(?:[Tt]|[ \t]+)\d{1,2}:\d{2}:\d{2}(?:\.\d*)?(?:[ \t]*(?:Z|[-+]\d{1,2}(?::\d{2})?))?)$/;
+const DEFAULT_INTEGER_TYPE = (
+  DEFAULT_SCHEMA as unknown as { compiledImplicit: Array<Type & { tag: string }> }
+).compiledImplicit.find((type) => type.tag === 'tag:yaml.org,2002:int');
+if (!DEFAULT_INTEGER_TYPE) throw new Error('js-yaml default integer type is unavailable');
+
+const STRING_TIMESTAMP_SCHEMA = DEFAULT_SCHEMA.extend({
+  implicit: [
+    new Type('tag:yaml.org,2002:timestamp', {
+      kind: 'scalar',
+      resolve: (data: unknown) => typeof data === 'string' && YAML_TIMESTAMP.test(data),
+      construct: (data: string) => data,
+    }),
+    // A digest such as 64 zeroes is a string on the MCP wire, but YAML's
+    // implicit integer resolver otherwise collapses it to numeric 0. Delegate
+    // every ordinary integer to js-yaml and preserve only 64-digit digests.
+    new Type('tag:yaml.org,2002:int', {
+      kind: 'scalar',
+      resolve: (data: unknown) => DEFAULT_INTEGER_TYPE.resolve(data),
+      construct: (data: string) => /^\d{64}$/.test(data) ? data : DEFAULT_INTEGER_TYPE.construct(data),
+    }),
+  ],
+});
+
 function* walkYaml(root: string): Iterable<string> {
   let entries: string[];
   try {
@@ -151,7 +240,7 @@ function* walkYaml(root: string): Iterable<string> {
 
 function loadVector(path: string): Vector | null {
   const raw = readFileSync(path, 'utf8');
-  const parsed = yamlLoad(raw) as Record<string, unknown> | null | undefined;
+  const parsed = yamlLoad(raw, { schema: STRING_TIMESTAMP_SCHEMA }) as Record<string, unknown> | null | undefined;
   if (!parsed || typeof parsed !== 'object') return null;
   // We only consider top-level vectors (with `metadata`), not the format schema or examples-block files.
   if (!parsed.metadata) return null;
@@ -335,16 +424,61 @@ function checkVerification(vec: Vector): Outcome {
 
 // ─── kind: http ─────────────────────────────────────────────────────────
 
+function deleteIgnoredPath(value: unknown, segments: string[]): void {
+  if (value === null || typeof value !== 'object' || segments.length === 0) return;
+
+  const [head, ...tail] = segments;
+  if (Array.isArray(value)) {
+    if (head === '*') {
+      if (tail.length === 0) {
+        // Preserve array cardinality while ignoring every element value.
+        for (let index = 0; index < value.length; index++) value[index] = undefined;
+        return;
+      }
+      for (const entry of value) deleteIgnoredPath(entry, tail);
+      return;
+    }
+    if (/^\d+$/.test(head)) {
+      const index = Number(head);
+      if (index >= value.length) return;
+      // Preserve indices/cardinality so multiple numeric ignore paths cannot
+      // shift one another and accidentally target a different element.
+      if (tail.length === 0) value[index] = undefined;
+      else deleteIgnoredPath(value[index], tail);
+    }
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (head === '*') {
+    for (const key of Object.keys(record)) {
+      if (tail.length === 0) delete record[key];
+      else deleteIgnoredPath(record[key], tail);
+    }
+    return;
+  }
+  if (!Object.hasOwn(record, head)) return;
+  if (tail.length === 0) delete record[head];
+  else deleteIgnoredPath(record[head], tail);
+}
+
 function pruneIgnored(obj: unknown, ignore: string[]): unknown {
   if (!ignore || ignore.length === 0) return obj;
-  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return obj;
-  const out: Record<string, unknown> = { ...(obj as Record<string, unknown>) };
-  for (const k of ignore) delete out[k];
+  if (obj === null || typeof obj !== 'object') return obj;
+  const out = structuredClone(obj);
+  for (const path of ignore) {
+    const segments = path.split('.').filter(Boolean);
+    deleteIgnoredPath(out, segments);
+  }
   return out;
 }
 
 function subsetMatch(actual: unknown, expected: unknown): boolean {
-  if (expected === null || typeof expected !== 'object' || Array.isArray(expected)) {
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual) || actual.length !== expected.length) return false;
+    return expected.every((entry, index) => subsetMatch(actual[index], entry));
+  }
+  if (expected === null || typeof expected !== 'object') {
     return JSON.stringify(actual) === JSON.stringify(expected);
   }
   if (actual === null || typeof actual !== 'object' || Array.isArray(actual)) return false;
@@ -447,13 +581,14 @@ async function runHttpStep(
   if (bodyMatch) {
     const ignore = expected.body_ignore_fields ?? [];
     const actualPruned = pruneIgnored(actual, ignore);
+    const expectedPruned = pruneIgnored(bodyMatch.value, ignore);
     if (bodyMatch.mode === 'exact') {
-      if (JSON.stringify(actualPruned) !== JSON.stringify(bodyMatch.value)) {
+      if (JSON.stringify(actualPruned) !== JSON.stringify(expectedPruned)) {
         return { outcome: { status: 'fail', reason: `body mismatch (exact): got ${JSON.stringify(actualPruned).slice(0, 200)}` }, body: actual };
       }
     } else if (bodyMatch.mode === 'subset') {
-      if (!subsetMatch(actualPruned, bodyMatch.value)) {
-        return { outcome: { status: 'fail', reason: `body mismatch (subset): expected ${JSON.stringify(bodyMatch.value)} ⊆ ${JSON.stringify(actualPruned).slice(0, 200)}` }, body: actual };
+      if (!subsetMatch(actualPruned, expectedPruned)) {
+        return { outcome: { status: 'fail', reason: `body mismatch (subset): expected ${JSON.stringify(expectedPruned)} ⊆ ${JSON.stringify(actualPruned).slice(0, 200)}` }, body: actual };
       }
     } else if (bodyMatch.mode === 'schema') {
       // Schema-mode validation is left for a follow-up (would need ajv).
@@ -490,7 +625,7 @@ async function checkSession(vec: Vector, serverUrl: string | null): Promise<Outc
   if (!serverUrl) return { status: 'skip', reason: 'no --server provided; session vectors need a server target' };
   if (!vec.steps || vec.steps.length === 0) return { status: 'fail', reason: 'kind: session but missing or empty `steps`' };
 
-  for (const step of vec.steps) {
+  for (const step of vec.steps as SessionStep[]) {
     if (!step.request || !step.expected_response) {
       return { status: 'fail', reason: `step ${step.id}: missing request / expected_response` };
     }
@@ -515,26 +650,415 @@ async function checkSession(vec: Vector, serverUrl: string | null): Promise<Outc
   return { status: 'pass' };
 }
 
+// ─── kind: mandate ──────────────────────────────────────────────────────
+
+const MANDATE_ENV_KEYS = [
+  'PACT_MANDATE_ENFORCEMENT',
+  'PACT_MANDATE_CLOCK_SKEW_SECONDS',
+  'PACT_MANDATE_REGISTRY',
+  'PACT_MANDATE_BINDING_TOOLS',
+] as const;
+
+type MandateEnvKey = (typeof MANDATE_ENV_KEYS)[number];
+
+interface MandateActual {
+  outcome: 'pass' | 'error' | 'input_required';
+  result: ToolResult;
+  payload?: Record<string, unknown>;
+}
+
+type MandateExecution = { actual: MandateActual } | { failure: string };
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isMandateRegistryStep(step: SessionStep | MandateStep): step is MandateRegistryStep {
+  return isObjectRecord(step) && Object.hasOwn(step, 'registry_update');
+}
+
+function isMandateCallStep(step: SessionStep | MandateStep): step is MandateCallStep {
+  return isObjectRecord(step) && Object.hasOwn(step, 'call') && Object.hasOwn(step, 'expected');
+}
+
+function mandateVerdict(result: ToolResult): Record<string, unknown> | undefined {
+  const verdict = result._meta?.[MANDATE_EXTENSION_ID];
+  return isObjectRecord(verdict) ? verdict : undefined;
+}
+
+function parseInputRequiredPayload(result: ToolResult): Record<string, unknown> | null {
+  for (const content of result.content) {
+    if (content.type !== 'text') continue;
+    try {
+      const parsed = JSON.parse(content.text) as unknown;
+      if (isObjectRecord(parsed) && parsed.resultType === 'input_required') return parsed;
+    } catch {
+      // A guard may include non-JSON text content; keep looking.
+    }
+  }
+  return null;
+}
+
+/**
+ * Execute the guard and emulate a successful underlying tool call when it
+ * permits the request. Stamping that success is observable (verdict echo)
+ * and commits success-conditional state (binding counters and escalation
+ * consumption), so the runner must not stop at `gate.block === undefined`.
+ */
+function executeMandateCall(
+  tool: string,
+  args: Record<string, unknown>,
+  meta: Record<string, unknown> | undefined,
+  now: number,
+): MandateExecution {
+  const gate: Gate = mandateGuardAt(tool, args, meta, now);
+  if (!gate.block) {
+    const result = gate.stamp({ content: [{ type: 'text', text: '{}' }] });
+    return { actual: { outcome: 'pass', result } };
+  }
+  if (gate.block.isError === true) {
+    return { actual: { outcome: 'error', result: gate.block } };
+  }
+  const payload = parseInputRequiredPayload(gate.block);
+  if (!payload) {
+    return { failure: 'guard returned a non-error blocking result that was not input_required' };
+  }
+  return { actual: { outcome: 'input_required', result: gate.block, payload } };
+}
+
+function formatObserved(value: unknown): string {
+  try {
+    const json = JSON.stringify(value);
+    return json === undefined ? String(value) : json;
+  } catch {
+    return String(value);
+  }
+}
+
+function compareMandateExpected(actual: MandateActual, expected: MandateExpected): string | null {
+  if (actual.outcome !== expected.outcome) {
+    return `expected outcome=${expected.outcome}, got ${actual.outcome}`;
+  }
+
+  if (expected.error !== undefined) {
+    const error = mandateVerdict(actual.result)?.error;
+    if (!subsetMatch(error, expected.error)) {
+      return `error mismatch: expected ${formatObserved(expected.error)} ⊆ ${formatObserved(error)}`;
+    }
+  }
+
+  if (expected.verdict !== undefined) {
+    const verdict = mandateVerdict(actual.result);
+    if (!subsetMatch(verdict, expected.verdict)) {
+      return `verdict mismatch: expected ${formatObserved(expected.verdict)} ⊆ ${formatObserved(verdict)}`;
+    }
+  }
+
+  if (expected.input_required !== undefined) {
+    const payload = actual.payload;
+    const requests = Array.isArray(payload?.inputRequests) ? payload.inputRequests : [];
+    const firstRequest = isObjectRecord(requests[0]) ? requests[0] : {};
+    const actualInput: Record<string, unknown> = {
+      ...firstRequest,
+      request_state_present: typeof payload?.requestState === 'string' && payload.requestState.length > 0,
+      challenge_nonce_present:
+        typeof firstRequest.challenge_nonce === 'string' && firstRequest.challenge_nonce.length > 0,
+    };
+    if (!subsetMatch(actualInput, expected.input_required)) {
+      return `input_required mismatch: expected ${formatObserved(expected.input_required)} ⊆ ${formatObserved(actualInput)}`;
+    }
+  }
+
+  return null;
+}
+
+function capturedPath(root: unknown, path: string): { found: true; value: unknown } | { found: false } {
+  if (path.length === 0) return { found: true, value: root };
+  const tokens = path.replace(/\[(\d+)\]/g, '.$1').split('.').filter(Boolean);
+  let current: unknown = root;
+  for (const token of tokens) {
+    if (Array.isArray(current)) {
+      if (!/^\d+$/.test(token)) return { found: false };
+      const index = Number(token);
+      if (index >= current.length) return { found: false };
+      current = current[index];
+      continue;
+    }
+    if (!isObjectRecord(current) || !Object.hasOwn(current, token)) return { found: false };
+    current = current[token];
+  }
+  return { found: true, value: current };
+}
+
+function requireCaptured(captured: Record<string, unknown>, key: string): unknown {
+  if (!Object.hasOwn(captured, key)) throw new Error(`captured value "${key}" is not available`);
+  return captured[key];
+}
+
+/** Resolve `{captured.<key>}` recursively without mutating YAML anchor values. */
+function resolveCaptured(value: unknown, captured: Record<string, unknown>): unknown {
+  if (typeof value === 'string') {
+    const exact = /^\{captured\.([^{}]+)\}$/.exec(value);
+    if (exact) return requireCaptured(captured, exact[1]);
+    return value.replace(/\{captured\.([^{}]+)\}/g, (_match, key: string) => {
+      const replacement = requireCaptured(captured, key);
+      return typeof replacement === 'string' ? replacement : formatObserved(replacement);
+    });
+  }
+  if (Array.isArray(value)) return value.map((entry) => resolveCaptured(entry, captured));
+  if (isObjectRecord(value)) {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, resolveCaptured(entry, captured)]));
+  }
+  return value;
+}
+
+function snapshotMandateEnv(): Record<MandateEnvKey, string | undefined> {
+  return Object.fromEntries(MANDATE_ENV_KEYS.map((key) => [key, process.env[key]])) as Record<
+    MandateEnvKey,
+    string | undefined
+  >;
+}
+
+function restoreMandateEnv(snapshot: Record<MandateEnvKey, string | undefined>): void {
+  for (const key of MANDATE_ENV_KEYS) {
+    const value = snapshot[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
+
+function checkMandate(vec: Vector): Outcome {
+  // This clears config cache, digest cache, counters, and pending escalations.
+  // It is deliberately per vector; steps inside one vector share state.
+  resetMandateStateForTests();
+
+  const config = vec.guard_config;
+  if (!config) return { status: 'fail', reason: 'kind: mandate but missing `guard_config`' };
+  if (!['required', 'optional', 'observed'].includes(config.enforcement)) {
+    return { status: 'fail', reason: `invalid guard_config.enforcement: ${String(config.enforcement)}` };
+  }
+  if (
+    config.clock_skew_seconds !== undefined &&
+    (!Number.isFinite(config.clock_skew_seconds) || config.clock_skew_seconds < 0)
+  ) {
+    return { status: 'fail', reason: 'guard_config.clock_skew_seconds must be a non-negative number' };
+  }
+  if (config.registry !== undefined && config.registry !== null && !isObjectRecord(config.registry)) {
+    return { status: 'fail', reason: 'guard_config.registry must be an object or null' };
+  }
+  if (!vec.steps || vec.steps.length === 0) {
+    return { status: 'fail', reason: 'kind: mandate but missing or empty `steps`' };
+  }
+
+  const steps = vec.steps;
+  const hasRegistryUpdate = steps.some(isMandateRegistryStep);
+  if (hasRegistryUpdate && (config.registry === undefined || config.registry === null)) {
+    return { status: 'fail', reason: 'registry_update requires a non-null guard_config.registry' };
+  }
+
+  const now = vec.clock === undefined ? Date.now() : Date.parse(vec.clock);
+  if (!Number.isFinite(now)) return { status: 'fail', reason: `invalid mandate clock: ${String(vec.clock)}` };
+
+  const envSnapshot = snapshotMandateEnv();
+  let tempRoot: string | null = null;
+  let registryPath: string | null = null;
+  const captured: Record<string, unknown> = {};
+
+  try {
+    process.env.PACT_MANDATE_ENFORCEMENT = config.enforcement;
+    if (config.clock_skew_seconds === undefined) delete process.env.PACT_MANDATE_CLOCK_SKEW_SECONDS;
+    else process.env.PACT_MANDATE_CLOCK_SKEW_SECONDS = String(config.clock_skew_seconds);
+    // The vector format does not expose a binding-tools override. Clear any
+    // ambient value so the reference default is deterministic.
+    delete process.env.PACT_MANDATE_BINDING_TOOLS;
+
+    if (config.registry !== undefined && config.registry !== null) {
+      tempRoot = mkdtempSync(join(tmpdir(), 'pact-conformance-mandate-'));
+      registryPath = join(tempRoot, 'principal-registry.json');
+      writeFileSync(registryPath, `${JSON.stringify(config.registry, null, 2)}\n`, 'utf8');
+      process.env.PACT_MANDATE_REGISTRY = registryPath;
+    } else {
+      delete process.env.PACT_MANDATE_REGISTRY;
+    }
+
+    // Ensure the guard observes the environment configured above, while
+    // preserving shared state for all subsequent steps in this vector.
+    resetMandateStateForTests();
+
+    for (let index = 0; index < steps.length; index++) {
+      const step = steps[index];
+      const label = `step ${index + 1}`;
+
+      if (
+        isObjectRecord(step) &&
+        Object.hasOwn(step, 'registry_update') &&
+        (Object.hasOwn(step, 'call') || Object.hasOwn(step, 'expected'))
+      ) {
+        return {
+          status: 'fail',
+          reason: `${label}: registry_update is mutually exclusive with call / expected`,
+        };
+      }
+
+      if (isMandateRegistryStep(step)) {
+        if (!registryPath || !isObjectRecord(step.registry_update)) {
+          return { status: 'fail', reason: `${label}: registry_update must be an object backed by guard_config.registry` };
+        }
+        // Same path, new contents: mandateGuardAt re-reads the registry for
+        // every verification, which makes mid-session revocation immediate.
+        writeFileSync(registryPath, `${JSON.stringify(step.registry_update, null, 2)}\n`, 'utf8');
+        continue;
+      }
+
+      if (!isMandateCallStep(step) || !isObjectRecord(step.call) || !isObjectRecord(step.expected)) {
+        return { status: 'fail', reason: `${label}: expected a call + expected block or registry_update` };
+      }
+      if (typeof step.call.tool !== 'string' || !isObjectRecord(step.call.arguments)) {
+        return { status: 'fail', reason: `${label}: call requires a string tool and object arguments` };
+      }
+
+      let args: Record<string, unknown>;
+      let meta: Record<string, unknown> | undefined;
+      try {
+        const resolvedArgs = resolveCaptured(step.call.arguments, captured);
+        const resolvedMeta = resolveCaptured(step.call.meta, captured);
+        if (!isObjectRecord(resolvedArgs)) throw new Error('resolved call arguments are not an object');
+        if (resolvedMeta !== undefined && !isObjectRecord(resolvedMeta)) {
+          throw new Error('resolved call meta is not an object');
+        }
+        args = resolvedArgs;
+        meta = resolvedMeta;
+      } catch (err) {
+        return { status: 'fail', reason: `${label}: ${(err as Error).message}` };
+      }
+
+      const execution = executeMandateCall(step.call.tool, args, meta, now);
+      if ('failure' in execution) return { status: 'fail', reason: `${label}: ${execution.failure}` };
+      const mismatch = compareMandateExpected(execution.actual, step.expected);
+      if (mismatch) return { status: 'fail', reason: `${label}: ${mismatch}` };
+
+      if (step.expected.capture) {
+        const source = execution.actual.payload ?? execution.actual.result;
+        for (const [key, path] of Object.entries(step.expected.capture)) {
+          if (typeof path !== 'string') {
+            return { status: 'fail', reason: `${label}: capture path for "${key}" must be a string` };
+          }
+          const found = capturedPath(source, path);
+          if (!found.found) {
+            return { status: 'fail', reason: `${label}: capture path "${path}" for "${key}" was not present` };
+          }
+          captured[key] = found.value;
+        }
+      }
+    }
+
+    return { status: 'pass' };
+  } catch (err) {
+    return { status: 'fail', reason: `mandate executor failed: ${(err as Error).message}` };
+  } finally {
+    resetMandateStateForTests();
+    restoreMandateEnv(envSnapshot);
+    if (tempRoot) {
+      try { rmSync(tempRoot, { recursive: true, force: true }); } catch { /* best-effort temp cleanup */ }
+    }
+  }
+}
+
 // ─── CLI ────────────────────────────────────────────────────────────────
 
-function parseArgs(argv: string[]): { vectors: string; server: string | null; filter: string | null; json: boolean } {
-  const out = { vectors: '', server: null as string | null, filter: null as string | null, json: false };
+function parseArgs(argv: string[]): {
+  vectors: string;
+  server: string | null;
+  filter: string | null;
+  json: boolean;
+  requireReferenceFixtures: boolean;
+} {
+  const out = {
+    vectors: '',
+    server: null as string | null,
+    filter: null as string | null,
+    json: false,
+    requireReferenceFixtures: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--vectors') out.vectors = argv[++i] ?? '';
     else if (a === '--server') out.server = argv[++i] ?? null;
     else if (a === '--filter') out.filter = argv[++i] ?? null;
     else if (a === '--json') out.json = true;
+    else if (a === '--require-reference-fixtures') out.requireReferenceFixtures = true;
     else if (a === '--help' || a === '-h') {
       console.log('Usage: pact-conformance run [--vectors <dir>] [--server <url>] [--filter <substr>] [--json]');
-      console.log('  --vectors <dir>    directory to recursively scan for vector YAML files (default: spec/v2.0/conformance)');
-      console.log('  --server <url>     PACT server base URL for kind:http vectors (skipped if absent)');
+      console.log('  --vectors <dir>    directory to recursively scan for vector YAML files (default: current directory)');
+      console.log('  --server <url>     PACT server base URL for kind:http + kind:session vectors (skipped if absent)');
       console.log('  --filter <substr>  only run vectors whose id contains <substr>');
       console.log('  --json             output a JSON report');
+      console.log('  --require-reference-fixtures  require /__reset acknowledgement and Matter-state materialisation (CI harness mode)');
       process.exit(0);
     }
   }
   return out;
+}
+
+/**
+ * Best-effort setup hook for black-box targets, or the repository reference
+ * harness contract under `--require-reference-fixtures`. `/__reset` is
+ * deliberately non-normative. Required mode proves an isolated fixture reset
+ * for every server-bound vector and full Matter-state materialisation for the
+ * Matter vectors; it does not claim arbitrary third-party server-state import.
+ */
+async function prepareServerState(
+  vec: Vector,
+  serverUrl: string,
+  requireReferenceFixtures: boolean,
+): Promise<void> {
+  const resetUrl = new URL('/__reset', serverUrl).toString();
+  const serverState = vec.preconditions?.server_state;
+  const declaresMatterState =
+    isObjectRecord(serverState) &&
+    (Object.hasOwn(serverState, 'matter') || Object.hasOwn(serverState, 'matters'));
+  try {
+    const response = await fetch(resetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ server_state: vec.preconditions?.server_state }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) {
+      const message = `${resetUrl} returned ${response.status}; vector preconditions were not seeded`;
+      if (requireReferenceFixtures) throw new Error(message);
+      console.error(`NOTE: ${message}. The target must already satisfy preconditions.server_state.`);
+      return;
+    }
+
+    if (requireReferenceFixtures) {
+      const acknowledgement = await response.json() as unknown;
+      if (
+        !isObjectRecord(acknowledgement) ||
+        acknowledgement.reset !== true ||
+        acknowledgement.server_state_accepted !== true ||
+        (declaresMatterState && acknowledgement.matter_state_applied !== true)
+      ) {
+        throw new Error(
+          `${resetUrl} did not acknowledge fixture reset` +
+          (declaresMatterState ? ' + Matter-state materialisation' : ''),
+        );
+      }
+    } else {
+      await response.body?.cancel();
+    }
+  } catch (error) {
+    if (requireReferenceFixtures) {
+      throw new Error(
+        `required server-state setup failed for ${vec.metadata.id}: ${(error as Error).message}`,
+        { cause: error },
+      );
+    }
+    console.error(
+      `NOTE: server /__reset setup failed for ${vec.metadata.id}; ` +
+      `the target must already satisfy preconditions.server_state (${(error as Error).message}).`,
+    );
+  }
 }
 
 async function main(): Promise<void> {
@@ -554,39 +1078,21 @@ async function main(): Promise<void> {
     vectors.push({ path, vec });
   }
 
-  // Best-effort state reset before server-bound vectors run. Several
-  // session vectors are stateful (an onboard adds a member, a vote
-  // discharges an obligation); re-running the suite against a long-lived
-  // server would otherwise see stale state. The reference server exposes
-  // `POST /__reset` to re-seed deterministic fixtures. A third-party PACT
-  // server that does not implement `/__reset` simply returns non-2xx and
-  // the runner continues — this is a convenience for deterministic re-runs,
-  // not a conformance requirement on the server under test.
-  if (args.server && vectors.some((v) => {
-    const k = v.vec.kind ?? (v.vec.verification ? 'verification' : (v.vec.steps ? 'session' : 'http'));
-    return k === 'http' || k === 'session';
-  })) {
-    try {
-      const resetUrl = new URL('/__reset', args.server).toString();
-      const r = await fetch(resetUrl, { method: 'POST', signal: AbortSignal.timeout(5_000) });
-      if (!r.ok) {
-        console.error(`NOTE: ${resetUrl} returned ${r.status}; server state not reset (re-runs may be non-deterministic if the server is stateful).`);
-      }
-    } catch {
-      console.error('NOTE: server /__reset unreachable; server state not reset (re-runs may be non-deterministic if the server is stateful).');
-    }
-  }
-
   const results: { path: string; id: string; kind: string; outcome: Outcome }[] = [];
   for (const { path, vec } of vectors) {
     const kind = vec.kind ?? (vec.verification ? 'verification' : (vec.steps ? 'session' : 'http'));
     let outcome: Outcome;
+    if (args.server && (kind === 'http' || kind === 'session')) {
+      await prepareServerState(vec, args.server, args.requireReferenceFixtures);
+    }
     if (kind === 'verification') {
       outcome = checkVerification(vec);
     } else if (kind === 'http') {
       outcome = await checkHttp(vec, args.server);
     } else if (kind === 'session') {
       outcome = await checkSession(vec, args.server);
+    } else if (kind === 'mandate') {
+      outcome = checkMandate(vec);
     } else {
       outcome = { status: 'fail', reason: `unknown kind: ${String(kind)}` };
     }
@@ -662,10 +1168,10 @@ async function main(): Promise<void> {
     }
   }
 
-  process.exit(counts.fail === 0 ? 0 : 1);
+  process.exitCode = counts.fail === 0 ? 0 : 1;
 }
 
 main().catch((err) => {
   console.error('Conformance runner crashed:', err);
-  process.exit(2);
+  process.exitCode = 2;
 });

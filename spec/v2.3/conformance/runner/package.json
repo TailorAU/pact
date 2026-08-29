@@ -1,7 +1,7 @@
 {
   "name": "@pact-protocol/conformance-runner",
   "version": "0.3.1-dev",
-  "description": "Runner for the PACT v2.0 conformance suite. Executes kind:http, kind:verification, and kind:session test vectors and reports pass/fail.",
+  "description": "Runner for the PACT v2.3 conformance suite. Executes kind:http, kind:verification, kind:session, and kind:mandate test vectors and reports pass/fail.",
   "type": "module",
   "private": true,
   "bin": {
@@ -13,6 +13,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@pact-protocol/mcp": "file:../../../../mcp",
     "@simplewebauthn/server": "^13.3.0",
     "js-yaml": "^4.1.0"
   },

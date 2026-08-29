@@ -2,6 +2,61 @@
 
 ## Unreleased — `spec/v2.3/` (DRAFT, not tagged)
 
+### §19–§21 — Mandate + Parley (normative; issue #35, RFC #14)
+
+Delivers the RFC [#14](https://github.com/TailorAU/pact/issues/14) primitive
+(ACCEPT-WITH-MODIFICATIONS, 2026-05-16 — Parley noun, SOQ1/2/4/5 resolved)
+into the v2.3 draft, per issue
+[#35](https://github.com/TailorAU/pact/issues/35). **Retarget note:** #35
+originally aimed at a new `spec/v2.1/` carry-forward; v2.2 shipped without
+§19–22, `spec/v2.1/` was never opened, and v2.3 is the live draft whose §25.12
+depends on these sections — so the normative text lands here instead, and the
+"open v2.1, then absorb" plan in `spec/v2.2/README.md` is superseded. Awaiting
+maintainer sign-off.
+
+- **§19 Mandate** — the handler-signed capability grant, shape lifted verbatim
+  from RFC #14 / the merged MCP-extension RFC (PR #40, revised #42): lifecycle
+  (minting only by an identified HumanPrincipal; server-authoritative expiry
+  with the §17.7 ±5-minute skew window per ratified SOQ2; **immediate**
+  revocation per ratified Q1), single-use `max_binding_decisions` semantics
+  with **durable-counter** rules (in-process counters are non-conformant for
+  enforcement claims), and the three-envelope evaluation order — constraint
+  envelope denies, exceeded commitment authority **escalates, never rejects**,
+  disclosure ceiling redacts-and-flags.
+- **§20 Mandate carriage and verification** — MCP `_meta` carriage via
+  `au.tailor.pact/mandate` (verbatim body; other transports MAY define
+  equivalents); the signature suite (**new normative content**: Ed25519 over
+  the RFC 8785 canonical body, base64url, key resolution via §17.8 registry /
+  DID Document, unenrolled keys fail closed); per-request verification with
+  verdicts never cached (what makes revocation immediate); mandatory
+  `structural` / `cryptographic` verification labelling that propagates to
+  every downstream audit record; MRTR escalation with a single-use
+  per-escalation `challenge_nonce` and success-conditional consumption; the
+  `-32010`…`-32019` error registry.
+- **§21 Parley (minimal)** — terminology (collision-free with §4.4 fabric
+  session-awareness and §13 negotiation rounds), composition with §4.4 / §6.5
+  / §10.3 / §17.13, the ratified Q2/Q4/Q5/Q6 baseline, advisory-by-default
+  outcomes (binding only via per-handler §17 proof — or, for
+  `internal-reversible` effects only, unexhausted mandate commitment
+  authority), and immediate hang-up with `outcome: mandate_revoked`. The
+  transport surface is deferred; **§22 stays reserved** (push delivery +
+  service-account auth).
+- **`schemas/mandate.json` (NEW)** — JSON Schema 2020-12 for the Mandate body.
+- **Conformance:** 12 vectors promoted from `docs/v2-prep/mandate-mcp-vectors/`
+  into `spec/v2.3/conformance/extended/mandate/`; `kind: mandate` added to
+  `test-vector-format.yaml`. The runner does not execute the new kind yet;
+  every vector is mirrored by the `mcp/` test suite.
+- Title backronym refreshed to "Contexture and Trust" (normative from v2.1 per
+  `AGENTS.md`); §5 / §15.1 cross-references re-pointed from "Sessions (v2.1)"
+  to Parleys / Mandates.
+
+**Not yet done:** the reference `@pact-protocol/mcp` guard still verifies
+structurally (labelled as such per §20.5); no runner/CI execution of
+`kind: mandate`; §21 transport surface and §22 push delivery + service-account
+auth remain open.
+
+### §25 — Consensus, Authorization, and Legal Execution (normative; issue #41)
+
 **Security-sensitive / normative.** Adds §25 — *Consensus, Authorization, and
 Legal Execution* — the safety boundary between a PACT protocol state, a human
 attestation, and legal execution. Raised as

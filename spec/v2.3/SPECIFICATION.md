@@ -1,9 +1,11 @@
-# PACT — Protocol for Agent Consensus and Truth — Specification v2.3
+# PACT — Protocol for Agent Contexture and Trust — Specification v2.3
+
+> **Backronym note.** "Contexture and Trust" is the normative expansion from v2.1 onward (see `AGENTS.md`); shipped v2.0.x stays "Consensus and Truth" as released. The acronym and all `pact*` identifiers are unchanged.
 
 > **Status:** DRAFT — not stable, not released. Awaiting maintainer sign-off per [`AGENTS.md`](../../AGENTS.md) rule 3.  
 > **Author:** Knox Hart + AI  
 > **Date:** 30 July 2026  
-> **Version:** 2.3 (carries `spec/v2.2/` forward unchanged and adds **§25 Consensus, Authorization, and Legal Execution** — the normative safety boundary between a PACT protocol state, a human attestation, and legal execution, plus the fail-closed apply guard. Additive to v2.2 behaviour except where an implementation was auto-applying external / irreversible effects from silence — see §25.14.)  
+> **Version:** 2.3 (carries `spec/v2.2/` forward unchanged and adds **§25 Consensus, Authorization, and Legal Execution** — the normative safety boundary between a PACT protocol state, a human attestation, and legal execution, plus the fail-closed apply guard — and **§19–§21 Mandate + Parley** — the RFC #14 primitive, delivered per issue #35. Additive to v2.2 behaviour except where an implementation was auto-applying external / irreversible effects from silence — see §25.14.)  
 > **Vision:** Enable millions of agents to reach consensus on shared resources at machine speed, with humans retaining final authority.
 
 ### What's New in v2.3
@@ -21,6 +23,13 @@
 - **Conformance** — new `extended/execution-boundary/` vector family (§25 + §17.14).
 
 Raised as issue [#41](https://github.com/TailorAU/pact/issues/41). The additive disclosure for the stable v2.2 line is [`../v2.2/ERRATA.md`](../v2.2/ERRATA.md).
+
+**§19–§21 — Mandate + Parley (NEW, normative); §22 stays reserved.** The RFC [#14](https://github.com/TailorAU/pact/issues/14) primitive (ACCEPT-WITH-MODIFICATIONS, 2026-05-16), delivered per issue [#35](https://github.com/TailorAU/pact/issues/35) — retargeted from the never-opened `spec/v2.1/` line into this draft:
+
+- **§19** — the Mandate object (the RFC #14 shape, verbatim), its lifecycle (human-only minting, server-authoritative expiry, immediate revocation), durable single-use counter semantics, and the three-envelope evaluation order (deny / escalate-never-reject / redact-and-flag).
+- **§20** — carriage (MCP `_meta` via `au.tailor.pact/mandate`), the Ed25519-over-JCS signature suite with fail-closed key resolution, per-request verification with verdicts never cached, the `structural` / `cryptographic` result labelling rule, MRTR escalation with a single-use `challenge_nonce`, and the `-32010`…`-32019` error registry.
+- **§21** — the Parley, minimally: terminology (collision-free with §4.4 and §13), composition with existing primitives, advisory-by-default outcomes with the per-handler-proof binding rule, and immediate hang-up on revocation.
+- **`schemas/mandate.json`** and twelve conformance vectors under `conformance/extended/mandate/`.
 
 ### What's New in v2.0.3
 
@@ -553,7 +562,7 @@ By default, the agent that authored a proposal **cannot** count as an approver o
 
 Resources MAY set a per-resource boolean **`allowSelfApproval`** (default `false`). When `true`, an author's approval of their own proposal counts normally — appropriate for low-stakes resources, or where the operator deliberately wants self-approval and accepts the reduced check.
 
-**Recommendation for multi-agent-under-one-operator deployments** (the common cloud / managed-service case — see issue [#13](https://github.com/TailorAU/pact/issues/13) Q1): rather than flipping `allowSelfApproval`, use the **`objection-based`** policy. It has no approval step at all — proposals auto-merge after TTL unless an agent objects — so the self-approval question simply does not arise. For new agent-to-agent flows that aren't long-lived collaborations, ephemeral **Sessions** (§19–20, when finalised) sidestep it entirely (Sessions have no merge/approve step; outcomes are reported back to each handler).
+**Recommendation for multi-agent-under-one-operator deployments** (the common cloud / managed-service case — see issue [#13](https://github.com/TailorAU/pact/issues/13) Q1): rather than flipping `allowSelfApproval`, use the **`objection-based`** policy. It has no approval step at all — proposals auto-merge after TTL unless an agent objects — so the self-approval question simply does not arise. For new agent-to-agent flows that aren't long-lived collaborations, ephemeral **Parleys** (§21) sidestep it entirely (a Parley has no merge/approve step; outcomes are reported back to each handler — §21.2).
 
 ### Conflict Detection
 
@@ -1547,7 +1556,7 @@ Each PACT server SHOULD publish an **Implementation Profile** describing its cap
 | `conformanceLevel` | Yes | One of `core` / `extended` / `authorization-required`. |
 | `resourceTypes` | Yes | Resource types this server supports (must intersect with the registry, §14.3). **From v2.3 each entry MUST carry `effectClass` and `humanAttestation`** (§25.5); an entry omitting them MUST be read by consumers as `external-irreversible` / `required`. An entry MAY carry `applySemanticsExternal: "out-of-band"` to declare the real-world effect outside PACT (§25.6(b)). |
 | `retentionPolicy` | **Yes (v2.0+)** | Event-log retention policy per §6.3: `{ minimumDays: int, indefinite: bool, tombstoneAfter: int\|null }`. |
-| `capabilities` | SHOULD | Boolean capability flags. v2.0 well-known flags: `mediatedCommunication`, `informationBarriers`, `structuredNegotiation`, `inviteTokens`, `authorizationProof`, `agentIdentityTransfer`, `didDocumentPinning`, `recoverySingleChannel`, `atomicOnboard` (v2.0.3), `manifest` (v2.0.3), `sessionAwareness` (v2.0.3), `matters` (v2.2), `pushDelivery` (when v2.1 lands), `sessions` (v2.1), `applyGuard` (v2.3 — the §25.6 fail-closed guard is enforced), `executionCapability` (v2.3 — see below). |
+| `capabilities` | SHOULD | Boolean capability flags. v2.0 well-known flags: `mediatedCommunication`, `informationBarriers`, `structuredNegotiation`, `inviteTokens`, `authorizationProof`, `agentIdentityTransfer`, `didDocumentPinning`, `recoverySingleChannel`, `atomicOnboard` (v2.0.3), `manifest` (v2.0.3), `sessionAwareness` (v2.0.3), `matters` (v2.2), `mandates` (v2.3 — §19–§20 Mandate carriage + verification), `parleys` (v2.3 — §21), `pushDelivery` (reserved — §22), `applyGuard` (v2.3 — the §25.6 fail-closed guard is enforced), `executionCapability` (v2.3 — see below). |
 | `executionCapability` | Conditional | **(v2.3)** `capabilities.executionCapability` MUST be `false` or absent unless the implementation satisfies all four conditions of §25.8. When `true`, the profile MUST also carry `executionSystem` naming the separate execution / signature system that captures each signer's intentional act. Advertising `true` without that system is a conformance violation. |
 | `endpoints` | SHOULD | At minimum `rest`. SHOULD include `realtime` for SignalR/WebSocket and `credentialsRegistry` for §17.8. |
 
@@ -2075,7 +2084,292 @@ Whether custom types additionally require pre-registration in a central registry
 
 ---
 
-> **Sections 19–22 (reserved for v2.1).** §19–20 — ephemeral negotiation Sessions + the Mandate primitive (RFC [#14](https://github.com/TailorAU/pact/issues/14)); §21 — push delivery (signed event webhooks); §22 — service-account authentication. v2.0 ships without these; they will land in a follow-on minor release (`spec/v2.1/`) once RFC #14 converges and T4 / T5 are designed. Design records: `docs/v2-plan.yaml` (tracks T3, T4, T5).
+## 19. Mandate (v2.3)
+
+> **Status:** v2.3 normative — DRAFT, awaiting maintainer sign-off. Design record: RFC [#14](https://github.com/TailorAU/pact/issues/14) (ACCEPT-WITH-MODIFICATIONS, 2026-05-16; the six open questions ratified as proposed, with the SOQ refinements recorded on the issue) and the merged MCP-extension RFC [`docs/v2-prep/rfc-mcp-mandate-extension.md`](../../docs/v2-prep/rfc-mcp-mandate-extension.md) (PR [#40](https://github.com/TailorAU/pact/pull/40), revised [#42](https://github.com/TailorAU/pact/pull/42)). Delivery issue: [#35](https://github.com/TailorAU/pact/issues/35) — originally targeted at `spec/v2.1/`; delivered into this draft line instead (v2.2 shipped without §19–22, v2.3 is the live draft, and §25.12 depends on these sections).
+
+### 19.1 Concept and relationship to §17
+
+PACT carries exactly two instruments of human authority. Both belong to the §17 family; this section adds the second, not a third:
+
+| Instrument | Attests | Temporal scope | Defined in |
+|---|---|---|---|
+| `authorization_proof` | "a human authorized **this message**" | one operation | §17.6 |
+| **Mandate** | "a human authorized **this agent, within these bounds, until this time**" | one agent session | this section |
+
+The trust chain is the §17.2 chain unchanged: the handler signs, the receiving implementation verifies. The Mandate generalises the `authorization_proof` temporally; it does not introduce a parallel identity model. `handler_principal_id` is a §17.4 HumanPrincipal DID (strictly 1:1), key discipline is §17.6 / §17.8, and verification fails closed exactly as §17.7 does.
+
+**Terminology binding (normative).** The phrase *"session mandate"* in §17.6's message-type list refers to the Mandate object of this section.
+
+**The boundary rule (normative).** A Mandate is a protocol-level grant of bounded negotiating authority. It is **not** an `authorization_proof` and MUST NOT be accepted in place of one where this specification requires a proof. In particular, a Mandate — with any envelope, from any principal — MUST NOT release the §25.6 apply guard on an `external-irreversible` effect: releasing that guard requires a per-payload §17.6 proof passing every §25.7 check. §17.14 and §25.3 apply to the Mandate as to every other protocol object: a verified Mandate is not a legal instrument, not evidence of capacity, and not authority to bind an entity.
+
+### 19.2 The Mandate object
+
+The shape is the RFC #14 Mandate, carried into normative text verbatim. This section adds no fields; carriers MUST NOT either (§20.1).
+
+```json
+{
+  "version": "1",
+  "session_id": "sess_xyz",
+  "agent_id": "agent_abc",
+  "handler_principal_id": "did:web:knox.example",
+  "identity_claim": "this agent represents Knox on API contract negotiation",
+  "constraint_envelope": {
+    "may_publish": ["interface", "performance", "security"],
+    "must_respect": [
+      { "boundary": "no breaking changes to event v1 schema" },
+      { "boundary": "p99 latency < 200ms" }
+    ]
+  },
+  "commitment_authority": {
+    "max_binding_decisions": 1,
+    "binding_scope": "interface contract draft"
+  },
+  "disclosure_ceiling": 2,
+  "escalation_hook": "https://my-relay.example/agent_abc/escalations",
+  "expires_at": "2026-05-12T18:00:00Z",
+  "signature": "base64url-...",
+  "signing_key_id": "did:web:knox.example#key-1"
+}
+```
+
+Schema: [`schemas/mandate.json`](./schemas/mandate.json).
+
+| Field | Required | Description |
+|---|---|---|
+| `version` | Yes | Mandate shape version. This revision defines `"1"`. |
+| `session_id` | Yes | The Parley (§21) or session this Mandate is scoped to. Outside the issuing fabric — e.g. carried to an unrelated MCP server — the scope is advisory (§20.1). |
+| `agent_id` | Yes | The agent (§23.1) this Mandate authorizes. |
+| `handler_principal_id` | Yes | The handler — the §17.4 HumanPrincipal (DID) granting the authority. |
+| `identity_claim` | No | Human-readable assertion of what the agent represents. Informational only: like the §17.5 `persona` claim, it MUST NOT be used in any access-control, trust, or identity decision. |
+| `constraint_envelope.may_publish` | No | Categories the agent may publish into. Absent = no category restriction from this Mandate. See §19.5 check 1. |
+| `constraint_envelope.must_respect` | No | Natural-language boundary assertions. Carried for the human at the escalation point and for the record — **not machine-evaluable**; implementations MUST NOT claim to enforce them (§19.5). |
+| `commitment_authority.max_binding_decisions` | No | Cap on binding decisions taken under this Mandate (§19.4). Absent = no protocol-enforced cap; §25 still governs what any decision can effect. |
+| `commitment_authority.binding_scope` | No | Human-readable scope of the binding authority. Advisory outside the issuing fabric; never the sole rejection ground there. |
+| `disclosure_ceiling` | No | Maximum §10.3 graduated-disclosure level (1–4) this Mandate allows the agent to reveal. Composes with clearances: the effective limit is the **lower** of the ceiling and what §10.3 / §17.13 already permit. |
+| `escalation_hook` | No | Push endpoint where outcomes and mandate-violation events are delivered. The signed delivery format is reserved (§22); the synchronous complement is §20.6. |
+| `expires_at` | Yes | Expiry instant, evaluated against the receiving implementation's clock (§19.3). |
+| `signature` | Yes | The handler's signature over the canonical Mandate body per the §20.3 suite. |
+| `signing_key_id` | Yes | Identifier (DID URL) of the handler credential that produced `signature`; resolved per §20.3. |
+
+### 19.3 Lifecycle
+
+**Minting.** A Mandate is minted only by an identified HumanPrincipal — the handler. Minting is an act of human authorization over the Mandate body, evidenced by `signature`: the §20.3 signature over the canonical body, produced with a credential enrolled for `handler_principal_id` (§17.8, or the principal's DID Document). A Mandate whose signature does not verify against a credential enrolled for its `handler_principal_id` was never validly minted. Implementations — CLIs, MCP servers and clients, PACT servers, agents — **carry** pre-built, pre-signed Mandates; they MUST NOT mint or sign one (§17.3 layering: the credential layer signs, PACT carries and verifies). Programmatic minting under handler-controlled service-account credentials is reserved to §22.
+
+**Expiry.** `expires_at` is evaluated against the **receiving implementation's** clock — server clock is authoritative (RFC #14 Q6, ratified). Clock-skew tolerance reuses the §17.7 window (default ±5 minutes, configurable); the RFC #14 draft's tighter 30-second bound was **not** adopted (SOQ2). An expired Mandate MUST be rejected (`MandateExpired`, §20.7). The Mandate body carries no client-time field; no skew check applies to the body itself.
+
+**Revocation — immediate (RFC #14 Q1, ratified).** Revoking the signing credential (§17.8 `revoke`) or tombstoning the handler principal revokes every outstanding Mandate signed with it, with immediate effect. Because verification is per-request and verdicts are never cached (§20.4), there is no in-flight round to finish: the first presentation after revocation fails. A Parley operating under a revoked Mandate terminates immediately with `outcome: mandate_revoked` (§21.4). There is no grace period and no finish-the-current-round semantics — a revoked authorization MUST NOT retroactively bless an in-flight commit.
+
+### 19.4 Commitment authority — single-use grants and durable counters
+
+`commitment_authority.max_binding_decisions` caps the binding decisions an agent may take under one Mandate. Counter semantics are normative:
+
+1. **Keying.** The counter is keyed by the SHA-256 digest of the canonical Mandate body (the full-body RFC 8785 encoding — §20.1) — never by the client-chosen `session_id`. Rotating `session_id` MUST NOT reset a counter.
+2. **Success-conditional consumption.** A binding decision is consumed only when the operation it authorizes **succeeds**. A transient downstream failure does not consume authority. The same rule applies to escalation approvals (§20.6): a human approval is burned only by the call it authorized actually executing.
+3. **Durability.** Counters used to *enforce* `max_binding_decisions` MUST be derived from durable records — the §6 event log or an equivalent store that survives process restart. An implementation whose counters live only in process memory MUST NOT claim enforcement of `max_binding_decisions`; it MAY evaluate the cap advisorily, MUST label its verification results accordingly (§20.5), and MUST disclose the limitation wherever it advertises the capability. (The reference `@pact-protocol/mcp` guard is exactly this case, and says so.)
+4. **Exhaustion is not an error.** A call that would exceed the cap escalates — §19.5 check 2.
+
+### 19.5 Envelope evaluation order (normative)
+
+On every operation performed under a Mandate, the enforcing implementation MUST evaluate the three envelopes **in this order, before any side effect**; the first check that fails determines the outcome:
+
+1. **Constraint envelope → deny.** An operation that publishes into a category absent from `may_publish` MUST be rejected (`MandateCategoryDenied`, §20.7). Where `may_publish` is present, an uncategorised publish on a surface that can carry a category MUST also be rejected — fail closed; permitting it would make the strictest expressible Mandate restrict nothing. `must_respect` boundaries are natural-language assertions: they MUST be carried and MUST be surfaced to the human at every escalation, and implementations MUST NOT claim to machine-enforce them.
+2. **Commitment authority → escalate, never reject.** An operation that would exceed `max_binding_decisions` MUST NOT be rejected outright. The implementation MUST escalate (§20.6): the call suspends pending a per-operation §17.6 `authorization_proof` from the handler. Exceeding a Mandate is a request for human authority, not an error — this is the substantive difference between a Mandate and an ACL.
+3. **Disclosure ceiling → redact-and-flag, or escalate.** An operation that would return content above `disclosure_ceiling` MUST either be redacted to the ceiling with `redacted: true` set on the result, or escalated. Above-ceiling content MUST NOT be returned unredacted. Where redaction is impossible at the enforcing boundary, the operation is refused (`MandateDisclosureExceeded`, §20.7).
+
+### 19.6 Conformance
+
+| Level | Requirement |
+|---|---|
+| **Core** | MAY ignore Mandates entirely. |
+| **Extended** | SHOULD support Mandate carriage and verification. An implementation that advertises Mandate enforcement MUST implement the §19.5 evaluation order and §20 verification in full. |
+| **Authorization-Required** | MUST verify every Mandate presented on a cross-organisation surface cryptographically (§20.3, labelled `cryptographic` per §20.5); MUST fail closed where enforcement is declared `required` (§20.2); MUST derive enforcement counters from durable records (§19.4). No anonymous cross-organisation Mandates. |
+
+---
+
+## 20. Mandate carriage and verification (v2.3)
+
+### 20.1 Carriage
+
+The canonical carriage for MCP is the **`au.tailor.pact/mandate`** extension (MCP `2026-07-28` extensions framework, SEP-2133): the Mandate body rides in `_meta["au.tailor.pact/mandate"]` on **every** request. Design record: [`docs/v2-prep/rfc-mcp-mandate-extension.md`](../../docs/v2-prep/rfc-mcp-mandate-extension.md).
+
+**Verbatim carriage (normative).** The carried value is the §19.2 body untouched. Carriers MUST NOT add, remove, or rewrite fields — drift breaks both the signature (§20.3) and the single-shape guarantee. Escalation-retry material travels under the **sibling** key `au.tailor.pact/mandate-escalation` (§20.6), never spliced into the mandate key's value.
+
+**Other transports.** Non-MCP transports MAY define equivalent carriage. Any equivalent MUST (a) carry the §19.2 body verbatim, (b) present the Mandate **per request** — authority is never negotiated once and assumed for a connection's lifetime — and (c) preserve the §20.4 verification obligations and §20.5 labelling.
+
+**Cross-fabric scope.** A Mandate names a `session_id` in one issuing fabric. Carried to an unrelated server, `binding_scope` and `session_id` are advisory: they MUST be recorded, MAY inform escalation detail, and MUST NOT be the sole ground of rejection.
+
+**Digest mode.** A server MAY advertise `digestMode: true` (§20.2). The client then sends the full body on first use and `{ "session_id": ..., "digest": ... }` thereafter, where `digest` is the lowercase-hexadecimal SHA-256 of the **canonical Mandate body** — the RFC 8785 canonical JSON encoding of the full body, every member included. (The §20.3 *signed material* differs: it is the canonical encoding with the `signature` member absent.) A server that has not seen the full body MUST return `MandateDigestUnknown` (§20.7); the client MUST retry with it. The digest is a cache hint, never a session: caching the **body** is permitted; caching a verification **verdict** is not (§20.4).
+
+### 20.2 Capability declaration and enforcement modes
+
+A server that enforces Mandates MUST advertise the extension in its capabilities:
+
+```json
+{
+  "capabilities": {
+    "extensions": {
+      "au.tailor.pact/mandate": {
+        "specVersion": "2.3-draft",
+        "enforcement": "required",
+        "acceptedSigningAlgs": ["EdDSA"],
+        "principalRegistry": "https://pact.tailor.au/.well-known/principals",
+        "digestMode": true,
+        "maxClockSkewMs": 300000
+      }
+    }
+  }
+}
+```
+
+`enforcement` is one of:
+
+- **`required`** — a request without a valid Mandate is rejected (`MandateRequired`, §20.7). A server advertising `required` MUST NOT serve requests that omit the Mandate — **including from clients that never declared the extension**. Fail closed: a governance extension that degrades to open on client silence reads as enforced when it is not.
+- **`optional`** — Mandates are verified when present; absent is permitted.
+- **`observed`** — Mandates are recorded for provenance and never cause rejection. An observed-mode verdict MUST record every violation and every escalation it declined to act on (e.g. `violations`, `would_have_blocked`, `escalation_suppressed`), so that a call that would have been denied is never indistinguishable from a clean pass in the audit trail. An implementation running `observed` MUST NOT be described as Mandate-*enforcing* (§25.3 vocabulary discipline applies).
+
+`maxClockSkewMs` defaults to 300 000 (the §17.7 window; SOQ2). `acceptedSigningAlgs` lists the §20.3 algorithms the server verifies; an implementation performing only structural verification MUST advertise an empty list and label accordingly (§20.5).
+
+### 20.3 Signature suite (normative)
+
+- **Signed material.** The [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) (JCS) canonical JSON encoding of the Mandate body **with the `signature` member absent**. Every other member present in the body — including members unknown to the verifier — is covered by the signature.
+- **Algorithms.** The baseline algorithm is **Ed25519** (`EdDSA`); verifiers MUST support it. Implementations MAY additionally accept `ES256` / `ES384` under the §17.6 whitelist discipline. HMAC and other symmetric-key algorithms MUST be rejected. Accepted algorithms MUST be advertised (`acceptedSigningAlgs`, §20.2).
+- **Encoding.** `signature` is the base64url (unpadded) encoding of the signature over the signed material.
+- **Key resolution.** `signing_key_id` resolves through the handler principal's credential-registry entry (§17.8) or the DID Document of `handler_principal_id` (§17.4 pinning rules apply). The resolved key MUST be enrolled for `handler_principal_id`.
+- **Unenrolled keys fail closed.** A `signing_key_id` not enrolled for the handler principal MUST cause rejection (`MandateInvalidSignature`). It MUST NOT be treated as "unverifiable, proceed" — otherwise revocation would be bypassable by renaming the key.
+- **Revocation.** A revoked credential or tombstoned principal MUST cause rejection (`MandateRevoked`). Registry state MUST be re-checked on every verification, within the §17.8 cache-staleness rules; this is what makes §19.3 revocation immediate.
+
+### 20.4 Verification procedure (normative)
+
+On every request bearing a Mandate, and **before** executing any side effect, the verifying implementation MUST:
+
+1. **Shape** — the body parses as §19.2 (schema [`mandate.json`](./schemas/mandate.json)): required fields present, `handler_principal_id` a DID. Failure ⇒ `MandateInvalidSignature` (a structural failure mode).
+2. **Signature** — verify `signature` per §20.3. An implementation that cannot perform the cryptographic check MAY continue structurally but its result is then at most `structural` (§20.5).
+3. **Expiry** — `expires_at` against the server clock (§19.3). Expired ⇒ `MandateExpired`.
+4. **Key status** — enrollment / revocation / tombstone per §20.3. Revoked or tombstoned ⇒ `MandateRevoked`; unenrolled ⇒ `MandateInvalidSignature`.
+5. **Envelope** — evaluate the operation against the three envelopes in §19.5 order.
+6. **Record** — record the verdict for provenance, whether or not the call was permitted, with the §20.5 label. On MCP, servers SHOULD echo `session_id` and the verdict in the result's `_meta` under the extension key.
+
+Verification MUST be performed **per request**. Verdicts MUST NOT be cached across requests — only, under digest mode, the Mandate body itself (§20.1). Per-request verification is the mechanism that makes revocation immediate (§19.3): the next request after revocation simply fails.
+
+### 20.5 Verification result labelling (normative)
+
+Every Mandate verification result MUST be labelled with what "verified" means:
+
+- **`structural`** — shape, DID form, expiry, and registry enrollment / revocation checks passed; the §20.3 cryptographic signature verification was **not** performed.
+- **`cryptographic`** — all of the above **and** the §20.3 signature verified against the resolved key.
+
+The label MUST accompany the verdict on every surface that reports it — result `_meta`, events, exports, logs — and MUST propagate to any downstream audit record derived from the verdict. An implementation MUST NOT report a bare boolean verdict without the label, and a consumer MUST NOT treat a `structural` verdict as cryptographic. An implementation that does not perform §20.3 verification MUST label every result `structural` — that is the honest floor the reference `@pact-protocol/mcp` guard ships today, and overloading the boolean is how structural checks get read as cryptographic ones.
+
+### 20.6 Escalation
+
+Exceeding `commitment_authority` suspends the call pending human authority (§19.5 check 2). On MCP `2026-07-28` the suspension is a Multi Round-Trip Request: the server returns `resultType: "input_required"` with an `inputRequests` entry of type `au.tailor.pact/mandate-escalation` carrying `reason: "commitment_authority_exceeded"`, structured `detail`, `requires: "authorization_proof"`, a **`challenge_nonce`**, and an `escalation_hook_notified` flag, plus an opaque `requestState` correlating the retry. Rules, all normative:
+
+1. **Per-escalation nonce.** The server MUST issue a fresh `challenge_nonce` with every escalation, and the retry proof MUST echo it (§17.7 step 5). This is the single-use replay barrier: without it, "single-use" would hold only for the server's `requestState` token, and one byte-identical proof would approve unlimited escalations inside the freshness window.
+2. **Retry binding.** The client retries the **same operation with identical arguments under the same Mandate**, carrying the §17.6 `authorization_proof` in the retry material (on MCP, under the sibling `_meta` key — §20.1). The proof MUST verify per §17.6 / §17.7; its `principal_id` MUST equal the Mandate's `handler_principal_id`; its `asserted_at` MUST be within the §17.7 freshness window (default ±5 minutes — SOQ2). A retry that differs in tool, arguments, or Mandate MUST be refused (`MandateEscalationUnknown`).
+3. **Approver registry checks — fail closed.** Where a principal registry is configured, the proof's principal and `credential_id` MUST resolve as enrolled, unrevoked, and untombstoned. Revoking the human's credential kills escalation approvals too.
+4. **Success-conditional consumption.** The approval, and the binding-decision counter (§19.4), are consumed when the authorized call **succeeds**. A transient upstream failure does not burn a human approval; a replay after success fails with `MandateEscalationUnknown`.
+5. **The hook.** Servers SHOULD additionally notify the Mandate's `escalation_hook` and MUST set `escalation_hook_notified` truthfully. The hook (asynchronous; delivery format reserved — §22) and the in-band suspension (synchronous) are complementary: the hook tells the handler out-of-band; the suspension holds the call open.
+
+This flow is the protocol form of the mandate invariant: *agents propose; a human approves; approval grants a single-use mandate.*
+
+### 20.7 Error registry
+
+MCP `2026-07-28` reserves JSON-RPC `-32000`–`-32019` for implementation-defined errors; the extension's errors live there:
+
+| Code | Name | Meaning |
+|---|---|---|
+| `-32010` | `MandateRequired` | Server enforcement is `required`; no Mandate present |
+| `-32011` | `MandateInvalidSignature` | Signature failed verification, required field missing / malformed, or signing key unenrolled (§20.3 fail-closed) |
+| `-32012` | `MandateExpired` | `expires_at` has passed in server time |
+| `-32013` | `MandateRevoked` | `signing_key_id` revoked, or handler principal tombstoned |
+| `-32014` | `MandateCategoryDenied` | Operation publishes outside `may_publish` (or uncategorised under a scoped envelope — §19.5 check 1) |
+| `-32015` | `MandateDisclosureExceeded` | Would disclose above `disclosure_ceiling` and redaction is impossible |
+| `-32016` | `MandateDigestUnknown` | Digest mode; server has not seen this Mandate body |
+| `-32017` | `MandateClockSkew` | A retry proof's `asserted_at` is outside the freshness window (the Mandate body carries no client-time field, so this never fires on the body) |
+| `-32018` | `MandateEscalationUnknown` | Retry `request_state` unknown, expired, already consumed, or bound to different call material |
+| `-32019` | `MandateProofRejected` | Retry `authorization_proof` invalid: shape, type, principal mismatch, wrong nonce, or approver credential unenrolled / revoked |
+
+Exceeding `commitment_authority` is deliberately **not** in this table: it is not an error — it suspends with `input_required` (§20.6).
+
+Non-MCP transports defining equivalent carriage (§20.1) MUST preserve these failure distinctions (they MAY map them onto their own error surface, e.g. the Appendix A.1 envelope with dot-delimited codes).
+
+### 20.8 Conformance
+
+| Level | Requirement |
+|---|---|
+| **Core** | MAY ignore the extension entirely. Core implementations remain resource-only and are unaffected. |
+| **Extended** | SHOULD advertise the extension. If advertised, MUST implement §20.4 verification and §20.6 escalation in full, with §20.5 labelling. |
+| **Authorization-Required** | MUST advertise `enforcement: "required"` on cross-organisation surfaces, MUST reject unsigned or unverifiable Mandates there, and MUST perform §20.3 cryptographic verification (results labelled `cryptographic`). |
+
+Conformance vectors: [`conformance/extended/mandate/`](./conformance/extended/mandate/) — twelve vectors promoted from `docs/v2-prep/mandate-mcp-vectors/` (PR #42), covering pass-through, expiry, structural signature failure, revocation (including mid-session), category denial, escalation and nonce-bound retry, disclosure refusal, digest mode, clock skew, and fail-closed absence.
+
+---
+
+## 21. Parley (v2.3 — minimal normative surface)
+
+> **Status:** v2.3 normative — DRAFT. This section defines the Parley's **authority semantics** — the minimum that §25 and the ratified RFC #14 modifications require. The transport surface (open/accept endpoints, invite handshake, outcome schemas, facilitator mechanics, event catalog) is deferred to a follow-on reviewed change; nothing below depends on it.
+
+### 21.1 Terminology (normative)
+
+A **Parley** is PACT's ephemeral, caller-initiated, time-bounded negotiation between two (or small-N) agents, each operating under a §19 Mandate. The noun was chosen by the RFC #14 verdict because it is collision-free with both shipped layers that neighbouring words already denote:
+
+| Term | What it means | Where |
+|---|---|---|
+| "Active Session Manifest" / fabric session-awareness | The *awareness* layer over a long-lived fabric | §4.4 (v2.0.3, frozen) |
+| Negotiation rounds | The *mediated* multi-round exchange on a contested section | §13.5.3, §13.6 (frozen) |
+| **Parley** | The ephemeral, caller-initiated, Mandate-bounded negotiation primitive | this section |
+
+The bare noun "session" MUST NOT be used in conformant surfaces to denote a Parley, and "negotiation" without qualification refers to §13. §17.6's "session mandate" binds to the §19 Mandate (§19.1).
+
+### 21.2 Composition with existing primitives (normative)
+
+A Parley is coordinated as an **ephemeral fabric**. It reuses the existing machinery rather than duplicating it:
+
+- **State and awareness** — the §4.4 manifest and `_status` shapes; **liveness** is the §4.4.3 bidirectional heartbeat.
+- **Round expectations** — §6.5 pending obligations.
+- **Disclosure** — §10.3 graduated disclosure and the §17.13 manifest-visibility rules apply unchanged; a Mandate's `disclosure_ceiling` composes as §19.5 check 3 (the effective limit is the lower).
+- **Events** — the §6 event model, including §6.4 hash chaining.
+
+The ratified RFC #14 design baseline:
+
+- **Islanded by default** (Q4). A Parley MAY reference a predecessor via an optional `predecessor_session_id`; absent it, no prior-round state is implied or discoverable.
+- **Peer-to-peer with an opt-in facilitator** (Q5; charter decision D5). An always-mediated `MediatedSession` is not a v2.3 concept.
+- **Server-authoritative clock** (Q6). Parley TTL and Mandate expiry (§19.3) are evaluated in server time.
+- **Open-with-deadlock** (Q2). When the participating Mandates' envelopes conflict at open (one requires what another forbids), the Parley opens **with the conflict surfaced** as an attached deadlock outcome rather than refusing to open — refusal hides the disagreement; opening surfaces it, and the agents can renegotiate scope or escalate.
+- **No approval step exists inside a Parley.** Outcomes are reported to each handler (§21.3), so the §5 self-approval question does not arise.
+
+### 21.3 Outcomes — advisory by default (normative)
+
+A concluded Parley yields an **outcome**: `aligned`, `deadlocked`, `timeout`, `mandate_revoked`, or `escalated`. Every outcome is **advisory** — a report to each handler, and a §25.3 protocol state.
+
+A Parley outcome becomes **binding at the protocol level** only through one of:
+
+**(a) A per-handler §17.6 `authorization_proof`** over the outcome payload, from each handler to be bound. This is the ratified RFC #14 refinement (SOQ4): a Mandate flag alone is insufficient — this requirement is the line between Parleys and contracts reinvented over HTTP.
+
+**(b) For `internal-reversible` effects only (§25.5):** a handler's §19 Mandate whose `commitment_authority` covers the outcome and is not exhausted. Accepting the outcome is a binding decision — counted, durable, and success-conditional per §19.4 — and the handler's authority traces through the Mandate's §20.3 signature.
+
+Path (b) never reaches an `external-irreversible` effect. There, per-handler proofs under (a) are REQUIRED, and where the outcome would drive a §25.6 guarded apply, **all six §25.7 checks additionally apply** — the Mandate never substitutes for the §25.7 proof (§19.1).
+
+No Parley state — including `aligned` and a bound `commitment` — may be represented as a signature, execution, or legal assent (§25.3, §25.8, §17.14). Silence or TTL expiry inside a Parley creates no attestation (§25.4).
+
+### 21.4 Revocation mid-Parley (normative)
+
+Ratified RFC #14 Q1: **immediate hang-up.** When a Mandate under which a participant is operating is revoked (§19.3), the fabric MUST terminate the Parley immediately with `outcome: mandate_revoked` — it MUST NOT finish the current round or wind down in-flight commitments, because a revoked authorization must not retroactively bless an in-flight commit. The termination is recorded as a terminal Parley event carrying the outcome (`pact.parley.closed`; the full Parley event catalog lands with the transport surface), and the outcome MUST be delivered to every handler — via the Mandate's `escalation_hook` where registered (delivery format reserved, §22), or any §4.4-visible surface.
+
+At a per-request carriage boundary (§20.4) the same decision is structural: the next request under the revoked Mandate fails verification regardless of fabric behaviour. The two halves compose — the fabric hangs up; the boundary guarantees nothing slips through while it does.
+
+### 21.5 Conformance
+
+| Level | Requirement |
+|---|---|
+| **Core** | Parleys are OPTIONAL. Core implementations may run resource-only. |
+| **Extended** | An implementation advertising Parleys (`capabilities.parleys`, §15.1) MUST enforce the §19.5 Mandate envelopes and the §21.3 binding rules. |
+| **Authorization-Required** | MUST require a cryptographically valid handler signature (§20.3) on every Mandate entering a cross-organisation Parley. No anonymous cross-organisation Parleys. |
+
+---
+
+> **Section 22 (reserved).** Push delivery — the signed-webhook event-delivery format used by the §19 `escalation_hook` — and service-account authentication (programmatic Mandate minting under handler-controlled service credentials) remain reserved; design records: `docs/v2-plan.yaml` tracks T4 / T5. Until §22 lands, `escalation_hook` delivery is implementation-defined and MUST be reported truthfully (§20.6).
 
 ## 23. Agent Identity Lifecycle (v2.0)
 
@@ -2226,6 +2520,7 @@ Full JSON Schema (2020-12) definitions for all API endpoints are available in th
 | `onboard-request.json` | `POST /_onboard` | Atomic join + constrain request (v2.0.3 — §4.4.5) |
 | `onboard-response.json` | `POST /_onboard` | Atomic join + constrain response (v2.0.3 — §4.4.5) |
 | `pending-obligation.json` | `/_status`, `/manifest` | Shared pending-obligation shape (v2.0.3 — §6.5) |
+| `mandate.json` | MCP `_meta["au.tailor.pact/mandate"]`; Parley entry | Handler-signed capability grant — the Mandate body (v2.3 — §19.2) |
 
 > **Note:** `authorization-proof.json` carries the §18.1 common fields and the `voice-biometric` additions inline (`match`, `utterance_hash`, `verifier_id`); the full normative `voice-biometric` schema — signature suite, embedding-algorithm versioning — lands via HMAN's [#3](https://github.com/TailorAU/pact/issues/3) PR (§18.6).
 
@@ -2514,7 +2809,7 @@ way they do at the fabric event log.
 
 **Profile flag**: servers advertise support via `capabilities.matters: true`
 in the §15.1 Implementation Profile (mirrors the v2.0.3
-`capabilities.atomicOnboard` and the planned v2.1 `capabilities.parleys`).
+`capabilities.atomicOnboard` and this line's `capabilities.parleys`, §21).
 
 **Runner**: a new conformance-runner `kind: matter` handles Matter-lifecycle
 vectors (open → attach → message → manifest → close), following the same

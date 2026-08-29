@@ -5,9 +5,14 @@
 > vectors for the §25 / §17.14 consensus-vs-authorization-vs-execution boundary
 > (issue [#41](https://github.com/TailorAU/pact/issues/41)). Five of those
 > execute in the runner today; six need `--server` and no server implements §25
-> yet. Repository CI runs the runner against `spec/v2.0/conformance` only, so
-> nothing here executes in CI until a maintainer adds a job. Details in the
-> [execution-boundary README](extended/execution-boundary/README.md). The rest
+> yet. It also adds [`extended/mandate/`](extended/mandate/) — 12 vectors
+> (`kind: mandate`) for the §19–§20 Mandate primitive at the MCP boundary,
+> promoted from `docs/v2-prep/mandate-mcp-vectors/` per issue
+> [#35](https://github.com/TailorAU/pact/issues/35); the runner does not
+> execute `kind: mandate` yet — every vector is mirrored by `mcp/` tests (see
+> the [mandate README](extended/mandate/README.md)). Repository CI runs the
+> runner against `spec/v2.0/conformance` only, so nothing here executes in CI
+> until a maintainer adds a job. The rest
 > of this file is the original v2.0 scaffold text.
 
 This directory is the conformance test scaffold for PACT v2.0 (track T10 in [`docs/v2-plan.yaml`](../../../docs/v2-plan.yaml)). It exists before the v2.0 normative tracks land so every spec PR can be gated on conformance smoke tests from day one.

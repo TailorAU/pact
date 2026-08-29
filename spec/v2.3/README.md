@@ -7,9 +7,13 @@
 
 Carries [`spec/v2.2/`](../v2.2/) forward unchanged and adds **§25 —
 Consensus, Authorization, and Legal Execution**: the normative safety boundary
-between a PACT protocol state, a human attestation, and legal execution.
-
-Raised as [TailorAU/pact#41](https://github.com/TailorAU/pact/issues/41).
+between a PACT protocol state, a human attestation, and legal execution
+([#41](https://github.com/TailorAU/pact/issues/41)) — and **§19–§21 Mandate +
+Parley**: the RFC [#14](https://github.com/TailorAU/pact/issues/14) primitive
+(ACCEPT-WITH-MODIFICATIONS, 2026-05-16), delivered per issue
+[#35](https://github.com/TailorAU/pact/issues/35) and retargeted from the
+never-opened `spec/v2.1/` line into this draft. §22 (push delivery +
+service-account authentication) stays reserved.
 
 ## Why a new directory rather than an edit to v2.2
 
@@ -29,24 +33,43 @@ disclosure at [`../v2.2/ERRATA.md`](../v2.2/ERRATA.md) — the pattern already
 established by [`../v1.1/ERRATA.md`](../v1.1/ERRATA.md).
 
 **The version number is the maintainer's call.** `v2.3` is the next free
-number above the current stable line and does not collide with `spec/v2.1/`
-(issue [#35](https://github.com/TailorAU/pact/issues/35), Parleys, in flight).
-Nothing here is tagged, published or mirrored, so this directory can be
-renamed before merge at no cost. See the §19–22 absorb plan in
-[`../v2.2/README.md`](../v2.2/README.md) — if the maintainer would rather this
-boundary ride the v2.1 line or a v2.2 re-issue, moving it is a directory
-rename plus a link sweep.
+number above the current stable line. `spec/v2.1/` was never opened; the
+§19–22 scope that issue [#35](https://github.com/TailorAU/pact/issues/35)
+targeted at it is now delivered **into this line** (§19–§21 below), so the
+v2.2 absorb plan's "open v2.1, then re-carry" step is superseded — one draft
+line carries both the §25 boundary and the Parley/Mandate sections. Nothing
+here is tagged, published or mirrored, so this directory can be renamed
+before merge at no cost.
 
 ## What v2.3 contains
 
 - **All of v2.2** carried forward unchanged — every normative section, schema,
   conformance vector, runner, and the resource-type registry. `spec/v2.2/`
   itself is untouched apart from the additive `ERRATA.md`; this directory is a
-  copy that adds §25, not an edit of v2.2.
+  copy that adds §25 and §19–§21, not an edit of v2.2.
 - **§25 Consensus, Authorization, and Legal Execution** (NEW, normative).
 - **§17.14 Scope of a verified `authorization_proof`** (NEW, normative).
+- **§19 Mandate** (NEW, normative) — the RFC #14 handler-signed capability
+  grant, verbatim shape; lifecycle (human-only minting, server-authoritative
+  expiry, immediate revocation); durable single-use counter rules; the
+  three-envelope evaluation order (deny / escalate-never-reject /
+  redact-and-flag).
+- **§20 Mandate carriage and verification** (NEW, normative) — MCP `_meta`
+  carriage (`au.tailor.pact/mandate`), the Ed25519-over-RFC-8785 signature
+  suite with fail-closed key resolution, per-request verification with
+  verdicts never cached, `structural` / `cryptographic` result labelling, MRTR
+  escalation with single-use `challenge_nonce`, and the `-32010`…`-32019`
+  error registry.
+- **§21 Parley** (NEW, normative, minimal) — terminology, composition with
+  §4.4 / §6.5 / §10.3 / §17.13, advisory-by-default outcomes with the
+  per-handler-proof binding rule, immediate hang-up on revocation. The
+  transport surface is deferred; **§22 stays reserved** (push delivery +
+  service-account auth).
 - Targeted narrowing of the existing §5, §10.5, §14.3, §14.5, §15.1 and §15.2
   text so it can no longer be read as permitting what §25 forbids.
+- The spec title carries the **"Contexture and Trust"** backronym — normative
+  from v2.1 per `AGENTS.md`, applied here because this line now carries the
+  v2.1 scope. Shipped v2.0.x stays "Consensus and Truth" as released.
 
 ## The boundary in one paragraph
 
@@ -82,6 +105,14 @@ capability that captured each signer's intentional act.
 | `conformance/extended/execution-boundary/` | 11 new vectors + README |
 | `conformance/README.md` | New directory listed |
 | `GETTING_STARTED.md` | "silence = consent" heading and prose qualified |
+| Title + preamble | Backronym → "Contexture and Trust" (normative from v2.1 per `AGENTS.md`); "What's New in v2.3" gains the §19–§21 block |
+| §5 Self-approval | "ephemeral Sessions (§19–20, when finalised)" cross-ref re-pointed to Parleys (§21) |
+| §15.1 capabilities row | `sessions (v2.1)` / `pushDelivery (when v2.1 lands)` → `mandates` (v2.3), `parleys` (v2.3), `pushDelivery` (reserved §22) |
+| §19–§21 (NEW) + §22 reserved note | Mandate, Mandate carriage & verification, Parley (minimal); §22 one-line reservation for push delivery + service-account auth |
+| Appendix A.2 | `mandate.json` schema row |
+| `schemas/mandate.json` (NEW) | JSON Schema 2020-12 for the §19.2 Mandate body |
+| `conformance/extended/mandate/` (NEW) | 12 vectors promoted from `docs/v2-prep/mandate-mcp-vectors/` + README |
+| `conformance/test-vector-format.yaml` | Adds `kind: mandate` (guard_config / clock / steps) |
 | §6.1 event structure | `sequenceNumber` row: per-**resource**, monotonic **and gapless**, pointing at the §6.4 rules ([#59](https://github.com/TailorAU/pact/issues/59)) |
 | §6.4 event-log integrity | Precision pass (#59): signature-algorithm registry (`ed25519` REQUIRED default, registry-extensible) replaces hard-coded Ed25519; per-resource `sequenceNumber` monotonic-gapless rules normative (never assigning it = non-conformant at Extended); daily signed-root payload as a normative field list (window, resource set, chain heads, `root_hash`, `alg`, `signing_key`, `signature`); concrete `pact-log-anchor/1` transparency-anchor object with a non-normative public-Git-signed-tag example |
 | `resource-types.yaml` (registered types) | First two registered custom types (#59): `au.tailor.pact.topic` and `au.tailor.pact.legislation-instrument`, both `internal-reversible` / `not-required` for the graph-side apply, with an explicit upward-classification note for any publication / non-retractable citation surface (§25.5) |
@@ -114,12 +145,18 @@ intended effect.
 - **Not wired into CI.** `.github/workflows/conformance.yml` runs the runner
   against `spec/v2.0/conformance` only. Nothing in this directory executes in
   CI until a maintainer adds a job.
-- **§19–22 still absent.** Like v2.2, this line does not contain the Parley /
-  Mandate / push / service-account sections (issue #35). §25.12 states how the
-  boundary applies to them when they land.
-- **Backronym not refreshed.** `AGENTS.md` records that "Contexture and Trust"
-  is normative from v2.1. The carry-forward keeps v2.2's title verbatim to
-  avoid colliding with #35; refreshing it is that PR's call, not this one.
+- **Mandate crypto is specified but not yet implemented.** §20.3 defines the
+  Ed25519-over-RFC-8785 suite; the reference `@pact-protocol/mcp` guard still
+  verifies **structurally** and labels every verdict `verification:
+  structural` per §20.5. The `extended/mandate/` vectors pin that honest
+  floor; the runner does not execute `kind: mandate` yet (the `mcp/` test
+  suite mirrors every vector).
+- **§21 is deliberately minimal.** The Parley's authority semantics are
+  normative; the transport surface (endpoints, invite handshake, outcome
+  schemas, facilitator mechanics, event catalog) is deferred to a follow-on
+  reviewed change. **§22 (push delivery + service-account auth) stays
+  reserved** — until it lands, `escalation_hook` delivery is
+  implementation-defined and reported truthfully (§20.6).
 
 ## Citation
 
@@ -130,8 +167,8 @@ Do not cite this directory yet — it is a DRAFT. On promotion, cite as
 
 | Path | What |
 |---|---|
-| `SPECIFICATION.md` | v2.2 normative text + §17.14 + §25, with §5 / §10.5 / §14 / §15 narrowed |
-| `schemas/` | v2.2 schemas + the extended `authorization-proof.json` |
-| `conformance/` | v2.2 vectors + `extended/execution-boundary/` (11 vectors) |
+| `SPECIFICATION.md` | v2.2 normative text + §17.14 + §19–§21 + §25, with §5 / §10.5 / §14 / §15 narrowed |
+| `schemas/` | v2.2 schemas + the extended `authorization-proof.json` + `mandate.json` |
+| `conformance/` | v2.2 vectors + `extended/execution-boundary/` (11 vectors) + `extended/mandate/` (12 vectors) |
 | `resource-types.yaml` | v2 registry with the machine-readable apply guard |
 | `GETTING_STARTED.md` | v2.2 text with the silence shorthand qualified |

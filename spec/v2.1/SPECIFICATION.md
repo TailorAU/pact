@@ -1,8 +1,12 @@
 # PACT — Protocol for Agent Contexture and Trust — Specification v2.1 (DRAFT)
 
-> **Status:** DRAFT — NOT FOR CITATION. This directory has not been signed
-> off per AGENTS.md rule 3. Cite `spec/v2.0/` (stable, v2.0.3) until this
-> banner is removed by an explicit maintainer sign-off. Review vehicle:
+> **Status:** DRAFT — NOT FOR CITATION — §19–§22 SUPERSEDED. This directory
+> has not been signed off per AGENTS.md rule 3. Cite `spec/v2.0/` (stable,
+> v2.0.3) for the stable protocol, and `spec/v2.3/` for §19 Mandate /
+> §20 Mandate carriage / §21 Parley / §22 (reserved): this draft's §19–§22
+> numbering (Parleys / Mandates / Push / Service-accounts) is **superseded
+> by the v2.3 re-cut** (maintainer ruling, Knox 2026-08-29 — the reference
+> implementation ships against v2.3). Review vehicle:
 > [#35](https://github.com/TailorAU/pact/issues/35).  
 > **Author:** Knox Hart + AI  
 > **Date:** 30 July 2026  

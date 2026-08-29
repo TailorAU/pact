@@ -2,16 +2,18 @@
 # Each test vector is a single YAML file describing one black-box test.
 # This is the schema; concrete test vectors conform to it.
 #
-# There are two vector kinds, distinguished by `kind`:
+# There are three vector kinds, distinguished by `kind`:
 #   - kind: http          (default) — an HTTP request/response + expected event sequence.
 #                          Has `request` / `expected_response` / `expected_events` / `postconditions`.
 #   - kind: verification  — exercise the §17.7 authorization-proof verification flow
 #                          (client-side logic, no HTTP). Has `verification` instead.
+#   - kind: mandate       — (v2.3, §19–§20) exercise the Mandate guard at the MCP
+#                          tools/call boundary. Has `guard_config` / `clock` / `steps`.
 
 test_vector_schema:
   version: "1"
 
-  kind: enum                             # http (default) | verification
+  kind: enum                             # http (default) | verification | mandate
 
   # `request` + `expected_response` are required for kind: http.
   # `verification` is required for kind: verification.
@@ -81,6 +83,32 @@ test_vector_schema:
       result: enum                       # verified | rejected | unverifiable
       failing_step: int?                 # 1..5 from §17.7 — set when result != verified. (Step 6 is "Result" in the spec — that's the outcome, not a failure mode, so it never appears here.)
       emits_trust_violation: bool?       # whether a pact.trust.violation { kind: authorization_failed } SHOULD be emitted
+
+  # ─── kind: mandate — exercises the §19–§20 Mandate guard (v2.3) ──────────
+  # Steps run SEQUENTIALLY against one guard instance with an injected clock
+  # (the reference seam is `mandateGuardAt(tool, args, meta, nowMs)` in
+  # `mcp/src/mandate.ts`). Promoted from docs/v2-prep/mandate-mcp-vectors/.
+  guard_config:                          # present iff kind == mandate
+    enforcement: enum                    # required | optional | observed (§20.2)
+    clock_skew_seconds: int?             # default 300 (§17.7 window; SOQ2)
+    registry: object?                    # inline principal-registry content (§17.8 shape), or null
+  clock: string?                         # ISO 8601 — injected server "now" (verifier_clock pattern)
+  steps:                                 # each step is a `call` OR a `registry_update`
+    - call:
+        tool: string                     # MCP tool name; arguments MUST be schema-valid for it
+        arguments: object
+        meta: object?                    # request _meta — the mandate body VERBATIM under
+                                         # "au.tailor.pact/mandate" (or { session_id, digest });
+                                         # retry material ONLY under the sibling key
+                                         # "au.tailor.pact/mandate-escalation" (§20.1, §20.6)
+      expected:
+        outcome: enum                    # pass | error | input_required
+        error: object?                   # { name, code } from the §20.7 registry — iff outcome: error
+        verdict: object?                 # subset-match assertions on the stamped result _meta (§20.4 step 6, §20.5)
+        input_required: object?          # iff outcome: input_required — e.g. { reason, requires,
+                                         # request_state_present, challenge_nonce_present } (§20.6)
+        capture: object?                 # export values for later steps; reference as "{captured.<key>}"
+    - registry_update: object            # out-of-band registry mutation between calls (revocation etc.)
 
   failure_classification:                # how to report a failure
     severity: enum                       # blocker | warning

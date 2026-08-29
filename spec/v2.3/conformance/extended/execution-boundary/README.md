@@ -48,22 +48,32 @@ Be precise about this — a green run does not mean all eleven were checked.
 FAIL — correctly. They encode required v2.3 behaviour that does not exist yet;
 they are the acceptance criteria for implementing it, not a regression report.
 
-The repository CI (`.github/workflows/conformance.yml`) runs the runner against
-`spec/v2.0/conformance` only, so nothing here is executed in CI. Wiring a
-v2.3 job is deliberately left to the maintainer alongside the reference-server
-work — see the PR for #41.
+Repository CI now runs the complete v2.3 set against the reference server.
+These six server-bound vectors are an exact-set expected-failure manifest
+linked to [#62](https://github.com/TailorAU/pact/issues/62): any additional
+failure, any skip, or an unexpected pass turns the job red so the list can only
+shrink deliberately as §25 behavior lands. The runner currently evaluates
+HTTP status/body and session cross-call assertions; `expected_events` and
+`postconditions` remain recorded acceptance clauses, not executed checks.
 
 ## Running them locally
 
 ```bash
-cd spec/v2.3/conformance/runner
-npm ci && npm run build
+# From the repository root, build the local guard, server, and runner.
+(cd mcp && npm ci && npm run build)
+(cd reference-server && npm ci && npm run build)
+(cd spec/v2.3/conformance/runner && npm ci && npm run build)
 
 # verification vectors only (server-bound ones SKIP)
+cd spec/v2.3/conformance/runner
 node dist/index.js run --vectors .. --filter execution-boundary
 
-# with a server that implements §25 (none does yet — expect failures)
-node dist/index.js run --vectors .. --filter execution-boundary --server http://127.0.0.1:4100
+# In another terminal, start the reference server.
+cd reference-server
+node dist/server.js --port 4123
+
+# Back in the runner terminal: six server-bound §25 vectors currently fail.
+node dist/index.js run --vectors .. --filter execution-boundary --server http://127.0.0.1:4123 --require-reference-fixtures
 ```
 
 ## Reading the assertions

@@ -1,23 +1,27 @@
-# @pact-protocol/conformance-runner
+# @pact-protocol/conformance-runner — v2.3 draft
 
-The PACT v2.0 conformance runner. Loads test-vector YAML files (per [`../test-vector-format.yaml`](../test-vector-format.yaml)) and executes them, reporting pass/fail.
+The PACT v2.3 draft conformance runner. Loads test-vector YAML files (per [`../test-vector-format.yaml`](../test-vector-format.yaml)) and executes them, reporting pass/fail/skip.
 
 ## Vector kinds
 
 - **`kind: verification`** — runs the §17.7 authorization-proof verification flow locally (no server). Structural checks + freshness + nonce binding + (with `registry`) principal resolution and credential revocation.
 - **`kind: http`** — executes the recorded HTTP request against a PACT server (`--server`), compares status + body using `body_match.mode` (`exact` / `subset`; `schema` deferred). Event-sequence assertion is deferred to a follow-up.
+- **`kind: session`** — executes sequenced HTTP calls against a PACT server and evaluates cross-call assertions.
+- **`kind: mandate`** — drives the §19–§20 Mandate guard in `mcp/` locally with an injected clock, registry mutation, escalation retry, and verdict assertions.
 
-`kind: verification` runs unconditionally in CI; `kind: http` SKIPs when no `--server` is provided.
+`kind: verification` and `kind: mandate` need no server. `kind: http` and `kind: session` SKIP when no `--server` is provided.
 
 ## Usage
 
 ```bash
-cd spec/v2.0/conformance/runner
+cd mcp && npm ci && npm run build
+cd ../spec/v2.3/conformance/runner
 npm install
 npm run build
-node dist/index.js run --vectors ..              # all vectors under spec/v2.0/conformance/
+node dist/index.js run --vectors ..              # local kinds run; server-bound kinds skip
 node dist/index.js run --vectors .. --filter verify    # only ids containing 'verify'
 node dist/index.js run --vectors .. --server https://pact.example.com   # also run http vectors
+node dist/index.js run --vectors .. --server http://127.0.0.1:4123 --require-reference-fixtures  # repository CI harness mode
 node dist/index.js run --vectors .. --json       # JSON report (for CI gating)
 ```
 
@@ -28,11 +32,16 @@ Exit code: `0` if all selected vectors `pass` (or are `skip`ped for documented r
 - §17.7 verification flow steps 1, 2, 4, 5 + §17.8 revocation/tombstone.
 - **§17.7 step 3 (cryptographic signature verification)** for `type: fido2-assertion` proofs when the vector declares `verification.signature_check: real`. The runner uses Node's built-in `crypto.verify` over the SPKI-DER-encoded enrolled public key, with the v2.0 alg whitelist `webauthn-es256` / `webauthn-es384` / `webauthn-eddsa`. The fallback signed-payload composition is `UTF-8(challenge_nonce || asserted_at [|| payload_hash])`. Full WebAuthn buffer verification (`authenticatorData` + `clientDataJSON`) via `@simplewebauthn/server` is wired in as a branch but deferred to v2.0.3.
 - HTTP execution + status/body match (exact/subset). Body-ignore-fields supported.
+- Ordered, same-length recursive subset matching for response arrays, with dotted and `*` wildcard `body_ignore_fields` paths.
+- HTTP session sequencing + cross-call assertions.
+- The §19–§20 Mandate guard, including injected time, inline registries, mid-session revocation, escalation challenge capture/retry, and stamped result verdicts.
+- Per-vector reset through the reference server's non-normative `/__reset` harness hook, plus full materialisation of the Matter vectors' compact `preconditions.server_state`. `--require-reference-fixtures` requires the reset acknowledgement for every server-bound vector and the Matter-state acknowledgement where applicable. Other vector families continue to use the reference server's deterministic baseline/lazy fixtures; this flag is not a claim that arbitrary third-party state descriptions can be imported.
 
 ## What's NOT covered yet (TODO)
 
 - `body_match.mode: schema` — needs ajv (or equivalent) plugged in.
 - `expected_events` — needs an event-log subscription. Most servers expose this via SignalR or polling; the runner will subscribe and verify the sequence with a configurable timeout.
+- `postconditions.server_state` — recorded in vectors but not yet queried or asserted. A green HTTP vector currently proves request/status/body behavior, not its event or post-state clauses.
 - Full WebAuthn `authenticatorData + clientDataJSON` buffer verification via `@simplewebauthn/server` (deferred to v2.0.3 — the generic fallback covers the v2.0.2 self-contained vectors).
 - `voice-biometric` cryptographic verification (per HMAN's #3 PR — §18.6).
 - HTTP record-and-replay (rather than live-execute) — useful for offline conformance checks.
@@ -53,11 +62,11 @@ A structural-only PASS does **NOT** prove the signature is cryptographically val
 
 This runner is currently a **private package** (`private: true` in `package.json`). External implementers can use it via:
 
-- **Source checkout:** `git clone TailorAU/pact && cd spec/v2.0/conformance/runner && npm install && npm run build`. This is the supported path while npm publish is gated on issue [#5](https://github.com/TailorAU/pact/issues/5) (the `pact-protocol` org).
+- **Source checkout:** clone the repository, build `mcp/`, then build the runner in the desired `spec/vX.Y/conformance/runner` directory. This is the supported path while npm publish is gated on issue [#5](https://github.com/TailorAU/pact/issues/5) (the `pact-protocol` org).
 - **Self-cert flow:** run the suite locally against your server, then PR the result manifest into `docs/IMPLEMENTERS.md` (TODO until first implementer arrives).
 
 When `pact-protocol` is on npm, this package will publish alongside `@pact-protocol/cli` and `@pact-protocol/mcp` and external implementers can `npx @pact-protocol/conformance-runner run --server …`.
 
 ## Status
 
-First usable version, v0.1.0-dev. Ride-along with the conformance scaffold (`spec/v2.0/conformance/`) and the `.github/workflows/conformance.yml` CI gate.
+Version `0.3.1-dev`. The `.github/workflows/conformance.yml` gate runs the full v2.3 set against the reference server and enforces the exact six-vector §25 expected-failure manifest tracked in [#62](https://github.com/TailorAU/pact/issues/62).

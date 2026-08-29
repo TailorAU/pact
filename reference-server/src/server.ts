@@ -717,10 +717,17 @@ function route(parsed: ParsedReq, res: ServerResponse): void {
     return;
   }
 
-  // POST /__reset — test helper: re-seed fixtures (idempotent, in-memory).
+  // POST /__reset — non-normative test helper: re-seed deterministic fixtures
+  // and fully materialise the compact Matter-vector state when present.
   if (method === 'POST' && pathSegs.length === 1 && pathSegs[0] === '__reset') {
-    store.reset();
-    sendJson(res, 200, { reset: true });
+    const resetBody = asObj(body);
+    const setup = store.reset(resetBody.server_state);
+    sendJson(res, setup.accepted ? 200 : 422, {
+      reset: true,
+      server_state_accepted: setup.accepted,
+      matter_state_applied: setup.matterStateApplied,
+      ...(setup.accepted ? {} : { error: 'unsupported_server_state' }),
+    });
     return;
   }
 

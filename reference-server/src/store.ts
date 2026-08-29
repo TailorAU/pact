@@ -155,6 +155,11 @@ export interface Matter {
   seq: number;
 }
 
+export interface ConformanceStateSetup {
+  accepted: boolean;
+  matterStateApplied: boolean;
+}
+
 const SPEC_VERSION = '2.0.3';
 const MATTERS_DRAFT_VERSION = '2.2';
 
@@ -252,9 +257,9 @@ export class Store {
     return ev;
   }
 
-  /** Get or lazily create an empty fabric (the conformance vectors POST to
-   * fabrics that "exist" per their preconditions; the runner does not seed,
-   * so an empty fabric is materialised on first reference). */
+  /** Get or lazily create an empty fabric. This remains useful for external
+   * runner targets that prepare state out of band; the repository CI harness
+   * now overlays each vector's declared state through `POST /__reset`. */
   ensureFabric(id: string): Fabric {
     let f = this.fabrics.get(id);
     if (!f) {
@@ -302,11 +307,12 @@ export class Store {
     return this.nextId(prefix);
   }
 
-  reset(): void {
+  reset(serverState?: unknown): ConformanceStateSetup {
     this.fabrics.clear();
     this.matters.clear();
     this.idCounter = 0;
     seedFixtures(this);
+    return materializeServerState(this, serverState);
   }
 
   registerFabric(f: Fabric): void {
@@ -315,12 +321,11 @@ export class Store {
 }
 
 /**
- * Deterministic fixtures for the read-only conformance vectors whose
- * preconditions assume pre-seeded fabric state the runner does not plant
- * (`heartbeat-timeout`, `manifest-cross-org-disclosure`, `obligation-surfacing`).
- * Each vector's `preconditions.server_state.resource_id` names the fabric;
- * the runner treats preconditions as documentation, so the server self-seeds
- * these well-known fabric IDs at startup.
+ * Deterministic baseline fixtures for the read-only conformance vectors
+ * (`heartbeat-timeout`, `manifest-cross-org-disclosure`,
+ * `obligation-surfacing`). The required CI harness resets before every vector,
+ * preserves these well-known fixtures, then fully overlays the compact Matter
+ * state carried in a Matter vector's `preconditions.server_state`.
  */
 export function seedFixtures(store: Store): void {
   // ── fab_hb_001 — heartbeat-timeout (§4.1, §4.4.1) ──────────────────────
@@ -508,4 +513,274 @@ export function seedFixtures(store: Store): void {
   // fab_abc123 is left to lazy creation: both _onboard vectors (success +
   // partial-failure) target it with `registered_agents: []`, so an empty
   // fabric created on first reference is exactly the right precondition.
+}
+
+// ─── Non-normative conformance fixture materialisation ───────────────────
+
+const FIXTURE_TIMESTAMP = '2026-05-15T12:00:00Z';
+const KNOX_FIXTURE_PRINCIPAL = 'did:web:knox.example';
+
+function fixtureObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function fixtureObjects(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const object = fixtureObject(item);
+    return object ? [object] : [];
+  });
+}
+
+function fixtureCount(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+function fixtureFabricPhase(value: unknown): Phase {
+  return value === 'forming' ||
+    value === 'negotiating' ||
+    value === 'converged' ||
+    value === 'escalated' ||
+    value === 'closed'
+    ? value
+    : 'forming';
+}
+
+function fixtureMatterPhase(value: unknown): MatterPhase {
+  return value === 'active' || value === 'closed' ? value : 'open';
+}
+
+function materializeFabric(store: Store, state: Record<string, unknown>): void {
+  const fabricId = typeof state.fabric_id === 'string' ? state.fabric_id : '';
+  if (!fabricId) return;
+
+  const proposalCount = fixtureCount(state.proposals_open);
+  const pendingForKnox = fixtureCount(state.obligations_pending_for_knox);
+  const proposals: Proposal[] = Array.from({ length: proposalCount }, (_, index) => ({
+    id: `prop_fixture_${index + 1}`,
+    status: 'open',
+    required_voters: index < pendingForKnox ? [KNOX_FIXTURE_PRINCIPAL] : [],
+    voted_by: [],
+  }));
+  const obligations: Obligation[] = Array.from({ length: pendingForKnox }, (_, index) => ({
+    id: `obl_fixture_knox_${index + 1}`,
+    fabric_id: fabricId,
+    member_id: 'urn:pact:agent:knox',
+    principal_id: KNOX_FIXTURE_PRINCIPAL,
+    kind: 'vote',
+    event_ref: proposals[index]?.id ?? `prop_fixture_pending_${index + 1}`,
+    created_at: FIXTURE_TIMESTAMP,
+    discharged_at: null,
+    discharge_kind: null,
+    discharge_event_ref: null,
+  }));
+
+  store.registerFabric({
+    fabric_id: fabricId,
+    spec_version: SPEC_VERSION,
+    phase: fixtureFabricPhase(state.phase),
+    members: [],
+    obligations,
+    proposals,
+    events: [],
+    policy: { max_disclosure_ceiling: 2 },
+    heartbeat_timeout_seconds: 60,
+    seq: 0,
+  });
+}
+
+function materializeResource(store: Store, state: Record<string, unknown>): boolean {
+  const resourceId = typeof state.resource_id === 'string' ? state.resource_id : '';
+  if (!resourceId) return false;
+
+  const existing = store.getFabric(resourceId);
+  const fabric = store.ensureFabric(resourceId);
+  if (state.phase !== undefined) fabric.phase = fixtureFabricPhase(state.phase);
+  if (
+    typeof state.heartbeat_timeout_seconds === 'number' &&
+    Number.isFinite(state.heartbeat_timeout_seconds) &&
+    state.heartbeat_timeout_seconds >= 0
+  ) {
+    fabric.heartbeat_timeout_seconds = state.heartbeat_timeout_seconds;
+  }
+  if (typeof state.server_clock === 'string') fabric.clock_iso = state.server_clock;
+
+  const policy = fixtureObject(state.fabric_policy);
+  if (
+    policy &&
+    typeof policy.max_disclosure_ceiling === 'number' &&
+    Number.isFinite(policy.max_disclosure_ceiling)
+  ) {
+    fabric.policy.max_disclosure_ceiling = policy.max_disclosure_ceiling;
+  }
+
+  // The three richer legacy fixtures are already seeded with their complete,
+  // deterministic member/proposal/obligation shapes. For a new resource,
+  // materialise the compact identity list used by empty-session and §25
+  // preconditions so the declared resource and principals genuinely exist.
+  if (!existing && Array.isArray(state.registered_agents)) {
+    fabric.members = state.registered_agents.flatMap((agent, index): Member[] => {
+      const object = fixtureObject(agent);
+      const principalId =
+        typeof agent === 'string'
+          ? agent
+          : object && typeof object.principalId === 'string'
+            ? object.principalId
+            : '';
+      if (!principalId) return [];
+      return [{
+        agent_id: `urn:pact:agent:fixture-${index + 1}`,
+        agent_name:
+          object && typeof object.agentName === 'string' ? object.agentName : principalId,
+        principal_id: principalId,
+        org_eTLD_plus_1: registrableDomainFromPrincipal(principalId),
+        role: object && typeof object.role === 'string' ? object.role : 'contributor',
+        trust_level: 'Collaborator',
+        joined_at: FIXTURE_TIMESTAMP,
+        last_seen:
+          object && typeof object.last_seen === 'string' ? object.last_seen : FIXTURE_TIMESTAMP,
+        last_heartbeat_seq: 0,
+        attention_required: false,
+        disclosure_level: 'full',
+        constraints: [],
+      }];
+    });
+  }
+
+  return true;
+}
+
+function materializeMatter(store: Store, state: Record<string, unknown>): void {
+  const matterId = typeof state.matter_id === 'string' ? state.matter_id : '';
+  if (!matterId) return;
+
+  const memberStates = fixtureObjects(state.members);
+  const ownerState = memberStates.find((member) => member.role === 'owner') ?? memberStates[0];
+  const openedBy =
+    ownerState && typeof ownerState.principal_id === 'string'
+      ? ownerState.principal_id
+      : KNOX_FIXTURE_PRINCIPAL;
+  const members: MatterMember[] = memberStates.flatMap((member) => {
+    if (typeof member.principal_id !== 'string' || member.principal_id.length === 0) return [];
+    const role: MatterMember['role'] = member.role === 'owner' ? 'owner' : 'participant';
+    return [
+      {
+        principal_id: member.principal_id,
+        display_name:
+          typeof member.display_name === 'string' ? member.display_name : member.principal_id,
+        role,
+        joined_at:
+          typeof member.joined_at === 'string' ? member.joined_at : FIXTURE_TIMESTAMP,
+        org_eTLD_plus_1: registrableDomainFromPrincipal(member.principal_id),
+      },
+    ];
+  });
+
+  const fabrics: MatterFabricAttachment[] = fixtureObjects(state.fabrics).flatMap(
+    (attachment) => {
+      const resourceId =
+        typeof attachment.resourceId === 'string'
+          ? attachment.resourceId
+          : typeof attachment.fabric_id === 'string'
+            ? attachment.fabric_id
+            : '';
+      if (!resourceId) return [];
+      store.ensureFabric(resourceId);
+      return [
+        {
+          resourceId,
+          attached_at:
+            typeof attachment.attached_at === 'string'
+              ? attachment.attached_at
+              : FIXTURE_TIMESTAMP,
+          attached_by:
+            typeof attachment.attached_by === 'string' ? attachment.attached_by : openedBy,
+        },
+      ];
+    },
+  );
+
+  const phase = fixtureMatterPhase(state.phase);
+  store.registerMatter({
+    matter_id: matterId,
+    spec_version:
+      typeof state.spec_version === 'string' ? state.spec_version : MATTERS_DRAFT_VERSION,
+    name: typeof state.name === 'string' ? state.name : matterId,
+    phase,
+    members,
+    fabrics,
+    messages: [],
+    events: [],
+    opened_at:
+      typeof state.opened_at === 'string' ? state.opened_at : FIXTURE_TIMESTAMP,
+    opened_by: openedBy,
+    closes_at: typeof state.closes_at === 'string' ? state.closes_at : null,
+    closed_at:
+      typeof state.closed_at === 'string'
+        ? state.closed_at
+        : phase === 'closed'
+          ? FIXTURE_TIMESTAMP
+          : null,
+    seq: 0,
+  });
+}
+
+/**
+ * Accept the reference harness's compact `preconditions.server_state`
+ * vocabulary. Matter + fabric fixture shapes are fully materialised. Generic
+ * `resource_id` shapes receive the deterministic baseline/lazy resource setup
+ * used by the older runner families; this is not a general state importer.
+ */
+export function materializeServerState(store: Store, serverState: unknown): ConformanceStateSetup {
+  if (serverState === undefined || serverState === null) {
+    return { accepted: true, matterStateApplied: false };
+  }
+  const state = fixtureObject(serverState);
+  if (!state) return { accepted: false, matterStateApplied: false };
+
+  let recognized = Object.keys(state).length === 0;
+  let matterStateApplied = false;
+
+  if (state.resource_id !== undefined) {
+    if (!materializeResource(store, state)) return { accepted: false, matterStateApplied: false };
+    recognized = true;
+  }
+
+  if (state.fabric !== undefined) {
+    const singularFabric = fixtureObject(state.fabric);
+    if (!singularFabric || typeof singularFabric.fabric_id !== 'string') return { accepted: false, matterStateApplied: false };
+    materializeFabric(store, singularFabric);
+    recognized = true;
+  }
+  if (state.fabrics !== undefined) {
+    if (!Array.isArray(state.fabrics)) return { accepted: false, matterStateApplied: false };
+    const fabrics = fixtureObjects(state.fabrics);
+    if (fabrics.length !== state.fabrics.length || fabrics.some((fabric) => typeof fabric.fabric_id !== 'string')) {
+      return { accepted: false, matterStateApplied: false };
+    }
+    for (const fabric of fabrics) materializeFabric(store, fabric);
+    recognized = true;
+  }
+
+  if (state.matter !== undefined) {
+    const singularMatter = fixtureObject(state.matter);
+    if (!singularMatter || typeof singularMatter.matter_id !== 'string') return { accepted: false, matterStateApplied: false };
+    materializeMatter(store, singularMatter);
+    recognized = true;
+    matterStateApplied = true;
+  }
+  if (state.matters !== undefined) {
+    if (!Array.isArray(state.matters)) return { accepted: false, matterStateApplied: false };
+    const matters = fixtureObjects(state.matters);
+    if (matters.length !== state.matters.length || matters.some((matter) => typeof matter.matter_id !== 'string')) {
+      return { accepted: false, matterStateApplied: false };
+    }
+    for (const matter of matters) materializeMatter(store, matter);
+    recognized = true;
+    matterStateApplied = true;
+  }
+
+  return { accepted: recognized, matterStateApplied };
 }

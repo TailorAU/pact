@@ -8,11 +8,15 @@
 > yet. It also adds [`extended/mandate/`](extended/mandate/) — 12 vectors
 > (`kind: mandate`) for the §19–§20 Mandate primitive at the MCP boundary,
 > promoted from `docs/v2-prep/mandate-mcp-vectors/` per issue
-> [#35](https://github.com/TailorAU/pact/issues/35); the runner does not
-> execute `kind: mandate` yet — every vector is mirrored by `mcp/` tests (see
-> the [mandate README](extended/mandate/README.md)). Repository CI runs the
-> runner against `spec/v2.0/conformance` only, so nothing here executes in CI
-> until a maintainer adds a job. The rest
+> [#35](https://github.com/TailorAU/pact/issues/35). The runner executes all 12
+> directly through the clock-injectable MCP guard seam (see the
+> [mandate README](extended/mandate/README.md)). Repository CI now executes the
+> complete v2.3 set against the reference server with per-vector fixture reset
+> and explicit Matter-state materialisation.
+> The six unimplemented §25 server vectors are an exact-set expected-failure
+> manifest: a new failure, skip, missing vector, or unexpected pass fails the
+> job until the manifest is deliberately updated (issue
+> [#62](https://github.com/TailorAU/pact/issues/62)). The rest
 > of this file is the original v2.0 scaffold text.
 
 This directory is the conformance test scaffold for PACT v2.0 (track T10 in [`docs/v2-plan.yaml`](../../../docs/v2-plan.yaml)). It exists before the v2.0 normative tracks land so every spec PR can be gated on conformance smoke tests from day one.
@@ -75,12 +79,14 @@ spec/v2.0/conformance/
 
 ## How tests run
 
-Each test is a single YAML file conforming to [`test-vector-format.yaml`](test-vector-format.yaml). There are two vector **kinds**:
+Each test is a single YAML file conforming to [`test-vector-format.yaml`](test-vector-format.yaml). The runner supports four vector **kinds**:
 
 - **`kind: http`** (default) — an HTTP request/response recording plus an expected event sequence. An implementation **passes** if, given the recorded request: (1) it returns the recorded response (modulo `body_ignore_fields` — UUIDs, timestamps); (2) it emits the expected events in the recorded order (or any order if `ordered: false`); (3) server state matches `postconditions`.
+- **`kind: session`** — a sequenced set of HTTP calls with assertions that can span call boundaries.
 - **`kind: verification`** — exercises the §17.7 `authorization_proof` verification flow (client-side logic, no HTTP). Given the `proof`, the `registry` / `did_documents` to resolve against, the `verifier_clock`, and the `issued_nonces`, an implementation **passes** if its verification outcome matches `expected.result` (`verified` / `rejected` / `unverifiable`) and, on rejection, the `expected.failing_step` (1–6 from §17.7).
+- **`kind: mandate`** — drives the §19–§20 MCP Mandate guard locally, including registry mutation, injected time, escalation retry, and stamped verdict assertions.
 
-**Reference runner:** [`./runner/`](./runner/) — `@pact-protocol/conformance-runner` (Node.js + TypeScript, v0.1.0-dev). Loads YAML vectors recursively, dispatches by `kind`, reports pass/fail. `kind: verification` runs unconditionally; `kind: http` SKIPs without `--server <url>`. See [`./runner/README.md`](./runner/README.md) for what's covered vs TODO (schema-mode body matching, `expected_events` subscription, type-specific signature crypto).
+**Reference runner:** [`./runner/`](./runner/) — `@pact-protocol/conformance-runner` (Node.js + TypeScript). Loads YAML vectors recursively, dispatches by `kind`, and reports pass/fail/skip. `kind: verification` and `kind: mandate` run locally; `kind: http` and `kind: session` SKIP without `--server <url>`. See [`./runner/README.md`](./runner/README.md) for the exact coverage boundary. In particular, HTTP status/body assertions execute today, while `expected_events` and `postconditions` are still recorded but not evaluated.
 
 ## Self-certification
 

@@ -1,26 +1,33 @@
 name: PACT Conformance
 
-# Track T10 (docs/v2-plan.yaml): a conformance gate that runs on every spec/ PR.
-# Today this is scaffold-stage — it validates the test-vector format and the
-# conformance directory layout, and runs any test vectors that exist. As the
-# T1/T2/T7 normative tracks land their smoke tests under
-# spec/v2.0/conformance/{core,extended,...}/*.yaml, this workflow runs them too.
+# Track T10 (docs/v2-plan.yaml): conformance gates that run on protocol,
+# runner, MCP-guard, and reference-server changes. The original v2.0 scaffold
+# and all-green server jobs remain; the v2.3 draft job executes the complete
+# vector set with an exact expected-failure manifest for unbuilt §25 behavior.
 
 on:
   push:
     branches: [main]
     paths:
       - 'spec/**'
+      - 'mcp/**'
       - 'reference-server/**'
       - 'tools/matter-smoke.sh'
+      - 'tools/check-conformance-expected-failures.mjs'
+      - 'tools/check-conformance-expected-failures.test.mjs'
+      - '.github/conformance/v2.3-reference-server-expected-failures.json'
       - 'docs/v2-prep/matters-**'
       - '.github/workflows/conformance.yml'
   pull_request:
     branches: [main]
     paths:
       - 'spec/**'
+      - 'mcp/**'
       - 'reference-server/**'
       - 'tools/matter-smoke.sh'
+      - 'tools/check-conformance-expected-failures.mjs'
+      - 'tools/check-conformance-expected-failures.test.mjs'
+      - '.github/conformance/v2.3-reference-server-expected-failures.json'
       - 'docs/v2-prep/matters-**'
       - '.github/workflows/conformance.yml'
 
@@ -132,6 +139,94 @@ jobs:
           fi
           echo "----- reference-server/server.log -----"
           cat reference-server/server.log 2>/dev/null || true
+
+  conformance-v23-reference:
+    name: v2.3 reference coverage (6 tracked §25 gaps)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Executes every v2.3 vector. The mandate and verification families run
+    # locally in the runner; HTTP/session vectors run against the reference
+    # server with acknowledged per-vector fixture resets and Matter-state
+    # materialisation. Six §25 vectors are
+    # tracked exact-set expected failures until the execution boundary lands.
+    # `expected_events` and `postconditions` remain deferred runner features,
+    # so this job currently proves local guard + HTTP/status/body coverage.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Test the exact expected-failure gate
+        run: node --test tools/check-conformance-expected-failures.test.mjs
+
+      - name: Build the MCP mandate guard
+        working-directory: mcp
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build the reference server
+        working-directory: reference-server
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build the v2.3 conformance runner
+        working-directory: spec/v2.3/conformance/runner
+        run: |
+          npm ci
+          npm run build
+
+      - name: Start the reference server + wait for health
+        working-directory: reference-server
+        run: |
+          PACT_REF_PORT=4123
+          echo "PACT_V23_REF_PORT=$PACT_REF_PORT" >> "$GITHUB_ENV"
+          nohup node dist/server.js --port "$PACT_REF_PORT" > v23-server.log 2>&1 &
+          echo "V23_REF_SERVER_PID=$!" >> "$GITHUB_ENV"
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${PACT_REF_PORT}/healthz" > /dev/null 2>&1; then
+              echo "Reference server is up after ${i} attempt(s)."
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "::error::Reference server did not become healthy on port ${PACT_REF_PORT} within 30s."
+          cat v23-server.log || true
+          exit 1
+
+      - name: Run all v2.3 vectors and enforce the exact failure set
+        working-directory: spec/v2.3/conformance/runner
+        run: |
+          set +e
+          node dist/index.js run \
+            --vectors .. \
+            --server "http://127.0.0.1:${PACT_V23_REF_PORT}" \
+            --require-reference-fixtures \
+            --json > "$GITHUB_WORKSPACE/v23-conformance-report.json"
+          runner_status=$?
+          set -e
+
+          cat "$GITHUB_WORKSPACE/v23-conformance-report.json"
+          if [ "$runner_status" -gt 1 ]; then
+            echo "::error::v2.3 runner crashed or its required reference-fixture harness failed (exit ${runner_status})."
+            exit "$runner_status"
+          fi
+
+          node "$GITHUB_WORKSPACE/tools/check-conformance-expected-failures.mjs" \
+            "$GITHUB_WORKSPACE/v23-conformance-report.json" \
+            "$GITHUB_WORKSPACE/.github/conformance/v2.3-reference-server-expected-failures.json"
+
+      - name: Stop the v2.3 reference server
+        if: always()
+        run: |
+          if [ -n "${V23_REF_SERVER_PID:-}" ]; then
+            kill "${V23_REF_SERVER_PID}" 2>/dev/null || true
+          fi
+          echo "----- reference-server/v23-server.log -----"
+          cat reference-server/v23-server.log 2>/dev/null || true
 
   matter-smoke:
     name: Matter primitive smoke test (v2.2 draft)

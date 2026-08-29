@@ -2770,7 +2770,7 @@ way they do at the fabric event log.
 
 **Profile flag**: servers advertise support via `capabilities.matters: true`
 in the §15.1 Implementation Profile (mirrors the v2.0.3
-`capabilities.atomicOnboard` and the planned v2.1 `capabilities.parleys`).
+`capabilities.atomicOnboard` and this line's `capabilities.parleys`, §21).
 
 **Runner**: a new conformance-runner `kind: matter` handles Matter-lifecycle
 vectors (open → attach → message → manifest → close), following the same

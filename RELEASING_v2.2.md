@@ -1,5 +1,7 @@
 # Releasing PACT v2.2 — Matter primitive launch
 
+> **⚠️ BLOCKED (verified 2026-08-05):** the `@pact-protocol` npm org is **owned by an unrelated third party** (publishes `@pact-protocol/sdk`) — it cannot be created or joined by this project. The first hard prerequisite below is therefore unsatisfiable as written; the release is gated on the [#5](https://github.com/TailorAU/pact/issues/5) scope decision (`docs/npm-scope-decision.md`) and a package rename.
+
 > One-page turn-key checklist for the v2.2 release. Single source of truth for
 > the npm publish step (cascade item 6). Read top-to-bottom, do each step,
 > tick the box. Idempotent — safe to re-run any step if interrupted.
@@ -13,7 +15,7 @@ on every PR/push.
 
 ## Hard prerequisites (all must be ✅ before any publish)
 
-- [ ] **`@pact-protocol` npm org exists.** Verify with `npm view @pact-protocol/cli` — `E404 Not Found` = org doesn't exist yet (or this package never published — same fix path). Org creation is npm-account-owner-only; cannot be automated. See [npm docs](https://docs.npmjs.com/creating-an-organization).
+- [ ] **A Tailor-controlled npm scope exists.** ~~Verify with `npm view @pact-protocol/cli` — `E404 Not Found` = org doesn't exist yet~~ **Correction (2026-08-05): E404 does NOT mean the org is uncreated — the `@pact-protocol` org exists under third-party ownership (`@pact-protocol/sdk`, publisher `beek3`). The scope decision is tracked in [#5](https://github.com/TailorAU/pact/issues/5) / `docs/npm-scope-decision.md`; package names must be updated to the chosen scope before this checklist can proceed.** Org creation is npm-account-owner-only; cannot be automated.
 - [ ] **`NPM_TOKEN` secret on TailorAU/pact.** Verify: `gh secret list --repo TailorAU/pact | grep NPM_TOKEN`. Create a granular or classic npm **automation** token (publish-scoped to `@pact-protocol`) and add via **Settings → Secrets and variables → Actions → New repository secret**.
 - [ ] **Logged in as a member of `@pact-protocol`.** Verify: `npm whoami` (should not 401) and `npm org ls pact-protocol` should list your username.
 - [ ] **`spec/v2.2/` exists on `main`.** Already shipped — `git ls-remote origin main:refs/heads/main` and `gh api repos/TailorAU/pact/contents/spec/v2.2/SPECIFICATION.md` should return 200.

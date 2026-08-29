@@ -11,9 +11,9 @@
 
 *The open, MIT-licensed protocol where the shared resource and the context that gives it meaning travel together — so agents negotiate with trust. Documents, transactions, knowledge, deal rooms, and beyond.*
 
-> <sub>The acronym **PACT** is unchanged; all identifiers stay `pact*` (`@pact-protocol/*`, `pact-spec.dev`, the `v2.0.x` tags). The expansion was refined to *Contexture and Trust* — "Trust" matches what the protocol actually delivers (§17 trust model, fail-closed conformance) better than "Truth," and "Contexture" names the core unlock: a fabric and its context move as one. This expansion is **normative from v2.1**; shipped **v2.0.x remains "Protocol for Agent Consensus and Truth"** as-released, frozen for citation stability.</sub>
+> <sub>The acronym **PACT** is unchanged; all identifiers stay `pact*` (`pact-spec.dev`, the `v2.0.x` tags; the published npm scope is a pending decision under [#5](https://github.com/TailorAU/pact/issues/5) — the `@pact-protocol` scope turned out to be externally owned). The expansion was refined to *Contexture and Trust* — "Trust" matches what the protocol actually delivers (§17 trust model, fail-closed conformance) better than "Truth," and "Contexture" names the core unlock: a fabric and its context move as one. This expansion is **normative from v2.1**; shipped **v2.0.x remains "Protocol for Agent Consensus and Truth"** as-released, frozen for citation stability.</sub>
 
-[Site](https://tailorau.github.io/pact/) · [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Conformance](spec/v2.0/conformance/) · [Governance](GOVERNANCE.md) · [Implementers](IMPLEMENTERS.md) · [Contributing](CONTRIBUTING.md)
+[Site](https://tailorau.github.io/pact/) · [Specification](spec/v2.0/SPECIFICATION.md) · [Getting Started](spec/v2.0/GETTING_STARTED.md) · [Conformance](spec/v2.0/conformance/) · [Governance](GOVERNANCE.md) · [Implementers](IMPLEMENTERS.md) · [Family](docs/PACT_FAMILY.md) · [Contributing](CONTRIBUTING.md)
 
 ---
 
@@ -94,13 +94,16 @@ PACT defines **coordination**, not content. Agents bring their own context.
 
 Content operations (reading documents, creating proposals, editing sections) are the responsibility of the **implementation** — not the protocol. See [Implementations](#implementations).
 
+> **⚠️ npm status (verified 2026-08-05):** the reference packages are **not yet published**, and the `@pact-protocol` npm scope is currently **owned by an unrelated third party** (it serves a different project's `@pact-protocol/sdk`). **Do not install anything from that scope.** Until [#5](https://github.com/TailorAU/pact/issues/5) lands a Tailor-controlled scope, install from source as shown below.
+
 ## Quick Start
 
 ### CLI
 
 ```bash
-# Install the standalone PACT CLI
-npm install -g @pact-protocol/cli
+# Install the standalone PACT CLI from source (not yet on npm — see issue #5)
+git clone https://github.com/TailorAU/pact.git
+cd pact/cli && npm install && npm run build && npm link   # puts `pact` on PATH
 
 # Point at any PACT-compliant server
 pact config --server https://your-pact-server.com --key YOUR_API_KEY
@@ -129,10 +132,12 @@ pact done <documentId> --status aligned --summary "Budget constraints satisfied"
 ### MCP Server (for AI agent frameworks)
 
 ```bash
-# Run the PACT MCP server (for Cursor, LangChain, CrewAI, AutoGen, etc.)
+# Run the PACT MCP server from source (for Cursor, LangChain, CrewAI, AutoGen, etc.)
+# (not yet on npm — see issue #5)
+cd pact/mcp && npm install && npm run build
 PACT_BASE_URL=https://your-pact-server.com \
 PACT_API_KEY=YOUR_KEY \
-npx @pact-protocol/mcp
+node bin/pact-mcp.js
 ```
 
 **Cursor / VS Code (MCP config)** — add to `.cursor/mcp.json` or your editor’s MCP settings (adjust URL and use a real key or env reference):
@@ -141,8 +146,8 @@ npx @pact-protocol/mcp
 {
   "mcpServers": {
     "pact": {
-      "command": "npx",
-      "args": ["-y", "@pact-protocol/mcp"],
+      "command": "node",
+      "args": ["/absolute/path/to/pact/mcp/bin/pact-mcp.js"],
       "env": {
         "PACT_BASE_URL": "https://your-pact-server.com",
         "PACT_API_KEY": "YOUR_KEY"
@@ -185,8 +190,8 @@ curl https://your-server.com/api/pact/{docId}/poll?since=evt_0 \
 
 | Path | Best for | Get started |
 |------|----------|-------------|
-| **CLI** | Shell scripts, CI/CD, prototyping | `npm i -g @pact-protocol/cli` |
-| **MCP Tools** | Cursor, LangChain, CrewAI, AutoGen | `npx @pact-protocol/mcp` |
+| **CLI** | Shell scripts, CI/CD, prototyping | From source — see [Quick Start](#quick-start) (npm blocked: [#5](https://github.com/TailorAU/pact/issues/5)) |
+| **MCP Tools** | Cursor, LangChain, CrewAI, AutoGen | From source — see [Quick Start](#quick-start) (npm blocked: [#5](https://github.com/TailorAU/pact/issues/5)) |
 | **REST API** | Python/TS agents, custom frameworks | [Getting Started](spec/v1.1/GETTING_STARTED.md) |
 | **SignalR / WebSocket** | Real-time event-driven agents | [Specification](spec/v1.1/SPECIFICATION.md) |
 
@@ -194,8 +199,8 @@ curl https://your-server.com/api/pact/{docId}/poll?since=evt_0 \
 
 | Package | What it handles | Install |
 |---------|----------------|---------|
-| [`@pact-protocol/cli`](cli/) | Consensus coordination — join, intent, constrain, object, escalate, done | `npm i -g @pact-protocol/cli` |
-| [`@pact-protocol/mcp`](mcp/) | Same primitives as MCP tools for AI frameworks | `npx @pact-protocol/mcp` |
+| [`@pact-protocol/cli`](cli/) | Consensus coordination — join, intent, constrain, object, escalate, done | From source ([#5](https://github.com/TailorAU/pact/issues/5)) |
+| [`@pact-protocol/mcp`](mcp/) | Same primitives as MCP tools for AI frameworks | From source ([#5](https://github.com/TailorAU/pact/issues/5)) |
 
 These packages handle **coordination only**. Content operations (reading documents, creating proposals) are provided by the implementation you connect to.
 

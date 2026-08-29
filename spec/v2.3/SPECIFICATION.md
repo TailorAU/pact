@@ -596,7 +596,7 @@ Every PACT operation produces an event. Implementations MUST store events with a
 | `entityId` | UUID | Document identifier |
 | `correlationId` | UUID? | Links related events (e.g., create → approve → merge) |
 | `inResponseTo` | UUID? | Direct reply chain |
-| `sequenceNumber` | int64 | Per-document monotonic counter |
+| `sequenceNumber` | int64 | Per-resource monotonic, gapless counter (normative rules in §6.4) |
 | `sectionId` | string? | Target section (nullable, max 256 chars) |
 | `payloadJson` | string | JSON payload with operation-specific data |
 
@@ -655,7 +655,7 @@ The event log is the source of truth for collaboration state (Design Principle 5
 
 ### 6.4 Event-log integrity (hash-chained + signed root)
 
-Retention (§6.3) tells you how long the event log is kept. Integrity tells you whether you can trust that what's kept is what actually happened. v2.0.2 adds a normative integrity requirement that closes the silent-tampering attack: a compromised server can no longer rewrite or delete past events without that mutation being externally detectable.
+Retention (§6.3) tells you how long the event log is kept. Integrity tells you whether you can trust that what's kept is what actually happened. v2.0.2 adds a normative integrity requirement that closes the silent-tampering attack: a compromised server can no longer rewrite or delete past events without that mutation being externally detectable. v2.3 makes the layer precise: a signature-algorithm registry replaces the hard-coded Ed25519, per-resource sequencing becomes normative, and the signed-root and transparency-anchor objects get concrete shapes.
 
 **Per-event chaining (REQUIRED at Extended and Authorization-Required; RECOMMENDED at Core).** Every event in the operation log MUST carry an additional `prev_hash` field — a base64url-encoded SHA-256 hash of the *canonical JSON encoding* (RFC 8785) of the immediately preceding event in the same resource's log. The first event (sequenceNumber 0 or 1) uses the literal string `"GENESIS"` as its `prev_hash`. Implementations MUST reject any incoming event whose `prev_hash` does not match the recomputed hash of the prior event.
 
@@ -672,23 +672,62 @@ Retention (§6.3) tells you how long the event log is kept. Integrity tells you 
 }
 ```
 
-**Daily signed root (REQUIRED at Extended and Authorization-Required).** Every 24 hours (or on operator-defined cadence — at minimum once daily), the server MUST emit a `pact.log.root` system event:
+**Per-resource sequencing (v2.3, normative).** The `sequenceNumber` of §6.1 is what makes a chain break *provable* rather than merely suspicious — a deleted event leaves a gap, a forked history leaves a duplicate. Its rules:
+
+- The **writer** (the server appending to the log) MUST assign `sequenceNumber` at append time, per resource: strictly monotonic and **gapless** — each event's `sequenceNumber` is exactly its predecessor's plus one. The first event of a resource is `0` or `1` (the implementation picks one convention and MUST apply it uniformly).
+- Sequence numbers are never reused, never reassigned, and never skipped. A compacted or tombstoned event (§6.3, §17.10) retains its position — compaction replaces payload content, not chain position.
+- A **consumer** MUST treat a gap or duplicate `sequenceNumber` within one resource's log exactly as a `prev_hash` mismatch (see **Verification** below).
+- A store that never assigns `sequenceNumber` is **non-conformant at Extended and Authorization-Required**. At Core, per-resource sequencing remains RECOMMENDED alongside chaining.
+
+**Signature-algorithm registry (v2.3).** Chain-root and anchor signatures name their algorithm through an `alg` identifier drawn from this registry (which replaces the previous hard-coded "Ed25519 only" phrasing):
+
+| `alg` | Algorithm | Status |
+|---|---|---|
+| `ed25519` | Ed25519 (RFC 8032) over the canonical JSON encoding (RFC 8785) of the signed object | **REQUIRED to implement** — the default; an absent `alg` field MUST be read as `ed25519` |
+| `ecdsa-p256-sha256` | ECDSA over NIST P-256 with SHA-256 | OPTIONAL |
+| *(registered)* | Further algorithms are registrable by PR against this table; custom algorithms use reverse-domain notation (`com.example.alg-name`), mirroring §17.6's attestation-alg convention | OPTIONAL |
+
+Every conformant implementation MUST be able to *produce* `ed25519` roots and SHOULD verify any registered algorithm it advertises. A consumer MUST reject a root whose `alg` it does not recognise rather than skipping verification — an unverifiable root is not a verified root. This registry governs the log-integrity layer only; attestation algorithms remain governed by §17.6/§18.
+
+**Daily signed root (REQUIRED at Extended and Authorization-Required).** Every 24 hours (or on operator-defined cadence — at minimum once daily), the server MUST emit a `pact.log.root` system event whose `payloadJson` carries exactly the following object (normative field list):
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `window_start` | int64 (epochMs) | Yes | Start of the window this root covers. |
+| `window_end` | int64 (epochMs) | Yes | End of the window. MUST equal or exceed the `epochMs` of every event covered. |
+| `resources` | array | Yes | The resource set covered — one entry per resource with chained events in the window: `{ "resource_id", "window_start_seq", "window_end_seq", "head_hash" }`. `head_hash` is the resource's **chain head**: the base64url SHA-256 of the canonical encoding (RFC 8785) of its last event in the window — the same value the resource's next event must carry as `prev_hash`. |
+| `root_hash` | string | Yes | base64url SHA-256 of the canonical JSON encoding (RFC 8785) of the `resources` array sorted ascending by `resource_id`. This is the day's commitment over all covered chain heads. |
+| `alg` | string | Yes | Signature algorithm identifier from the registry above. |
+| `signing_key` | string | Yes | Key identifier (e.g. `did:web:server.example#log-signing`), advertised in the Implementation Profile (§15.1) as `endpoints.logSigningKey`. |
+| `signature` | string | Yes | base64url signature, under `alg` and `signing_key`, over the canonical JSON encoding (RFC 8785) of `{ "window_start", "window_end", "root_hash" }`. Signing `root_hash` commits to every entry of `resources`. |
 
 ```json
 {
   "eventType": "pact.log.root",
-  "epochMs": ...,
-  "payloadJson": "{\"resource_id\":\"doc_xyz\",\"window_start_seq\":1,\"window_end_seq\":42,\"window_end_hash\":\"base64url-...\",\"signature\":\"base64url-...\",\"signing_key\":\"did:web:server.example#log-signing\"}"
+  "epochMs": 1747324800000,
+  "payloadJson": "{\"window_start\":1747238400000,\"window_end\":1747324800000,\"resources\":[{\"resource_id\":\"doc_xyz\",\"window_start_seq\":1,\"window_end_seq\":42,\"head_hash\":\"base64url-...\"}],\"root_hash\":\"base64url-...\",\"alg\":\"ed25519\",\"signing_key\":\"did:web:server.example#log-signing\",\"signature\":\"base64url-...\"}"
 }
 ```
 
-The `signature` is an Ed25519 (or whitelisted alg per §17.6) signature over the canonical encoding of `{resource_id, window_start_seq, window_end_seq, window_end_hash}`. The `signing_key` is advertised in the Implementation Profile (§15.1) as `endpoints.logSigningKey`. The signed root commits the server to "this is what the chain looks like as of this moment"; any later mutation that doesn't replay through new chained events will produce a `prev_hash` mismatch detectable by any consumer with the prior root.
+A server MAY emit one root covering all resources, or per-resource roots (a `resources` array of one entry). The pre-v2.3 single-resource payload (`{resource_id, window_start_seq, window_end_seq, window_end_hash, signature, signing_key}`) remains readable as the one-entry degenerate form — `window_end_hash` is that resource's `head_hash` and the absent `alg` reads as `ed25519` — but new roots SHOULD use the field list above. The signed root commits the server to "this is what the chains look like as of this moment"; any later mutation that doesn't replay through new chained events will produce a `prev_hash` or sequence mismatch detectable by any consumer with the prior root.
 
-**External transparency anchor (RECOMMENDED at Authorization-Required).** A server claiming `Authorization-Required` SHOULD periodically publish its signed roots to an external append-only log (Certificate Transparency, a public Git-signed-tag repository, a Tor onion-service mirror, etc.). The protocol does not pin a specific anchor mechanism; the requirement is that an external party SHOULD be able to compare the server's claimed history against a copy the server cannot retroactively edit.
+**External transparency anchor (RECOMMENDED at Authorization-Required).** A server claiming `Authorization-Required` SHOULD periodically publish its signed roots to an external append-only log the server cannot retroactively edit. What is anchored is the **root, not the log**: the anchor object is
 
-**Verification.** A consumer polling for events SHOULD validate each event's `prev_hash` against the prior event's recomputed hash. Implementations MAY cache by `window_end_hash` and only re-validate on each new signed root. A consumer that detects a hash-chain break MUST treat the server as compromised and stop accepting new events from it until reconciled.
+```json
+{
+  "anchor_format": "pact-log-anchor/1",
+  "server": "https://server.example",
+  "signing_key": "did:web:server.example#log-signing",
+  "window_end": 1747324800000,
+  "root_hash": "base64url-..."
+}
+```
 
-**Migration from v2.0 / v2.0.1.** Events emitted before v2.0.2's chaining requirement land in the log without `prev_hash`. Implementations upgrading SHOULD treat the first v2.0.2 event as `prev_hash: "GENESIS-v202"` to mark the transition, and SHOULD emit a `pact.log.root` over the prior history at upgrade time so the legacy events are committed to a signed window even if they're not individually chained.
+— it carries only the signed root's hash and identifiers, never event content, so no resource data or personal data (§17.10) leaves the server. **Example anchor mechanism (non-normative):** a public Git repository in which each root is recorded as a signed tag named `pact-root/<host>/<YYYY-MM-DD>`, whose tag message is the canonical JSON of the anchor object — the repository's public hosting and clone history make retroactive edits detectable. An RFC 6962-style Certificate Transparency log, a public timestamping service, or any comparable append-only witness serves equally; the protocol pins the anchor *object*, not the anchor *mechanism*. The requirement is that an external party SHOULD be able to compare the server's claimed history against a copy the server cannot retroactively edit.
+
+**Verification.** A consumer polling for events SHOULD validate each event's `prev_hash` against the prior event's recomputed hash and its `sequenceNumber` against the gapless rule above. Implementations MAY cache by `root_hash` (or a resource's `head_hash`) and only re-validate on each new signed root. A consumer that detects a hash-chain break, a sequence gap, or a duplicate sequence number MUST treat the server as compromised and stop accepting new events from it until reconciled.
+
+**Migration from v2.0 / v2.0.1.** Events emitted before v2.0.2's chaining requirement land in the log without `prev_hash`. Implementations upgrading SHOULD treat the first v2.0.2 event as `prev_hash: "GENESIS-v202"` to mark the transition, and SHOULD emit a `pact.log.root` over the prior history at upgrade time so the legacy events are committed to a signed window even if they're not individually chained. Roots emitted before v2.3 lack `alg` and the `resources`/`root_hash` fields; consumers read them under the degenerate-form rule above.
 
 ### 6.5 Pending Obligations (v2.0.3+)
 

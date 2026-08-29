@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.1/subscription-create-request.json",
+  "title": "Push Delivery — Subscription Create Request",
+  "description": "Request body for POST /api/pact/{resourceId}/subscriptions (§21.2). Subscriptions are per-caller and clearance-scoped (§10, §17.13). Added in PACT v2.1 (§21).",
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "description": "HTTPS delivery endpoint. Deliveries are signed §21.3 envelopes."
+    },
+    "event_types": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^pact\\.[a-z-]+\\.(([a-z-]+)|\\*)$",
+        "description": "Exact event type (pact.escalation.human) or a single trailing-* prefix pattern (pact.parley.*)."
+      }
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable label for the subscription."
+    }
+  },
+  "required": ["url", "event_types"],
+  "additionalProperties": false
+}

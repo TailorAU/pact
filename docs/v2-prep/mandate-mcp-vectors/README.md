@@ -149,3 +149,11 @@ executed it.)
 | `mandate-digest-unknown.yaml` | `-32016` then full-body retry succeeds |
 | `mandate-clock-skew.yaml` | `-32017` on a retry proof's `asserted_at` beyond the ±300 s window |
 | `mandate-absent-required.yaml` | `-32010` fail-closed under `enforcement: required` |
+
+## Promotion status
+
+2026-07-30: these twelve vectors were carried (as DRAFT) into
+`spec/v2.1/conformance/extended/mandate-mcp/` by the #35 authoring PR, and
+`kind: mandate` was added to that directory's `test-vector-format.yaml`
+(format version 2). This directory remains the incubation record until
+spec/v2.1 is signed off; keep the two in sync until then.

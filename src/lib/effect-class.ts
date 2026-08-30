@@ -114,14 +114,18 @@ export interface ResourceTypeProfile {
 }
 
 /**
- * Every resource type the KG advertises and can apply.
+ * Every BUILT-IN resource type the KG can apply.
  *
  * One entry. The KG's consensus engine has exactly one apply — promoting a
  * topic (a knowledge claim) to a verified status — and that is the built-in
  * `fact` type. Adding an entry here is a conformance act: §25.6 forbids
  * advertising a type whose guard the server cannot enforce, and
- * {@link assertEveryAdvertisedTypeIsUnguarded} fails the build if a guarded
- * type is added while the KG still has no attestation pipeline.
+ * {@link guardedAdvertisedTypes} fails the build if a guarded type is added
+ * while the KG still has no attestation pipeline.
+ *
+ * The registered `au.tailor.*` custom types the profile also advertises live
+ * in {@link KG_REGISTERED_RESOURCE_TYPES}; {@link KG_CLASSIFIED_RESOURCE_TYPES}
+ * is the union the §25.5 resolver walks (#5563).
  */
 export const KG_RESOURCE_TYPES: readonly ResourceTypeProfile[] = [
   {
@@ -149,8 +153,87 @@ export const KG_RESOURCE_TYPES: readonly ResourceTypeProfile[] = [
 export const KG_APPLY_RESOURCE_TYPE = "fact";
 
 /**
+ * The two CUSTOM types the upstream registry registers against this
+ * implementation (#5563; `TailorAU/pact` #60,
+ * `spec/v2.3/resource-types.yaml` — both `status: registered`, both naming
+ * the PACT knowledge graph as reference implementation).
+ *
+ * They are held separately from {@link KG_RESOURCE_TYPES} because they are a
+ * different kind of claim. `KG_RESOURCE_TYPES` is the BUILT-IN type the KG's
+ * own apply path routes under ({@link KG_APPLY_RESOURCE_TYPE}); these two are
+ * the registered names for the same resources on the wire, which the §15.1
+ * profile MUST advertise (#60 §9.3) and which a peer resolves against the
+ * upstream registry. Both sets feed {@link KG_CLASSIFIED_RESOURCE_TYPES}, so
+ * the §25.5 resolver — and therefore the §25.6 guard — classifies every one
+ * of them; a type the resolver does not carry is unadvertisable by
+ * construction (§25.6: *"A server that cannot enforce the guard MUST NOT
+ * advertise the affected resource type in its profile."*).
+ *
+ * Values are the registry's, unchanged. The registry is a FLOOR: this
+ * implementation may classify UP, never down, and it does not classify up —
+ * both applies write only to the KG's own graph, from which the sweep and
+ * the correction path can restore the prior state. The legislation entry's
+ * boundary is carried verbatim in its `applySemantics` because it is the
+ * load-bearing part of the classification: graph ingest and the KG's own
+ * correctable public read API are inside the entry; third-party publication
+ * or a citation surface the KG cannot retract is a DIFFERENT effect and
+ * would be `external-irreversible` / `required`.
+ */
+export const KG_REGISTERED_RESOURCE_TYPES: readonly ResourceTypeProfile[] = [
+  {
+    type: "au.tailor.pact.topic",
+    fieldSchema:
+      "sec:{slug} — topic sections (Question / Answer / Evidence …); the Answer section carries the canonical claim",
+    contentFormat:
+      "text/markdown (topic sections) + application/json (claim metadata: tier, credence, dependency links)",
+    terminalStates: ["Verified"],
+    applySemantics:
+      "Merge into the topic's draft sections. Promotion of the topic itself " +
+      "(open → consensus → stable/locked) is NOT the apply — it is a " +
+      "separate, recomputed consensus sweep governed by the " +
+      "au.tailor.pact/epistemics extension: the per-tier quorum, alignment " +
+      "ratio and zero-unmet-dependency gate this profile advertises under " +
+      "that extension key. Verified is a RESTING state, re-openable through " +
+      "the challenge machinery, and a protocol state under §25.3 — never an " +
+      "assertion of truth.",
+    effectClass: "internal-reversible",
+    humanAttestation: "not-required",
+  },
+  {
+    type: "au.tailor.pact.legislation-instrument",
+    fieldSchema:
+      "sec:{sectionId} — statutory section addressing within the instrument (act / part / division / section)",
+    contentFormat: "application/json",
+    terminalStates: ["Ingested"],
+    applySemantics:
+      "GRAPH INGEST ONLY. A structured legislation instrument is ingested " +
+      "into the KG's own graph after quorum verification against the " +
+      "official source, and can be corrected or withdrawn from that graph. " +
+      "Serving the graph's own public read API, where the record is still " +
+      "correctable, stays within this classification. Any apply that " +
+      "PUBLISHES the instrument to a third party, feeds a citation surface " +
+      "the KG cannot retract, or asserts the ingested text is the " +
+      "authoritative law is a DIFFERENT effect: external-irreversible with " +
+      "human attestation required (§25.5). The KG holds no such path. " +
+      "Ingested is a protocol state (§25.3) — not an assertion that the " +
+      "text is current, authoritative or legally effective.",
+    effectClass: "internal-reversible",
+    humanAttestation: "not-required",
+  },
+];
+
+/**
+ * Every type the §25.5 resolver classifies, and therefore the complete set
+ * the §15.1 profile is permitted to advertise (#5563).
+ */
+export const KG_CLASSIFIED_RESOURCE_TYPES: readonly ResourceTypeProfile[] = [
+  ...KG_RESOURCE_TYPES,
+  ...KG_REGISTERED_RESOURCE_TYPES,
+];
+
+/**
  * §25.5 fail-closed default. Returned for any type not in
- * {@link KG_RESOURCE_TYPES}. "Unclassified is not internal" — an
+ * {@link KG_CLASSIFIED_RESOURCE_TYPES}. "Unclassified is not internal" — an
  * unrecognised type is treated as the most consequential thing it could be,
  * which means {@link evaluateApplyGuard} refuses its apply.
  */
@@ -171,7 +254,7 @@ export const UNCLASSIFIED_RESOURCE_TYPE: Omit<ResourceTypeProfile, "type"> = {
  */
 export function resolveResourceType(type: string | null | undefined): ResourceTypeProfile {
   const key = typeof type === "string" ? type.trim() : "";
-  const found = KG_RESOURCE_TYPES.find((t) => t.type === key);
+  const found = KG_CLASSIFIED_RESOURCE_TYPES.find((t) => t.type === key);
   if (found) return found;
   return { type: key, ...UNCLASSIFIED_RESOURCE_TYPE };
 }
@@ -301,5 +384,8 @@ export const AUTHORIZATION_PROOF_SUPPORTED = false;
  * Returns the offending types; empty means the invariant holds.
  */
 export function guardedAdvertisedTypes(): readonly string[] {
-  return KG_RESOURCE_TYPES.filter(isGuarded).map((t) => t.type);
+  // #5563 — scoped to the FULL advertised set, not just the built-in one:
+  // the §15.1 profile serves every entry in KG_CLASSIFIED_RESOURCE_TYPES, so
+  // that is the set the §25.6 invariant has to hold over.
+  return KG_CLASSIFIED_RESOURCE_TYPES.filter(isGuarded).map((t) => t.type);
 }

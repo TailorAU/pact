@@ -1542,8 +1542,29 @@ export async function evaluateTopicProposals(db: DbClient) {
 
 // ─── Consensus Engine ───────────────────────────────────────────────
 
-const CONSENSUS_RATIO = 0.90;
-const STABLE_DAYS = 30;
+// #5563 — exported so the served `/.well-known/pact.json` reads the
+// enforced value rather than restating it. The epistemics extension's §9
+// rule is that advertised values MUST be enforced values; the only way to
+// guarantee that structurally is for the profile to import the same binding
+// the sweep below branches on.
+export const CONSENSUS_RATIO = 0.90;
+export const STABLE_DAYS = 30;
+
+/**
+ * §4.3 stable-break ratio (`au.tailor.pact/epistemics` `stableBreakRatio`).
+ *
+ * Deliberately BELOW {@link CONSENSUS_RATIO}: a topic that has held aligned
+ * for {@link STABLE_DAYS} is not flapped by a single dissenter, but
+ * genuinely eroded support still breaks it. Was an unnamed `0.80` literal at
+ * the Phase-3 scan site until #5563 — a magic number cannot be advertised
+ * honestly, because the profile would have had to retype it.
+ */
+export const STABLE_BREAK_RATIO = 0.80;
+
+/** Render a ratio as a whole-percent label for an event reason (#5563). */
+function pct(ratio: number): string {
+  return `${Math.round(ratio * 100)}%`;
+}
 
 // Per-warrant-kind ratification quorums. Keys are tier column values;
 // #3691 W1 removed the privileged "axiom" rank — its quorum of 2 survives
@@ -2167,7 +2188,9 @@ export async function updateConsensusStatuses(db: DbClient, options: ConsensusSw
           reason:
             unmetDeps > 0 ? "Dependency topic(s) lost consensus" :
             pending > 0 ? "New proposals pending" :
-            alignmentRatio < CONSENSUS_RATIO ? "Alignment dropped below 90%" :
+            // #5563 — rendered from the constant so the audit trail cannot
+            // narrate a threshold the engine stopped enforcing.
+            alignmentRatio < CONSENSUS_RATIO ? `Alignment dropped below ${pct(CONSENSUS_RATIO)}` :
             "Not enough aligned agents",
         });
         return;
@@ -2217,7 +2240,9 @@ export async function updateConsensusStatuses(db: DbClient, options: ConsensusSw
       const dissenting = t.dissentingCount as number;
       const totalVoters = aligned + dissenting;
       const alignmentRatio = totalVoters > 0 ? aligned / totalVoters : 0;
-      if (alignmentRatio < 0.80) {
+      // #5563 — the named constant, not a literal: this is the value the
+      // profile advertises as `stableBreakRatio`.
+      if (alignmentRatio < STABLE_BREAK_RATIO) {
         phase3.push({ id: t.id as string, alignmentRatio });
       }
     });
@@ -2231,7 +2256,7 @@ export async function updateConsensusStatuses(db: DbClient, options: ConsensusSw
     });
     await emitEvent(db, d.id, "pact.stable.broken", "", "", {
       alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
-      reason: "Alignment dropped below 80% — stable consensus broken",
+      reason: `Alignment dropped below ${pct(STABLE_BREAK_RATIO)} — stable consensus broken`,
     });
 
     const deps = await db.execute({
@@ -2314,7 +2339,10 @@ export async function updateConsensusStatuses(db: DbClient, options: ConsensusSw
 
 // ─── Challenge Evaluation ──────────────────────────────────────────
 
-const CHALLENGE_REOPEN_VOTES = 3;
+// #5563 — exported: this is the epistemics extension's `reopenQuorumBase`,
+// advertised in `/.well-known/pact.json` straight from the binding
+// requiredReopenVotes() adds the blast-radius term to.
+export const CHALLENGE_REOPEN_VOTES = 3;
 
 // #3691 W4: the reopen bar scales with blast radius — the more claims
 // depend on a node, the more support a challenge needs to reopen it.
@@ -2326,7 +2354,10 @@ export function requiredReopenVotes(dependentCount: number): number {
 // A challenge that gathers neither reopen quorum nor traction lapses after
 // this window. Substantive challenges get their stake back even when they
 // lose; only quorum-judged vexatious ones (objections, zero support) forfeit.
-const CHALLENGE_LAPSE_SECONDS = 7 * 24 * 3600;
+// #5563 — exported: the profile advertises `challengeLapseDays` as this
+// value divided by a day, so the window cannot be advertised in one unit and
+// enforced in another.
+export const CHALLENGE_LAPSE_SECONDS = 7 * 24 * 3600;
 const CHALLENGE_VEXATIOUS_OBJECTIONS = 3;
 const PROPOSAL_STAKE = 5;
 

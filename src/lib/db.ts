@@ -4,6 +4,11 @@ import pg from "pg";
 import { v4 as uuid } from "uuid";
 import { dependencyGateOk, VERIFIED_TOPIC_STATUSES } from "./consensus-gate";
 import {
+  APPLY_BLOCKED_EVENT,
+  KG_APPLY_RESOURCE_TYPE,
+  evaluateApplyGuard,
+} from "./effect-class";
+import {
   computeEffectiveCredences,
   credenceFromRatio,
   type CredenceEdge,
@@ -1131,8 +1136,18 @@ export async function finalizeApprovedTopic(
     return "skipped";
   }
 
+  // §25.6 (#5535) — the second apply path. Reaching the pre-open approval
+  // quorum is a protocol state, so the ingest + promotion below is guarded
+  // exactly like the consensus sweep's. Fail-closed: an unclassified or
+  // guarded resource type refuses the apply and the topic falls through to
+  // 'open' (debate), never to 'consensus'.
+  const applyGuard = evaluateApplyGuard({
+    resourceType: KG_APPLY_RESOURCE_TYPE,
+    policy: "quorum",
+  });
+
   // Auto-ingest legislation proposals on consensus
-  if (title.startsWith("[Legislation Proposal]")) {
+  if (applyGuard.allowed && title.startsWith("[Legislation Proposal]")) {
     try {
       const legislationEvent = await db.execute({
         sql: "SELECT data FROM events WHERE topic_id = ? AND type = 'pact.legislation.proposed' LIMIT 1",
@@ -1160,6 +1175,16 @@ export async function finalizeApprovedTopic(
     } catch (e) {
       console.error(`Legislation auto-ingest failed for topic ${topicId}:`, e);
     }
+  } else if (!applyGuard.allowed && title.startsWith("[Legislation Proposal]")) {
+    // §25.9 — the block is the audit artifact, so it is emitted even though
+    // the topic still opens for debate below.
+    await emitEvent(db, topicId, APPLY_BLOCKED_EVENT, "", "", {
+      effect_class: applyGuard.effectClass,
+      human_attestation: applyGuard.humanAttestation,
+      required_principals: applyGuard.requiredPrincipals,
+      reason: applyGuard.reason,
+      policy: applyGuard.policy,
+    });
   }
 
   const opened = await db.execute({
@@ -1898,6 +1923,28 @@ export async function updateConsensusStatuses(db: DbClient, options: ConsensusSw
   }
   for (const d of phase1) {
     if (d.kind === "promote") {
+      // §25.6 (#5535) — the fail-closed apply guard runs BEFORE the apply,
+      // never after. A promotion becomes eligible here on quorum + alignment
+      // + the dependency gate, i.e. on protocol state alone; §25.6 forbids
+      // that from driving an apply whose effect class is
+      // external-irreversible or whose type requires human attestation. The
+      // KG's `fact` type is internal-reversible (see effect-class.ts for the
+      // ruling and its evidence) so this allows today — but an unclassified
+      // or guarded type resolves fail-closed and the promotion stops.
+      const guard = evaluateApplyGuard({
+        resourceType: KG_APPLY_RESOURCE_TYPE,
+        policy: "objection-based",
+      });
+      if (!guard.allowed) {
+        await emitEvent(db, d.id, APPLY_BLOCKED_EVENT, "", "", {
+          effect_class: guard.effectClass,
+          human_attestation: guard.humanAttestation,
+          required_principals: guard.requiredPrincipals,
+          reason: guard.reason,
+          policy: guard.policy,
+        });
+        continue;
+      }
       await db.execute({
         sql: `UPDATE topics SET
           status = 'consensus',

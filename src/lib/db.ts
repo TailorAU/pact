@@ -8,6 +8,7 @@ import {
   KG_APPLY_RESOURCE_TYPE,
   evaluateApplyGuard,
 } from "./effect-class";
+import { appendChainedEvent } from "./provenance-chain";
 import {
   computeEffectiveCredences,
   credenceFromRatio,
@@ -128,6 +129,21 @@ export interface DbResult {
 export interface DbClient {
   execute(stmtOrSql: string | { sql: string; args: unknown[] }): Promise<DbResult>;
   batch(stmts: { sql: string; args: unknown[] }[]): Promise<void>;
+  /**
+   * #5566 — run `fn` inside ONE database transaction, on ONE connection.
+   * The §6.4 provenance chain (`emitEvent` → `appendChainedEvent`) needs a
+   * read-then-write to be atomic: without it, two concurrent appends could
+   * read the same head and mint a duplicate sequence number, and a crash
+   * between the insert and the hash stamp would leave a hashless row that
+   * breaks the chain for every event after it.
+   *
+   * Optional so a test's in-memory `DbClient` mock stays a two-method
+   * object; every PRODUCTION client (`createPgClient`, the consensus
+   * sweep's connection-scoped client) implements it.
+   */
+  transaction?<T>(fn: (tx: DbClient) => Promise<T>): Promise<T>;
+  /** #5566 — true when this client is ALREADY inside an open transaction (never nest a BEGIN). */
+  inTransaction?: boolean;
 }
 
 let _pool: pg.Pool | null = null;
@@ -149,6 +165,55 @@ function pgify(sql: string): string {
   let s = sql.replace(/\?/g, () => `$${++idx}`);
   s = s.replace(/\b([a-z][a-zA-Z]*[A-Z]\w*)\b/g, '"$1"');
   return s;
+}
+
+/**
+ * #5566 — wraps ONE dedicated `pg` connection as a transaction-scoped
+ * `DbClient`. `inTransaction` is set so a nested `transaction()` call
+ * participates in the open transaction instead of issuing a second BEGIN
+ * (Postgres would warn and the inner COMMIT would commit the outer work).
+ */
+function createTransactionScopedClient(client: pg.PoolClient): DbClient {
+  const tx: DbClient = {
+    async execute(stmtOrSql): Promise<DbResult> {
+      const sql = typeof stmtOrSql === "string" ? stmtOrSql : stmtOrSql.sql;
+      const args = typeof stmtOrSql === "string" ? [] : stmtOrSql.args;
+      const result = await client.query(pgify(sql), args);
+      return { rows: result.rows, rowsAffected: result.rowCount ?? 0 };
+    },
+    async batch(stmts): Promise<void> {
+      // Already inside a transaction — the statements ride it, and the
+      // caller's COMMIT/ROLLBACK covers them.
+      for (const stmt of stmts) {
+        await client.query(pgify(stmt.sql), stmt.args);
+      }
+    },
+    inTransaction: true,
+  };
+  tx.transaction = async <T>(fn: (inner: DbClient) => Promise<T>): Promise<T> => fn(tx);
+  return tx;
+}
+
+/** #5566 — BEGIN/COMMIT around `fn` on a dedicated connection; ROLLBACK on any throw. */
+async function runInTransaction<T>(pool: pg.Pool, fn: (tx: DbClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(createTransactionScopedClient(client));
+    await client.query("COMMIT");
+    return result;
+  } catch (e) {
+    // A dead connection makes ROLLBACK throw; never let that mask the real
+    // failure the caller needs to see.
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      /* connection already unusable — the transaction is aborted regardless */
+    }
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 function createPgClient(): DbClient {
@@ -174,6 +239,10 @@ function createPgClient(): DbClient {
       } finally {
         client.release();
       }
+    },
+    // #5566 — the §6.4 chained append runs here.
+    transaction<T>(fn: (tx: DbClient) => Promise<T>): Promise<T> {
+      return runInTransaction(pool, fn);
     },
   };
 }
@@ -593,6 +662,33 @@ async function initSchema(db: DbClient) {
     // DERIVED, never client-writable; no write surface sets it today.
     // Additive; see lib/independence.ts for the counting rule + config.
     `ALTER TABLE agents ADD COLUMN IF NOT EXISTS independence_class TEXT`,
+    // ── §6.4 provenance chain over the PACT operation log (#5566) ──────────
+    // PACT v2.3 §6.4 (tightened by TailorAU/pact#60) requires a per-resource
+    // monotonic GAPLESS sequence number plus a prev_hash link; a store that
+    // never assigns sequenceNumber is non-conformant at Extended.
+    //
+    // Additive columns, NULL on every pre-#5566 row. Those rows are NEVER
+    // backfilled — the chain starts at a declared genesis instead (see
+    // lib/provenance-chain.ts § Genesis and docs/PROVENANCE_CHAIN.md).
+    //   epoch_ms        writer-stamped ms timestamp the hash commits to
+    //                   (reproducible without timestamptz precision games)
+    //   sequence_number per-topic gapless counter, first chained event = 1
+    //   prev_hash       previous chained event's hash, or a genesis sentinel
+    //   event_hash      base64url SHA-256 over the RFC 8785 canonical event
+    //   hash_alg        explicit algorithm id, so an unknown alg is REJECTED
+    //                   by a consumer rather than silently skipped
+    `ALTER TABLE events ADD COLUMN IF NOT EXISTS epoch_ms BIGINT`,
+    `ALTER TABLE events ADD COLUMN IF NOT EXISTS sequence_number BIGINT`,
+    `ALTER TABLE events ADD COLUMN IF NOT EXISTS prev_hash TEXT`,
+    `ALTER TABLE events ADD COLUMN IF NOT EXISTS event_hash TEXT`,
+    `ALTER TABLE events ADD COLUMN IF NOT EXISTS hash_alg TEXT`,
+    // The database-level backstop against a duplicate sequence number, which
+    // §6.4 treats exactly as a hash-chain break. Postgres treats NULLs as
+    // distinct, so the unchained legacy rows do not collide with each other.
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_events_topic_sequence ON events(topic_id, sequence_number)`,
+    // Chain-head lookup on the append path and the verifier's ordered walk.
+    `CREATE INDEX IF NOT EXISTS idx_events_chain ON events(topic_id, sequence_number DESC)`,
+
     // Legacy axiom-tier migration (#3691 W1): "axiom" was a privileged rank;
     // it becomes institutional warrant + the convention_stop flag, with
     // provenance kept in tier_migrated_from. Idempotent — the second UPDATE
@@ -975,6 +1071,23 @@ export async function wouldCreateCycle(db: DbClient, topicId: string, dependsOn:
 export const VALID_RELATIONSHIPS = ["builds_on", "assumes"] as const;
 export type DependencyRelationship = (typeof VALID_RELATIONSHIPS)[number];
 
+/**
+ * The single writer for the KG's PACT operation log — and, since #5566, the
+ * single point at which a §6.4 provenance chain link is minted.
+ *
+ * Every event goes onto its resource's hash chain: a gapless per-topic
+ * `sequenceNumber`, a `prev_hash` pointing at the previous event's hash, and
+ * its own `event_hash` over the RFC 8785 canonical encoding. The whole
+ * assignment runs inside ONE transaction (`db.transaction`), so a failure to
+ * chain rolls the event back and THROWS — it fails the operation rather than
+ * silently writing an unchained row. That transactional boundary is what
+ * stops the audit-log's deliberate best-effort posture (see lib/audit.ts)
+ * from applying to the chained stream.
+ *
+ * A `DbClient` without `transaction` (only test mocks; every production
+ * client implements it) still gets a fully chained, still-throwing append —
+ * only the all-or-nothing atomicity depends on the client.
+ */
 export async function emitEvent(
   db: DbClient,
   topicId: string,
@@ -983,10 +1096,22 @@ export async function emitEvent(
   sectionId?: string,
   data?: Record<string, unknown>
 ) {
-  await db.execute({
-    sql: "INSERT INTO events (topic_id, type, agent_id, section_id, data) VALUES (?, ?, ?, ?, ?)",
-    args: [topicId, type, agentId ?? null, sectionId ?? null, data ? JSON.stringify(data) : null],
-  });
+  const input = {
+    topicId,
+    eventType: type,
+    agentId: agentId ?? null,
+    sectionId: sectionId ?? null,
+    payloadJson: data ? JSON.stringify(data) : null,
+  };
+
+  // Already inside a caller's transaction ⇒ the chain link is assigned in
+  // the SAME transaction as the state change that transaction is recording.
+  if (db.inTransaction || !db.transaction) {
+    await appendChainedEvent(db, input);
+    return;
+  }
+
+  await db.transaction((tx) => appendChainedEvent(tx, input));
 }
 
 export async function autoMergeExpired(db: DbClient, sweepOptions: ConsensusSweepOptions = {}) {
@@ -1072,6 +1197,26 @@ export async function runConsensusSweep(
         await client.query("COMMIT");
       } catch (e) {
         await client.query("ROLLBACK");
+        throw e;
+      }
+    },
+    // #5566 — the sweep emits chained events too. It holds a SESSION-level
+    // advisory lock on this connection but no open transaction, so a real
+    // BEGIN/COMMIT here is correct (and the session lock survives it: the
+    // §6.4 append's per-resource lock lives in the two-int4 advisory space,
+    // which never collides with this one-bigint key).
+    async transaction<T>(fn: (tx: DbClient) => Promise<T>): Promise<T> {
+      try {
+        await client.query("BEGIN");
+        const result = await fn(createTransactionScopedClient(client));
+        await client.query("COMMIT");
+        return result;
+      } catch (e) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          /* connection already unusable — the transaction is aborted regardless */
+        }
         throw e;
       }
     },

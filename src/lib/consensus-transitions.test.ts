@@ -88,6 +88,7 @@ function makeDb(opts: {
 }) {
   const statements: Stmt[] = [];
   const statusById = { ...opts.statusById };
+  let nextEventRowId = 1; // #5566 — `events.id` for the chained INSERT ... RETURNING
   const db: DbClient = {
     async execute(stmtOrSql): Promise<DbResult> {
       const sql = typeof stmtOrSql === "string" ? stmtOrSql : stmtOrSql.sql;
@@ -141,7 +142,21 @@ function makeDb(opts: {
           ],
         };
       }
-      // INSERT INTO events (emitEvent), counters, etc.
+      // #5566 — emitEvent mints a §6.4 chain link, so the events INSERT must
+      // return the row id its hash stamp keys on. The chain-head read and the
+      // unchained count fall through below (empty ⇒ genesis), and the hash
+      // stamp is covered by the generic rowsAffected: 1 default.
+      if (sql.startsWith("INSERT INTO events")) {
+        return { rows: [{ id: nextEventRowId++ }], rowsAffected: 1 };
+      }
+      // Chain-head read: no chained rows in this fixture ⇒ genesis.
+      if (sql.includes("SELECT sequence_number, event_hash FROM events")) {
+        return { rows: [] };
+      }
+      if (sql.includes("COUNT(*) AS unchained_count")) {
+        return { rows: [{ unchained_count: 0 }] };
+      }
+      // pg_advisory_xact_lock, counters, etc.
       return { rows: [], rowsAffected: 1 };
     },
     async batch() {},

@@ -22,6 +22,9 @@ type ExecuteArg = string | { sql: string; args: unknown[] };
 
 const executedStatements: { sql: string; args: unknown[] }[] = [];
 
+/** #5566 — `events.id` the chained INSERT ... RETURNING hands back. */
+let nextEventRowId = 1;
+
 const mockDb = {
   execute: vi.fn<(stmt: ExecuteArg) => Promise<DbResult>>(),
   batch: vi.fn(),
@@ -143,10 +146,17 @@ function armDb(opts: {
     if (sql.includes("type = 'pact.legislation.proposed'")) {
       return { rows: [{ data: JSON.stringify(legislationPayload) }] };
     }
+    // #5566 — emitEvent now mints a §6.4 chain link, so the events INSERT
+    // must return the row id the hash stamp keys on. The chain-head read and
+    // the unchained count fall through to the empty default below, which
+    // models a resource with no events yet (genesis).
+    if (sql.startsWith("INSERT INTO events")) {
+      return { rows: [{ id: nextEventRowId++ }], rowsAffected: 1 };
+    }
     if (sql.startsWith("UPDATE")) {
       return { rows: [], rowsAffected: 1 };
     }
-    // INSERT INTO events (emitEvent), etc.
+    // SELECT pg_advisory_xact_lock / chain-head read / unchained count, etc.
     return { rows: [] };
   });
 }
@@ -178,6 +188,7 @@ beforeEach(() => {
   mockDb.execute.mockReset();
   ingestDocuments.mockClear();
   executedStatements.length = 0;
+  nextEventRowId = 1;
 });
 
 describe("POST /api/pact/{topicId}/vote — quorum transition (#5277)", () => {

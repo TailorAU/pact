@@ -37,7 +37,15 @@ type Registration = { topic_id: string; done_status: string | null };
 /** `answerMerged: true` models a merged proposal joined to an 'Answer' section. */
 type Proposal = { topic_id: string; status: string; agent_id: string; answerMerged?: boolean };
 type Dep = { topic_id: string; depends_on: string; relationship: string };
-type Ev = { id: number; topic_id: string; type: string };
+/** #5566 — events now carry their §6.4 chain link (NULL on legacy rows). */
+type Ev = {
+  id: number;
+  topic_id: string;
+  type: string;
+  sequence_number?: number | null;
+  prev_hash?: string | null;
+  event_hash?: string | null;
+};
 type Stmt = { sql: string; args: unknown[] };
 
 const VERIFIED = new Set(["consensus", "stable", "locked"]);
@@ -55,8 +63,17 @@ class MockDb implements DbClient {
   statements: Stmt[] = [];
   private nextEventId = 1;
 
-  addEvent(topicId: string, type: string) {
-    this.events.push({ id: this.nextEventId++, topic_id: topicId, type });
+  addEvent(topicId: string, type: string, chain?: { sequence_number: number; prev_hash: string }): Ev {
+    const ev: Ev = {
+      id: this.nextEventId++,
+      topic_id: topicId,
+      type,
+      sequence_number: chain?.sequence_number ?? null,
+      prev_hash: chain?.prev_hash ?? null,
+      event_hash: null,
+    };
+    this.events.push(ev);
+    return ev;
   }
 
   topic(id: string): Topic {
@@ -246,8 +263,37 @@ class MockDb implements DbClient {
       }
       return { rows };
     }
+    // ── §6.4 provenance chain (#5566) ──
+    // The sweep emits chained events, so the mock implements the writer's
+    // SQL surface: advisory lock, chain-head read, unchained count,
+    // insert-returning-id, hash stamp.
+    if (sql.includes("pg_advisory_xact_lock")) {
+      return { rows: [] };
+    }
+    if (sql.includes("SELECT sequence_number, event_hash FROM events")) {
+      const head = this.events
+        .filter((e) => e.topic_id === args[0] && e.sequence_number != null)
+        .sort((a, b) => b.sequence_number! - a.sequence_number!)[0];
+      return { rows: head ? [{ sequence_number: head.sequence_number, event_hash: head.event_hash }] : [] };
+    }
+    if (sql.includes("COUNT(*) AS unchained_count")) {
+      const scoped = this.events.filter((e) => e.topic_id === args[0]);
+      const matching = sql.includes("sequence_number IS NULL")
+        ? scoped.filter((e) => e.sequence_number == null)
+        : scoped;
+      return { rows: [{ unchained_count: matching.length }] };
+    }
     if (sql.includes("INSERT INTO events")) {
-      this.addEvent(args[0] as string, args[1] as string);
+      const ev = this.addEvent(args[0] as string, args[1] as string, {
+        sequence_number: args[6] as number,
+        prev_hash: args[7] as string,
+      });
+      return { rows: [{ id: ev.id }], rowsAffected: 1 };
+    }
+    if (sql.includes("UPDATE events SET event_hash")) {
+      const ev = this.events.find((e) => e.id === args[1]);
+      if (!ev) return { rows: [], rowsAffected: 0 };
+      ev.event_hash = args[0] as string;
       return { rows: [], rowsAffected: 1 };
     }
 

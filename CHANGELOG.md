@@ -12,6 +12,21 @@ releases).
 
 ### Added
 
+- **PACT v2.3 §6.4 provenance chain over the PACT operation log** (#5566).
+  Every event written through `emitEvent` now carries a per-resource gapless
+  `sequence_number`, a `prev_hash` linking it to the previous event's hash,
+  its own `event_hash` (`base64url(SHA-256(RFC 8785 canonical event))`) and an
+  explicit `hash_alg` (`sha256-jcs@1`). Assignment runs inside one database
+  transaction with a per-resource advisory lock and a UNIQUE index on
+  `(topic_id, sequence_number)`; a failure to chain fails the operation rather
+  than writing an unchained row. Pre-#5566 rows are **not** backfilled — the
+  chain starts at a declared genesis (`GENESIS`, or `GENESIS-UNCHAINED` where
+  unchained history exists) and the verifier reports the uncovered rows.
+  New `verifyResourceChain` / `verifyOrderedChain` walk a resource's chain and
+  report the first break (gap, duplicate, tamper, broken link, missing hash,
+  unknown algorithm) as a structured record rather than a boolean. The five
+  columns are already published by `GET /api/pact/{topicId}/events`. Design +
+  genesis record: `docs/PROVENANCE_CHAIN.md`.
 - (placeholder — additions landing on `main` between dated releases will be listed here)
 
 ### Changed

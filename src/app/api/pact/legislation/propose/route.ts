@@ -139,17 +139,17 @@ export async function POST(req: NextRequest) {
   // proposal's count at tally time regardless (lib/independence.ts,
   // allowSelfApproval defaults false per spec §5).
 
-  const pendingDocJson = JSON.stringify({
+  // #5566 — this used to write the events row with a raw insert, which
+  // bypassed the §6.4 provenance chain and left an unchained row in the
+  // middle of the resource's log. Every event for a KG resource goes through
+  // emitEvent so it gets a gapless sequence number and a prev_hash link. The
+  // stored payload shape is unchanged (finalizeApprovedTopic reads
+  // `payload.document` / `payload.proposedBy` from it).
+  await emitEvent(db, proposalTopicId, "pact.legislation.proposed", agent.id, undefined, {
     document,
     proposedBy: agent.id,
     proposedAt: new Date().toISOString(),
     gazetteUrl: gazetteUrl || null,
-  });
-
-  await db.execute({
-    sql: `INSERT INTO events (topic_id, type, agent_id, data)
-          VALUES (?, 'pact.legislation.proposed', ?, ?)`,
-    args: [proposalTopicId, agent.id, pendingDocJson],
   });
 
   await emitEvent(db, proposalTopicId, "pact.topic.proposed", agent.id, "", {

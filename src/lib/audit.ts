@@ -15,6 +15,15 @@
 //   schema simple and the write path resilient against JSONB validation.
 //
 // Privacy Act mapping + 7-year retention policy: see docs/AUDIT.md.
+//
+// #5566 — this is NOT the PACT §6.4 operation log, and the best-effort
+// posture above is why it could never be. §6.4 needs a GAPLESS chain, and a
+// dropped best-effort write is an undetectable gap. The §6.4 stream is the
+// `events` table, written only through `emitEvent` (lib/db.ts), which mints
+// a per-resource `sequence_number` + `prev_hash` link inside a transaction
+// and THROWS on any failure to chain — see lib/provenance-chain.ts. Keep the
+// two apart: audit_log is the Privacy-Act compliance trail, deliberately
+// best-effort; `events` is the third-party-verifiable protocol log.
 
 import { createHash } from "node:crypto";
 import { getDb, type DbClient } from "./db";

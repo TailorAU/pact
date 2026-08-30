@@ -26,9 +26,24 @@ export async function GET(req: NextRequest) {
 
   const db = await getDb();
 
-  // 1. Purge events older than 30 days
+  // 1. Purge UNCHAINED events older than 30 days.
+  //
+  // #5566 — `sequence_number IS NULL` is load-bearing, not a filter for
+  // tidiness. Chained events carry a §6.4 provenance chain, and §6.4 is
+  // explicit that "Sequence numbers are never reused, never reassigned, and
+  // never skipped. A compacted or tombstoned event retains its position —
+  // compaction replaces payload content, not chain position." Deleting a
+  // chained row punches a permanent, unrecoverable gap into its resource's
+  // chain, which every verifier would then (correctly) report as evidence of
+  // tampering. So this purge keeps doing exactly what it always did to the
+  // pre-#5566 unchained backlog, and stops at the chain.
+  //
+  // The §6.3 retention policy for the chained stream (declared minimum,
+  // tombstone-in-place rather than delete) is deliberately follow-on work —
+  // #5566 lists retention/tombstone policy as out of scope. Until it lands,
+  // the honest behaviour is to retain the chain, not to shred it.
   const eventsResult = await db.execute(
-    `DELETE FROM events WHERE created_at < NOW() - INTERVAL '30 days'`
+    `DELETE FROM events WHERE sequence_number IS NULL AND created_at < NOW() - INTERVAL '30 days'`
   );
 
   // 2. Purge resolved (merged/rejected) proposals older than 90 days

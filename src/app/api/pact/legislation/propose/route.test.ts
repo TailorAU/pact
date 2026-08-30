@@ -86,12 +86,13 @@ describe("POST /api/pact/legislation/propose", () => {
 
     expect(response.status).toBe(201);
     expect(getDbMock).toHaveBeenCalledOnce();
-    const proposedEvent = mockDb.execute.mock.calls
-      .map(([statement]) => statement)
-      .find((statement): statement is Statement =>
-        typeof statement !== "string" && statement.sql.includes("pact.legislation.proposed"));
+    // #5566 — the pending-document event goes through emitEvent (and so onto
+    // the §6.4 chain) instead of a direct INSERT INTO events.
+    const proposedEvent = emitEventMock.mock.calls.find(
+      (call) => call[2] === "pact.legislation.proposed"
+    );
     expect(proposedEvent).toBeDefined();
-    const persisted = JSON.parse(proposedEvent?.args[2] as string) as {
+    const persisted = proposedEvent?.[5] as {
       document: Record<string, unknown> & {
         sections: Array<Record<string, unknown>>;
       };

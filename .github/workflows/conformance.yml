@@ -219,6 +219,51 @@ jobs:
             "$GITHUB_WORKSPACE/v23-conformance-report.json" \
             "$GITHUB_WORKSPACE/.github/conformance/v2.3-reference-server-expected-failures.json"
 
+      - name: Stamp spec + vector-set provenance into the report
+        # if: always() — the report of a failing run must still be enriched so
+        # the artifact below carries provenance even when the gate is red.
+        # Enriching in CI (jq over the emitted JSON) rather than in the runner
+        # keeps the diff to this workflow: no runner change, no runner release.
+        # The expected-failures gate above reads only `results` and `counts`,
+        # so the added top-level keys cannot affect it — and it has already
+        # run against this file by the time we stamp.
+        if: always()
+        run: |
+          REPORT="$GITHUB_WORKSPACE/v23-conformance-report.json"
+          if [ ! -s "$REPORT" ]; then
+            echo "No report was produced (runner crashed before writing) — nothing to stamp."
+            exit 0
+          fi
+          if ! jq empty "$REPORT" 2>/dev/null; then
+            echo "Report is not valid JSON — publishing it as-is without provenance."
+            exit 0
+          fi
+          # spec_version: the spec generation this job's vector set targets
+          # (the job is hard-bound to spec/v2.3/** throughout).
+          # vector_set_ref: the commit actually checked out — for pull_request
+          # events GITHUB_SHA is the merge commit, which is exactly the tree
+          # the vectors were read from.
+          jq --arg spec_version "2.3" --arg vector_set_ref "$GITHUB_SHA" \
+            '. + { spec_version: $spec_version, vector_set_ref: $vector_set_ref }' \
+            "$REPORT" > "$REPORT.tmp"
+          mv "$REPORT.tmp" "$REPORT"
+          echo "Stamped provenance:"
+          jq '{ spec_version, vector_set_ref, counts }' "$REPORT"
+
+      - name: Publish the v2.3 conformance report artifact
+        # if: always() — the report of a FAILING run is exactly the evidence
+        # tailor-app#5567 wants preserved: a red expected-failures gate must
+        # still publish what actually ran so the failure can be audited from
+        # the artifact rather than reconstructed from logs.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v23-conformance-report
+          path: v23-conformance-report.json
+          # The runner can crash (exit > 1) before writing the report; the job
+          # is already red from the run step, so a missing file only warns.
+          if-no-files-found: warn
+
       - name: Stop the v2.3 reference server
         if: always()
         run: |

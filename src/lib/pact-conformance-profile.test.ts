@@ -1,9 +1,624 @@
 import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
-import { buildPactProfile } from "./pact-profile";
+import {
+  APPLY_GUARD_ENFORCED,
+  AUTHORIZATION_PROOF_SUPPORTED,
+  EXECUTION_CAPABILITY,
+  KG_CLASSIFIED_RESOURCE_TYPES,
+  resolveResourceType,
+} from "./effect-class";
+import { CONSENSUS_RATIO } from "./db";
+import { INDEPENDENCE_CONFIG } from "./independence";
+import { VERIFIED_TOPIC_STATUSES } from "./consensus-gate";
+import { buildPactProfile, EPISTEMICS_EXTENSION, PUBLIC_BASE_URL } from "./pact-profile";
 import type { RetentionPolicy } from "./pact-profile";
 import { UNCHAINED_EVENTS_PURGED, UNCHAINED_EVENT_RETENTION_DAYS } from "./retention";
+
+/**
+ * Drift gate for the published conformance profile (#5541).
+ *
+ * `PACT_CONFORMANCE.md` is the KG's public conformance claim. The #5488 W6
+ * parity audit found it understating the implementation for months — two
+ * capabilities declared `false` that were fully built, 6 of 28 API routes
+ * listed, and consensus thresholds frozen at their April 2026 values while
+ * the dependency gate (#2888/#3691) and independence-class quorums
+ * (#5459/#5464) had superseded them.
+ *
+ * A profile nobody can drift-check drifts. This suite re-derives the claim
+ * from the implementation on every run: it parses the JSON block, walks
+ * `src/app/api/pact/` for every route file, and reads the thresholds out of
+ * the modules that enforce them. Add a route, flip a capability, or move a
+ * threshold without updating the profile, and this fails.
+ */
+
+const SOURCE_ROOT = path.resolve(__dirname, "..", "..");
+const PROFILE_PATH = path.join(SOURCE_ROOT, "PACT_CONFORMANCE.md");
+const PACT_ROUTES_DIR = path.join(SOURCE_ROOT, "src", "app", "api", "pact");
+const SRC_DIR = path.join(SOURCE_ROOT, "src");
+/** This file names the tokens it forbids, so it excludes itself from its greps. */
+const THIS_FILE = "pact-conformance-profile.test.ts";
+
+const profileMarkdown = fs.readFileSync(PROFILE_PATH, "utf8");
+
+interface DeclaredGapJson {
+  area: string;
+  tracking?: string;
+  statement?: string;
+}
+
+/**
+ * The WHOLE served document, not a hand-picked slice of it.
+ *
+ * The previous shape modelled seven keys and left `retentionPolicy`,
+ * `provenance`, `extensions` and `declaredGaps` unmodelled — so a peer could
+ * edit `"hashAlg": "sha256-jcs@1"` to `"md5"` in the block and `npm test`
+ * stayed green. Every key the builder emits is modelled here because every key
+ * is now compared.
+ */
+interface ProfileJson {
+  name: string;
+  version: string;
+  specVersion: string;
+  conformanceLevel: string;
+  resourceTypes: {
+    type: string;
+    effectClass?: string;
+    humanAttestation?: string;
+    terminalStates?: string[];
+  }[];
+  retentionPolicy: Record<string, unknown>;
+  provenance: Record<string, unknown>;
+  capabilities: Record<string, boolean>;
+  endpoints: Record<string, string>;
+  extensions: Record<string, unknown>;
+  declaredGaps: DeclaredGapJson[];
+}
+
+function parseProfileJson(): ProfileJson {
+  const block = profileMarkdown.match(/```json\r?\n([\s\S]*?)\r?\n```/);
+  if (!block) throw new Error("PACT_CONFORMANCE.md carries no ```json implementation-profile block");
+  return JSON.parse(block[1]) as ProfileJson;
+}
+
+/** Every .ts/.tsx under src/, so an invariant can be asserted repo-wide. */
+function allSourceFiles(dir: string = SRC_DIR): string[] {
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...allSourceFiles(full));
+    else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) out.push(full);
+  }
+  return out;
+}
+
+const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
+
+interface RouteRow {
+  readonly path: string;
+  readonly methods: string[];
+}
+
+/**
+ * The HTTP methods a Next route module actually exports. Both shapes count:
+ * `export async function GET` (27 of the 28) and `export const GET` (the
+ * `topics/{topicId}` alias, which re-exports the `{topicId}` handler).
+ */
+function routeMethods(file: string): string[] {
+  const source = fs.readFileSync(file, "utf8");
+  return HTTP_METHODS.filter(
+    (method) =>
+      new RegExp(`export\\s+(?:async\\s+function|function|const|let|var)\\s+${method}\\b`).test(source) ||
+      new RegExp(`export\\s*\\{[^}]*\\b${method}\\b[^}]*\\}`).test(source)
+  );
+}
+
+/**
+ * Every `api/pact` route, as the wire path it is served at plus the methods
+ * its module exports. Directory segments in Next's `[param]` form become
+ * `{param}` so they read the way the profile's API table writes them.
+ */
+function discoverPactRoutes(dir: string = PACT_ROUTES_DIR, prefix = "/api/pact"): RouteRow[] {
+  const out: RouteRow[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      const segment = entry.name.replace(/^\[(\.{3})?(.+)\]$/, "{$2}");
+      out.push(...discoverPactRoutes(path.join(dir, entry.name), `${prefix}/${segment}`));
+    } else if (entry.name === "route.ts") {
+      out.push({ path: prefix, methods: routeMethods(path.join(dir, entry.name)) });
+    }
+  }
+  return out.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+const API_TABLE_HEADER = "| Method(s) | Path | Purpose |";
+
+/**
+ * Every ROW of the profile's API-mapping tables, as `{path, methods}`.
+ *
+ * Keyed on the table HEADER, never on a path-shaped substring. That
+ * distinction is the whole repair: the previous check asked only whether the
+ * route string appeared ANYWHERE in the document, which `/api/pact/{topicId}`
+ * satisfied by prefix for most rows and which `endpoints.poll` inside the JSON
+ * block satisfied on its own for the events route.
+ */
+function parseApiTable(markdown: string): RouteRow[] {
+  const rows: RouteRow[] = [];
+  let inTable = false;
+  for (const line of markdown.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === API_TABLE_HEADER) {
+      inTable = true;
+      continue;
+    }
+    if (!inTable) continue;
+    if (/^\|\s*-{3,}/.test(trimmed)) continue;
+    if (!trimmed.startsWith("|")) {
+      inTable = false;
+      continue;
+    }
+    const cells = trimmed.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+    const routePath = cells.length > 1 ? cells[1].match(/`([^`]+)`/) : null;
+    if (!routePath) {
+      inTable = false;
+      continue;
+    }
+    rows.push({ path: routePath[1], methods: [...cells[0].matchAll(/`([A-Z]+)`/g)].map((m) => m[1]) });
+  }
+  return rows;
+}
+
+/** Every value-level divergence between two JSON documents, as dotted paths. */
+function jsonDiff(document: unknown, served: unknown, at = "$"): string[] {
+  if (JSON.stringify(document) === JSON.stringify(served)) return [];
+  if (
+    Array.isArray(document) &&
+    Array.isArray(served) &&
+    document.length === served.length
+  ) {
+    return document.flatMap((entry, i) => jsonDiff(entry, served[i], `${at}[${i}]`));
+  }
+  const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+    typeof v === "object" && v !== null && !Array.isArray(v);
+  if (isPlainObject(document) && isPlainObject(served)) {
+    const keys = [...new Set([...Object.keys(document), ...Object.keys(served)])].sort();
+    return keys.flatMap((k) => jsonDiff(document[k], served[k], `${at}.${k}`));
+  }
+  return [`${at}: document ${JSON.stringify(document)} != served ${JSON.stringify(served)}`];
+}
+
+const profile = parseProfileJson();
+const pactRoutes = discoverPactRoutes();
+const pactPaths = pactRoutes.map((r) => r.path);
+const documentedRoutes = parseApiTable(profileMarkdown);
+const generatedProfile = buildPactProfile();
+
+/**
+ * `buildPactProfile()` rendered the way the Markdown block is PERMITTED to
+ * render it — the two declared departures applied and nothing else. Anything
+ * the block says that this object does not is drift.
+ *
+ * Departure 1 — `specVersion` is deliberately stale (#5539's scope).
+ * Departure 2 — `declaredGaps[].statement` is abridged away for length.
+ */
+function servedAsDocumentMayRenderIt(): Record<string, unknown> {
+  const served = JSON.parse(JSON.stringify(generatedProfile)) as Record<string, unknown>;
+  served.specVersion = profile.specVersion;
+  served.declaredGaps = (served.declaredGaps as DeclaredGapJson[]).map((gap) =>
+    gap.tracking === undefined ? { area: gap.area } : { area: gap.area, tracking: gap.tracking }
+  );
+  return served;
+}
+
+describe("published profile — capabilities match the implementation (#5541)", () => {
+  it("inviteTokens is true, and the mint + redeem + exhaustion path exists", () => {
+    expect(profile.capabilities.inviteTokens).toBe(true);
+    const joinToken = fs.readFileSync(
+      path.join(PACT_ROUTES_DIR, "[topicId]", "join-token", "route.ts"),
+      "utf8"
+    );
+    expect(joinToken).toContain("SELECT * FROM invite_tokens WHERE token = ? AND topic_id = ?");
+    expect(joinToken).toContain("Invite token exhausted");
+    // Minted on topic creation — a redeem path with no mint would be a
+    // half-capability, and declaring it true would be the same defect in the
+    // other direction.
+    const topics = fs.readFileSync(path.join(PACT_ROUTES_DIR, "topics", "route.ts"), "utf8");
+    expect(topics).toContain("INSERT INTO invite_tokens");
+  });
+
+  it("structuredNegotiation is true, and every §10 primitive is served", () => {
+    expect(profile.capabilities.structuredNegotiation).toBe(true);
+    for (const primitive of ["intents", "constraints", "salience", "dependencies", "assumptions"]) {
+      expect(pactPaths).toContain(`/api/pact/{topicId}/${primitive}`);
+    }
+  });
+
+  it("mediatedCommunication and informationBarriers stay false — nothing implements them", () => {
+    expect(profile.capabilities.mediatedCommunication).toBe(false);
+    expect(profile.capabilities.informationBarriers).toBe(false);
+    // A §13 mediator surface would show up as a route; none does.
+    expect(pactPaths.filter((r) => /mediat|barrier|clearance/i.test(r))).toEqual([]);
+  });
+
+  it("the §25 capability flags are read from the module that enforces them", () => {
+    expect(profile.capabilities.applyGuard).toBe(APPLY_GUARD_ENFORCED);
+    expect(profile.capabilities.authorizationProof).toBe(AUTHORIZATION_PROOF_SUPPORTED);
+    expect(profile.capabilities.executionCapability).toBe(EXECUTION_CAPABILITY);
+  });
+
+  it("keeps authorizationProof false — refusing unsupported fields is not proof support", () => {
+    expect(AUTHORIZATION_PROOF_SUPPORTED).toBe(false);
+    expect(profile.capabilities.authorizationProof).toBe(false);
+    expect(generatedProfile.capabilities.authorizationProof).toBe(false);
+    expect(profileMarkdown).toContain(
+      "the KG performs no §17.6 `authorization_proof` verification of any kind"
+    );
+  });
+
+  it("advertises exactly the types the §25.6 filter lets it, with the resolver's classification", () => {
+    expect(profile.resourceTypes.map((t) => t.type)).toEqual(
+      generatedProfile.resourceTypes.map((t) => t.type)
+    );
+    for (const declared of profile.resourceTypes) {
+      const registered = KG_CLASSIFIED_RESOURCE_TYPES.find((t) => t.type === declared.type);
+      expect(registered, `${declared.type} is advertised but not in the registry`).toBeDefined();
+      const enforced = resolveResourceType(declared.type);
+      expect(declared.effectClass).toBe(enforced.effectClass);
+      expect(declared.humanAttestation).toBe(enforced.humanAttestation);
+    }
+  });
+});
+
+describe("published profile — the JSON block IS the served document (#5541)", () => {
+  it("carries exactly the top-level keys buildPactProfile() emits", () => {
+    // The document's claim: "any top-level key the builder gains that this
+    // block does not carry fails that suite". Before this test, four of the
+    // eleven keys were unmodelled and therefore uncompared, which is how
+    // atomicOnboard / manifest / mandates / parleys went missing unnoticed
+    // (§ What changed, the sessionAwareness row).
+    expect(Object.keys(profile).sort()).toEqual(Object.keys(generatedProfile).sort());
+  });
+
+  it("states its two departures, so they cannot be quietly widened", () => {
+    expect(profileMarkdown).toContain("departures and no others");
+    expect(profileMarkdown).toContain("`declaredGaps[].statement` is abridged away");
+  });
+
+  it("departure 1: a specVersion divergence exists only while the header calls it stale", () => {
+    // Rises and falls together. The marker is parsed independently of the
+    // block — a probe interpolating `profile.specVersion` would chase a
+    // tampered block and hold vacuously (aligning the block to the wire while
+    // the v1.1 STALE header stood was green; that was the gap this test
+    // claimed to close). Silently aligning the value while the STALE marker
+    // stands is red; dropping the marker while the value still diverges is
+    // red; #5539 landing and doing BOTH is green.
+    const staleMarker = profileMarkdown.match(
+      /\*\*PACT Spec Version:\*\* v([\d.]+) — \*\*STALE/
+    );
+    const diverges = profile.specVersion !== generatedProfile.specVersion;
+    if (staleMarker) {
+      // While the marker stands: header, block and the departure-1 prose must
+      // all name the same stale value, and the block must ACTUALLY differ
+      // from the wire — a stale declaration over a non-divergence is a lie in
+      // the other direction.
+      expect(staleMarker[1]).toBe(profile.specVersion);
+      expect(diverges).toBe(true);
+      expect(profileMarkdown).toContain(
+        `**\`specVersion\` reads \`${profile.specVersion}\` here and ` +
+          `\`${generatedProfile.specVersion}\` on the wire.**`
+      );
+    } else {
+      // Marker dropped (#5539 landed): the block must equal the wire.
+      expect(diverges).toBe(false);
+    }
+  });
+
+  it("departure 2: gap areas in served order, tracking as served, no statement at all", () => {
+    expect(profile.declaredGaps.map((g) => g.area)).toEqual(
+      generatedProfile.declaredGaps.map((g) => g.area)
+    );
+    expect(profile.declaredGaps.map((g) => g.tracking ?? null)).toEqual(
+      generatedProfile.declaredGaps.map((g) => g.tracking ?? null)
+    );
+    // An abridged entry can never become a WRONG one, because it may not carry
+    // the field that could be wrong.
+    expect(profile.declaredGaps.filter((g) => "statement" in g).map((g) => g.area)).toEqual([]);
+  });
+
+  it("every other key, at every depth, equals buildPactProfile() value-for-value", () => {
+    const documentAsJson = JSON.parse(JSON.stringify(profile)) as Record<string, unknown>;
+    expect(jsonDiff(documentAsJson, servedAsDocumentMayRenderIt())).toEqual([]);
+  });
+
+  it("declares every well-known capability flag the builder emits, with its value", () => {
+    expect(profile.capabilities).toEqual(generatedProfile.capabilities);
+    expect(Object.keys(profile.capabilities).sort()).toEqual(
+      Object.keys(generatedProfile.capabilities).sort()
+    );
+  });
+
+  it("no attestation_chain handling exists in the KG tree, so the row's disclaimer stays true", () => {
+    // PACT_CONFORMANCE.md's authorizationProof row names Tailor's separate C#
+    // guard (#5583) and disclaims it as a DIFFERENT implementation. An earlier
+    // revision attributed it to the KG. This is the grep that stops it coming
+    // back — the same shape as effect-class.test.ts's execution-label sweep.
+    const offenders = allSourceFiles()
+      .filter((f) => path.basename(f) !== THIS_FILE)
+      .filter((f) => fs.readFileSync(f, "utf8").includes("attestation_chain"))
+      .map((f) => path.relative(SOURCE_ROOT, f));
+    expect(offenders).toEqual([]);
+    expect(profileMarkdown).toContain("the KG's own tree contains no such handling");
+  });
+
+  it("describes envelope.ts as it is since #5535 — a real field whose value is absent", () => {
+    const envelope = fs.readFileSync(
+      path.join(SOURCE_ROOT, "src", "lib", "types", "envelope.ts"),
+      "utf8"
+    );
+    expect(envelope).toContain("attestation_ref: AttestationRef | null;");
+    expect(profileMarkdown).toContain("types `attestation_ref` as `AttestationRef | null`");
+    // The pre-#5535 shape the audit removed: a field whose TYPE is null.
+    expect(profileMarkdown).not.toContain("types `attestation_ref` as `null`");
+  });
+
+  it("every check in this section can actually fail", () => {
+    const served = servedAsDocumentMayRenderIt();
+    const clone = () => JSON.parse(JSON.stringify(served)) as Record<string, unknown>;
+
+    // A changed scalar at depth — the `"hashAlg": "md5"` edit that used to pass.
+    const tampered = clone();
+    (tampered.provenance as Record<string, unknown>).hashAlg = "md5";
+    expect(jsonDiff(tampered, served)).not.toEqual([]);
+
+    // A top-level key the builder has and the block does not.
+    const shrunk = clone();
+    delete shrunk.provenance;
+    expect(jsonDiff(shrunk, served)).not.toEqual([]);
+
+    // A gap that grows a statement back.
+    const wordy = clone();
+    (wordy.declaredGaps as DeclaredGapJson[])[0].statement = "…";
+    expect(jsonDiff(wordy, served)).not.toEqual([]);
+
+    // Gaps out of served order.
+    const shuffled = clone();
+    (shuffled.declaredGaps as DeclaredGapJson[]).reverse();
+    expect(jsonDiff(shuffled, served)).not.toEqual([]);
+
+    // An epistemics threshold moved under the extension key.
+    const loosened = clone();
+    const ext = (loosened.extensions as Record<string, unknown>)[EPISTEMICS_EXTENSION] as Record<
+      string,
+      unknown
+    >;
+    ext.consensusRatio = 0.5;
+    expect(jsonDiff(loosened, served)).not.toEqual([]);
+
+    // …and the identity comparison must NOT fire.
+    expect(jsonDiff(served, served)).toEqual([]);
+  });
+});
+
+describe("published profile — the API table IS the route tree (#5541)", () => {
+  it("discovers a non-trivial route set (the audit counted ~20; the tree has more)", () => {
+    expect(pactRoutes.length).toBeGreaterThanOrEqual(28);
+  });
+
+  it("names every served route — a new route with no table row fails", () => {
+    const missing = pactPaths.filter((p) => !documentedRoutes.some((d) => d.path === p));
+    expect(missing).toEqual([]);
+  });
+
+  it("names no route the tree does not serve — a deleted route's stale row fails", () => {
+    // The direction the substring check could not see at all. A delete+add pair
+    // defeated the >= 28 count floor and left the dead row standing.
+    const stale = documentedRoutes
+      .map((d) => d.path)
+      .filter((p) => !pactPaths.includes(p));
+    expect(stale).toEqual([]);
+  });
+
+  it("publishes each route's methods exactly as its module exports them", () => {
+    const wrong = pactRoutes
+      .map((route) => ({
+        path: route.path,
+        served: [...route.methods].sort(),
+        documented: [...(documentedRoutes.find((d) => d.path === route.path)?.methods ?? [])].sort(),
+      }))
+      .filter((r) => r.served.join(",") !== r.documented.join(","));
+    expect(wrong).toEqual([]);
+  });
+
+  it("lists each route exactly once", () => {
+    const seen = documentedRoutes.map((d) => d.path);
+    expect(seen.filter((p, i) => seen.indexOf(p) !== i)).toEqual([]);
+  });
+
+  it("the rejection path is documented — it was the headline of #5426 and went unlisted", () => {
+    expect(pactPaths).toContain("/api/pact/{topicId}/proposals/{proposalId}/reject");
+    expect(documentedRoutes.map((d) => d.path)).toContain(
+      "/api/pact/{topicId}/proposals/{proposalId}/reject"
+    );
+  });
+
+  it("every check in this section can actually fail", () => {
+    const header = `${API_TABLE_HEADER}\n|---|---|---|\n`;
+
+    expect(parseApiTable(`${header}| \`GET\` | \`/api/pact/wallet\` | x |\n`)).toEqual([
+      { path: "/api/pact/wallet", methods: ["GET"] },
+    ]);
+
+    // A method set the module does not export is VISIBLE, not swallowed.
+    expect(
+      parseApiTable(`${header}| \`GET\`, \`POST\` | \`/api/pact/wallet\` | x |\n`)[0].methods
+    ).toEqual(["GET", "POST"]);
+
+    // Prefix shadowing no longer satisfies a row — comparison is exact-path.
+    expect(
+      parseApiTable(`${header}| \`GET\` | \`/api/pact/topics\` | x |\n`).some(
+        (r) => r.path === "/api/pact/topics/{topicId}"
+      )
+    ).toBe(false);
+
+    // A mention outside a table is not a row: `endpoints.poll` in the JSON
+    // block used to satisfy the events route all by itself.
+    expect(parseApiTable("`/api/pact/{topicId}/events` in prose, not a table")).toEqual([]);
+
+    // The extractor reads BOTH export shapes the tree actually uses.
+    expect(
+      routeMethods(path.join(PACT_ROUTES_DIR, "[topicId]", "dependencies", "route.ts"))
+    ).toEqual(["GET", "POST", "DELETE"]);
+    expect(routeMethods(path.join(PACT_ROUTES_DIR, "topics", "[topicId]", "route.ts"))).toEqual([
+      "GET",
+    ]);
+
+    // …and the real document parses to one row per served route.
+    expect(parseApiTable(profileMarkdown)).toHaveLength(pactRoutes.length);
+  });
+});
+
+describe("published profile — consensus thresholds are re-derived, not restated (#5541)", () => {
+  const dbSource = fs.readFileSync(path.join(SOURCE_ROOT, "src", "lib", "db.ts"), "utf8");
+
+  function constFromDb(name: string): string {
+    const m = dbSource.match(new RegExp(`const ${name} = ([^;]+);`));
+    if (!m) throw new Error(`db.ts no longer defines ${name}`);
+    return m[1].trim();
+  }
+
+  it("the published alignment ratio equals CONSENSUS_RATIO", () => {
+    expect(constFromDb("CONSENSUS_RATIO")).toBe("0.90");
+    expect(profileMarkdown).toContain(">= 0.90` (`CONSENSUS_RATIO`)");
+  });
+
+  it("the published stabilisation window equals STABLE_DAYS", () => {
+    expect(constFromDb("STABLE_DAYS")).toBe("30");
+    expect(profileMarkdown).toContain("`STABLE_DAYS = 30`");
+  });
+
+  it("the published convention-stop quorum equals CONVENTION_STOP_BASE_AGENTS", () => {
+    expect(dbSource).toContain("export const CONVENTION_STOP_BASE_AGENTS = 2;");
+    expect(profileMarkdown).toContain("`CONVENTION_STOP_BASE_AGENTS = 2`");
+  });
+
+  it("every tier's participation floor is published with the value db.ts enforces", () => {
+    const block = dbSource.match(/export const TIER_BASE_AGENTS: Record<string, number> = \{([\s\S]*?)\};/);
+    expect(block).not.toBeNull();
+    const tiers = [...block![1].matchAll(/(\w+):\s*(\d+)/g)].map((m) => ({ tier: m[1], floor: Number(m[2]) }));
+    expect(tiers.length).toBeGreaterThan(0);
+    for (const { tier, floor } of tiers) {
+      // The tier must be named in the profile, in a table row that also
+      // carries its floor.
+      const row = profileMarkdown
+        .split("\n")
+        .find((line) => line.includes("|") && line.includes(`\`${tier}\``) && /\|\s*\d+\s*\|/.test(line));
+      expect(row, `tier ${tier} (floor ${floor}) is not published with its floor`).toBeDefined();
+      expect(row).toMatch(new RegExp(`\\|\\s*${floor}\\s*\\|`));
+    }
+  });
+
+  it("the dependency gate is published as a promotion gate, not as an April 2026 vote threshold", () => {
+    expect(profileMarkdown).toContain("dependencyGateOk");
+    expect(profileMarkdown).toContain("unmetDependencies == 0");
+    // The stale claims the audit named must be gone.
+    expect(profileMarkdown).not.toContain("3+ agents must vote to open debate");
+    expect(profileMarkdown).not.toContain("90%+ agents align");
+  });
+
+  it("the published verified set equals VERIFIED_TOPIC_STATUSES", () => {
+    for (const status of VERIFIED_TOPIC_STATUSES) {
+      expect(profileMarkdown).toContain(`\`${status}\``);
+    }
+  });
+
+  it("the published independence-class rules equal INDEPENDENCE_CONFIG", () => {
+    expect(profileMarkdown).toContain(`| ${INDEPENDENCE_CONFIG.minAccountAgeDays} days |`);
+    expect(profileMarkdown).toContain(`| ${INDEPENDENCE_CONFIG.minAcceptedContributions} |`);
+    expect(profileMarkdown).toContain(`\`${INDEPENDENCE_CONFIG.grandfatherCutoff}\``);
+    expect(profileMarkdown).toContain("`false` — the proposer's own class is excluded");
+    expect(INDEPENDENCE_CONFIG.allowSelfApproval).toBe(false);
+  });
+});
+
+describe("published profile — live discovery and remaining gaps (#5541)", () => {
+  it("documents the generated discovery route without inventing a static copy", () => {
+    const routePath = path.join(
+      SOURCE_ROOT,
+      "src",
+      "app",
+      ".well-known",
+      "pact.json",
+      "route.ts"
+    );
+    const staticPath = path.join(SOURCE_ROOT, "public", ".well-known", "pact.json");
+    const routeSource = fs.readFileSync(routePath, "utf8");
+    const epistemics = generatedProfile.extensions[EPISTEMICS_EXTENSION] as {
+      consensusRatio: number;
+    };
+
+    expect(fs.existsSync(routePath)).toBe(true);
+    expect(fs.existsSync(staticPath)).toBe(false);
+    expect(routeSource).toContain('import { buildPactProfile } from "@/lib/pact-profile"');
+    expect(routeSource).toContain("JSON.stringify(buildPactProfile()");
+    expect(generatedProfile.endpoints.wellKnown).toBe(
+      `${PUBLIC_BASE_URL}/.well-known/pact.json`
+    );
+    expect(epistemics.consensusRatio).toBe(CONSENSUS_RATIO);
+
+    expect(generatedProfile.capabilities.inviteTokens).toBe(true);
+    expect(pactPaths).toContain("/api/pact/{topicId}/join-token");
+    expect(generatedProfile.capabilities.structuredNegotiation).toBe(true);
+    for (const primitive of ["intents", "constraints", "salience", "dependencies", "assumptions"]) {
+      expect(pactPaths).toContain(`/api/pact/{topicId}/${primitive}`);
+    }
+
+    expect(profileMarkdown).toContain("is live, generated, and never static");
+    expect(profileMarkdown).toContain("`buildPactProfile()`");
+    expect(profileMarkdown).toContain("bounded claim");
+    expect(profileMarkdown).not.toContain("No `/.well-known/pact.json`");
+  });
+
+  it("distinguishes observed retention from a written policy and names the unsupported endpoint", () => {
+    expect(profileMarkdown).toContain("The KG still has no written retention policy of any kind");
+    expect(profileMarkdown).toContain("No `credentialsRegistry` endpoint");
+  });
+
+  it("states the §6.4 chained epoch without inventing a legacy backfill", () => {
+    const provenanceSource = fs.readFileSync(
+      path.join(SOURCE_ROOT, "src", "lib", "provenance-chain.ts"),
+      "utf8"
+    );
+
+    expect(provenanceSource).toContain("export async function appendChainedEvent");
+    expect(provenanceSource).toContain("export function verifyOrderedChain");
+    expect(provenanceSource).toContain('export const GENESIS_UNCHAINED = "GENESIS-UNCHAINED"');
+
+    expect(profileMarkdown).toContain("Every post-#5566 `emitEvent` append is transactional");
+    expect(profileMarkdown).toContain("gapless per-resource `sequenceNumber`");
+    expect(profileMarkdown).toContain("`prev_hash`");
+    expect(profileMarkdown).toContain("structured first-break report");
+    expect(profileMarkdown).toContain("`GENESIS-UNCHAINED`");
+    expect(profileMarkdown).toContain("`unchainedPriorEvents`");
+    expect(profileMarkdown).toContain("not a full-history claim");
+    expect(profileMarkdown).not.toContain("No §6.4 event-log integrity");
+    expect(profileMarkdown).not.toContain("no gapless `sequenceNumber`");
+  });
+
+  it("marks the version and level claims as stale rather than silently re-deriving them", () => {
+    // #5541 fixes content truth; the version/level claim is #5539's scope.
+    // Whichever of the two has landed, the profile must not assert a spec
+    // version it has not evidenced.
+    expect(profileMarkdown).toMatch(/STALE, see \[#5539\]|Conformance Level:/);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// #5598 interlock, merged in from main: the document may not contradict the
+// wire on §6.3 retention. Kept as it landed on main so the two renderings of
+// one claim cannot drift apart again.
+// ---------------------------------------------------------------------------
+
 
 /**
  * THE DOCUMENT/WIRE INTERLOCK for §6.3 retention (#5598).
@@ -53,7 +668,6 @@ import { UNCHAINED_EVENTS_PURGED, UNCHAINED_EVENT_RETENTION_DAYS } from "./reten
  * actually looked at anything.
  */
 
-const SOURCE_ROOT = path.resolve(__dirname, "..", "..");
 const CONFORMANCE_DOC = path.join(SOURCE_ROOT, "PACT_CONFORMANCE.md");
 
 const served = buildPactProfile().retentionPolicy;

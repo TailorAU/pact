@@ -25,6 +25,15 @@ import {
   tallyVotes,
   usesClassCounting,
 } from "./independence";
+// #5598 — the pure retention seam. `retention.ts` imports nothing (so it can
+// also be imported by pact-profile.ts, which must stay database-free); it
+// builds SQL strings and never executes one.
+import {
+  CHAIN_META_BACKFILL_SWEEP_KEY,
+  CHAIN_META_ORIGIN_BACKFILL,
+  buildUnchainedHistoryStamp,
+  buildUnchainedRowCount,
+} from "./retention";
 
 // Load DDL from sql/<filename>. Splits on ";\n" to recover individual
 // statement strings that initSchema passes to db.execute(), matching the
@@ -688,6 +697,55 @@ async function initSchema(db: DbClient) {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_events_topic_sequence ON events(topic_id, sequence_number)`,
     // Chain-head lookup on the append path and the verifier's ordered walk.
     `CREATE INDEX IF NOT EXISTS idx_events_chain ON events(topic_id, sequence_number DESC)`,
+    // ── §6.4 durable pre-history latch (#5598) ─────────────────────────────
+    // The daily retention purge hard-deletes UNCHAINED (pre-#5566) event rows.
+    // The verifier used to re-derive the expected genesis sentinel from a LIVE
+    // count of exactly those rows, so retention doing its job silently flipped
+    // an honest `GENESIS-UNCHAINED` chain to `missing-genesis` — and a resource
+    // purged before its first chained append wrote a plain `GENESIS`, which
+    // claims the chain covers the resource's ENTIRE history. Both defects come
+    // from the same mistake: treating a live count as evidence about the past.
+    //
+    // This table is the evidence that outlives the rows it attests to. A row
+    // means "this resource DID have unchained history". NO row means UNKNOWN —
+    // never "it had none". Presence-only and MONOTONIC (false -> true, never
+    // back), which is the only reason `appendChainedEvent` may consult it when
+    // choosing a sentinel it will stamp permanently into `prev_hash`. Nothing
+    // anywhere may remove a row from it; a repo-wide source walker in
+    // provenance-chain.test.ts enforces that.
+    //
+    // A separate table rather than a column on `events` or `topics`, because
+    // the purge-before-first-chained-append case has no chain row to hang a
+    // marker on. Deliberately NO `REFERENCES topics(id)`: `events.topic_id` has
+    // that FK (above), this must not. Evidence about a resource's pre-history
+    // has to outlive the resource — a cascading FK would destroy the latch and
+    // a restricting one would block the topic deletion. Either converts durable
+    // evidence into a dangling constraint.
+    //
+    //   unchained_purged_count  accumulator, `+=` on every purge. REPORTING
+    //                           ONLY: 0 is ambiguous (latched-but-never-purged
+    //                           vs no row at all), so it is never a decision
+    //                           input — presence is.
+    //   first_observed_at       when this history was first RECORDED as having
+    //                           existed. Written once; the purge's ON CONFLICT
+    //                           branch never touches it, or the daily job would
+    //                           keep resetting it to "yesterday".
+    //   last_purged_at          NULL = latched, nothing deleted yet — the only
+    //                           way to tell a sweep stamp from a purge stamp.
+    //   origin                  which writer latched it first. NOT NULL with no
+    //                           DEFAULT so a new writer must name itself;
+    //                           immutable after insert. Frozen three-value
+    //                           vocabulary lives in lib/retention.ts.
+    //
+    // No extra index: topic_id is the PK, and every access on this table is a
+    // point lookup or an ON CONFLICT probe.
+    `CREATE TABLE IF NOT EXISTS resource_chain_meta (
+      topic_id TEXT PRIMARY KEY,
+      unchained_purged_count BIGINT NOT NULL DEFAULT 0,
+      first_observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_purged_at TIMESTAMPTZ,
+      origin TEXT NOT NULL
+    )`,
 
     // Legacy axiom-tier migration (#3691 W1): "axiom" was a privileged rank;
     // it becomes institutional warrant + the convention_stop flag, with
@@ -699,6 +757,53 @@ async function initSchema(db: DbClient) {
 
   for (const stmt of statements) {
     await db.execute(stmt);
+  }
+
+  // ── #5598 one-shot backfill of the resource_chain_meta latch ─────────────
+  // Latches every resource that has an unchained event row RIGHT NOW, so the
+  // evidence exists before the 30-day boundary rather than only at the instant
+  // of deletion. The stamp asserts one directly observable fact — "this
+  // resource has an unchained row today" — invents no hash, touches no `events`
+  // row, and is idempotent (ON CONFLICT DO NOTHING).
+  //
+  // TIME-BOXED, and this is why it runs at boot rather than waiting for a
+  // migration window: the retention cron has returned HTTP 308 since the
+  // 2026-07-02 domain cutover (#5582), so the purge has never actually run and
+  // today's unchained rows are still COMPLETE. #5592 repairs that cron; from
+  // the next run onward, every row it deletes without a latch is evidence lost
+  // permanently, because `prev_hash` is bound into `event_hash` and a sentinel
+  // cannot be corrected afterwards without fabricating a chain.
+  //
+  // ORDER IS LOAD-BEARING: backfill FIRST, write the sweep_state key SECOND.
+  // If the stamp throws, the key stays absent and the next cold start retries.
+  // Latching first would skip the backfill forever, silently — and there is no
+  // second chance once the purge runs. The catch below therefore must NOT
+  // write the key: a failure here is retryable, not final. It is caught at all
+  // only so a backfill failure cannot brick `initSchema` and take the app down.
+  try {
+    if ((await readSweepState(db, CHAIN_META_BACKFILL_SWEEP_KEY)) === null) {
+      // Sizing probe first — records how much evidence was still recoverable
+      // at the moment this ran. Both this and the stamp below are SEQUENTIAL
+      // scans of `events`: `idx_events_topic_sequence` is `(topic_id,
+      // sequence_number)`, so a bare `sequence_number IS NULL` predicate has no
+      // leading-column qualifier to seek on. They are affordable only because
+      // the `sweep_state` gate above makes them run ONCE, ever — not on every
+      // cold start. If this pair ever starts appearing in boot latency on every
+      // instance, the sweep key is not being written and the real defect is a
+      // throw inside this try, not the scan cost.
+      const sizing = await db.execute(buildUnchainedRowCount());
+      const unchainedRows = Number(sizing.rows[0]?.unchained_rows ?? 0);
+      const stamped = await db.execute(buildUnchainedHistoryStamp(CHAIN_META_ORIGIN_BACKFILL));
+      // Rows returned = rows actually inserted (DO NOTHING returns nothing).
+      const resourcesLatched = stamped.rows.length;
+      await writeSweepState(db, CHAIN_META_BACKFILL_SWEEP_KEY, String(resourcesLatched));
+      console.log(
+        `[chain-meta-backfill] latched ${resourcesLatched} resource(s) from ${unchainedRows} live unchained event row(s)`
+      );
+    }
+  } catch (e) {
+    // Deliberately no writeSweepState here — see the ordering note above.
+    console.error("resource_chain_meta backfill failed (retries on next boot):", e);
   }
 
   // Seed property_development domain

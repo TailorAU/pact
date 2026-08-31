@@ -3,10 +3,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb, runConsensusSweep } from "@/lib/db";
 import { classifyClaimAtomicity } from "@/lib/claim";
 import { ensureLegacySplitBounty } from "@/lib/economy";
+import { log } from "@/lib/logger";
+import {
+  CHAIN_META_ORIGIN_PRE_PURGE_SWEEP,
+  buildUnchainedEventPurge,
+  buildUnchainedHistoryStamp,
+  readUnchainedPurgeResult,
+} from "@/lib/retention";
 
 /**
  * Cron job: runs daily at 3am UTC (triggered by GitHub Actions).
- * - Purges events older than 30 days
+ * - #5598: latches every resource holding UNCHAINED (pre-#5566) events into
+ *   `resource_chain_meta`, then purges unchained events older than 30 days,
+ *   stamping that same table inside the SAME statement
  * - Purges resolved proposals older than 90 days
  * - Cleans up stale registrations (left > 90 days ago)
  * - #3691 W6: read-only atomicity backfill (classify, NEVER truncate or
@@ -26,7 +35,7 @@ export async function GET(req: NextRequest) {
 
   const db = await getDb();
 
-  // 1. Purge UNCHAINED events older than 30 days.
+  // 1. UNCHAINED-event retention (#5598) — TWO statements, in this order.
   //
   // #5566 — `sequence_number IS NULL` is load-bearing, not a filter for
   // tidiness. Chained events carry a §6.4 provenance chain, and §6.4 is
@@ -38,12 +47,78 @@ export async function GET(req: NextRequest) {
   // tampering. So this purge keeps doing exactly what it always did to the
   // pre-#5566 unchained backlog, and stops at the chain.
   //
-  // The §6.3 retention policy for the chained stream (declared minimum,
-  // tombstone-in-place rather than delete) is deliberately follow-on work —
-  // #5566 lists retention/tombstone policy as out of scope. Until it lands,
-  // the honest behaviour is to retain the chain, not to shred it.
-  const eventsResult = await db.execute(
-    `DELETE FROM events WHERE sequence_number IS NULL AND created_at < NOW() - INTERVAL '30 days'`
+  // #5598 — the SQL itself now lives in the pure `@/lib/retention` seam, so
+  // the §6.3 `retentionPolicy` that `pact-profile.ts` advertises and the bound
+  // actually enforced here derive from ONE constant and cannot drift apart.
+
+  // 1a. PRE-PASS — latch every resource that CURRENTLY holds ANY unchained
+  // row, not merely the rows already past the 30-day boundary, so the
+  // `resource_chain_meta` row exists well before those rows reach the deletion
+  // boundary. Deletes nothing.
+  //
+  // DIAGNOSTIC, NOT LOAD-BEARING. #5598 first shipped this comment claiming
+  // the pre-pass is what lets a resource purged before its first chained
+  // append write GENESIS-UNCHAINED instead of a false GENESIS. It is not: 1b
+  // below stamps the latch in the SAME statement as the delete, so that case
+  // is already covered with no pre-pass at all (the Defect-2 end-to-end test
+  // in provenance-chain.test.ts proves it by running the purge alone). What
+  // this pass actually buys is an earlier `first_observed_at`, an `origin`
+  // that says we knew before the purge rather than at the moment of deletion,
+  // and `last_purged_at IS NULL` to tell the two apart afterwards.
+  //
+  // Which is why it runs in its OWN try/catch. It is an unbounded sequential
+  // scan of `events` — `idx_events_topic_sequence` is `(topic_id,
+  // sequence_number)`, so a bare `sequence_number IS NULL` predicate cannot
+  // seek on it — and this estate has a ~30s edge ceiling. Letting a slow or
+  // failed diagnostic scan escape here would 500 the handler before step 1b's
+  // purge, before the 90-day proposal and registration sweeps, and before step
+  // 5's consensus sweep, which #5425 makes the cron the SOLE invoker of. A
+  // diagnostic must never be able to stop the engine.
+  //
+  // `ON CONFLICT DO NOTHING`, never DO UPDATE — the latch is presence-only and
+  // monotonic: re-stamping every day must not reset `unchained_purged_count`,
+  // must not move `first_observed_at`, and must not overwrite an earlier
+  // `origin`.
+  //
+  // Count = `rows.length`: the statement RETURNs one row per row actually
+  // inserted. This one IS a plain INSERT, so `rowsAffected` would be correct
+  // here too — `rows.length` is used anyway so nobody has to remember which of
+  // these two statements is the one where `rowsAffected` lies (see 1b).
+  let resourcesLatched = 0;
+  let latchSweepFailed = false;
+  try {
+    const stampResult = await db.execute(
+      buildUnchainedHistoryStamp(CHAIN_META_ORIGIN_PRE_PURGE_SWEEP)
+    );
+    resourcesLatched = stampResult.rows.length;
+  } catch (e) {
+    // Reported on the wire, not swallowed: the summary below is the only
+    // signal this job emits, and a silently skipped sweep would look
+    // identical to a sweep that found nothing to latch.
+    latchSweepFailed = true;
+    log.error(
+      { err: e, op: "retention.chain_meta.sweep.failed" },
+      "chain-meta pre-purge sweep failed; the purge and the rest of the job continue"
+    );
+  }
+
+  // 1b. THE PURGE — ONE data-modifying CTE that deletes the expired unchained
+  // rows and stamps `resource_chain_meta` in the SAME statement. Every
+  // sub-statement of a data-modifying CTE runs against a single snapshot, so
+  // there is no instant at which a concurrent reader can observe the DELETE
+  // without the stamp — precisely the window in which the evidence would be
+  // lost forever if the process died between two separate statements.
+  //
+  // *** DO NOT READ `rowsAffected` OFF THIS RESULT. ***
+  // On a data-modifying CTE `rowsAffected` reports the OUTER SELECT, which is
+  // 1 — always, forever, no matter how many events were deleted. The real
+  // counts come OUT OF `rows[0]` (`events_deleted` / `resources_stamped`) via
+  // `readUnchainedPurgeResult`. Writing `purgeResult.rowsAffected` into the
+  // response below would silently report "1 event deleted" every single day,
+  // and is exactly the bug this shape exists to make unwritable.
+  const purgeResult = await db.execute(buildUnchainedEventPurge());
+  const { eventsDeleted, resourcesStamped } = readUnchainedPurgeResult(
+    purgeResult.rows
   );
 
   // 2. Purge resolved (merged/rejected) proposals older than 90 days
@@ -98,7 +173,12 @@ export async function GET(req: NextRequest) {
   const summary = {
     message: "Cleanup complete",
     timestamp: new Date().toISOString(),
-    eventsDeleted: eventsResult.rowsAffected ?? 0,
+    // #5598 — read OUT OF rows[0] by readUnchainedPurgeResult, never off
+    // rowsAffected (which on that CTE is the outer SELECT, i.e. always 1).
+    eventsDeleted,
+    resourcesLatched,
+    latchSweepFailed,
+    resourcesStamped,
     proposalsDeleted: proposalsResult.rowsAffected ?? 0,
     registrationsDeleted: regsResult.rowsAffected ?? 0,
     tokensDeleted: tokensResult.rowsAffected ?? 0,

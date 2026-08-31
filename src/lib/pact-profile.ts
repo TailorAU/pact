@@ -29,14 +29,31 @@
  *    with it — that is the extension's §9 binding rule ("advertised values
  *    MUST be the values actually enforced") made structural rather than
  *    aspirational.
+ *  - `retentionPolicy` is DERIVED from `retention.ts` (#5598) — the pure
+ *    module the purge statement itself is built from. Switch the purge off,
+ *    change its bound, or convert it to a tombstone, and the advertisement
+ *    moves without anyone editing this file. Before #5598 it was three
+ *    typed literals that had been false on the live wire for as long as the
+ *    daily 30-day `DELETE FROM events` had existed.
+ *  - The positive §6.4 claims in {@link provenanceAdvertisement} come from
+ *    `provenance-chain.ts` — the module that writes the chain — so the hash
+ *    algorithm and genesis vocabulary a third-party verifier needs cannot be
+ *    advertised as something the writer does not stamp.
  *
  * ## What this profile does NOT claim
  *
- * {@link DECLARED_GAPS} is not decoration. The KG has no §6.4 provenance
- * chain, no §17.4 principal registry and no §13 mediation surface, and the
- * honest thing is to name those on the same wire that carries the claim
- * rather than to pick a conformance word that quietly implies them. See
- * {@link CONFORMANCE_LEVEL} for the reasoning behind `core`.
+ * {@link DECLARED_GAPS} is not decoration. The KG has no §17.4 principal
+ * registry and no §13 mediation surface, and the honest thing is to name
+ * those on the same wire that carries the claim rather than to pick a
+ * conformance word that quietly implies them. See {@link CONFORMANCE_LEVEL}
+ * for the reasoning behind `core`.
+ *
+ * A gap entry is RETIRED AND REPLACED, never deleted, when the thing it
+ * described changes. The §6.4 entry used to deny that a provenance chain
+ * existed; #5566/#5587 shipped one, so #5598 rewrote that entry to say what
+ * the chain still does NOT cover rather than dropping it and letting the
+ * silence read as full coverage. Deleting a gap is the one edit that makes
+ * this document quietly more generous than the code.
  *
  * The document is anonymous and cacheable: it names no tenant, no agent and
  * no topic, and it reads nothing from the request.
@@ -69,6 +86,12 @@ import {
   consensusStateFor,
 } from "./epistemic";
 import { publicIndependenceProfile } from "./independence";
+import { CHAIN_HASH_ALG, FIRST_SEQUENCE_NUMBER, GENESIS_SENTINELS } from "./provenance-chain";
+import {
+  PURGE_IS_TOMBSTONE,
+  UNCHAINED_EVENTS_PURGED,
+  UNCHAINED_EVENT_RETENTION_DAYS,
+} from "./retention";
 
 /** The KG's canonical public origin. */
 export const PUBLIC_BASE_URL = "https://pact.tailor.au";
@@ -110,10 +133,18 @@ export const SPEC_VERSION = "2.3";
  * #5535 — the published classifications. It has NEITHER of the first two: no
  * §13 mediator and no clearance surface exists anywhere in the tree.
  *
- * Independently, the KG has no §6.4 provenance chain — its event log carries
- * no gapless `sequenceNumber` and no `prev_hash`, so it is not third-party
- * verifiable (#5566, in flight). Claiming Extended over that would be exactly
- * the conformance laundering the W6 audit was opened to find.
+ * The absence of a §6.4 provenance chain USED to be given here as a third,
+ * independent reason. It is not one any more: #5566/#5587 shipped gapless
+ * `sequence_number`, `prev_hash`, `event_hash` and a verifier over them, so
+ * #5598 removed the claim rather than leaving it standing. A stale reason
+ * for an honest verdict is still a false statement on the wire, and it is
+ * the kind that survives longest precisely because the verdict it supports
+ * is right.
+ *
+ * The level does not move. Each of the two §15.2 shortfalls above is
+ * independently sufficient to hold it at `core`, and what §6.4 still does
+ * not cover is stated in {@link DECLARED_GAPS} instead of being smuggled in
+ * as a level argument.
  *
  * `core` is therefore the honest word, and the gaps that keep it there are
  * enumerated rather than left to inference.
@@ -173,21 +204,77 @@ export interface DeclaredGap {
  */
 export const DECLARED_GAPS: readonly DeclaredGap[] = [
   {
+    // RETIRED AND REPLACED, not deleted (#5598). This entry used to say the
+    // event log "assigns no gapless sequence number and no prev_hash".
+    // #5566/#5587 shipped both, so the sentence became false on the wire.
+    // Dropping the entry would have been worse than leaving it stale: an
+    // absent gap reads as full coverage, and §6.4 coverage is exactly what
+    // is still partial. What follows is what the chain does NOT reach.
     area: "§6.4 event-log provenance",
     statement:
-      "The event log assigns no gapless sequence number and no prev_hash, " +
-      "so it is not third-party verifiable. Events are append-only in " +
-      "practice, but a consumer cannot prove no entry was removed.",
-    tracking: "TailorAU/tailor-app#5566",
+      "A §6.4 provenance chain EXISTS: every event written since #5566/#5587 " +
+      "carries a gapless sequence_number, a prev_hash and an event_hash " +
+      `under ${CHAIN_HASH_ALG}, ` +
+      "and a consumer can re-derive the LINK structure of that chain from the " +
+      "public events feed. Five shortfalls remain. (i) Rows written before " +
+      "that change carry none of " +
+      "those columns and sit outside the chain by construction; they are " +
+      "declared by a genesis sentinel, never backfilled, because hashing " +
+      "history nobody recorded would manufacture a chain that never existed. " +
+      "(ii) No daily signed pact.log.root event, no pact-log-anchor/1 " +
+      "transparency anchor and no cross-implementation root comparison are " +
+      "published, so the chain can be re-derived but not pinned to any " +
+      "external witness — a reader who does not trust this server has nothing " +
+      "independent to check it against. (iii) The verifier has no production " +
+      "caller: it is a module function with no route and no scheduled job, so " +
+      "the server never checks its own chain, and a break would be observable " +
+      "only to a third party re-deriving it. (iv) A resource whose unchained " +
+      "history was destroyed by retention BEFORE the durable evidence marker " +
+      "existed can carry a plain GENESIS that overstates what its chain " +
+      "covers, and that CANNOT be corrected: prev_hash is bound into " +
+      "event_hash, so rewriting the sentinel would change the hash — " +
+      "fabrication, not repair. Item (iv) is permanent for any resource " +
+      "already in that state. (v) Judging a GENESIS sentinel is NOT fully " +
+      "re-derivable from the feed. Since #5598 a plain GENESIS is refuted by " +
+      "a surviving unchained row OR by a durable server-side latch recording " +
+      "that a resource's unchained history was destroyed, and that latch is " +
+      "not published on any endpoint. A third party therefore evaluates the " +
+      "weaker of the two tests: it can confirm every hash link, and it can " +
+      "refute a GENESIS that live rows contradict, but where the rows are " +
+      "already gone it cannot distinguish a resource that truly had no " +
+      "pre-history from one whose pre-history was purged. The divergence is " +
+      "one-directional — an external verifier can MISS a break the server " +
+      "would report, never invent one — so a third-party 'intact' is a weaker " +
+      "claim than this server's, not a contradicting one. GENESIS-UNCHAINED " +
+      "is unaffected: it is a weak claim that no absence can refute, so the " +
+      "latch never changes its verdict.",
+    tracking: "TailorAU/tailor-app#5598",
   },
   {
+    // Rewritten in #5598. The previous text asserted "the implementation
+    // holds no purge, expiry or tombstone path for the event log" while a
+    // daily hard DELETE ran against that log. What follows is the real
+    // split, and the day-count is interpolated from the enforcing constant
+    // so the prose cannot drift from the statement the purge is built with.
     area: "§6.3 retention policy",
     statement:
-      "No written retention policy exists. The advertised retentionPolicy " +
-      "records OBSERVED behaviour — the implementation holds no purge, " +
-      "expiry or tombstone path for the event log — and guarantees no " +
-      "minimum, which is why minimumDays is 0 rather than a number nothing " +
-      "enforces.",
+      "No WRITTEN retention policy exists; the advertised retentionPolicy " +
+      "records observed behaviour, and that behaviour is split. Event rows " +
+      "the §6.4 chain does not cover (sequence_number IS NULL — written " +
+      "before #5566) are HARD-DELETED " +
+      `${UNCHAINED_EVENT_RETENTION_DAYS} days after creation by the daily ` +
+      "cleanup job: deleted outright, not tombstoned in place, so the " +
+      "row and its payload are gone rather than marked. CHAINED rows are " +
+      "retained indefinitely — §6.4 forbids deleting one, because a missing " +
+      "sequence number punches a permanent gap every verifier correctly " +
+      "reads as tampering. minimumDays therefore advertises the " +
+      `${UNCHAINED_EVENT_RETENTION_DAYS}-day bound the purge actually ` +
+      "enforces rather than the 0 it advertised " +
+      "before #5598, and indefinite is false. Scope: this describes the " +
+      "events log only. The same cleanup route also deletes resolved " +
+      "proposals and departed registrations on their own 90-day schedules, " +
+      "and exhausted invite tokens with no time bound; none of that is " +
+      "described by this retentionPolicy.",
   },
   {
     area: "§15.2 Extended level",
@@ -366,18 +453,85 @@ export interface RetentionPolicy {
 }
 
 /**
- * Observed retention, not promised retention.
+ * Observed retention, DERIVED from the module that enforces it (#5598).
  *
- * `indefinite: true` records that the implementation holds no purge, expiry
- * or tombstone path for the event log — the honest reading of the code, and
- * the reason the matching declared gap says a policy does not exist.
- * `minimumDays: 0` refuses to invent a floor nothing enforces.
+ * Until #5598 this was three typed literals — `{ minimumDays: 0, indefinite:
+ * true, tombstoneAfter: null }` — served over a cleanup job that had been
+ * running `DELETE FROM events … INTERVAL '30 days'` nightly. The doc comment
+ * here said "the implementation holds no purge, expiry or tombstone path for
+ * the event log" and the declared gap repeated it. Both were false, and the
+ * guard meant to catch it grepped `db.ts`, which has never held the DELETE.
+ *
+ * So no field below is typed. Each reads the constant `retention.ts` builds
+ * the purge statement from: switch the purge off and `indefinite` goes true
+ * by itself, convert it to a tombstone and `tombstoneAfter` fills in, change
+ * the bound and `minimumDays` follows. Drifting the advertisement now
+ * requires editing the enforcement, which is the whole discipline of this
+ * module applied to the one value that had escaped it.
+ *
+ * `minimumDays` is a true floor for the WHOLE log, not just the purged part:
+ * unchained rows live at least {@link UNCHAINED_EVENT_RETENTION_DAYS} days,
+ * and chained rows are never deleted at all
+ * (`CHAINED_EVENTS_RETAINED_INDEFINITELY`). `indefinite` is false because it
+ * asks whether the log as a whole is kept forever, and one half of it is not.
+ *
+ * `retention.ts` is deliberately the seam. It is pure and imports nothing, so
+ * deriving from it costs this module none of its no-database property;
+ * importing `cron/cleanup/route.ts` instead would drag in
+ * `export const dynamic` and `getDb()` and destroy exactly that.
  */
 export const RETENTION_POLICY: RetentionPolicy = {
-  minimumDays: 0,
-  indefinite: true,
-  tombstoneAfter: null,
+  minimumDays: UNCHAINED_EVENT_RETENTION_DAYS,
+  indefinite: !UNCHAINED_EVENTS_PURGED,
+  tombstoneAfter: PURGE_IS_TOMBSTONE ? UNCHAINED_EVENT_RETENTION_DAYS : null,
 };
+
+/**
+ * The §6.4 parameters a third party needs in order to re-derive this store's
+ * chain — every one of them imported from `provenance-chain.ts`, the module
+ * that writes it.
+ *
+ * This block exists so the profile's POSITIVE §6.4 claims are derivable from
+ * the writer rather than asserted in prose. §6.4 requires a consumer to be
+ * able to REJECT a row whose hash algorithm it does not recognise instead of
+ * skipping verification, which it can only do if the algorithm identifier is
+ * on the wire; and the genesis vocabulary has to be published or a verifier
+ * cannot tell a declared start from a missing link.
+ *
+ * `signedRoot` and `transparencyAnchor` are declared `false` rather than
+ * omitted, for the same reason {@link advertisedCapabilities} declares every
+ * `false`: silence on a well-known §6.4 mechanism reads as "unknown", and
+ * unknown is where a generous inference goes. Together they are item (ii) of
+ * the §6.4 declared gap, stated twice on purpose — once as a
+ * machine-readable flag, once in prose.
+ */
+export interface ProvenanceAdvertisement {
+  /** Hash-algorithm identifier stamped on every chained row. */
+  readonly hashAlg: string;
+  /** §6.4 lets a store start at 0 or 1; this is the one it applies uniformly. */
+  readonly firstSequenceNumber: number;
+  /** Every `prev_hash` literal a first chained event may legitimately carry. */
+  readonly genesisSentinels: string[];
+  /** No daily signed `pact.log.root` is published. */
+  readonly signedRoot: boolean;
+  /** No `pact-log-anchor/1` external anchor is published. */
+  readonly transparencyAnchor: boolean;
+}
+
+/**
+ * Build the §6.4 block. `genesisSentinels` is spread, never referenced, so a
+ * served document can never alias the live array — the same rule the
+ * epistemics `tiers` block follows.
+ */
+export function provenanceAdvertisement(): ProvenanceAdvertisement {
+  return {
+    hashAlg: CHAIN_HASH_ALG,
+    firstSequenceNumber: FIRST_SEQUENCE_NUMBER,
+    genesisSentinels: [...GENESIS_SENTINELS],
+    signedRoot: false,
+    transparencyAnchor: false,
+  };
+}
 
 /** The served §15.1 document. */
 export interface PactImplementationProfile {
@@ -387,6 +541,7 @@ export interface PactImplementationProfile {
   readonly conformanceLevel: string;
   readonly resourceTypes: AdvertisedResourceType[];
   readonly retentionPolicy: RetentionPolicy;
+  readonly provenance: ProvenanceAdvertisement;
   readonly capabilities: Record<string, boolean>;
   readonly endpoints: Record<string, string>;
   readonly extensions: Record<string, unknown>;
@@ -409,6 +564,7 @@ export function buildPactProfile(baseUrl: string = PUBLIC_BASE_URL): PactImpleme
     conformanceLevel: CONFORMANCE_LEVEL,
     resourceTypes: advertisedResourceTypes(),
     retentionPolicy: RETENTION_POLICY,
+    provenance: provenanceAdvertisement(),
     capabilities: advertisedCapabilities(),
     endpoints: {
       rest: `${origin}/api/pact`,

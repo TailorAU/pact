@@ -47,6 +47,14 @@ type Ev = {
   event_hash?: string | null;
 };
 type Stmt = { sql: string; args: unknown[] };
+/**
+ * #5598 — the durable `resource_chain_meta` presence latch. A row means the
+ * resource HAD unchained history; absence means UNKNOWN, never "had none".
+ * This fixture never purges, so the map stays empty and every resource reads
+ * `hadUnchainedHistory: false` — but it is modelled as real state rather than
+ * a hardcoded `false` so the mock answers the writer's question honestly.
+ */
+type ChainMeta = { unchained_purged_count: number };
 
 const VERIFIED = new Set(["consensus", "stable", "locked"]);
 
@@ -59,6 +67,8 @@ class MockDb implements DbClient {
   proposals: Proposal[] = [];
   deps: Dep[] = [];
   events: Ev[] = [];
+  /** #5598 — `resource_chain_meta`, keyed by topic_id. Empty = no latch set. */
+  chainMeta = new Map<string, ChainMeta>();
   sweepState = new Map<string, string>();
   statements: Stmt[] = [];
   private nextEventId = 1;
@@ -263,9 +273,9 @@ class MockDb implements DbClient {
       }
       return { rows };
     }
-    // ── §6.4 provenance chain (#5566) ──
+    // ── §6.4 provenance chain (#5566, #5598) ──
     // The sweep emits chained events, so the mock implements the writer's
-    // SQL surface: advisory lock, chain-head read, unchained count,
+    // SQL surface: advisory lock, chain-head read, chain-history evidence,
     // insert-returning-id, hash stamp.
     if (sql.includes("pg_advisory_xact_lock")) {
       return { rows: [] };
@@ -276,12 +286,26 @@ class MockDb implements DbClient {
         .sort((a, b) => b.sequence_number! - a.sequence_number!)[0];
       return { rows: head ? [{ sequence_number: head.sequence_number, event_hash: head.event_hash }] : [] };
     }
-    if (sql.includes("COUNT(*) AS unchained_count")) {
-      const scoped = this.events.filter((e) => e.topic_id === args[0]);
-      const matching = sql.includes("sequence_number IS NULL")
-        ? scoped.filter((e) => e.sequence_number == null)
-        : scoped;
-      return { rows: [{ unchained_count: matching.length }] };
+    // #5598 — `loadChainHistoryEvidence`: ONE statement reading BOTH evidence
+    // sources. Replaces the pre-#5598 bare `COUNT(*) AS unchained_count`,
+    // which no production query issues any more. `had_unchained_history` must
+    // be a real boolean — the loader compares with `=== true`, so returning a
+    // truthy non-boolean would silently read as "no latch".
+    if (sql.includes("AS live_unchained_events")) {
+      const topicId = args[0] as string;
+      const meta = this.chainMeta.get(topicId);
+      return {
+        rows: [
+          {
+            live_unchained_events: this.events.filter(
+              (e) => e.topic_id === topicId && e.sequence_number == null
+            ).length,
+            // NULL when there is no latch row — the loader maps that to 0.
+            purged_unchained_events: meta ? meta.unchained_purged_count : null,
+            had_unchained_history: meta !== undefined,
+          },
+        ],
+      };
     }
     if (sql.includes("INSERT INTO events")) {
       const ev = this.addEvent(args[0] as string, args[1] as string, {

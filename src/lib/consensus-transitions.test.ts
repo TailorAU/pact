@@ -153,8 +153,21 @@ function makeDb(opts: {
       if (sql.includes("SELECT sequence_number, event_hash FROM events")) {
         return { rows: [] };
       }
-      if (sql.includes("COUNT(*) AS unchained_count")) {
-        return { rows: [{ unchained_count: 0 }] };
+      // #5598 — `loadChainHistoryEvidence`. This fixture seeds no unchained
+      // rows and never purges, so: nothing live, no latch. That is the ONE
+      // combination under which a plain GENESIS is honest. Stated explicitly
+      // rather than left to the generic fall-through below, so the fixture
+      // asserts what it means instead of getting it by accident.
+      if (sql.includes("AS live_unchained_events")) {
+        return {
+          rows: [
+            {
+              live_unchained_events: 0,
+              purged_unchained_events: null,
+              had_unchained_history: false,
+            },
+          ],
+        };
       }
       // pg_advisory_xact_lock, counters, etc.
       return { rows: [], rowsAffected: 1 };

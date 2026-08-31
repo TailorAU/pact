@@ -44,14 +44,33 @@
  * fabricated chain is worse than an honestly short one. Instead the first
  * chained event of a resource references a declared genesis sentinel:
  *
- *   - `GENESIS` — the §6.4 literal. The resource had NO events at all, so
- *     the chain covers the resource's entire history.
- *   - `GENESIS-UNCHAINED` — the resource already had unchained rows. The
- *     chain starts here and covers NOTHING before it; the prior rows are
- *     unverifiable and are reported as `unchainedPriorEvents` by the
- *     verifier rather than being silently absorbed. (This is the §6.4
+ *   - `GENESIS` — the §6.4 literal, and the STRONG claim: the resource had
+ *     no prior events AND there is no record that it ever had any, so the
+ *     chain covers the resource's entire history. #5598 — that is no longer
+ *     "no prior events VISIBLE TODAY". The writer decides it from BOTH the
+ *     surviving unchained rows AND the durable `resource_chain_meta`
+ *     presence latch, because the daily retention purge deletes unchained
+ *     rows: a purge that ran before a resource's first chained append used
+ *     to leave the writer counting zero and stamping a permanent, false
+ *     claim to cover a history that had already been destroyed.
+ *   - `GENESIS-UNCHAINED` — the WEAK claim: something preceded this chain.
+ *     The resource already had unchained rows. The chain starts here and
+ *     covers NOTHING before it; the prior rows are unverifiable and are
+ *     reported by the verifier — `unchainedPriorEvents` for the ones that
+ *     still exist, `purgedUnchainedPriorEvents` for the ones retention
+ *     destroyed — rather than being silently absorbed. (This is the §6.4
  *     "Migration from v2.0 / v2.0.1" sentinel idea, named for what the KG
  *     is actually migrating from: an unchained store.)
+ *
+ * The two sentinels are ASYMMETRIC claims, and #5598 exists because they
+ * were tested symmetrically. `GENESIS` is falsifiable: one surviving
+ * unchained row — or the latch on its own — refutes it. `GENESIS-UNCHAINED`
+ * is not falsifiable by absence: no amount of deletion is evidence that the
+ * deleted rows never existed, so it NEVER breaks on history grounds. The
+ * writer and the verifier read the same evidence through
+ * `loadChainHistoryEvidence` and apply the same predicates
+ * (`expectedGenesisSentinel` / `genesisSentinelIsFalsified`), so the writer
+ * cannot stamp a sentinel its own verifier would reject.
  *
  * Sequence numbers therefore start at 1 for the first CHAINED event of a
  * resource regardless of how many unchained rows precede it — numbering
@@ -297,14 +316,31 @@ export async function appendChainedEvent(
 
   if (head.rows.length === 0) {
     // No chained events yet — declare a genesis. Which sentinel depends on
-    // whether unchained history exists; neither one backfills anything.
-    const legacy = await tx.execute({
-      sql: "SELECT COUNT(*) AS unchained_count FROM events WHERE topic_id = ?",
-      args: [input.topicId],
-    });
-    const unchainedPriorEvents = Number(legacy.rows[0]?.unchained_count ?? 0);
+    // EVERYTHING the store knows about pre-chain history, not merely the
+    // rows that happen to survive today: the durable `resource_chain_meta`
+    // latch outlives the retention purge that destroyed the rows it attests
+    // to (#5598). Without it, a purge that ran before this first chained
+    // append left this branch counting zero and stamping a permanent, false
+    // `GENESIS` — a whole-history claim over a history already deleted, and
+    // one that then verified intact forever. Neither sentinel backfills.
+    //
+    // Writer/verifier symmetry: this reads the SAME statement
+    // (`loadChainHistoryEvidence`) and applies the SAME predicate
+    // (`expectedGenesisSentinel`) the verifier uses — both defined with the
+    // verifier below. `expectedGenesisSentinel` returns GENESIS_UNCHAINED
+    // exactly when `genesisSentinelIsFalsified(GENESIS, evidence)` is true,
+    // so this writer can never stamp a sentinel its own verifier rejects.
+    //
+    // It also closes a latent query asymmetry: the count this replaces
+    // omitted the `AND sequence_number IS NULL` predicate the verifier's
+    // count carried. That never yet produced a wrong sentinel — this branch
+    // is guarded by `head.rows.length === 0`, so no chained row exists and
+    // the two counts are provably equal at this instant — but the writer and
+    // the verifier must ask the same question, and now there is only one
+    // question to ask.
+    const evidence = await loadChainHistoryEvidence(tx, input.topicId);
     sequenceNumber = FIRST_SEQUENCE_NUMBER;
-    prevHash = unchainedPriorEvents > 0 ? GENESIS_UNCHAINED : GENESIS;
+    prevHash = expectedGenesisSentinel(evidence);
   } else {
     const headSequence = Number(head.rows[0].sequence_number);
     const headHash = head.rows[0].event_hash;
@@ -407,6 +443,174 @@ export interface ChainBreak {
   detail: string;
 }
 
+/**
+ * Everything the store knows about a resource's UNCHAINED (pre-#5566)
+ * history, assembled at one instant from two independent sources — the live
+ * `events` rows and the durable `resource_chain_meta` latch.
+ *
+ * This type exists because #5598 found that a single number could not carry
+ * the distinction the §6.4 genesis rule turns on. `GENESIS` and
+ * `GENESIS-UNCHAINED` are ASYMMETRIC claims:
+ *
+ *   - `GENESIS` is a STRONG claim — "nothing preceded this chain". Any
+ *     surviving unchained row falsifies it, and so does the latch, because
+ *     both are positive evidence that something did precede it.
+ *   - `GENESIS-UNCHAINED` is a WEAK claim — "something preceded this chain".
+ *     NO AMOUNT OF DELETION CAN FALSIFY "something existed". Retention
+ *     removing the rows is not evidence the rows were never there.
+ *
+ * The pre-#5598 verifier applied a symmetric equality test to those two
+ * asymmetric claims, so the daily retention purge flipped honest chains to
+ * `missing-genesis`. See {@link genesisSentinelIsFalsified} for the rule
+ * that replaces it.
+ *
+ * There is deliberately NO numeric overload of the verifier that accepts a
+ * bare count: an unmigrated caller must FAIL TO COMPILE rather than silently
+ * keep the old, wrong semantics.
+ */
+export interface ChainHistoryEvidence {
+  /**
+   * `COUNT(*)` of this resource's rows with `sequence_number IS NULL`, AS OF
+   * THE MOMENT THIS EVIDENCE WAS READ.
+   *
+   * THIS IS A LIVE OBSERVATION THAT CAN ONLY DECREASE. Nothing has written
+   * an unchained row since #5566 made `appendChainedEvent` the sole writer
+   * of `events`, and the daily retention purge deletes them — so this number
+   * falls over time and never rises.
+   *
+   * **ZERO MUST NEVER BE READ AS "THE CHAIN COVERS THE RESOURCE'S ENTIRE
+   * HISTORY".** Zero means exactly one thing: *no unchained row survives
+   * today*. It does not distinguish "this resource never had unchained
+   * events" from "this resource had forty and retention deleted all of
+   * them". That distinction is what
+   * {@link ChainHistoryEvidence.hadUnchainedHistory} carries, and it is the
+   * ONLY field that carries it.
+   *
+   * A value `> 0` is positive proof that unchained history exists right now,
+   * and therefore falsifies a `GENESIS` sentinel. A value of `0` proves
+   * nothing in either direction.
+   */
+  readonly liveUnchainedEvents: number;
+
+  /**
+   * The DURABLE presence latch: `true` iff a `resource_chain_meta` row
+   * exists for this resource.
+   *
+   * PRESENCE-ONLY, and asymmetric by construction:
+   *   - `true`  = a row exists = durable evidence that unchained history DID
+   *               exist for this resource. This survives the purge that
+   *               destroyed the rows it attests to.
+   *   - `false` = NO ROW = **UNKNOWN**. It does NOT mean "this resource had
+   *               no unchained history". It means nothing has recorded that
+   *               it did — which is also the state of every resource whose
+   *               unchained rows were purged before #5598 shipped.
+   *
+   * MONOTONIC: `false → true` only. Nothing may ever delete from
+   * `resource_chain_meta` (guarded by a repo-wide source walker). That
+   * monotonicity is the entire reason the WRITER may safely consult this
+   * field: a latch that could clear would make the writer's genesis decision
+   * time-dependent in exactly the way #5598 fixes.
+   */
+  readonly hadUnchainedHistory: boolean;
+
+  /**
+   * `resource_chain_meta.unchained_purged_count`, or `0` when no latch row
+   * exists.
+   *
+   * REPORTING ONLY — never a decision input, and never a substitute for
+   * {@link ChainHistoryEvidence.hadUnchainedHistory}. The value `0` is
+   * ambiguous by design: it is returned both when there is no latch row at
+   * all (unknown) and when a latch row exists that has not yet purged
+   * anything (a `pre-purge-sweep` or `backfill` stamp). Branching on
+   * `purgedUnchainedEvents > 0` would reintroduce the count-as-evidence bug
+   * in a new place.
+   *
+   * Use it to tell an operator "N unchained events were destroyed for this
+   * resource and are permanently unverifiable". Use `hadUnchainedHistory` to
+   * decide anything.
+   */
+  readonly purgedUnchainedEvents: number;
+}
+
+/**
+ * The sentinel a first chained event SHOULD carry, given this evidence.
+ *
+ * Returns `GENESIS_UNCHAINED` exactly when
+ * `genesisSentinelIsFalsified(GENESIS, evidence)` is `true` — which is what
+ * makes the writer and the verifier agree by construction.
+ */
+export function expectedGenesisSentinel(evidence: ChainHistoryEvidence): string {
+  return evidence.liveUnchainedEvents > 0 || evidence.hadUnchainedHistory
+    ? GENESIS_UNCHAINED
+    : GENESIS;
+}
+
+/**
+ * True iff `prevHash` is REFUTED by this evidence. Not an equality test —
+ * the two sentinels are asymmetric claims:
+ *
+ * | `prev_hash`         | live | latch | verdict |
+ * |---------------------|------|-------|---------|
+ * | `GENESIS`           | 0    | false | intact — nothing refutes it (and nothing confirms it) |
+ * | `GENESIS`           | 0    | true  | BREAK  — the latch is durable positive evidence |
+ * | `GENESIS`           | > 0  | any   | BREAK  — a surviving row refutes "nothing preceded" |
+ * | `GENESIS-UNCHAINED` | 0    | false | intact — #5598: deletion is not disproof |
+ * | `GENESIS-UNCHAINED` | 0    | true  | intact — the latch agrees with the sentinel |
+ * | `GENESIS-UNCHAINED` | > 0  | any   | intact — live rows agree with the sentinel |
+ *
+ * Anything that is not a sentinel this store may legitimately write is
+ * always refuted.
+ */
+export function genesisSentinelIsFalsified(
+  prevHash: string | null,
+  evidence: ChainHistoryEvidence
+): boolean {
+  // A weak claim ("something preceded this") cannot be refuted by absence.
+  if (prevHash === GENESIS_UNCHAINED) return false;
+  // A strong claim ("nothing preceded this") is refuted by ANY positive
+  // evidence — a surviving row OR the durable latch.
+  if (prevHash === GENESIS) {
+    return evidence.liveUnchainedEvents > 0 || evidence.hadUnchainedHistory;
+  }
+  // Not a sentinel this store may legitimately write.
+  return true;
+}
+
+/**
+ * Reads BOTH evidence sources in ONE statement. The writer
+ * (`appendChainedEvent`, inside its transaction so the latch read rides the
+ * same transaction as the append) and the verifier (`verifyResourceChain`)
+ * MUST both call this — one query is what makes them ask the same question,
+ * and stops the two from drifting apart again.
+ *
+ * `purged_unchained_events` is `NULL` when there is no latch row, which maps
+ * to `0`; presence is carried by `had_unchained_history`, NEVER by the
+ * count. `resource_chain_meta` is never deleted from, so
+ * `hadUnchainedHistory` is monotonic.
+ */
+export async function loadChainHistoryEvidence(
+  db: DbClient,
+  topicId: string
+): Promise<ChainHistoryEvidence> {
+  const result = await db.execute({
+    sql: `SELECT
+            (SELECT COUNT(*) FROM events
+              WHERE topic_id = ? AND sequence_number IS NULL) AS live_unchained_events,
+            (SELECT unchained_purged_count FROM resource_chain_meta
+              WHERE topic_id = ?) AS purged_unchained_events,
+            EXISTS (SELECT 1 FROM resource_chain_meta
+              WHERE topic_id = ?) AS had_unchained_history`,
+    args: [topicId, topicId, topicId],
+  });
+
+  const row = result.rows[0];
+  return {
+    liveUnchainedEvents: Number(row?.live_unchained_events ?? 0),
+    hadUnchainedHistory: row?.had_unchained_history === true,
+    purgedUnchainedEvents: Number(row?.purged_unchained_events ?? 0),
+  };
+}
+
 /** Structured verification report — never a boolean. */
 export interface ChainVerificationReport {
   resourceId: string;
@@ -415,11 +619,40 @@ export interface ChainVerificationReport {
   /** Rows participating in the chain. */
   chainedEvents: number;
   /**
-   * Rows for this resource written before chaining existed. NOT part of the
-   * chain and never backfilled — reported so the gap in coverage is visible
-   * instead of implied.
+   * Rows for this resource written before chaining existed and STILL
+   * PRESENT. NOT part of the chain and never backfilled — reported so the
+   * gap in coverage is visible instead of implied.
+   *
+   * #5598 — a LIVE OBSERVATION THAT CAN ONLY DECREASE, identical to
+   * {@link ChainHistoryEvidence.liveUnchainedEvents}, not a historical
+   * total. Zero here must never be read as "the chain covers everything":
+   * the daily retention purge deletes exactly these rows. Read
+   * {@link ChainVerificationReport.hadUnchainedHistory} for the distinction
+   * between "had none" and "had some, and retention deleted them".
    */
   unchainedPriorEvents: number;
+  /**
+   * #5598 — the durable `resource_chain_meta` presence latch. `true` =
+   * unchained history DID exist; `false` = NO ROW = **unknown**, never "had
+   * none". Mirrors {@link ChainHistoryEvidence.hadUnchainedHistory} and is
+   * the only field on this report that carries that distinction.
+   */
+  hadUnchainedHistory: boolean;
+  /**
+   * #5598 — unchained events destroyed by retention, permanently
+   * unverifiable. REPORTING ONLY: `0` is ambiguous (no latch row at all, or
+   * a latch that has purged nothing yet), so never branch on it. Mirrors
+   * {@link ChainHistoryEvidence.purgedUnchainedEvents}.
+   */
+  purgedUnchainedPriorEvents: number;
+  /**
+   * #5598 — the full evidence the genesis verdict was reached on, exactly as
+   * read. Frozen invariants:
+   * `unchainedPriorEvents === historyEvidence.liveUnchainedEvents`,
+   * `hadUnchainedHistory === historyEvidence.hadUnchainedHistory`,
+   * `purgedUnchainedPriorEvents === historyEvidence.purgedUnchainedEvents`.
+   */
+  historyEvidence: ChainHistoryEvidence;
   /** The declared genesis sentinel the chain starts from (null when empty). */
   genesis: string | null;
   firstSequenceNumber: number | null;
@@ -470,20 +703,29 @@ function break_(
  * testable and a caller can verify rows fetched any way it likes.
  *
  * An empty chain is intact (nothing has diverged), but the report still
- * carries `unchainedPriorEvents` so "this resource has 40 unverifiable rows
+ * carries the history evidence so "this resource has 40 unverifiable rows
  * and no chain" reads as exactly that rather than as a clean bill.
+ *
+ * #5598 — the third parameter is the whole {@link ChainHistoryEvidence}
+ * object, NOT a count, and there is deliberately no numeric overload: an
+ * unmigrated caller must FAIL TO COMPILE rather than silently keep the old
+ * semantics, under which a live count of `0` was read as proof that nothing
+ * preceded the chain.
  */
 export function verifyOrderedChain(
   resourceId: string,
   orderedRows: readonly ChainRow[],
-  unchainedPriorEvents: number
+  evidence: ChainHistoryEvidence
 ): ChainVerificationReport {
   const report: ChainVerificationReport = {
     resourceId,
     entityType: CHAIN_ENTITY_TYPE,
     alg: CHAIN_HASH_ALG,
     chainedEvents: orderedRows.length,
-    unchainedPriorEvents,
+    unchainedPriorEvents: evidence.liveUnchainedEvents,
+    hadUnchainedHistory: evidence.hadUnchainedHistory,
+    purgedUnchainedPriorEvents: evidence.purgedUnchainedEvents,
+    historyEvidence: evidence,
     genesis: null,
     firstSequenceNumber: null,
     headSequenceNumber: null,
@@ -535,19 +777,23 @@ export function verifyOrderedChain(
 
     // ── The link.
     if (expectedPrevHash === null) {
-      // Genesis row: the sentinel must match what the store declares, and
-      // must be the one consistent with whether unchained history exists.
-      const expectedGenesis = unchainedPriorEvents > 0 ? GENESIS_UNCHAINED : GENESIS;
-      if (row.prev_hash !== expectedGenesis) {
+      // Genesis row. NOT an equality test against a re-derived expectation:
+      // the two sentinels are asymmetric claims and only ONE of them is
+      // falsifiable — see genesisSentinelIsFalsified. Pre-#5598 this compared
+      // the stored sentinel against `liveCount > 0 ? UNCHAINED : GENESIS`, so
+      // the daily retention purge — which deletes exactly the rows that count
+      // — flipped honest `GENESIS-UNCHAINED` chains to `missing-genesis`: a
+      // byte-identical, untampered chain reported as tampered.
+      if (genesisSentinelIsFalsified(row.prev_hash, evidence)) {
         return fail(
           report,
           break_(
             "missing-genesis",
             row,
-            GENESIS_SENTINELS.includes(row.prev_hash ?? "")
-              ? `Genesis sentinel '${row.prev_hash}' contradicts the ${unchainedPriorEvents} unchained prior event(s) recorded for this resource.`
+            row.prev_hash === GENESIS
+              ? `Genesis sentinel '${GENESIS}' claims nothing preceded this chain, but ${describeUnchainedHistory(evidence)}.`
               : `First chained event must declare a genesis sentinel, found '${row.prev_hash ?? "null"}'.`,
-            expectedGenesis,
+            expectedGenesisSentinel(evidence),
             row.prev_hash
           )
         );
@@ -618,6 +864,26 @@ export function verifyOrderedChain(
   return report;
 }
 
+/**
+ * Human-readable statement of WHY a `GENESIS` sentinel is refuted. Names the
+ * source of the refutation — surviving rows, the durable latch, or both — so
+ * an operator reading the break knows whether the evidence still exists.
+ */
+function describeUnchainedHistory(evidence: ChainHistoryEvidence): string {
+  const parts: string[] = [];
+  if (evidence.liveUnchainedEvents > 0) {
+    parts.push(`${evidence.liveUnchainedEvents} unchained prior event(s) still exist for this resource`);
+  }
+  if (evidence.hadUnchainedHistory) {
+    parts.push(
+      evidence.purgedUnchainedEvents > 0
+        ? `the durable resource_chain_meta latch records unchained history (${evidence.purgedUnchainedEvents} event(s) since purged and now permanently unverifiable)`
+        : "the durable resource_chain_meta latch records that unchained history existed"
+    );
+  }
+  return parts.length > 0 ? parts.join(" and ") : "unchained history is on record for this resource";
+}
+
 function fail(report: ChainVerificationReport, chainBreak: ChainBreak): ChainVerificationReport {
   report.intact = false;
   report.firstBreak = chainBreak;
@@ -643,14 +909,10 @@ export async function verifyResourceChain(db: DbClient, topicId: string): Promis
     args: [topicId],
   });
 
-  const unchained = await db.execute({
-    sql: "SELECT COUNT(*) AS unchained_count FROM events WHERE topic_id = ? AND sequence_number IS NULL",
-    args: [topicId],
-  });
+  // #5598 — ONE statement for all three evidence fields (the live unchained
+  // rows, the durable latch, and the purged count), and it is the SAME
+  // statement `appendChainedEvent` uses to choose the sentinel it stamps.
+  const evidence = await loadChainHistoryEvidence(db, topicId);
 
-  return verifyOrderedChain(
-    topicId,
-    chained.rows as unknown as ChainRow[],
-    Number(unchained.rows[0]?.unchained_count ?? 0)
-  );
+  return verifyOrderedChain(topicId, chained.rows as unknown as ChainRow[], evidence);
 }

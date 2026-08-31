@@ -85,6 +85,10 @@ import {
   CREDENCE_FLOOR,
   consensusStateFor,
 } from "./epistemic";
+import {
+  epistemicsEventMappingAdvertisement,
+  epistemicsFieldMappingAdvertisement,
+} from "./epistemics-mapping";
 import { publicIndependenceProfile } from "./independence";
 import { CHAIN_HASH_ALG, FIRST_SEQUENCE_NUMBER, GENESIS_SENTINELS } from "./provenance-chain";
 import {
@@ -306,14 +310,34 @@ export const DECLARED_GAPS: readonly DeclaredGap[] = [
       "topic cannot withdraw from it. Every other Core primitive is served.",
   },
   {
+    // RETIRED AND REPLACED, not deleted (#5564/#5565). The previous entry
+    // ended "the mapping is not published yet" — the mapping IS published
+    // now, as data: extensions["au.tailor.pact/epistemics"].eventMapping is
+    // derived from PACT_EVENT_MAP (epistemics-mapping.ts), the same table
+    // emitEvent's type parameter is narrowed against, so an op the map does
+    // not classify cannot be emitted at all. Dropping this entry outright
+    // would let its absence read as full §10 coverage, and coverage is
+    // exactly what is still partial. What follows is what the mapping does
+    // NOT close.
     area: "au.tailor.pact/epistemics §10 events",
     statement:
-      "Transitions are recorded under the KG's own product event names " +
-      "(pact.topic.consensus-reached, pact.topic.stable, " +
-      "pact.stable.broken, pact.consensus.blocked-by-dependencies and " +
-      "others), not under the extension's pact.epistemics.* vocabulary. " +
-      "The extension permits that only with a declared mapping, and the " +
-      "mapping is not published yet.",
+      "Transitions stay recorded under the KG's product event names, and the " +
+      "declared mapping the extension requires for that IS now published — " +
+      'extensions["au.tailor.pact/epistemics"].eventMapping in this document ' +
+      "declares every emitted op against its pact.epistemics.* counterpart " +
+      "or as out of the extension's scope with a stated reason. Two " +
+      "shortfalls remain. (i) pact.epistemics.challenge-reopened has NO " +
+      "emitter: when a challenge meets its §7.2 reopen quorum the KG emits " +
+      "the SAME product op (pact.consensus.challenged) it emits when a " +
+      "challenge is filed, so reopen and filing are not distinguishable by " +
+      "event type, and the mapping declares the reopen unimplemented rather " +
+      "than aliasing an ambiguous op to it. (ii) The §10 SHOULD on payload " +
+      "contents (ratio, aligned/dissenting counts, required quorum, " +
+      "unmet-dependency count, defeater type, reopen votes " +
+      "required/gathered, in every payload) has not been audited against " +
+      "the emitters — each payload carries what its emitter recorded, which " +
+      "may be less than that list.",
+    tracking: "TailorAU/tailor-app#5565",
   },
 ];
 
@@ -401,6 +425,15 @@ export function epistemicsAdvertisement() {
     // §8 — what a quorum counts. The KG already publishes this block on its
     // stats surface; the profile serves the same function's output.
     independence: publicIndependenceProfile().independenceClasses,
+    // §10 (#5565) — the declared event mapping: product op names stay on the
+    // wire (grandfathering), and this block is what makes the event stream
+    // readable to a conformant consumer. Derived by inverting
+    // PACT_EVENT_MAP — the table emitEvent's own type parameter is narrowed
+    // against — so the advertisement cannot disagree with the emitters.
+    eventMapping: epistemicsEventMappingAdvertisement(),
+    // #5564 — extension term → wire field → route, with the lossy 8→4
+    // tier→warrantKind collapse declared rather than left to inference.
+    fieldMapping: epistemicsFieldMappingAdvertisement(),
   };
 }
 

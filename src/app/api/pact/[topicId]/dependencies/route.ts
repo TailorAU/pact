@@ -66,6 +66,12 @@ export async function GET(
     });
     frontier = {
       isFrontier,
+      // #5564 — the source column alongside the collapsed warrantKind: the
+      // extension's tier vocabulary is 8-valued and the warrant collapse is
+      // lossy, so a conformant consumer needs the stored tier itself. Every
+      // other topic surface already serves it via row spread; the frontier
+      // block was the one hand-built shape that dropped it.
+      tier: anchor.tier,
       warrantKind: warrantKindFromTier(anchor.tier as string),
       conventionStop: !!anchor.convention_stop,
       state: consensusStateFor(anchor.status as string),

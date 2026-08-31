@@ -35,6 +35,12 @@ import {
   isGuarded,
   resolveResourceType,
 } from "./effect-class";
+import {
+  EPISTEMICS_EVENTS,
+  PACT_EVENT_MAP,
+  epistemicsEventMappingAdvertisement,
+  epistemicsFieldMappingAdvertisement,
+} from "./epistemics-mapping";
 import { INDEPENDENCE_CONFIG } from "./independence";
 import { VERIFIED_TOPIC_STATUSES, dependencyGateOk } from "./consensus-gate";
 import { CHAIN_HASH_ALG, FIRST_SEQUENCE_NUMBER, GENESIS_SENTINELS } from "./provenance-chain";
@@ -473,10 +479,89 @@ describe("declared gaps — what the KG does NOT have, on the same wire", () => 
     expect(areas).toContain("§6.3 retention policy");
   });
 
-  it("names the epistemics §10 event-vocabulary gap rather than implying the mapping", () => {
+  /**
+   * REWRITTEN, not deleted, when the §10 gap was retired-and-replaced
+   * (#5564/#5565). The old assertion pinned the gap's PRESENCE ("the mapping
+   * is not published yet"); the mapping is published now, so this pins the
+   * REPLACEMENT: the served eventMapping is complete over the extension's
+   * seven §10 events — every one either maps to at least one product op or
+   * is declared unimplemented with a reason — and the replaced gap entry
+   * names precisely what remains rather than reverting to the retired
+   * phrasing.
+   */
+  it("publishes a complete §10 event mapping; the retired gap names only what remains", () => {
+    const advertised = profile.extensions[EPISTEMICS_EXTENSION] as {
+      eventMapping: Record<string, { productOps?: string[]; unimplemented?: string }>;
+    };
+    // Served, and derived from the classification table the emitters are
+    // typed against — not a parallel hand-written copy.
+    expect(advertised.eventMapping).toEqual(epistemicsEventMappingAdvertisement());
+
+    // Completeness over the seven §10 events: mapped XOR declared-with-reason.
+    for (const eventName of EPISTEMICS_EVENTS) {
+      const entry = advertised.eventMapping[eventName];
+      expect(entry, `eventMapping is missing ${eventName}`).toBeDefined();
+      if ("unimplemented" in entry && entry.unimplemented !== undefined) {
+        expect(entry.unimplemented.length).toBeGreaterThan(0);
+        expect(entry.productOps).toBeUndefined();
+      } else {
+        expect(entry.productOps, `${eventName} maps to no product op and declares no reason`).toBeDefined();
+        expect(entry.productOps!.length).toBeGreaterThan(0);
+        // Every advertised product op is a declared emitter op, classified
+        // to exactly this extension event.
+        for (const op of entry.productOps!) {
+          const classification = PACT_EVENT_MAP[op as keyof typeof PACT_EVENT_MAP];
+          expect(classification, `${op} is advertised but not in PACT_EVENT_MAP`).toBeDefined();
+          expect(classification.scope).toBe("epistemics");
+          expect((classification as { event: string }).event).toBe(eventName);
+        }
+      }
+    }
+
+    // The known shortfall stays declared: challenge-reopened has no emitter.
+    expect(advertised.eventMapping["pact.epistemics.challenge-reopened"]).toHaveProperty(
+      "unimplemented"
+    );
+
+    // The replaced gap entry: names the two remaining shortfalls, and the
+    // retired "not published yet" phrasing must never come back — it would
+    // be false the moment it landed.
     const events = profile.declaredGaps.find((g) => g.area.includes("§10 events"));
     expect(events).toBeDefined();
-    expect(events!.statement).toContain("pact.epistemics.");
+    expect(events!.statement).toContain("challenge-reopened");
+    expect(events!.statement).toMatch(/payload/i);
+    expect(events!.statement).not.toMatch(/not published yet/i);
+    expect(events!.tracking).toContain("5565");
+  });
+
+  /**
+   * #5564 — the field-name mapping: extension term → wire field → route,
+   * served in the same extension block, with the lossy 8→4 tier→warrantKind
+   * collapse declared in words a consumer can act on.
+   */
+  it("publishes the §3/§5/§7 field mapping with the tier→warrantKind collapse declared", () => {
+    const advertised = profile.extensions[EPISTEMICS_EXTENSION] as {
+      fieldMapping: Array<{ extensionTerm: string; wireField: string; routes: string[]; note?: string }>;
+    };
+    expect(advertised.fieldMapping).toEqual(epistemicsFieldMappingAdvertisement());
+
+    const byTerm = new Map(advertised.fieldMapping.map((f) => [f.extensionTerm, f]));
+    // The terms #5564 requires covered, each naming a wire field and at
+    // least one route.
+    for (const term of ["tier", "consensusState", "credence", "defeaterType", "convention_stop", "conventionStopQuorum"]) {
+      const entry = byTerm.get(term);
+      expect(entry, `fieldMapping is missing ${term}`).toBeDefined();
+      expect(entry!.wireField.length).toBeGreaterThan(0);
+      expect(entry!.routes.length).toBeGreaterThan(0);
+    }
+    // The collapse is declared on the tier entry, not left to inference.
+    expect(byTerm.get("tier")!.note).toMatch(/warrantKind/);
+    expect(byTerm.get("tier")!.note).toMatch(/loss/i);
+    // consensusState is served as the product field `state` — mapped, not
+    // renamed (grandfathering).
+    expect(byTerm.get("consensusState")!.wireField).toBe("state");
+    // A served document never aliases module state.
+    expect(Object.is(advertised.fieldMapping, epistemicsFieldMappingAdvertisement())).toBe(false);
   });
 
   /**

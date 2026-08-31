@@ -48,6 +48,7 @@ export async function GET(
   try {
     const proposalsResult = await db.execute({
       sql: `SELECT p.id, p.section_id, p.new_content as content, p.summary, p.status, p.created_at,
+        p.proposal_type as proposalType, p.defeater_type as defeaterType,
         a.name as proposedBy
       FROM proposals p
       LEFT JOIN agents a ON a.id = p.agent_id

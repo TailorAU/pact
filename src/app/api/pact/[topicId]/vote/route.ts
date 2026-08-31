@@ -103,6 +103,10 @@ export async function POST(
       { status: 400 }
     );
   }
+  // #5565 — narrowed past the guard above so the emitted op is the literal
+  // union `pact.topic.vote.approve|reject|need_info`, all three declared in
+  // PACT_EVENT_MAP (emitEvent's type parameter rejects anything else).
+  const voteType: "approve" | "reject" | "need_info" = vote;
 
   // Validate need_info-specific fields
   if (vote === "need_info") {
@@ -247,7 +251,7 @@ export async function POST(
     );
   }
 
-  await emitEvent(db, topicId, `pact.topic.vote.${vote}`, agent.id, "", {
+  await emitEvent(db, topicId, `pact.topic.vote.${voteType}`, agent.id, "", {
     vote,
     reason: cleanReason?.sanitized ?? null,
     ...(needInfoTopicId ? { dependencyTopicId: needInfoTopicId, dependencyCreated } : {}),

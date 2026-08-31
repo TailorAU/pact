@@ -116,4 +116,91 @@ describe("GET /api/pact/{topicId}", () => {
     expect(body.proposals).toEqual([]);
     expect(body.votes).toEqual([]);
   });
+
+  // ── #5564 — grandfathering + additive shape ─────────────────────────
+
+  it("derives the epistemics fields for a pre-change-shaped row (credence NULL, legacy tier, challenged)", async () => {
+    const id = "topic:legacy:pre-epistemics";
+    mockDb.execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            ...topicRow(id),
+            tier: "convention", // pre-canonicalizeTier legacy spelling
+            status: "challenged",
+            consensus_ratio: null,
+            claim_support: null,
+            claim_atomicity_status: null,
+            convention_stop: 0,
+            credence: null, // written before the sweep stored effective credence
+            consensus_voters: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "prop-challenge",
+            section_id: "sec:challenge",
+            content: "counter-claim",
+            summary: "The measurement was retracted",
+            status: "challenge",
+            created_at: "2026-02-01T00:00:00Z",
+            proposalType: "challenge",
+            defeaterType: "counter-evidence",
+            proposedBy: "Agent One",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] }); // topic_votes
+
+    const res = await callGet(id);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // The source column stays on the wire; the collapse rides alongside.
+    expect(body.tier).toBe("convention");
+    expect(body.warrantKind).toBe("empirical");
+    expect(body.state).toBe("contested");
+    // NULL stored credence over a NULL ratio derives 0 — no backfill, no 500.
+    expect(body.credence).toBe(0);
+    expect(body.conventionStop).toBe(false);
+    // #5564 — the embedded proposals now carry the typed defeater.
+    expect(body.proposals[0].defeaterType).toBe("counter-evidence");
+    expect(body.proposals[0].proposalType).toBe("challenge");
+  });
+
+  it("pins the pre-existing topic shape additively — a rename or removal fails", async () => {
+    const id = "topic:stub:shape-pin";
+    mockDb.execute
+      .mockResolvedValueOnce({ rows: [topicRow(id)] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const res = await callGet(id);
+    const body = await res.json();
+    expect(Object.keys(body)).toEqual(
+      expect.arrayContaining([
+        "id",
+        "title",
+        "content",
+        "tier",
+        "status",
+        "created_at",
+        "consensus_ratio",
+        "consensus_since",
+        "canonical_claim",
+        "jurisdiction",
+        "participantCount",
+        "proposalCount",
+        "mergedCount",
+        "warrantKind",
+        "conventionStop",
+        "state",
+        "credence",
+        "proposals",
+        "votes",
+      ])
+    );
+  });
 });

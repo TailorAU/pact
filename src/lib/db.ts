@@ -9,6 +9,10 @@ import {
   evaluateApplyGuard,
 } from "./effect-class";
 import { appendChainedEvent } from "./provenance-chain";
+// #5565 — type-only: the op-name union derived from PACT_EVENT_MAP, the
+// declared §10 event mapping. `epistemics-mapping.ts` imports nothing back
+// (string literals only), so this cannot cycle.
+import type { EmittedPactOp } from "./epistemics-mapping";
 import {
   computeEffectiveCredences,
   credenceFromRatio,
@@ -1192,11 +1196,17 @@ export type DependencyRelationship = (typeof VALID_RELATIONSHIPS)[number];
  * A `DbClient` without `transaction` (only test mocks; every production
  * client implements it) still gets a fully chained, still-throwing append —
  * only the all-or-nothing atomicity depends on the client.
+ *
+ * #5565 — `type` is {@link EmittedPactOp}, the union of every op declared in
+ * `PACT_EVENT_MAP` (epistemics-mapping.ts). Emitting an op with no declared
+ * `pact.epistemics.*` counterpart or out-of-extension classification is a
+ * COMPILE error: the §10 escape hatch ("product names WITH a declared
+ * mapping") is enforced at the single chokepoint every emitter goes through.
  */
 export async function emitEvent(
   db: DbClient,
   topicId: string,
-  type: string,
+  type: EmittedPactOp,
   agentId?: string,
   sectionId?: string,
   data?: Record<string, unknown>

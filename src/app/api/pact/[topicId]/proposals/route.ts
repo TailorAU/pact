@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, requiredReopenVotes } from "@/lib/db";
 import { requireAgent, checkReviewDuty } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
@@ -38,16 +38,50 @@ export async function GET(
     args: [topicId, limit, offset],
   });
 
+  // #5564 — the §7.2 reopen bar on the challenge-proposal wire itself
+  // (previously served only under the dependencies route's frontier.reopen).
+  // One scalar per request — every row shares the topic — computed by the
+  // SAME requiredReopenVotes binding evaluateChallenges enforces. Additive
+  // and best-effort: a failed count must never 500 the list.
+  let reopenBar: { requiredSupportVotes: number; dependentCount: number } | null = null;
+  try {
+    const dependents = await db.execute({
+      sql: "SELECT COUNT(*) as dependent_count FROM topic_dependencies WHERE depends_on = ?",
+      args: [topicId],
+    });
+    const dependentCount = Number(dependents.rows[0]?.dependent_count ?? 0);
+    reopenBar = { requiredSupportVotes: requiredReopenVotes(dependentCount), dependentCount };
+  } catch {
+    reopenBar = null;
+  }
+
   // Redact confidential proposals — replace summary/citations with public_summary
   const rows = result.rows.map((row) => {
+    // A challenge row in any of its shapes: an open challenge (status), an
+    // explicitly-typed one, or a pre-#3691-W4 row grandfathered with only a
+    // defeater. Rows written before typed defeaters exist keep defeaterType
+    // null — served as-is, never backfilled.
+    const isChallengeRow =
+      row.status === "challenge" || row.proposalType === "challenge" || row.defeaterType != null;
+    const base = {
+      ...row,
+      ...(isChallengeRow && reopenBar
+        ? {
+            reopen: {
+              ...reopenBar,
+              supportVotes: Number(row.approveCount ?? 0),
+            },
+          }
+        : {}),
+    };
     if (row.confidential) {
       return {
-        ...row,
+        ...base,
         summary: row.public_summary || "[Confidential proposal]",
         citations: null,
       };
     }
-    return row;
+    return base;
   });
 
   return NextResponse.json(rows);

@@ -19,6 +19,7 @@
  *     mcp/                         @pact-protocol/mcp                -> <scope>/mcp
  *     reference-server/            @pact-protocol/reference-server   -> <scope>/reference-server
  *     spec/v2.1/conformance/runner @pact-protocol/conformance-runner -> <scope>/conformance-runner
+ *     spec/v2.3/conformance        @pact-protocol/conformance-vectors -> <scope>/conformance-vectors
  *   DOES NOT TOUCH (frozen lines — appends an ERRATA note instead):
  *     spec/v2.0/conformance/runner, spec/v2.2/conformance/runner
  *   PRINTS a checklist of the editorial follow-ups a human/PR must still do
@@ -45,6 +46,9 @@ const RENAME = [
   "mcp",
   "reference-server",
   "spec/v2.1/conformance/runner",
+  // The v2.3 vector corpus (#5536 ruling). Not frozen — v2.3 is the
+  // maintained line — so a scope rename must carry it like the others.
+  "spec/v2.3/conformance",
 ];
 const FROZEN = ["spec/v2.0/conformance", "spec/v2.2/conformance"];
 

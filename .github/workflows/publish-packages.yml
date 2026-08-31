@@ -1,5 +1,6 @@
-name: Publish CLI and MCP
-# Publishes the coordination CLI and MCP server to npm.
+name: Publish CLI, MCP and conformance vectors
+# Publishes the coordination CLI, the MCP server, and the v2.3 conformance
+# vector corpus to npm.
 # SCOPE-NEUTRAL: package names are read from each package.json at runtime, so
 # this workflow is correct before AND after the #5 scope rename — it needs no
 # edit when @pact-protocol/* becomes the decided published scope.
@@ -49,10 +50,19 @@ jobs:
           npm ci
           npm test
 
+      # No npm ci: the vectors package has no dependencies by design — it is
+      # spec fixtures, not code. The gate asserts the shipped corpus matches
+      # .github/conformance/v2.3-reference-server-expected-failures.json
+      # exactly, in both directions, so a vector cannot be added or dropped
+      # from the tarball without a deliberate manifest update.
+      - name: Test — conformance-vectors (exact inventory)
+        working-directory: spec/v2.3/conformance
+        run: npm test
+
       - name: Publish (version-gated, both packages)
         run: |
           set -euo pipefail
-          for dir in cli mcp; do
+          for dir in cli mcp spec/v2.3/conformance; do
             PKG=$(node -p "require('./$dir/package.json').name")
             VER=$(node -p "require('./$dir/package.json').version")
             if npm view "$PKG@$VER" version >/dev/null 2>&1; then
@@ -66,7 +76,7 @@ jobs:
       - name: Verify on registry
         run: |
           set -euo pipefail
-          for dir in cli mcp; do
+          for dir in cli mcp spec/v2.3/conformance; do
             PKG=$(node -p "require('./$dir/package.json').name")
             VER=$(node -p "require('./$dir/package.json').version")
             echo "OK: $PKG@$VER -> $(npm view "$PKG@$VER" dist.tarball)"

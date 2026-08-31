@@ -7,7 +7,17 @@ export const revalidate = 15;
 export async function GET() {
   const db = await getDb();
 
-  // Get all topics with stats + consensus metadata
+  // Gazette ingest topics are a working queue (13k+ and growing). They drown
+  // the consensus map — keep them off the graph payload. Ingested text lives
+  // on legislation_docs, not as one node per pending proposal.
+  const omitted = await db.execute(`
+    SELECT COUNT(*) AS n
+    FROM topics t
+    WHERE t.title LIKE '[Legislation Proposal]%'
+  `);
+  const omittedLegislationProposals = Number((omitted.rows[0] as { n?: number } | undefined)?.n ?? 0);
+
+  // Get graph topics with stats + consensus metadata
   const topics = await db.execute(`
     SELECT t.id, t.title, t.tier, t.status, t.locked_at, t.consensus_ratio, t.consensus_voters,
       t.jurisdiction, t.authority, t.source_ref, t.last_verified_at,
@@ -19,6 +29,7 @@ export async function GET() {
       (SELECT COUNT(DISTINCT v.agent_id) FROM votes v JOIN proposals p ON p.id = v.proposal_id WHERE p.topic_id = t.id) as uniqueVoters,
       (SELECT COALESCE(SUM(amount), 0) FROM topic_bounties WHERE topic_id = t.id AND status = 'escrow') as bountyEscrow
     FROM topics t
+    WHERE t.title NOT LIKE '[Legislation Proposal]%'
   `);
 
   // Get all active agents with their stats
@@ -32,13 +43,15 @@ export async function GET() {
     FROM agents a
   `);
 
-  // Get all registrations (agent <-> topic links)
+  // Registrations only for topics that remain on the graph
   const links = await db.execute(`
     SELECT r.agent_id, r.topic_id, r.role,
       CASE WHEN r.left_at IS NULL THEN 1 ELSE 0 END as active,
       (SELECT COUNT(*) FROM proposals p WHERE p.agent_id = r.agent_id AND p.topic_id = r.topic_id) as proposalCount,
       (SELECT COUNT(*) FROM proposals p WHERE p.agent_id = r.agent_id AND p.topic_id = r.topic_id AND p.status = 'merged') as mergedCount
     FROM registrations r
+    JOIN topics t ON t.id = r.topic_id
+    WHERE t.title NOT LIKE '[Legislation Proposal]%'
   `);
 
   // Get topic dependency edges (axiom chains)
@@ -108,5 +121,6 @@ export async function GET() {
     cites,
     appliesWhen,
     coApplies,
+    omittedLegislationProposals,
   });
 }

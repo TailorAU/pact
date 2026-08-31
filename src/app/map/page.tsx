@@ -75,6 +75,7 @@ export default async function MapPage() {
     SELECT t.id, t.title, t.tier, t.status,
       (SELECT COUNT(DISTINCT r.agent_id) FROM registrations r WHERE r.topic_id = t.id AND r.left_at IS NULL) as participantCount
     FROM topics t
+    WHERE t.title NOT LIKE '[Legislation Proposal]%'
     ORDER BY t.created_at ASC
   `);
   const depsResult = await db.execute(`
@@ -262,7 +263,8 @@ export default async function MapPage() {
           <span className="text-fuchsia-400 font-semibold">scenarios</span>{" "}
           (predicate containers, diamonds). Edges show <em>depends_on</em>, <em>cites</em>,{" "}
           <em>applies_when</em>, and <em>co_applies</em> (scenario-scoped).
-          Expand nodes to trace the full graph.
+          Expand nodes to trace the full graph. Pending gazette ingest
+          topics are kept off this map so the graph stays interactive.
         </p>
       </div>
 

@@ -193,6 +193,11 @@ function detectDomain(title: string): string {
   return bestDomain;
 }
 
+// Skip bloom / link particles / long force ticks past this. The intended
+// map (topics + ingested legislation + scenarios) is a few hundred nodes;
+// the ingest-queue flood was 13k+.
+const DENSE_GRAPH_NODES = 800;
+
 const AGENT_COLOR = "#6366f1";
 const LOCKED_GOLD = "#fbbf24";
 const CHALLENGED_RED = "#ef4444";
@@ -237,6 +242,7 @@ export default function ConsensusGraph() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hovered, setHovered] = useState<GraphNode | null>(null);
+  const [omittedIngest, setOmittedIngest] = useState(0);
   const [dimensions, setDimensions] = useState({ width: 1200, height: 700 });
   const threeRef = useRef<typeof import("three") | null>(null);
   const bloomAdded = useRef(false);
@@ -265,6 +271,13 @@ export default function ConsensusGraph() {
         const res = await fetch("/api/hub/graph");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        const allTopics = (data.topics as TopicNode[]) ?? [];
+        const topics = allTopics.filter(
+          (t) => !String(t.title ?? "").startsWith("[Legislation Proposal]"),
+        );
+        setOmittedIngest(
+          Number(data.omittedLegislationProposals ?? allTopics.length - topics.length),
+        );
 
         // Count topics per domain for offset within cluster
         const domainCounts: Record<string, number> = {};
@@ -282,7 +295,7 @@ export default function ConsensusGraph() {
           dependentsOf.set(d.depends_on, list);
         }
         const depthMap = new Map<string, number>();
-        const depthQueue: { id: string; depth: number }[] = (data.topics as TopicNode[])
+        const depthQueue: { id: string; depth: number }[] = topics
           .filter((t) => !dependsOnSomething.has(t.id))
           .map((t) => ({ id: t.id, depth: 0 }));
         while (depthQueue.length > 0) {
@@ -296,7 +309,7 @@ export default function ConsensusGraph() {
           }
         }
 
-        const topicNodes: GraphNode[] = (data.topics as TopicNode[]).map((t) => {
+        const topicNodes: GraphNode[] = topics.map((t) => {
           const isVerified = ["locked", "stable", "consensus"].includes(t.status);
           const isChallenged = t.status === "challenged";
           const warrantColor = colorForTier(t.tier);
@@ -338,7 +351,10 @@ export default function ConsensusGraph() {
           };
         });
 
-        const depLinks: GraphLink[] = ((data.dependencies ?? []) as DepData[]).map((d) => {
+        const topicIds = new Set(topics.map(t => t.id));
+        const depLinks: GraphLink[] = ((data.dependencies ?? []) as DepData[])
+          .filter((d) => topicIds.has(d.topic_id) && topicIds.has(d.depends_on))
+          .map((d) => {
           const isAssumes = d.relationship === "assumes";
           return {
             source: `topic-${d.topic_id}`,
@@ -356,7 +372,6 @@ export default function ConsensusGraph() {
         // #1152 Round 5a — legislation + scenario nodes. Graceful-degrade: if
         // `/api/hub/graph` predates the migration the new arrays are missing and
         // the graph still renders topics + dependencies only.
-        const topicIds = new Set((data.topics as TopicNode[]).map(t => t.id));
         const legislationList = (data.legislation ?? []) as LegislationNodeData[];
         const scenarioList = (data.scenarios ?? []) as ScenarioNodeData[];
 
@@ -496,21 +511,23 @@ export default function ConsensusGraph() {
     const fg = fgRef.current;
     const THREE = threeRef.current;
 
-    // Add bloom
-    try {
-      import("three/examples/jsm/postprocessing/UnrealBloomPass.js").then(({ UnrealBloomPass }) => {
-        if (bloomAdded.current) return;
-        const bloomPass = new UnrealBloomPass(
-          new THREE.Vector2(dimensions.width, dimensions.height),
-          0.6,  // strength
-          0.4,  // radius
-          0.3   // threshold
-        );
-        fg.postProcessingComposer().addPass(bloomPass);
-        bloomAdded.current = true;
-      });
-    } catch {
-      console.warn("Bloom postprocessing not available");
+    // Bloom is a full-frame pass — skip it once the graph is dense.
+    if (graphData.nodes.length <= DENSE_GRAPH_NODES) {
+      try {
+        import("three/examples/jsm/postprocessing/UnrealBloomPass.js").then(({ UnrealBloomPass }) => {
+          if (bloomAdded.current) return;
+          const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(dimensions.width, dimensions.height),
+            0.6,  // strength
+            0.4,  // radius
+            0.3   // threshold
+          );
+          fg.postProcessingComposer().addPass(bloomPass);
+          bloomAdded.current = true;
+        });
+      } catch {
+        console.warn("Bloom postprocessing not available");
+      }
     }
 
     // Camera: start from above-right, looking toward center, showing the tier layers
@@ -683,7 +700,7 @@ export default function ConsensusGraph() {
     const group = new THREE.Group();
 
     // Main sphere
-    const geo = new THREE.SphereGeometry(radius, 32, 32);
+    const geo = new THREE.SphereGeometry(radius, 10, 10);
     const mat = new THREE.MeshStandardMaterial({
       color: node.color,
       emissive: node.emissive,
@@ -925,14 +942,15 @@ export default function ConsensusGraph() {
         linkCurvature={((link: any) => link.curvature) as any}
         linkDirectionalArrowLength={((link: any) => link.type === "dependency" ? 5 : 0) as any}
         linkDirectionalArrowRelPos={1}
-        linkDirectionalParticles={((link: any) => link.particles) as any}
+        linkDirectionalParticles={((link: any) =>
+          (graphData?.nodes.length ?? 0) > DENSE_GRAPH_NODES ? 0 : link.particles) as any}
         linkDirectionalParticleSpeed={0.004}
         linkDirectionalParticleWidth={1.5}
         linkDirectionalParticleColor={((link: any) => link.particleColor) as any}
 
-        // Performance
-        warmupTicks={200}
-        cooldownTicks={400}
+        // Performance — keep the force sim short once the graph is dense
+        warmupTicks={(graphData?.nodes.length ?? 0) > DENSE_GRAPH_NODES ? 40 : 120}
+        cooldownTicks={(graphData?.nodes.length ?? 0) > DENSE_GRAPH_NODES ? 80 : 200}
       />
       {/* eslint-enable @typescript-eslint/no-explicit-any */}
 
@@ -991,7 +1009,9 @@ export default function ConsensusGraph() {
           )}
         </div>
         <div className="text-white/30">
-          Orbit · Zoom · Click nodes
+          {omittedIngest > 0
+            ? `${omittedIngest.toLocaleString()} ingest topics omitted · Orbit · Zoom · Click`
+            : "Orbit · Zoom · Click nodes"}
         </div>
       </div>
     </div>

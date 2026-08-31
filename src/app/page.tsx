@@ -108,6 +108,7 @@ async function buildTreeTopics(): Promise<TreeTopic[]> {
     SELECT t.id, t.title, t.tier, t.status,
       (SELECT COUNT(DISTINCT r.agent_id) FROM registrations r WHERE r.topic_id = t.id AND r.left_at IS NULL) as participantCount
     FROM topics t
+    WHERE t.title NOT LIKE '[Legislation Proposal]%'
     ORDER BY t.created_at ASC
   `);
   const depsResult = await db.execute(`

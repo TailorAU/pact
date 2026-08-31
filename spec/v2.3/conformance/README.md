@@ -1,5 +1,34 @@
 # PACT v2.3 Conformance — scaffold
 
+## Consuming these vectors
+
+This directory is also published as **`@pact-protocol/conformance-vectors`** so
+implementations can execute the same corpus rather than hand-transcribing it.
+Spec fixtures only — no code, no runtime dependencies.
+
+```bash
+npm install --save-dev @pact-protocol/conformance-vectors
+```
+
+Vector files resolve under `core/` and `extended/`:
+
+```js
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const dir = require.resolve("@pact-protocol/conformance-vectors/package.json");
+// vectors live alongside it: core/*.yaml, extended/<family>/*.yaml
+```
+
+The published version tracks the spec line: `2.3.0-draft.N` while v2.3 carries
+`Status: DRAFT`, moving to `2.3.0` when the maintainer signs the spec off. Pin
+an exact version — the corpus is an exact set, and a floating range would let
+the set your suite measures against change underneath it.
+
+Publishing is gated on the npm scope decision (issue
+[#5](https://github.com/TailorAU/pact/issues/5)); until `NPM_TOKEN` exists on
+this repo, consume the vectors from a repo checkout.
+
+
 > **v2.3 note.** This directory is carried forward from `spec/v2.2/conformance/`
 > and adds [`extended/execution-boundary/`](extended/execution-boundary/) — 11
 > vectors for the §25 / §17.14 consensus-vs-authorization-vs-execution boundary

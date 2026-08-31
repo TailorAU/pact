@@ -1,0 +1,42 @@
+{
+  "name": "@pact-protocol/conformance-vectors",
+  "version": "2.3.0-draft.0",
+  "description": "PACT v2.3 conformance vectors — the shared test-vector corpus every PACT implementation is measured against. Spec fixtures only: no code, no runtime dependencies.",
+  "license": "MIT",
+  "author": "Knox Hart",
+  "homepage": "https://github.com/TailorAU/pact/tree/main/spec/v2.3/conformance",
+  "bugs": {
+    "url": "https://github.com/TailorAU/pact/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TailorAU/pact",
+    "directory": "spec/v2.3/conformance"
+  },
+  "keywords": [
+    "pact",
+    "conformance",
+    "test-vectors",
+    "protocol",
+    "agent-consensus"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./core/*": "./core/*",
+    "./extended/*": "./extended/*",
+    "./test-vector-format.yaml": "./test-vector-format.yaml"
+  },
+  "files": [
+    "core/",
+    "extended/",
+    "test-vector-format.yaml",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node ./scripts/verify-inventory.mjs"
+  }
+}

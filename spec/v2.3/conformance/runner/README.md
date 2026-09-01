@@ -22,10 +22,77 @@ node dist/index.js run --vectors ..              # local kinds run; server-bound
 node dist/index.js run --vectors .. --filter verify    # only ids containing 'verify'
 node dist/index.js run --vectors .. --server https://pact.example.com   # also run http vectors
 node dist/index.js run --vectors .. --server http://127.0.0.1:4123 --require-reference-fixtures  # repository CI harness mode
-node dist/index.js run --vectors .. --json       # JSON report (for CI gating)
+node dist/index.js run --vectors .. --json       # JSON report (for CI gating) — see "Report schema"
 ```
 
 Exit code: `0` if all selected vectors `pass` (or are `skip`ped for documented reasons); `1` otherwise.
+
+## Report schema
+
+`--json` writes a single JSON object to stdout. This is the schema of the published
+`v23-conformance-report` artifact (uploaded by `.github/workflows/conformance.yml` on every
+run, green or red), which is the runner's own emission **plus two provenance keys stamped in
+CI** — a locally produced `--json` report lacks those two.
+
+### Top-level fields
+
+| Field | Type | Emitted by | Semantics |
+|---|---|---|---|
+| `counts` | object `{ pass, fail, skip }` | runner | Non-negative integer tallies over `results` — each result contributes exactly one, per its `outcome.status`. The CI gate recomputes these from `results` and rejects a mismatch. |
+| `results` | array | runner | One entry per selected vector (after `--filter`), in vector-walk order. Per-result fields below. |
+| `runner_disclaimer` | string | runner | Fixed honesty note explaining the `cryptographic` vs `structural` `verification_mode` split (the same disclosure as the "Honesty disclosure" section). Always present; not vector data. |
+| `http_coverage` | object `{ total, executed }` | runner | Server-bound coverage. `total` = number of selected `kind: http` **and** `kind: session` vectors (both need `--server`, so they are grouped despite the field's name); `executed` = those whose outcome is not `skip`. `executed < total` means server-bound vectors were skipped (typically no `--server`) and HTTP-runner regressions could hide behind a green run. |
+| `spec_version` | string | CI stamp | The spec generation the job's vector set targets — `"2.3"` for this workflow, which is hard-bound to `spec/v2.3/**`. |
+| `vector_set_ref` | string | CI stamp | The git commit actually checked out (`GITHUB_SHA`; for `pull_request` events that is the merge commit — exactly the tree the vectors were read from). |
+
+The runner itself emits only the first four keys. `spec_version` and `vector_set_ref` are
+added by the "Stamp spec + vector-set provenance" step in
+[`.github/workflows/conformance.yml`](../../../../.github/workflows/conformance.yml) — a `jq`
+merge over the emitted JSON. Enriching at the CI seam rather than in the runner keeps
+provenance changes to the workflow diff (no runner change, no runner release), and the stamp
+runs **after** the expected-failures gate — which reads only `results` and `counts` — so the
+added keys cannot affect gating.
+
+### Per-result fields
+
+| Field | Type | When present | Semantics |
+|---|---|---|---|
+| `path` | string | always | The vector file's path relative to the runner's working directory at invocation (in CI the runner runs from this directory, so paths look like `../core/join.yaml`). Informational — the gate keys on `id`. |
+| `id` | string | always | The vector's `metadata.id`. Unique across the suite; the gate rejects duplicates. |
+| `kind` | string | always | `verification` / `http` / `session` / `mandate` — the vector's declared `kind`, else inferred (a `verification` block → `verification`; `steps` → `session`; otherwise `http`). An unrecognized declared kind produces a `fail` result with a reason, not a crash. |
+| `outcome` | object | always | Discriminated union on `status` — see below. |
+| `verification_mode` | string | only when `outcome` carries one | `cryptographic` / `structural`, mirrored out of `outcome` to the result's top level so consumers (CI gates, badge generators) can branch without unpacking the union. In practice only `kind: verification` results carry it: every verification **pass** has one (see "Honesty disclosure" for what each value proves), and a verification **fail** carries one when §17.7 evaluation got far enough to determine the mode. |
+
+`outcome` takes exactly one of three shapes:
+
+| `outcome.status` | Other `outcome` fields | Semantics |
+|---|---|---|
+| `pass` | `verification_mode?` | The vector's expectations held. Never carries a `reason`. |
+| `fail` | `reason`, `verification_mode?` | Expectation mismatch or malformed vector. `reason` is always present and human-readable (e.g. `expected status 200, got 404`; session failures are prefixed `step <id>:`). |
+| `skip` | `reason` | The vector was not executed — always with a `reason` (e.g. server-bound vector with no `--server`, or `body_match.mode: schema` not implemented). |
+
+### Consuming implementations
+
+[TailorAU/tailor-app#5567](https://github.com/TailorAU/tailor-app/issues/5567) requires
+implementations beyond the reference server to publish their conformance results **in this
+same schema**. The contract:
+
+- Keep the top-level shape above: `counts`, `results` (with `path` / `id` / `kind` /
+  `outcome`), and stamp `spec_version` + `vector_set_ref` at publish time.
+- Implementations MAY add top-level keys — e.g. an `implementation` identifier object
+  (name, version, run date). Additive keys are safe: the gate ignores them.
+- Do not silently drop vectors. Record an exclusion as a result with
+  `outcome: { "status": "excluded", "reason": "…" }` so the delta from the full suite is
+  auditable (a `counts.excluded` tally MAY accompany it).
+- The gate — [`tools/check-conformance-expected-failures.mjs`](../../../../tools/check-conformance-expected-failures.mjs)
+  — reads **only** `.results` and `.counts`, and per result only `id` and `outcome.status`.
+  Everything else (`path`, `kind`, `verification_mode`, `runner_disclaimer`,
+  `http_coverage`, the provenance stamps, any additive keys) is ignored. But it is strict
+  about what it does read: `outcome.status` must be `pass` / `fail` / `skip`, ids must be
+  unique and match the manifest inventory exactly, `counts.{pass,fail,skip}` must equal the
+  tallies it recomputes from `results`, and any `skip` fails the gate. Consequently a report
+  carrying `excluded` results is a **publication** format, not a gate input — a report fed
+  to the checker must stay within the `pass` / `fail` / `skip` vocabulary with exact counts.
 
 ## What's covered today
 

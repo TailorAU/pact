@@ -156,8 +156,8 @@ export async function POST(
     // whose per-decision writes each ride their own short transaction.
     // Never inside the request transaction (a five-phase sweep with a 60s
     // time budget would hold it open for up to a minute), and never on the
-    // plain pooled client (its emitEvent mints each chain link in a second
-    // transaction today, and PR-C's interlock will refuse it outright).
+    // plain pooled client (whose emitEvent used to mint each chain link in
+    // a second transaction; PR-C's interlock refuses it outright).
     await runConsensusStatusUpdate();
 
     // Audit log (#1308 / MEGA-80 WS5)

@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, runConsensusSweep } from "@/lib/db";
+import { getDb, runConsensusSweep, withTransaction } from "@/lib/db";
 import { classifyClaimAtomicity } from "@/lib/claim";
 import { ensureLegacySplitBounty } from "@/lib/economy";
 import { log } from "@/lib/logger";
@@ -163,7 +163,17 @@ export async function GET(req: NextRequest) {
     claimsClassified++;
     if (status === "needs_split") {
       try {
-        if (await ensureLegacySplitBounty(db, row.id as string)) splitBountiesSeeded++;
+        // #5599 PR-C — ONE short transaction PER TOPIC (the sweep's
+        // per-decision pattern, never one transaction around the loop): the
+        // bounty INSERT, its ledger row and its §6.4 chain link commit
+        // together or vanish together, and emitEvent's interlock sees an
+        // in-transaction client instead of refusing the pooled one. The kept
+        // catch still decides policy — a failed seed rolls back alone, logs,
+        // and never blocks the remaining topics.
+        const seeded = await withTransaction(db, (tx) =>
+          ensureLegacySplitBounty(tx, row.id as string)
+        );
+        if (seeded) splitBountiesSeeded++;
       } catch (e) {
         console.error(`legacy-split bounty seed failed for ${row.id}:`, e);
       }

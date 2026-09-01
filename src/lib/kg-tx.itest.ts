@@ -431,9 +431,13 @@ describeDb("#5599 PR-A — transactional route wrap + catch-site remediation (re
       // A proposed-legislation event whose document payload will make
       // ingestDocuments throw inside the savepoint region (after the
       // region's first SQL statement has already run on the transaction).
-      await dbmod.emitEvent(db, t, "pact.legislation.proposed", h.agentId, "", {
-        document: { id: 42, sections: "not-an-array" },
-        proposedBy: h.agentId,
+      // Seeded inside its own transaction — PR-C's interlock refuses the
+      // bare pooled client (ChainAppendError), by design.
+      await db.transaction!(async (tx) => {
+        await dbmod.emitEvent(tx, t, "pact.legislation.proposed", h.agentId, "", {
+          document: { id: 42, sections: "not-an-array" },
+          proposedBy: h.agentId,
+        });
       });
 
       const outcome = await db.transaction!(async (tx) =>

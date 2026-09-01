@@ -340,9 +340,9 @@ export async function getDb(): Promise<DbClient> {
  *     mirroring emitEvent's mock tolerance so the mock suite's SQL-shape
  *     dispatch sees the identical statement stream.
  *
- * NOTE (PR-C forward pointer): once the emitEvent interlock lands, a pooled
- * client that has `transaction` but is NOT inside one will make emitEvent
- * THROW — so every mutating route must reach emitEvent through this wrapper.
+ * NOTE (#5599 PR-C, landed): a pooled client that has `transaction` but is
+ * NOT inside one makes emitEvent THROW `ChainAppendError` — so every
+ * mutating route must reach emitEvent through this wrapper.
  */
 export async function withTransaction<T>(
   db: DbClient,
@@ -1306,21 +1306,50 @@ export const VALID_RELATIONSHIPS = ["builds_on", "assumes"] as const;
 export type DependencyRelationship = (typeof VALID_RELATIONSHIPS)[number];
 
 /**
+ * #5599 PR-C — thrown by `emitEvent` when a production client that supports
+ * transactions is handed in OUTSIDE any transaction. That shape used to open
+ * a SECOND transaction for the chain link (breaking §6.4 atomicity with the
+ * state change the link records — the completeness hole #5599 names); now it
+ * is refused outright. Named so callers and tests can match it precisely.
+ */
+export class ChainAppendError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ChainAppendError";
+  }
+}
+
+/**
  * The single writer for the KG's PACT operation log — and, since #5566, the
  * single point at which a §6.4 provenance chain link is minted.
  *
  * Every event goes onto its resource's hash chain: a gapless per-topic
  * `sequenceNumber`, a `prev_hash` pointing at the previous event's hash, and
- * its own `event_hash` over the RFC 8785 canonical encoding. The whole
- * assignment runs inside ONE transaction (`db.transaction`), so a failure to
- * chain rolls the event back and THROWS — it fails the operation rather than
- * silently writing an unchained row. That transactional boundary is what
- * stops the audit-log's deliberate best-effort posture (see lib/audit.ts)
- * from applying to the chained stream.
+ * its own `event_hash` over the RFC 8785 canonical encoding. A failure to
+ * chain THROWS — it fails the operation rather than silently writing an
+ * unchained row. That is what stops the audit-log's deliberate best-effort
+ * posture (see lib/audit.ts) from applying to the chained stream.
  *
- * A `DbClient` without `transaction` (only test mocks; every production
- * client implements it) still gets a fully chained, still-throwing append —
- * only the all-or-nothing atomicity depends on the client.
+ * #5599 PR-C — WHAT THIS FUNCTION GUARANTEES, PRECISELY. emitEvent never
+ * opens a transaction of its own. The chain link is appended on the client
+ * it is handed, and §6.4's "assignment is transactional with the state
+ * change" holds exactly when that client is INSIDE the caller's transaction
+ * (`withTransaction` / a connection-scoped client's `transaction()`), which
+ * the interlock below enforces for every production client:
+ *   - in-transaction client → append directly; the link commits or rolls
+ *     back WITH the state change it records;
+ *   - two-method test mock (no `transaction` support at all) → append
+ *     directly; fully chained and still-throwing, but per-statement
+ *     autocommit only — the mock suite's SQL-shape harness, never a
+ *     production shape;
+ *   - production client with `transaction` support OUTSIDE any transaction →
+ *     throw {@link ChainAppendError}. The pre-PR-C fallback opened a SECOND
+ *     transaction here, which made the link commit independently of the
+ *     caller's writes — a crash between the two commits left a state change
+ *     with NO chain link, invisible to every verifier (gaplessness of what
+ *     WAS written says nothing about what should have been). No verifier can
+ *     detect that hole after the fact; refusing the write shape is the only
+ *     defence.
  *
  * #5565 — `type` is {@link EmittedPactOp}, the union of every op declared in
  * `PACT_EVENT_MAP` (epistemics-mapping.ts). Emitting an op with no declared
@@ -1344,22 +1373,38 @@ export async function emitEvent(
     payloadJson: data ? JSON.stringify(data) : null,
   };
 
-  // Already inside a caller's transaction ⇒ the chain link is assigned in
+  // Branch 1 — inside a caller's transaction: the chain link is assigned in
   // the SAME transaction as the state change that transaction is recording.
   // #5599 PR-A wrapped every mutating production route in `withTransaction`,
   // and PR-B moved the consensus engine (the sweep's phase loops, the
   // finalizers, evaluateChallenges, and the routes' after-commit
-  // runConsensusStatusUpdate) onto per-decision transactions — so every
-  // production caller now reaches THIS branch with a transaction-scoped
-  // client. The pooled-client branch below (a SECOND transaction, breaking
-  // §6.4 atomicity with the caller's writes — pinned by canary (c) in
-  // db.itest.ts) survives until PR-C replaces it with the interlock throw.
-  if (db.inTransaction || !db.transaction) {
+  // runConsensusStatusUpdate) onto per-decision transactions — every
+  // production caller reaches THIS branch.
+  if (db.inTransaction) {
     await appendChainedEvent(db, input);
     return;
   }
 
-  await db.transaction((tx) => appendChainedEvent(tx, input));
+  // Branch 2 — a two-method test mock (no `transaction` support at all):
+  // append directly. Only the mock suite constructs this shape; every
+  // production client implements `transaction`.
+  if (!db.transaction) {
+    await appendChainedEvent(db, input);
+    return;
+  }
+
+  // Branch 3 — THE INTERLOCK (#5599 PR-C). A production client outside any
+  // transaction used to fall through to `db.transaction((tx) => …)` here: a
+  // SECOND transaction, committing the chain link independently of the
+  // caller's writes. That shape is refused now — flipped canary (c) in
+  // db.itest.ts pins the throw, and the G7 walker
+  // (emit-event-interlock.test.ts) keeps call sites from reintroducing it.
+  throw new ChainAppendError(
+    `emitEvent for "${type}" on resource "${topicId}" was called on a production client OUTSIDE ` +
+      `any transaction. §6.4 requires the chain link to commit in the SAME transaction as the ` +
+      `state change it records (#5599): wrap the mutating region in withTransaction(db, (tx) => …) ` +
+      `— or run it under a connection-scoped client's transaction() — and pass that callback's tx here.`
+  );
 }
 
 export async function autoMergeExpired(db: DbClient, sweepOptions: ConsensusSweepOptions = {}) {
@@ -1477,15 +1522,15 @@ export async function runConsensusSweep(
  *
  * Runs the five-phase status sweep on a DEDICATED connection-scoped client
  * whose per-decision writes each get their own short `transaction()` —
- * satisfying the future PR-C emitEvent interlock per decision. Deliberately
+ * satisfying the PR-C emitEvent interlock per decision. Deliberately
  * NOT:
  *   - inside the route's request transaction (a five-phase sweep with a
  *     60s time budget would hold that transaction — and its pooled
  *     connection — open for up to a minute, and any swallowed error inside
  *     it would poison the whole request);
- *   - on the plain pooled client (whose emitEvent mints each chain link in
- *     a SECOND transaction today — canary (c) — and will THROW once PR-C's
- *     interlock lands).
+ *   - on the plain pooled client (whose emitEvent used to mint each chain
+ *     link in a SECOND transaction, and THROWS `ChainAppendError` under
+ *     PR-C's interlock — flipped canary (c)).
  *
  * No advisory lock here — the pre-PR-B route calls ran unlocked on the
  * pooled client, and the per-decision conditional writes carry the same

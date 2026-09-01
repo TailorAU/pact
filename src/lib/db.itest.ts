@@ -235,11 +235,13 @@ describeDb("#5599 B-0 — Source KG real-Postgres canaries", () => {
     });
   });
 
-  // ── Canary (c) — the emitEvent client-type guard (db.ts ~:1224-1229) ─────
-  // emitEvent branches on `db.inTransaction || !db.transaction`:
+  // ── Canary (c) — the emitEvent client-type interlock (#5599 PR-C) ────────
+  // emitEvent's guard is THREE explicit branches:
   //   scoped client (inTransaction)   → append directly, riding the caller's tx
   //   mock client (no .transaction)   → append directly, unwrapped
-  //   pooled client (has .transaction)→ db.transaction(...) — a SECOND transaction
+  //   pooled client (has .transaction, NOT in one) → throw ChainAppendError
+  // The third branch used to open a SECOND transaction (the pre-PR-C flaw
+  // this canary originally pinned); the flipped pin below asserts the throw.
   describe("canary (c): emitEvent guard behaviour per client type", () => {
     it("scoped-in-transaction client: the chain link rides the caller's transaction — rollback discards it", async () => {
       const topic = topicId("scoped-rollback");
@@ -275,31 +277,41 @@ describeDb("#5599 B-0 — Source KG real-Postgres canaries", () => {
       expect((r.rows[0]?.event_hash as string).length).toBeGreaterThan(0);
     });
 
-    it("CURRENT #5599 FLAW (pinned): the POOLED client inside a caller's transaction opens a SECOND transaction — the chain link survives the caller's rollback", async () => {
-      // #5599 PR-C will flip this to a THROW: passing the pooled client from
-      // inside an open transaction must become an error, because the chain
-      // link committing independently of the state change it records breaks
-      // the §6.4 atomicity emitEvent exists to provide. PR-A rerouted every
-      // production route onto transaction-scoped clients (withTransaction),
-      // so no production caller takes this branch any more — but the branch
-      // itself is unchanged and stays pinned as-is until PR-C lands the
-      // interlock.
+    it("#5599 PR-C INTERLOCK (flipped pin): the POOLED client THROWS ChainAppendError — no second transaction, no event row, ever", async () => {
+      // This pin used to assert the FLAW: the pooled client inside a
+      // caller's transaction opened a SECOND transaction, and the chain
+      // link survived the caller's rollback (count 1). PR-C replaced that
+      // fallback with the interlock — the flip below is the
+      // demonstrate-the-violating-shape evidence #5599's DoD asks for.
       const topic = topicId("pooled-second-tx");
       const inTx = requireTransaction(db);
+
+      // Shape 1 — the exact shape the old pin demonstrated: pooled client
+      // handed in from INSIDE another connection's open transaction.
       await expect(
         inTx(async () => {
           await dbmod.emitEvent(db, topic, "pact.topic.stable"); // NOTE: pooled db, not tx
-          throw new Error("caller rolls back");
         })
-      ).rejects.toThrow("caller rolls back");
+      ).rejects.toThrow(dbmod.ChainAppendError);
+
+      // Shape 2 — the plain unprotected route shape: pooled client, no
+      // transaction anywhere. Refused identically, with the pointer at the
+      // wrapping APIs.
+      const err = await dbmod.emitEvent(db, topic, "pact.topic.stable").then(
+        () => null,
+        (e: unknown) => e
+      );
+      expect(err).toBeInstanceOf(dbmod.ChainAppendError);
+      expect((err as Error).message).toMatch(/#5599/);
+      expect((err as Error).message).toMatch(/withTransaction/);
+
+      // Neither refusal wrote anything: the interlock throws BEFORE any
+      // statement runs, so there is no second transaction to leak a link.
       const r = await db.execute({
         sql: "SELECT count(*) AS n FROM events WHERE topic_id = ?",
         args: [topic],
       });
-      // The event committed in its own transaction even though the caller's
-      // transaction rolled back. When #5599 lands, this assertion flips
-      // (expected count 0, plus a rejects.toThrow on the emitEvent itself).
-      expect(r.rows[0]?.n).toBe(1);
+      expect(r.rows[0]?.n).toBe(0);
     });
 
     it("mock client without .transaction: appends directly (unwrapped) and still chains", async () => {

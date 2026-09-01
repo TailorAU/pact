@@ -413,12 +413,24 @@ describe("declared gaps — what the KG does NOT have, on the same wire", () => 
     expect(provenance!.statement).not.toMatch(/no gapless sequence number|assigns no .*prev_hash/i);
     // What the chain still does NOT reach is on the wire, not left to
     // inference: no external witness (ii), no production verifier (iii), the
-    // permanently uncorrectable pre-marker GENESIS case (iv), and (v) that the
+    // permanently uncorrectable pre-marker GENESIS case (iv), (v) that the
     // GENESIS verdict now turns on a server-side latch the feed does not
-    // publish, so an external verifier evaluates a strictly weaker test.
+    // publish, so an external verifier evaluates a strictly weaker test, and
+    // (vi) that the chain link commits in a transaction separate from the
+    // state change it records on every production route — #5599's finding,
+    // added by #5539.
     expect(provenance!.statement).toContain("pact.log.root");
     expect(provenance!.statement).toMatch(/GENESIS/);
-    expect(provenance!.tracking).toContain("5598");
+    expect(provenance!.statement).toMatch(/same transaction/i);
+    // #5539: `tracking` must point at OPEN work. #5598 closed with the
+    // genesis-evidence and retention repairs, which made it a dangling
+    // pointer; what remains open is #5599 (the separate-transaction chain
+    // link) and #5650 (signed root + transparency anchor + cross-impl
+    // comparison). The statement may still cite #5598 as history — the
+    // tracking field may not.
+    expect(provenance!.tracking).toContain("5599");
+    expect(provenance!.tracking).toContain("5650");
+    expect(provenance!.tracking).not.toContain("5598");
     // (v) specifically. `genesisSentinelIsFalsified` reads
     // `hadUnchainedHistory` out of `resource_chain_meta`, and no route serves
     // that table — GET /api/pact/{topicId}/events is `SELECT e.*` over `events`

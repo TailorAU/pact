@@ -2,23 +2,35 @@
 
 > **Implementation:** Source — the PACT knowledge graph (`pact.tailor.au`)
 > **Resource Type:** `fact`
-> **PACT Spec Version:** v1.1 — **STALE, see [#5539](https://github.com/TailorAU/tailor-app/issues/5539)**
-> **Conformance Level:** Core — **STALE, see [#5539](https://github.com/TailorAU/tailor-app/issues/5539)**
-> **Date:** capability / endpoint / threshold content re-derived from the
-> implementation 2026-08-29 (#5541); the version and level claims above are
-> deliberately untouched here and are re-derived by #5539.
+> **PACT Spec Version:** v2.3
+> **Conformance Level:** Core
+> **Date:** version and level re-derived from the served wire 2026-09-01
+> (#5539); capability / endpoint / threshold content re-derived from the
+> implementation 2026-08-29 (#5541).
 
-> **Read the version line as stale, not as a claim.** This revision (#5541)
-> fixes what the profile said about *capabilities, endpoints and consensus
-> thresholds* — every one of which understated or misdescribed the running
-> implementation. It deliberately does **not** touch `specVersion`,
-> `conformanceLevel` or the original April 2026 date: which spec version the
-> KG actually satisfies, and what it must say about the gaps, is
-> [#5539](https://github.com/TailorAU/tailor-app/issues/5539)'s scope, and
-> re-deriving it here would be an unevidenced upgrade. Sections below that
-> describe v2.3 machinery (§25 effect class and apply guard) describe shipped
-> code — see [#5535](https://github.com/TailorAU/tailor-app/issues/5535) — not
-> a conformance-level claim.
+> **What backs the version and level.** Wire-derived, not asserted: the live
+> discovery document — `GET https://pact.tailor.au/.well-known/pact.json`,
+> generated per request by `buildPactProfile()` in `src/lib/pact-profile.ts`
+> from the constants the implementation enforces — served
+> `"specVersion": "2.3"` and `"conformanceLevel": "core"` when probed on
+> 2026-09-01 (HTTP 200, `Date: Tue, 01 Sep 2026 04:55:28 GMT`). Those values
+> are `SPEC_VERSION` / `CONFORMANCE_LEVEL`, the constants
+> [#5563](https://github.com/TailorAU/tailor-app/issues/5563) wired to the
+> wire, and the claim is *executed* on every `npm test` rather than merely
+> stated: `src/lib/pact-conformance-profile.test.ts` pins the two header
+> lines above AND the JSON block below to the builder's served values, so
+> the wire cannot move without this file moving, and this file cannot claim
+> what the wire does not serve. Naming v2.3 says WHICH spec text this
+> profile answers to — the version whose vector set is under audit
+> (`TailorAU/pact` `spec/v2.3/conformance/`) — never that all of it is met:
+> what is NOT met is declared explicitly, in the seven `declaredGaps` the
+> served document carries in full (§15.2 Extended is not claimed, §17
+> authorization is not claimed, and the §6.4 shortfalls are enumerated on
+> the wire). The previous revision
+> ([#5541](https://github.com/TailorAU/tailor-app/issues/5541)) deliberately
+> left v1.1 / Core standing behind stale markers, because re-deriving them
+> without this evidence would have been an unevidenced upgrade;
+> [#5539](https://github.com/TailorAU/tailor-app/issues/5539) closes that.
 
 > **This profile is drift-gated.** `src/lib/pact-conformance-profile.test.ts`
 > parses the JSON block below and compares it key-for-key, at every depth,
@@ -34,17 +46,11 @@
 ## Implementation Profile
 
 The block below **is the served `GET /.well-known/pact.json` document**, built
-by `buildPactProfile()` in `src/lib/pact-profile.ts`, reproduced here with two
-departures and no others. Both are declared, and both are enforced by the
-drift gate rather than promised:
+by `buildPactProfile()` in `src/lib/pact-profile.ts`, reproduced here with
+one departure and no others. It is declared, and it is enforced by the drift
+gate rather than promised:
 
-1. **`specVersion` reads `1.1` here and `2.3` on the wire.** Which spec
-   version the KG actually satisfies is
-   [#5539](https://github.com/TailorAU/tailor-app/issues/5539)'s scope;
-   re-deriving it in this revision would be an unevidenced upgrade. So the
-   stale value stays, named rather than quietly aligned. It is the **only**
-   field in the block whose value differs from the one served.
-2. **`declaredGaps[].statement` is abridged away.** The seven statements run
+1. **`declaredGaps[].statement` is abridged away.** The seven statements run
    to roughly 5 KB of prose and are served in full on the wire; duplicating
    them here would give one claim three renderings to drift between. Each
    gap's `area` — and its `tracking`, where the wire carries one — is
@@ -55,17 +61,20 @@ drift gate rather than promised:
    §6.4 provenance, are set out in full under
    § *Live discovery and gaps* below.
 
-Every other key, at every depth, is compared value-for-value against
-`buildPactProfile()` by `src/lib/pact-conformance-profile.test.ts`, and any
-top-level key the builder gains that this block does not carry fails that
-suite. The block is **not** hand-maintained truth: it is a copy whose
-divergence from the generator is a test failure.
+Every other key, at every depth — `specVersion` and `conformanceLevel`
+included, since [#5539](https://github.com/TailorAU/tailor-app/issues/5539)
+retired the deliberate v1.1 divergence #5541 had declared as a second
+departure — is compared value-for-value against `buildPactProfile()` by
+`src/lib/pact-conformance-profile.test.ts`, and any top-level key the builder
+gains that this block does not carry fails that suite. The block is **not**
+hand-maintained truth: it is a copy whose divergence from the generator is a
+test failure.
 
 ```json
 {
   "name": "Source",
   "version": "0.4.0",
-  "specVersion": "1.1",
+  "specVersion": "2.3",
   "conformanceLevel": "core",
   "resourceTypes": [
     {
@@ -293,7 +302,7 @@ divergence from the generator is a test failure.
   "declaredGaps": [
     {
       "area": "§6.4 event-log provenance",
-      "tracking": "TailorAU/tailor-app#5598"
+      "tracking": "TailorAU/tailor-app#5599, TailorAU/tailor-app#5650"
     },
     {
       "area": "§6.3 retention policy"
@@ -331,6 +340,8 @@ divergence from the generator is a test failure.
 | `executionCapability` | *absent* | **`false`** | §25.8's four conditions are not met and no execution system exists to name. The KG therefore may never label anything `signed` or `executed` — pinned by a test that greps every `.ts`/`.tsx` under `src/` for those string literals. |
 | `agentIdentityTransfer`, `didDocumentPinning`, `atomicOnboard`, `manifest`, `sessionAwareness`, `matters`, `mandates`, `parleys`, `pushDelivery` | *absent* | **`false`** | Declared explicitly, and in the generator's own key set. None is implemented. An earlier revision of this block named `sessions`; the flag `advertisedCapabilities()` actually emits is **`sessionAwareness`**, and `atomicOnboard`, `manifest`, `mandates` and `parleys` were missing from the block entirely — silence on a well-known flag reads as *unknown*, and unknown is where a generous inference goes. |
 | `resourceTypes[0].effectClass` / `.humanAttestation` | *absent* | **`internal-reversible` / `not-required`** | #5535's recorded ruling. See § Effect classification below. |
+| `specVersion` | `1.1` | **`2.3`** | #5539. Re-derived from the served wire: `buildPactProfile()` serves `SPEC_VERSION = "2.3"` (`src/lib/pact-profile.ts`), probed live at `https://pact.tailor.au/.well-known/pact.json` 2026-09-01. The v1.1 claim was nearly five months old and predated every §25 concept this profile describes; #5541 marked it stale rather than upgrading without evidence. The drift gate now pins the header lines and this block to the served values, so neither can diverge from the wire again. |
+| `conformanceLevel` | `core` (stale-marked) | **`core`** | #5539. Unchanged in value, no longer unevidenced: `core` is what the wire serves (`CONFORMANCE_LEVEL`), and the §15.2 shortfalls that hold it there — no §13 mediated communication, no information-barrier model — are `declaredGaps` on the wire, stated rather than implied. Extended is NOT claimed. |
 
 ### Live discovery and gaps this revision does NOT close
 
@@ -339,7 +350,7 @@ Stated so a reader is not misled by what the block above *does* say:
 - **§6.3 retention is a SPLIT, and the split is the claim.** The served `retentionPolicy` is derived from `src/lib/retention.ts`, never typed: `minimumDays` reads `UNCHAINED_EVENT_RETENTION_DAYS`, `indefinite` reads `!UNCHAINED_EVENTS_PURGED`, and `tombstoneAfter` fills in only when `PURGE_IS_TOMBSTONE`. Event rows the §6.4 chain does not cover — `sequence_number IS NULL`, meaning everything written before #5566 — are hard-deleted 30 days after creation by the daily cleanup job. They go outright rather than being marked in place: `PURGE_IS_TOMBSTONE` is `false`, so `tombstoneAfter` is `null` and both the row and its payload are simply gone. Chained event rows are retained indefinitely, because §6.4 forbids removing one — a missing sequence number punches a permanent gap every verifier correctly reads as tampering. `indefinite` is `false` for that reason: it asks about the log as a whole, and one half of the log is purged. **The KG still has no written retention policy of any kind**, so what is advertised is observed behaviour: the 30-day bound on unchained event rows is what the purge enforces today, not a floor anyone has committed to keeping. Scope: `retentionPolicy` describes the events log only — the same cleanup route also clears resolved proposals, departed registrations and exhausted invite tokens on schedules of their own, none of which this policy covers.
 - **`/.well-known/pact.json` is live, generated, and never static.** `GET /.well-known/pact.json` is a route handler at `src/app/.well-known/pact.json/route.ts` that calls `buildPactProfile()` in `src/lib/pact-profile.ts`. The builder reads effect classifications, §25 capability flags and epistemics parameters from the live enforcing modules; `src/lib/pact-profile.test.ts` binds the true route-backed capabilities to the served route tree. There is deliberately no `public/.well-known/pact.json` copy to drift. This is a bounded claim: explicit unsupported capabilities remain declarations, and only values wired to enforcing constants or route-existence gates are described as derived.
 - **No `credentialsRegistry` endpoint.** There is nothing to point a §17.8 URL at; publishing one that is not served would be a false claim.
-- **§6.4 integrity begins at the #5566 chain genesis; it is not a full-history claim, and since #5598 it is not a full third-party claim either.** Every post-#5566 `emitEvent` append is transactional and assigns a gapless per-resource `sequenceNumber` (`events.sequence_number`) plus a `prev_hash` and an `event_hash` under `sha256-jcs@1`; `verifyResourceChain` / `verifyOrderedChain` return a structured first-break report rather than a boolean. Pre-#5566 rows are deliberately never backfilled — hashing history nobody recorded would manufacture a chain that never existed — so a resource whose earlier history the chain does not cover starts at `GENESIS-UNCHAINED`. Since #5598 that verdict rests on TWO pieces of evidence rather than one: rows that still survive (`unchainedPriorEvents` on the verification report, a live count that only falls as the §6.3 purge takes them) OR the durable `resource_chain_meta` presence latch (`hadUnchainedHistory`). The count alone is not the boundary and must never be read as one — zero means *no unchained row survives right now*, never *the chain covers this resource's whole history*. What a third party can check for itself is therefore NARROWER than this server's own verdict: it can re-derive every hash link from the public feed and refute a plain `GENESIS` that surviving rows contradict, but the latch is served on no endpoint, so where those rows are already gone it cannot tell a resource that had no pre-history from one whose pre-history was destroyed. The divergence is one-directional — an external verifier can MISS a break this server would report, never invent one — so a third-party *intact* is the weaker claim, not a contradicting one. Three further shortfalls are declared on the wire and not restated here: no signed `pact.log.root` and no transparency anchor, no production caller for the verifier, and an uncorrectable plain `GENESIS` on any resource whose unchained rows went before the latch existed.
+- **§6.4 integrity begins at the #5566 chain genesis; it is not a full-history claim, and since #5598 it is not a full third-party claim either.** Every post-#5566 `emitEvent` append assigns a gapless per-resource `sequenceNumber` (`events.sequence_number`) plus a `prev_hash` and an `event_hash` under `sha256-jcs@1` — atomically within the append itself, though on every production route the append runs in a transaction of its own rather than the one that committed the state change it records, so a crash between the two commits leaves a state change with no chain entry (the [#5599](https://github.com/TailorAU/tailor-app/issues/5599) shortfall, declared on the wire); `verifyResourceChain` / `verifyOrderedChain` return a structured first-break report rather than a boolean. Pre-#5566 rows are deliberately never backfilled — hashing history nobody recorded would manufacture a chain that never existed — so a resource whose earlier history the chain does not cover starts at `GENESIS-UNCHAINED`. Since #5598 that verdict rests on TWO pieces of evidence rather than one: rows that still survive (`unchainedPriorEvents` on the verification report, a live count that only falls as the §6.3 purge takes them) OR the durable `resource_chain_meta` presence latch (`hadUnchainedHistory`). The count alone is not the boundary and must never be read as one — zero means *no unchained row survives right now*, never *the chain covers this resource's whole history*. What a third party can check for itself is therefore NARROWER than this server's own verdict: it can re-derive every hash link from the public feed and refute a plain `GENESIS` that surviving rows contradict, but the latch is served on no endpoint, so where those rows are already gone it cannot tell a resource that had no pre-history from one whose pre-history was destroyed. The divergence is one-directional — an external verifier can MISS a break this server would report, never invent one — so a third-party *intact* is the weaker claim, not a contradicting one. Three further shortfalls are declared on the wire and not restated here: no signed `pact.log.root` and no transparency anchor, no production caller for the verifier, and an uncorrectable plain `GENESIS` on any resource whose unchained rows went before the latch existed. The wire's `tracking` for this gap points at the OPEN work — [#5599](https://github.com/TailorAU/tailor-app/issues/5599) for the separate-transaction chain link, [#5650](https://github.com/TailorAU/tailor-app/issues/5650) for the signed root, transparency anchor and cross-implementation root comparison — not at [#5598](https://github.com/TailorAU/tailor-app/issues/5598), which CLOSED with the genesis-evidence and retention repairs and is history, not a tracker (repointed by #5539).
 
 ---
 

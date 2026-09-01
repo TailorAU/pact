@@ -214,13 +214,18 @@ export const DECLARED_GAPS: readonly DeclaredGap[] = [
     // Dropping the entry would have been worse than leaving it stale: an
     // absent gap reads as full coverage, and §6.4 coverage is exactly what
     // is still partial. What follows is what the chain does NOT reach.
+    //
+    // #5539 repointed `tracking` from #5598 — which CLOSED with the
+    // genesis-evidence and retention repairs — to the OPEN trackers, and
+    // added shortfall (vi), #5599's finding: a `tracking` field naming a
+    // closed issue is a dangling pointer a reader follows to a dead end.
     area: "§6.4 event-log provenance",
     statement:
       "A §6.4 provenance chain EXISTS: every event written since #5566/#5587 " +
       "carries a gapless sequence_number, a prev_hash and an event_hash " +
       `under ${CHAIN_HASH_ALG}, ` +
       "and a consumer can re-derive the LINK structure of that chain from the " +
-      "public events feed. Five shortfalls remain. (i) Rows written before " +
+      "public events feed. Six shortfalls remain. (i) Rows written before " +
       "that change carry none of " +
       "those columns and sit outside the chain by construction; they are " +
       "declared by a genesis sentinel, never backfilled, because hashing " +
@@ -251,8 +256,16 @@ export const DECLARED_GAPS: readonly DeclaredGap[] = [
       "would report, never invent one — so a third-party 'intact' is a weaker " +
       "claim than this server's, not a contradicting one. GENESIS-UNCHAINED " +
       "is unaffected: it is a weak claim that no absence can refute, so the " +
-      "latch never changes its verdict.",
-    tracking: "TailorAU/tailor-app#5598",
+      "latch never changes its verdict. (vi) The chain link is NOT assigned " +
+      "in the same transaction as the state change it records on any " +
+      "production route: route handlers call emitEvent outside any " +
+      "transaction, so the append commits in a transaction of its own, and " +
+      "a crash between the two commits leaves a state change with no chain " +
+      "entry — a hole the gaplessness of what WAS written cannot reveal. " +
+      "Open trackers: TailorAU/tailor-app#5599 for the separate-transaction " +
+      "link (vi), TailorAU/tailor-app#5650 for the signed root, transparency " +
+      "anchor and cross-implementation root comparison in (ii).",
+    tracking: "TailorAU/tailor-app#5599, TailorAU/tailor-app#5650",
   },
   {
     // Rewritten in #5598. The previous text asserted "the implementation

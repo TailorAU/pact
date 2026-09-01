@@ -195,19 +195,35 @@ const generatedProfile = buildPactProfile();
 
 /**
  * `buildPactProfile()` rendered the way the Markdown block is PERMITTED to
- * render it — the two declared departures applied and nothing else. Anything
+ * render it — the one declared departure applied and nothing else. Anything
  * the block says that this object does not is drift.
  *
- * Departure 1 — `specVersion` is deliberately stale (#5539's scope).
- * Departure 2 — `declaredGaps[].statement` is abridged away for length.
+ * The departure — `declaredGaps[].statement` is abridged away for length.
+ *
+ * #5539 retired the former departure 1 (`specVersion` deliberately held at
+ * the stale v1.1 while the version claim had no evidence): the block now
+ * carries the served value and is compared like every other key, so this
+ * function no longer overrides it.
  */
 function servedAsDocumentMayRenderIt(): Record<string, unknown> {
   const served = JSON.parse(JSON.stringify(generatedProfile)) as Record<string, unknown>;
-  served.specVersion = profile.specVersion;
   served.declaredGaps = (served.declaredGaps as DeclaredGapJson[]).map((gap) =>
     gap.tracking === undefined ? { area: gap.area } : { area: gap.area, tracking: gap.tracking }
   );
   return served;
+}
+
+/**
+ * The remainder of one header blockquote line, e.g. `headerLine(md, "PACT
+ * Spec Version")` over `> **PACT Spec Version:** v2.3` returns `"v2.3"`.
+ * Pure over a string so the #5539 fixtures below can prove each pin bites;
+ * `null` when the document carries no such line, so a renamed header can
+ * never pass vacuously.
+ */
+function headerLine(markdown: string, label: string): string | null {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = markdown.match(new RegExp(`^>\\s*\\*\\*${escaped}:\\*\\*\\s*(.*)$`, "m"));
+  return m ? m[1].trim() : null;
 }
 
 describe("published profile — capabilities match the implementation (#5541)", () => {
@@ -279,38 +295,20 @@ describe("published profile — the JSON block IS the served document (#5541)", 
     expect(Object.keys(profile).sort()).toEqual(Object.keys(generatedProfile).sort());
   });
 
-  it("states its two departures, so they cannot be quietly widened", () => {
-    expect(profileMarkdown).toContain("departures and no others");
+  it("states its one departure, so it cannot be quietly widened", () => {
+    expect(profileMarkdown).toContain("one departure and no others");
     expect(profileMarkdown).toContain("`declaredGaps[].statement` is abridged away");
   });
 
-  it("departure 1: a specVersion divergence exists only while the header calls it stale", () => {
-    // Rises and falls together. The marker is parsed independently of the
-    // block — a probe interpolating `profile.specVersion` would chase a
-    // tampered block and hold vacuously (aligning the block to the wire while
-    // the v1.1 STALE header stood was green; that was the gap this test
-    // claimed to close). Silently aligning the value while the STALE marker
-    // stands is red; dropping the marker while the value still diverges is
-    // red; #5539 landing and doing BOTH is green.
-    const staleMarker = profileMarkdown.match(
-      /\*\*PACT Spec Version:\*\* v([\d.]+) — \*\*STALE/
-    );
-    const diverges = profile.specVersion !== generatedProfile.specVersion;
-    if (staleMarker) {
-      // While the marker stands: header, block and the departure-1 prose must
-      // all name the same stale value, and the block must ACTUALLY differ
-      // from the wire — a stale declaration over a non-divergence is a lie in
-      // the other direction.
-      expect(staleMarker[1]).toBe(profile.specVersion);
-      expect(diverges).toBe(true);
-      expect(profileMarkdown).toContain(
-        `**\`specVersion\` reads \`${profile.specVersion}\` here and ` +
-          `\`${generatedProfile.specVersion}\` on the wire.**`
-      );
-    } else {
-      // Marker dropped (#5539 landed): the block must equal the wire.
-      expect(diverges).toBe(false);
-    }
+  it("departure 1 is retired: the block's version and level ARE the served values (#5539)", () => {
+    // #5541 deliberately held the block at v1.1 behind a STALE marker while
+    // the version claim had no evidence; #5539 re-derived both claims from
+    // the wire the KG now serves. The divergence AND the marker must stay
+    // gone together — the retired departure-1 test allowed the pair back in,
+    // which is exactly the drift this replacement forbids.
+    expect(profile.specVersion).toBe(generatedProfile.specVersion);
+    expect(profile.conformanceLevel).toBe(generatedProfile.conformanceLevel);
+    expect(profileMarkdown).not.toContain("STALE, see [#5539]");
   });
 
   it("departure 2: gap areas in served order, tracking as served, no statement at all", () => {
@@ -593,7 +591,12 @@ describe("published profile — live discovery and remaining gaps (#5541)", () =
     expect(provenanceSource).toContain("export function verifyOrderedChain");
     expect(provenanceSource).toContain('export const GENESIS_UNCHAINED = "GENESIS-UNCHAINED"');
 
-    expect(profileMarkdown).toContain("Every post-#5566 `emitEvent` append is transactional");
+    // #5599 (via #5539): "is transactional" overstated the append — it is
+    // atomic within itself, but on every production route it commits in a
+    // transaction SEPARATE from the state change it records. The document
+    // must carry the shortfall, never the overstatement.
+    expect(profileMarkdown).not.toContain("`emitEvent` append is transactional");
+    expect(profileMarkdown).toContain("a transaction of its own");
     expect(profileMarkdown).toContain("gapless per-resource `sequenceNumber`");
     expect(profileMarkdown).toContain("`prev_hash`");
     expect(profileMarkdown).toContain("structured first-break report");
@@ -604,11 +607,64 @@ describe("published profile — live discovery and remaining gaps (#5541)", () =
     expect(profileMarkdown).not.toContain("no gapless `sequenceNumber`");
   });
 
-  it("marks the version and level claims as stale rather than silently re-deriving them", () => {
-    // #5541 fixes content truth; the version/level claim is #5539's scope.
-    // Whichever of the two has landed, the profile must not assert a spec
-    // version it has not evidenced.
-    expect(profileMarkdown).toMatch(/STALE, see \[#5539\]|Conformance Level:/);
+  it("names the trackers for the §6.4 shortfalls as open work, not the closed #5598", () => {
+    // #5539: the wire's `tracking` was repointed off the CLOSED #5598 onto
+    // #5599 (separate-transaction chain link) + #5650 (signed root, anchor,
+    // cross-impl comparison), and the document reproduces `tracking` exactly
+    // as served (departure rules above). The prose here must name the same
+    // open trackers so a reader of either rendering lands on live work.
+    expect(profileMarkdown).toContain("issues/5599");
+    expect(profileMarkdown).toContain("issues/5650");
+  });
+});
+
+/**
+ * THE HEADER IS THE WIRE (#5539).
+ *
+ * The audit behind #5539 found three spec versions declared across two
+ * implementations and one vector set (v1.1 / v2.0.2 / v2.3); this file's
+ * header carried the v1.1 half of that split for nearly five months. The
+ * value is now re-derived from `buildPactProfile()` — the same builder that
+ * serves `/.well-known/pact.json` — and this section pins the two header
+ * lines to it, so the header can never again state a version or level the
+ * wire does not serve. Bump `SPEC_VERSION` (or move `CONFORMANCE_LEVEL`)
+ * without editing the header and this fails; edit the header without the
+ * wire moving and this fails; re-attach a STALE marker (or any other prose)
+ * to either line and the exact-remainder comparison fails.
+ */
+describe("published profile — the header states the served version and level (#5539)", () => {
+  it("the Spec Version line IS the served specVersion — nothing more, no marker", () => {
+    expect(headerLine(profileMarkdown, "PACT Spec Version")).toBe(
+      `v${generatedProfile.specVersion}`
+    );
+  });
+
+  it("the Conformance Level line IS the served conformanceLevel — nothing more, no marker", () => {
+    expect(headerLine(profileMarkdown, "Conformance Level")?.toLowerCase()).toBe(
+      generatedProfile.conformanceLevel
+    );
+  });
+
+  it("every check in this section can actually fail", () => {
+    const good = "> **PACT Spec Version:** v2.3\n> **Conformance Level:** Core\n";
+    expect(headerLine(good, "PACT Spec Version")).toBe("v2.3");
+    expect(headerLine(good, "Conformance Level")).toBe("Core");
+
+    // The exact shape #5541 left: a stale marker riding the line. The
+    // remainder comparison sees the whole tail, so the marker is visible.
+    const stale =
+      "> **PACT Spec Version:** v1.1 — **STALE, see [#5539](https://github.com/TailorAU/tailor-app/issues/5539)**\n";
+    expect(headerLine(stale, "PACT Spec Version")).not.toBe(
+      `v${generatedProfile.specVersion}`
+    );
+
+    // A wrong-but-tidy value is caught, not just a decorated one.
+    expect(headerLine("> **PACT Spec Version:** v9.9\n", "PACT Spec Version")).not.toBe(
+      `v${generatedProfile.specVersion}`
+    );
+
+    // A deleted or renamed header line is null — never a vacuous pass.
+    expect(headerLine("no header here", "PACT Spec Version")).toBeNull();
   });
 });
 

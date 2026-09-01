@@ -229,6 +229,60 @@ async function runInTransaction<T>(pool: pg.Pool, fn: (tx: DbClient) => Promise<
   }
 }
 
+/**
+ * #5599 PR-B — wraps ONE dedicated pooled connection as the consensus
+ * engine's client shape: statements AUTOCOMMIT (no open transaction is held
+ * between decisions or across the keyset scans), and `transaction()` runs a
+ * real BEGIN/COMMIT on this same connection — so each decision's
+ * status-write + §6.4 chain-link pair rides ONE short transaction via
+ * `withTransaction`, never one giant transaction around a five-phase sweep
+ * with a 60s time budget (which would hold 1 of 10 pooled connections open
+ * for up to a minute and silently discard every decision on a late abort).
+ *
+ * #5566 — the engine emits chained events. The sweep holds a SESSION-level
+ * advisory lock on this connection but no open transaction, so a real
+ * BEGIN/COMMIT here is correct (and the session lock survives it: the §6.4
+ * append's per-resource lock lives in the two-int4 advisory space, which
+ * never collides with the sweep's one-bigint key).
+ */
+function createConnectionScopedClient(client: pg.PoolClient): DbClient {
+  return {
+    async execute(stmtOrSql) {
+      const sql = typeof stmtOrSql === "string" ? stmtOrSql : stmtOrSql.sql;
+      const args = typeof stmtOrSql === "string" ? [] : stmtOrSql.args;
+      const result = await client.query(pgify(sql), args);
+      return { rows: result.rows, rowsAffected: result.rowCount ?? 0 };
+    },
+    async batch(stmts) {
+      try {
+        await client.query("BEGIN");
+        for (const stmt of stmts) {
+          await client.query(pgify(stmt.sql), stmt.args);
+        }
+        await client.query("COMMIT");
+      } catch (e) {
+        await client.query("ROLLBACK");
+        throw e;
+      }
+    },
+    async transaction<T>(fn: (tx: DbClient) => Promise<T>): Promise<T> {
+      try {
+        await client.query("BEGIN");
+        const result = await fn(createTransactionScopedClient(client));
+        await client.query("COMMIT");
+        return result;
+      } catch (e) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          /* connection already unusable — the transaction is aborted regardless */
+        }
+        throw e;
+      }
+    },
+  };
+}
+
 function createPgClient(): DbClient {
   const pool = getPool();
   return {
@@ -1293,7 +1347,10 @@ export async function emitEvent(
   // Already inside a caller's transaction ⇒ the chain link is assigned in
   // the SAME transaction as the state change that transaction is recording.
   // #5599 PR-A wrapped every mutating production route in `withTransaction`,
-  // so production callers now reach THIS branch with a transaction-scoped
+  // and PR-B moved the consensus engine (the sweep's phase loops, the
+  // finalizers, evaluateChallenges, and the routes' after-commit
+  // runConsensusStatusUpdate) onto per-decision transactions — so every
+  // production caller now reaches THIS branch with a transaction-scoped
   // client. The pooled-client branch below (a SECOND transaction, breaking
   // §6.4 atomicity with the caller's writes — pinned by canary (c) in
   // db.itest.ts) survives until PR-C replaces it with the interlock throw.
@@ -1318,34 +1375,50 @@ export async function autoMergeExpired(db: DbClient, sweepOptions: ConsensusSwee
       )
   `);
 
+  // #5599 PR-B — ONE short transaction per expired proposal: the merge
+  // writes and their §6.4 auto-merged chain link land or vanish together,
+  // and a poisoned proposal rolls back ALONE — its siblings still merge
+  // (the failed one is retried by the next sweep, since it stays pending).
+  let merged = 0;
   for (const p of result.rows) {
-    await db.execute({
-      sql: "UPDATE proposals SET status = 'merged', resolved_at = NOW() WHERE id = ?",
-      args: [p.id as string],
-    });
-    if (p.proposal_type === "canonicalize") {
-      await db.execute({
-        sql: "UPDATE topics SET canonical_claim = ? WHERE id = ?",
-        args: [p.new_content as string, p.topic_id as string],
+    try {
+      await withTransaction(db, async (tx) => {
+        await tx.execute({
+          sql: "UPDATE proposals SET status = 'merged', resolved_at = NOW() WHERE id = ?",
+          args: [p.id as string],
+        });
+        if (p.proposal_type === "canonicalize") {
+          await tx.execute({
+            sql: "UPDATE topics SET canonical_claim = ? WHERE id = ?",
+            args: [p.new_content as string, p.topic_id as string],
+          });
+        } else {
+          await tx.execute({
+            sql: "UPDATE sections SET content = ? WHERE id = ? AND topic_id = ?",
+            args: [p.new_content as string, p.section_id as string, p.topic_id as string],
+          });
+        }
+        await tx.execute({
+          sql: "UPDATE agents SET proposals_approved = proposals_approved + 1 WHERE id = ?",
+          args: [p.agent_id as string],
+        });
+        await emitEvent(tx, p.topic_id as string, "pact.proposal.auto-merged", p.agent_id as string, p.section_id as string, { proposalId: p.id as string });
       });
-    } else {
-      await db.execute({
-        sql: "UPDATE sections SET content = ? WHERE id = ? AND topic_id = ?",
-        args: [p.new_content as string, p.section_id as string, p.topic_id as string],
-      });
+      merged++;
+    } catch (e) {
+      console.error(
+        `[consensus-sweep] auto-merge failed for proposal ${p.id} — decision rolled back; siblings continue:`,
+        e
+      );
     }
-    await db.execute({
-      sql: "UPDATE agents SET proposals_approved = proposals_approved + 1 WHERE id = ?",
-      args: [p.agent_id as string],
-    });
-    await emitEvent(db, p.topic_id as string, "pact.proposal.auto-merged", p.agent_id as string, p.section_id as string, { proposalId: p.id as string });
   }
 
   await evaluateTopicProposals(db);
   await updateConsensusStatuses(db, sweepOptions);
   await evaluateChallenges(db);
 
-  return result.rows.length;
+  // COMMITTED merges only — a rolled-back decision is not a merge.
+  return merged;
 }
 
 // #5425 — Postgres advisory-lock key for the consensus sweep. Arbitrary
@@ -1372,46 +1445,10 @@ export async function runConsensusSweep(
   await getDb(); // ensure the schema is initialized via the normal path
   const pool = getPool();
   const client = await pool.connect();
-  const scoped: DbClient = {
-    async execute(stmtOrSql) {
-      const sql = typeof stmtOrSql === "string" ? stmtOrSql : stmtOrSql.sql;
-      const args = typeof stmtOrSql === "string" ? [] : stmtOrSql.args;
-      const result = await client.query(pgify(sql), args);
-      return { rows: result.rows, rowsAffected: result.rowCount ?? 0 };
-    },
-    async batch(stmts) {
-      try {
-        await client.query("BEGIN");
-        for (const stmt of stmts) {
-          await client.query(pgify(stmt.sql), stmt.args);
-        }
-        await client.query("COMMIT");
-      } catch (e) {
-        await client.query("ROLLBACK");
-        throw e;
-      }
-    },
-    // #5566 — the sweep emits chained events too. It holds a SESSION-level
-    // advisory lock on this connection but no open transaction, so a real
-    // BEGIN/COMMIT here is correct (and the session lock survives it: the
-    // §6.4 append's per-resource lock lives in the two-int4 advisory space,
-    // which never collides with this one-bigint key).
-    async transaction<T>(fn: (tx: DbClient) => Promise<T>): Promise<T> {
-      try {
-        await client.query("BEGIN");
-        const result = await fn(createTransactionScopedClient(client));
-        await client.query("COMMIT");
-        return result;
-      } catch (e) {
-        try {
-          await client.query("ROLLBACK");
-        } catch {
-          /* connection already unusable — the transaction is aborted regardless */
-        }
-        throw e;
-      }
-    },
-  };
+  // #5599 PR-B — the scoped-client construction is shared with
+  // runConsensusStatusUpdate (the routes' after-commit entry point); see
+  // createConnectionScopedClient for the transaction-per-decision contract.
+  const scoped = createConnectionScopedClient(client);
   try {
     const lockResult = await client.query(
       "SELECT pg_try_advisory_lock($1) AS acquired",
@@ -1428,6 +1465,41 @@ export async function runConsensusSweep(
     } finally {
       await client.query("SELECT pg_advisory_unlock($1)", [CONSENSUS_SWEEP_LOCK_KEY]);
     }
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * #5599 PR-B — the design's THIRD disposition for `updateConsensusStatuses`
+ * (design comment §2): what the mutating routes (approve, done) call AFTER
+ * their request transaction commits.
+ *
+ * Runs the five-phase status sweep on a DEDICATED connection-scoped client
+ * whose per-decision writes each get their own short `transaction()` —
+ * satisfying the future PR-C emitEvent interlock per decision. Deliberately
+ * NOT:
+ *   - inside the route's request transaction (a five-phase sweep with a
+ *     60s time budget would hold that transaction — and its pooled
+ *     connection — open for up to a minute, and any swallowed error inside
+ *     it would poison the whole request);
+ *   - on the plain pooled client (whose emitEvent mints each chain link in
+ *     a SECOND transaction today — canary (c) — and will THROW once PR-C's
+ *     interlock lands).
+ *
+ * No advisory lock here — the pre-PR-B route calls ran unlocked on the
+ * pooled client, and the per-decision conditional writes carry the same
+ * concurrency posture they always had. The sweep's lock protects the CRON
+ * cadence from double-running, not this opportunistic post-commit nudge.
+ */
+export async function runConsensusStatusUpdate(
+  options: ConsensusSweepOptions = {}
+): Promise<number> {
+  await getDb(); // ensure the schema is initialized via the normal path
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    return await updateConsensusStatuses(createConnectionScopedClient(client), options);
   } finally {
     client.release();
   }
@@ -1733,11 +1805,35 @@ export async function evaluateTopicProposals(db: DbClient) {
     // Race rule (#5425): when BOTH quorums are met in the same tally,
     // approval wins — approval is recoverable downstream (challenges,
     // demotion), terminal rejection is not.
+    //
+    // #5599 PR-B — one short transaction per topic finalization: the status
+    // flip and every chain link the finalizer emits commit together (the
+    // vote route's threshold branch already calls the finalizers inside its
+    // own request transaction — withTransaction participates there). A
+    // poisoned finalization rolls back alone; sibling topics continue.
     if (approvals >= quorum) {
-      await finalizeApprovedTopic(db, t.id as string, t.title as string, approvals, quorum);
-      opened++;
+      try {
+        await withTransaction(db, (tx) =>
+          finalizeApprovedTopic(tx, t.id as string, t.title as string, approvals, quorum)
+        );
+        opened++;
+      } catch (e) {
+        console.error(
+          `[consensus-sweep] topic approval finalization failed for ${t.id} — decision rolled back; siblings continue:`,
+          e
+        );
+      }
     } else if (rejections >= quorum) {
-      await finalizeRejectedTopic(db, t.id as string, t.title as string, rejections, quorum);
+      try {
+        await withTransaction(db, (tx) =>
+          finalizeRejectedTopic(tx, t.id as string, t.title as string, rejections, quorum)
+        );
+      } catch (e) {
+        console.error(
+          `[consensus-sweep] topic rejection finalization failed for ${t.id} — decision rolled back; siblings continue:`,
+          e
+        );
+      }
     }
   }
   return opened;
@@ -2290,65 +2386,90 @@ export async function updateConsensusStatuses(db: DbClient, options: ConsensusSw
     scannedTotal += scan.scanned;
     truncated = truncated || scan.truncated;
   }
+  // #5599 PR-B — every phase's apply loop below runs ONE short transaction
+  // PER DECISION (`withTransaction` on the engine's connection-scoped
+  // client), so a decision's status write and the §6.4 chain link(s) it
+  // emits land or vanish together — and a poisoned decision rolls back
+  // ALONE without blocking its siblings (the failed decision re-derives
+  // from state on the next sweep). NEVER one transaction around a phase or
+  // the whole sweep: the 60s time budget would hold a pooled connection's
+  // transaction open for up to a minute.
   for (const d of phase1) {
-    if (d.kind === "promote") {
-      // §25.6 (#5535) — the fail-closed apply guard runs BEFORE the apply,
-      // never after. A promotion becomes eligible here on quorum + alignment
-      // + the dependency gate, i.e. on protocol state alone; §25.6 forbids
-      // that from driving an apply whose effect class is
-      // external-irreversible or whose type requires human attestation. The
-      // KG's `fact` type is internal-reversible (see effect-class.ts for the
-      // ruling and its evidence) so this allows today — but an unclassified
-      // or guarded type resolves fail-closed and the promotion stops.
-      const guard = evaluateApplyGuard({
-        resourceType: KG_APPLY_RESOURCE_TYPE,
-        policy: "objection-based",
-      });
-      if (!guard.allowed) {
-        await emitEvent(db, d.id, APPLY_BLOCKED_EVENT, "", "", {
-          effect_class: guard.effectClass,
-          human_attestation: guard.humanAttestation,
-          required_principals: guard.requiredPrincipals,
-          reason: guard.reason,
-          policy: guard.policy,
+    try {
+      const promoted = await withTransaction(db, async (tx): Promise<boolean> => {
+        if (d.kind === "promote") {
+          // §25.6 (#5535) — the fail-closed apply guard runs BEFORE the apply,
+          // never after. A promotion becomes eligible here on quorum + alignment
+          // + the dependency gate, i.e. on protocol state alone; §25.6 forbids
+          // that from driving an apply whose effect class is
+          // external-irreversible or whose type requires human attestation. The
+          // KG's `fact` type is internal-reversible (see effect-class.ts for the
+          // ruling and its evidence) so this allows today — but an unclassified
+          // or guarded type resolves fail-closed and the promotion stops.
+          const guard = evaluateApplyGuard({
+            resourceType: KG_APPLY_RESOURCE_TYPE,
+            policy: "objection-based",
+          });
+          if (!guard.allowed) {
+            await emitEvent(tx, d.id, APPLY_BLOCKED_EVENT, "", "", {
+              effect_class: guard.effectClass,
+              human_attestation: guard.humanAttestation,
+              required_principals: guard.requiredPrincipals,
+              reason: guard.reason,
+              policy: guard.policy,
+            });
+            return false;
+          }
+          await tx.execute({
+            sql: `UPDATE topics SET
+              status = 'consensus',
+              consensus_ratio = ?,
+              consensus_voters = ?,
+              consensus_since = COALESCE(consensus_since, NOW())
+            WHERE id = ?`,
+            args: [d.alignmentRatio, d.totalVoters, d.id],
+          });
+          await emitEvent(tx, d.id, "pact.topic.consensus-reached", "", "", {
+            alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
+            alignedAgents: d.aligned,
+            dissentingAgents: d.dissenting,
+            requiredAgents: d.requiredAgents,
+            uniqueProposers: d.uniqueProposers,
+            tier: d.tier,
+          });
+
+          // Bounty distribution stays best-effort POLICY (the kept catch),
+          // but inside the decision transaction a swallowed SQL error would
+          // abort the whole decision at COMMIT (canary (a)) — so the
+          // sub-region runs under a SAVEPOINT: a failed distribution
+          // discards only the bounty writes and the promotion still commits.
+          try {
+            const { distributeBounty } = await import("./economy");
+            await withSavepoint(tx, () => distributeBounty(tx, d.id));
+          } catch (e) {
+            console.error(`Bounty distribution failed for ${d.id}:`, e);
+          }
+
+          return true;
+        }
+        await emitEvent(tx, d.id, "pact.consensus.blocked-by-dependencies", "", "", {
+          alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
+          alignedAgents: d.aligned,
+          unmetDependencies: d.unmetDeps,
+          tier: d.tier,
+          reason: `${d.unmetDeps} dependency topic(s) have not yet reached consensus`,
         });
-        continue;
+        return false;
+      });
+      if (promoted) {
+        changedTopicIds.add(d.id);
+        updated++;
       }
-      await db.execute({
-        sql: `UPDATE topics SET
-          status = 'consensus',
-          consensus_ratio = ?,
-          consensus_voters = ?,
-          consensus_since = COALESCE(consensus_since, NOW())
-        WHERE id = ?`,
-        args: [d.alignmentRatio, d.totalVoters, d.id],
-      });
-      await emitEvent(db, d.id, "pact.topic.consensus-reached", "", "", {
-        alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
-        alignedAgents: d.aligned,
-        dissentingAgents: d.dissenting,
-        requiredAgents: d.requiredAgents,
-        uniqueProposers: d.uniqueProposers,
-        tier: d.tier,
-      });
-
-      try {
-        const { distributeBounty } = await import("./economy");
-        await distributeBounty(db, d.id);
-      } catch (e) {
-        console.error(`Bounty distribution failed for ${d.id}:`, e);
-      }
-
-      changedTopicIds.add(d.id);
-      updated++;
-    } else {
-      await emitEvent(db, d.id, "pact.consensus.blocked-by-dependencies", "", "", {
-        alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
-        alignedAgents: d.aligned,
-        unmetDependencies: d.unmetDeps,
-        tier: d.tier,
-        reason: `${d.unmetDeps} dependency topic(s) have not yet reached consensus`,
-      });
+    } catch (e) {
+      console.error(
+        `[consensus-sweep] phase-1 decision failed for topic ${d.id} — decision rolled back; siblings continue:`,
+        e
+      );
     }
   }
 
@@ -2411,28 +2532,37 @@ export async function updateConsensusStatuses(db: DbClient, options: ConsensusSw
     truncated = truncated || scan.truncated;
   }
   for (const d of phase2) {
-    if (d.kind === "demote") {
-      await db.execute({
-        sql: "UPDATE topics SET status = 'open', consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
-        args: [d.id],
+    try {
+      await withTransaction(db, async (tx) => {
+        if (d.kind === "demote") {
+          await tx.execute({
+            sql: "UPDATE topics SET status = 'open', consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
+            args: [d.id],
+          });
+          await emitEvent(tx, d.id, "pact.consensus.broken", "", "", {
+            alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
+            reason: d.reason,
+          });
+        } else {
+          await tx.execute({
+            sql: "UPDATE topics SET status = 'stable', locked_at = NOW(), consensus_ratio = ?, consensus_voters = ? WHERE id = ?",
+            args: [d.alignmentRatio, d.totalVoters, d.id],
+          });
+          await emitEvent(tx, d.id, "pact.topic.stable", "", "", {
+            alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
+            daysSinceConsensus: Math.floor(d.daysSince ?? 0),
+            tier: d.tier,
+          });
+        }
       });
-      await emitEvent(db, d.id, "pact.consensus.broken", "", "", {
-        alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
-        reason: d.reason,
-      });
-    } else {
-      await db.execute({
-        sql: "UPDATE topics SET status = 'stable', locked_at = NOW(), consensus_ratio = ?, consensus_voters = ? WHERE id = ?",
-        args: [d.alignmentRatio, d.totalVoters, d.id],
-      });
-      await emitEvent(db, d.id, "pact.topic.stable", "", "", {
-        alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
-        daysSinceConsensus: Math.floor(d.daysSince ?? 0),
-        tier: d.tier,
-      });
+      changedTopicIds.add(d.id);
+      updated++;
+    } catch (e) {
+      console.error(
+        `[consensus-sweep] phase-2 decision failed for topic ${d.id} — decision rolled back; siblings continue:`,
+        e
+      );
     }
-    changedTopicIds.add(d.id);
-    updated++;
   }
 
   // --- Phase 3: Check stable topics for consensus breakdown ---
@@ -2453,28 +2583,39 @@ export async function updateConsensusStatuses(db: DbClient, options: ConsensusSw
     truncated = truncated || scan.truncated;
   }
   for (const d of phase3) {
-    await db.execute({
-      sql: "UPDATE topics SET status = 'open', locked_at = NULL, consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
-      args: [d.id],
-    });
-    await emitEvent(db, d.id, "pact.stable.broken", "", "", {
-      alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
-      reason: `Alignment dropped below ${pct(STABLE_BREAK_RATIO)} — stable consensus broken`,
-    });
+    try {
+      // One decision = the breakdown AND its dependents' notifications: the
+      // dependency.unstable links exist because the status write happened,
+      // so they ride (and roll back with) the same transaction.
+      await withTransaction(db, async (tx) => {
+        await tx.execute({
+          sql: "UPDATE topics SET status = 'open', locked_at = NULL, consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
+          args: [d.id],
+        });
+        await emitEvent(tx, d.id, "pact.stable.broken", "", "", {
+          alignmentRatio: `${Math.round(d.alignmentRatio * 100)}%`,
+          reason: `Alignment dropped below ${pct(STABLE_BREAK_RATIO)} — stable consensus broken`,
+        });
 
-    const deps = await db.execute({
-      sql: "SELECT topic_id FROM topic_dependencies WHERE depends_on = ?",
-      args: [d.id],
-    });
-    for (const dep of deps.rows) {
-      await emitEvent(db, dep.topic_id as string, "pact.dependency.unstable", "", "", {
-        dependencyId: d.id,
-        reason: "A dependency topic lost stable consensus",
+        const deps = await tx.execute({
+          sql: "SELECT topic_id FROM topic_dependencies WHERE depends_on = ?",
+          args: [d.id],
+        });
+        for (const dep of deps.rows) {
+          await emitEvent(tx, dep.topic_id as string, "pact.dependency.unstable", "", "", {
+            dependencyId: d.id,
+            reason: "A dependency topic lost stable consensus",
+          });
+        }
       });
+      changedTopicIds.add(d.id);
+      updated++;
+    } catch (e) {
+      console.error(
+        `[consensus-sweep] phase-3 decision failed for topic ${d.id} — decision rolled back; siblings continue:`,
+        e
+      );
     }
-
-    changedTopicIds.add(d.id);
-    updated++;
   }
 
   // --- Phase 4 (#3691 W3): a defeated *necessary* premise re-opens contention ---
@@ -2491,15 +2632,24 @@ export async function updateConsensusStatuses(db: DbClient, options: ConsensusSw
     truncated = truncated || scan.truncated;
   }
   for (const id of phase4) {
-    await db.execute({
-      sql: "UPDATE topics SET status = 'challenged', locked_at = NULL, consensus_since = NULL WHERE id = ?",
-      args: [id],
-    });
-    await emitEvent(db, id, "pact.dependency.assumption-defeated", "", "", {
-      reason: "A necessary (assumes) dependency left verified status — claim re-opened for contention",
-    });
-    changedTopicIds.add(id);
-    updated++;
+    try {
+      await withTransaction(db, async (tx) => {
+        await tx.execute({
+          sql: "UPDATE topics SET status = 'challenged', locked_at = NULL, consensus_since = NULL WHERE id = ?",
+          args: [id],
+        });
+        await emitEvent(tx, id, "pact.dependency.assumption-defeated", "", "", {
+          reason: "A necessary (assumes) dependency left verified status — claim re-opened for contention",
+        });
+      });
+      changedTopicIds.add(id);
+      updated++;
+    } catch (e) {
+      console.error(
+        `[consensus-sweep] phase-4 decision failed for topic ${id} — decision rolled back; siblings continue:`,
+        e
+      );
+    }
   }
 
   // --- Phase 5 (#3691 W3 / #5427): recompute effective credence ---
@@ -2509,6 +2659,14 @@ export async function updateConsensusStatuses(db: DbClient, options: ConsensusSw
   // recovers (P3). #5427 scopes the recompute to the dirty subgraph
   // (events since the watermark + this sweep's own changes), with the
   // periodic full recompute as the convergence backstop.
+  //
+  // #5599 PR-B — deliberately NOT wrapped in per-decision transactions:
+  // Phase 5 emits NO chain events (nothing for the PR-C interlock to
+  // refuse), its credence UPDATEs are an idempotent derived projection
+  // recomputed every sweep, and the watermark writes are ON CONFLICT
+  // upserts. Autocommit also means the catch below never swallows an error
+  // inside an open transaction, so the pre-existing non-fatal posture is
+  // safe as-is.
   let credenceMode: "full" | "dirty" | "noop" | "skipped" | "failed" = "skipped";
   let credenceWrites = 0;
   if (!truncated) {
@@ -2589,72 +2747,102 @@ export async function evaluateChallenges(db: DbClient) {
     const topicId = c.topic_id as string;
     const required = requiredReopenVotes(dependents);
 
+    // #5599 PR-B — one short transaction per challenge decision (same
+    // contract as the updateConsensusStatuses phase loops): the proposal
+    // status flip and the §6.4 chain link land or vanish together, a
+    // poisoned challenge rolls back alone, and each best-effort economy
+    // sub-region runs under a SAVEPOINT so its kept catch cannot leave the
+    // decision transaction aborted (canary (a)).
     if (support < required && c.lapsed) {
       const vexatious = objections >= CHALLENGE_VEXATIOUS_OBJECTIONS && support === 0;
-      await db.execute({
-        sql: "UPDATE proposals SET status = 'rejected', resolved_at = NOW() WHERE id = ?",
-        args: [c.challengeId as string],
-      });
-      if (!vexatious) {
-        try {
-          const { transfer } = await import("./economy");
-          await transfer(db, { from: null, to: c.agent_id as string, amount: PROPOSAL_STAKE, topicId, reason: "challenge-stake-refund" });
-        } catch (e) {
-          console.error(`Challenge stake refund failed for ${c.agent_id}:`, e);
-        }
+      try {
+        await withTransaction(db, async (tx) => {
+          await tx.execute({
+            sql: "UPDATE proposals SET status = 'rejected', resolved_at = NOW() WHERE id = ?",
+            args: [c.challengeId as string],
+          });
+          if (!vexatious) {
+            try {
+              const { transfer } = await import("./economy");
+              await withSavepoint(tx, () =>
+                transfer(tx, { from: null, to: c.agent_id as string, amount: PROPOSAL_STAKE, topicId, reason: "challenge-stake-refund" })
+              );
+            } catch (e) {
+              console.error(`Challenge stake refund failed for ${c.agent_id}:`, e);
+            }
+          }
+          await emitEvent(tx, topicId, vexatious ? "pact.challenge.dismissed-vexatious" : "pact.challenge.lapsed", c.agent_id as string, "", {
+            challengeId: c.challengeId as string,
+            supportVotes: support,
+            objections,
+            requiredVotes: required,
+            stakeRefunded: !vexatious,
+          });
+        });
+      } catch (e) {
+        console.error(
+          `[consensus-sweep] challenge lapse failed for ${c.challengeId} — decision rolled back; siblings continue:`,
+          e
+        );
       }
-      await emitEvent(db, topicId, vexatious ? "pact.challenge.dismissed-vexatious" : "pact.challenge.lapsed", c.agent_id as string, "", {
-        challengeId: c.challengeId as string,
-        supportVotes: support,
-        objections,
-        requiredVotes: required,
-        stakeRefunded: !vexatious,
-      });
       continue;
     }
 
     if (support >= required && !reopenedTopics.has(topicId)) {
-      await db.execute({
-        sql: "UPDATE topics SET status = 'challenged', locked_at = NULL, consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
-        args: [topicId],
-      });
-
-      await db.execute({
-        sql: "UPDATE proposals SET status = 'pending' WHERE id = ?",
-        args: [c.challengeId as string],
-      });
-
-      await emitEvent(db, topicId, "pact.consensus.challenged", c.agent_id as string, "", {
-        challengeId: c.challengeId as string,
-        challengeSummary: c.summary as string,
-        supportVotes: support,
-      });
-
-      const challengerAgentId = c.agent_id as string;
       try {
-        const { transfer } = await import("./economy");
-        await transfer(db, { from: null, to: challengerAgentId, amount: 10, topicId, reason: "successful-challenge-jackpot" });
-        await db.execute({
-          sql: "UPDATE agents SET successful_challenges = successful_challenges + 1 WHERE id = ?",
-          args: [challengerAgentId],
+        await withTransaction(db, async (tx) => {
+          await tx.execute({
+            sql: "UPDATE topics SET status = 'challenged', locked_at = NULL, consensus_since = NULL, consensus_ratio = NULL, consensus_voters = NULL WHERE id = ?",
+            args: [topicId],
+          });
+
+          await tx.execute({
+            sql: "UPDATE proposals SET status = 'pending' WHERE id = ?",
+            args: [c.challengeId as string],
+          });
+
+          await emitEvent(tx, topicId, "pact.consensus.challenged", c.agent_id as string, "", {
+            challengeId: c.challengeId as string,
+            challengeSummary: c.summary as string,
+            supportVotes: support,
+          });
+
+          const challengerAgentId = c.agent_id as string;
+          try {
+            const { transfer } = await import("./economy");
+            // Jackpot + counter bump are ONE best-effort sub-region: they
+            // vanish together on failure, and the savepoint keeps the
+            // reopen decision itself committable.
+            await withSavepoint(tx, async () => {
+              await transfer(tx, { from: null, to: challengerAgentId, amount: 10, topicId, reason: "successful-challenge-jackpot" });
+              await tx.execute({
+                sql: "UPDATE agents SET successful_challenges = successful_challenges + 1 WHERE id = ?",
+                args: [challengerAgentId],
+              });
+            });
+          } catch (e) {
+            console.error(`Challenger reward failed for ${challengerAgentId}:`, e);
+          }
+
+          const deps = await tx.execute({
+            sql: "SELECT topic_id FROM topic_dependencies WHERE depends_on = ?",
+            args: [topicId],
+          });
+          for (const dep of deps.rows) {
+            await emitEvent(tx, dep.topic_id as string, "pact.dependency.challenged", "", "", {
+              dependencyId: topicId,
+              reason: "A dependency topic's consensus was challenged",
+            });
+          }
         });
+        reopenedTopics.add(topicId);
+        reopened++;
       } catch (e) {
-        console.error(`Challenger reward failed for ${challengerAgentId}:`, e);
+        console.error(
+          `[consensus-sweep] challenge reopen failed for ${c.challengeId} — decision rolled back; siblings continue:`,
+          e
+        );
       }
-
-      const deps = await db.execute({
-        sql: "SELECT topic_id FROM topic_dependencies WHERE depends_on = ?",
-        args: [topicId],
-      });
-      for (const dep of deps.rows) {
-        await emitEvent(db, dep.topic_id as string, "pact.dependency.challenged", "", "", {
-          dependencyId: topicId,
-          reason: "A dependency topic's consensus was challenged",
-        });
-      }
-
-      reopenedTopics.add(topicId);
-      reopened++;
     }
   }
   return reopened;

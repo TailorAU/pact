@@ -238,9 +238,11 @@ describe("vector (adapted): ttl-automerge-creates-no-attestation", () => {
   it("the promotion is attributed to the engine, not to a principal", () => {
     // §25.3 — "a timeout is not a person". The KG's promotion event is
     // emitted with an empty actor; it never stamps a proposer or voter as
-    // the authoriser of the apply.
+    // the authoriser of the apply. (#5599 PR-B: the call site rides the
+    // decision transaction's client, hence `tx` — the empty actor args are
+    // the pinned semantic.)
     const dbSource = readSource("db.ts");
-    expect(dbSource).toContain('emitEvent(db, d.id, "pact.topic.consensus-reached", "", ""');
+    expect(dbSource).toContain('emitEvent(tx, d.id, "pact.topic.consensus-reached", "", ""');
   });
 
   it("no pact.apply.attested event accompanies an unattested apply (§25.9)", () => {

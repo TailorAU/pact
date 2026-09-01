@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent, updateConsensusStatuses, withTransaction } from "@/lib/db";
+import { getDb, emitEvent, runConsensusStatusUpdate, withTransaction } from "@/lib/db";
 import { requireAgent, checkAgentReputation } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { transfer } from "@/lib/economy";
@@ -151,14 +151,14 @@ export async function POST(
     const { approveCount, objectCount, needsMajority } = outcome;
 
     // Evaluate consensus after merge — topics may flip to consensus status.
-    // #5599 PR-A: deliberately OUTSIDE the route transaction (the design's
-    // step 3 disposition). It is a five-phase sweep with a 60s time budget
-    // and its own advisory locks — enclosing it would hold a pooled
-    // connection's transaction open for up to a minute and poison it on any
-    // swallowed error. PR-B moves this call after commit onto a
-    // connection-scoped client with per-decision transactions (#5599 design
-    // comment §2).
-    await updateConsensusStatuses(db);
+    // #5599 PR-B (design comment §2, the third disposition): AFTER the
+    // request transaction commits, on a dedicated connection-scoped client
+    // whose per-decision writes each ride their own short transaction.
+    // Never inside the request transaction (a five-phase sweep with a 60s
+    // time budget would hold it open for up to a minute), and never on the
+    // plain pooled client (its emitEvent mints each chain link in a second
+    // transaction today, and PR-C's interlock will refuse it outright).
+    await runConsensusStatusUpdate();
 
     // Audit log (#1308 / MEGA-80 WS5)
     await recordAudit({

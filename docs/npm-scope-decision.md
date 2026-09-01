@@ -1,5 +1,26 @@
 # npm scope decision — `@pact-protocol` is externally owned
 
+> **STATUS UPDATE — 2026-09-01 (Knox): npm publication is DEFERRED entirely.**
+> The distribution mechanism of record for the v2.3 conformance vectors is the
+> **vendored SHA-pinned bundle** consumed by `TailorAU/tailor-app` (PR #5640:
+> the full 47-id inventory + SHA-256 integrity pins at
+> `tests/WebApi.UnitTests/Fixtures/PactV23/`, drift-gated in CI against
+> `pact@<pinned SHA>`). No npm publish happens until Knox revives it.
+>
+> Ruling lineage, recorded so it is never re-litigated:
+> - **2026-08-05** — scope decided: `@pact-spec` (fallback `@pact_`), below.
+> - **2026-08-30** — a tailor-app#5536 comment ruled "publish
+>   `@pact-protocol/conformance-vectors`". That ruling was made without this
+>   dossier and is **superseded**: the scope is squatted (re-verified
+>   2026-09-01 — `@pact-protocol/sdk` 0.5.0, maintainer `beek3`, still live;
+>   both Tailor targets still E404) and publishing there is not possible.
+> - **2026-09-01** — publish deferred entirely (this note). If revived, the
+>   2026-08-05 scope decision (`@pact-spec`, fallback `@pact_`) stands, and
+>   the execution checklist at the bottom of this file applies unchanged.
+>
+> Permanent warning per this file's own recommendation: **`@pact-protocol` on
+> npm is unaffiliated with this project.** Never advertise installs from it.
+
 Status: **DECIDED 2026-08-05 (Knox): Option B — `@pact-spec`.** Fallback if the org name proves unavailable at creation time: Option A (`@pact_`, already Tailor-owned). Availability could not be verified anonymously — npm confirms it at org creation. Filed 2026-08-05 · Tracks [#5](https://github.com/TailorAU/pact/issues/5); gates [#33](https://github.com/TailorAU/pact/issues/33) (v2.2.0 release) and [#6](https://github.com/TailorAU/pact/issues/6) (`tailor tap` deprecation).
 
 ## Verified facts (2026-08-05)

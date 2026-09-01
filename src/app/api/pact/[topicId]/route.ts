@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { log } from "@/lib/logger";
 import { warrantKindFromTier, consensusStateFor, credenceFromRatio } from "@/lib/epistemic";
+import {
+  consensusReachedFor,
+  documentStateFor,
+  executionAbsence,
+  executionStateFor,
+  topicEffectClassification,
+  topicPhaseFor,
+} from "@/lib/protocol-surface";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +84,12 @@ export async function GET(
     log.warn({ op: "pact.topic.votes.warn", topicId, err: e }, "topic_votes sub-query failed (non-fatal)");
   }
 
+  const consensusReached = consensusReachedFor(topic.status as string);
+  // Case-tolerant read of the SELECT's own alias: pgify quotes camelCase
+  // aliases on real Postgres, while older mocks may hand back lowercase.
+  const topicRow = topic as Record<string, unknown>;
+  const mergedCount = Number(topicRow.mergedCount ?? topicRow.mergedcount ?? 0);
+
   return NextResponse.json({
     ...topic,
     // Axis A + Axis B (#3691): unordered warrant kind; user-facing state;
@@ -86,6 +100,25 @@ export async function GET(
     conventionStop: !!topic.convention_stop,
     state: consensusStateFor(topic.status as string),
     credence: (topic.credence as number | null) ?? credenceFromRatio(topic.consensus_ratio as number | null),
+    // #5535 §25 surface pass — ADDITIVE (#5564: nothing above is renamed,
+    // removed or re-typed; every field below derives from columns already
+    // selected — no backfill, no null-500s). This read is the KG's §25
+    // status/export surface, so it speaks protocol vocabulary alongside the
+    // product fields: the §25.5 classification through the apply guard's own
+    // resolver, the §25.8 execution state (the forbidden execution labels
+    // are unreachable — EXECUTION_CAPABILITY is false), the §25.3 document
+    // state (a merged draft is `merged`, never more), the §25.11
+    // enforceability non-determination, and the §25.8 signature absence the
+    // execution-boundary vectors' negative obligations require to be
+    // REPORTED, not elided. See src/lib/protocol-surface.ts.
+    fabric_id: topic.id,
+    ...topicEffectClassification(),
+    consensus_reached: consensusReached,
+    phase: topicPhaseFor(topic.status as string),
+    document_state: documentStateFor(mergedCount),
+    execution_state: executionStateFor(consensusReached),
+    legal_status: null,
+    ...executionAbsence(),
     proposals,
     votes,
   });

@@ -516,7 +516,7 @@ Non-counting reasons on the wire: `need_info`, `standing`, `proposer-class`,
 
 ## API Mapping — every `api/pact` route
 
-The previous revision listed 6 of these. All 28 route files are listed below,
+The previous revision listed 6 of these. All 29 route files are listed below,
 and the drift test fails if the table misses a served route, names one the tree
 does not serve, publishes a method set the route module does not export, or
 lists a route twice.
@@ -540,6 +540,7 @@ lists a route twice.
 | `GET` | `/api/pact/{topicId}/sections` | Section list |
 | `GET` | `/api/pact/{topicId}/content` | Topic content |
 | `GET`, `POST` | `/api/pact/{topicId}/proposals` | List · submit a proposal |
+| `GET` | `/api/pact/{topicId}/proposals/{proposalId}` | Single-proposal read — §5 protocol status, §25.3 merge attribution, §25.4 attestation absence, §25.5 effect class, §25.8 execution state (#5535) |
 | `POST` | `/api/pact/{topicId}/proposals/{proposalId}/approve` | Approve a proposal |
 | `POST` | `/api/pact/{topicId}/proposals/{proposalId}/reject` | **Reject** a proposal — the first-class rejection path (#5426) |
 | `POST` | `/api/pact/{topicId}/proposals/{proposalId}/object` | Object to a proposal |

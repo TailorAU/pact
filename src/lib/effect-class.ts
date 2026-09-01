@@ -153,6 +153,16 @@ export const KG_RESOURCE_TYPES: readonly ResourceTypeProfile[] = [
 export const KG_APPLY_RESOURCE_TYPE = "fact";
 
 /**
+ * The registered wire name for the KG topic resource — the document the
+ * proposal path merges into. Named (#5535 surface pass) so the wire surfaces
+ * that serve a topic-scoped `effect_class` / `human_attestation`
+ * (`protocol-surface.ts` → the proposal + topic routes) resolve THIS type
+ * through {@link resolveResourceType} instead of retyping the string, and so
+ * the registry entry below cannot drift from the routes that advertise it.
+ */
+export const KG_TOPIC_RESOURCE_TYPE = "au.tailor.pact.topic";
+
+/**
  * The two CUSTOM types the upstream registry registers against this
  * implementation (#5563; `TailorAU/pact` #60,
  * `spec/v2.3/resource-types.yaml` — both `status: registered`, both naming
@@ -181,7 +191,7 @@ export const KG_APPLY_RESOURCE_TYPE = "fact";
  */
 export const KG_REGISTERED_RESOURCE_TYPES: readonly ResourceTypeProfile[] = [
   {
-    type: "au.tailor.pact.topic",
+    type: KG_TOPIC_RESOURCE_TYPE,
     fieldSchema:
       "sec:{slug} — topic sections (Question / Answer / Evidence …); the Answer section carries the canonical claim",
     contentFormat:

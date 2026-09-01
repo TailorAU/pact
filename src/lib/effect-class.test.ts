@@ -204,19 +204,23 @@ describe("§25.4 — no attestation is ever synthesised", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// Adapted execution-boundary vectors.
+// Adapted execution-boundary vectors — the PURE-MODULE pins.
 //
-// HONESTY NOTE, and it matters: these are HAND-ADAPTED assertions that
-// restate the two internal-reversible vectors' normative obligations against
-// the KG's own surfaces. They are NOT an execution of the upstream YAML —
-// nothing in this repo loads `spec/v2.3/conformance/**`, so editing a vector
-// upstream cannot fail this suite. The two vectors are `kind: session` HTTP
-// scripts written against paths the KG does not serve
-// (`/api/pact/{id}/proposals/{proposalId}`, `/_status`, `/manifest`).
+// Since the #5535 surface pass these are no longer the only coverage: the
+// two internal-reversible vectors now EXECUTE end-to-end against the real
+// route handlers on real Postgres in `execution-boundary-vectors.itest.ts`
+// (CI: kg-integration), driven from the vendored verbatim fixture at
+// `fixtures/pact-v23/execution-boundary-vectors.json` (pinned to a pact
+// commit, SHA-verified; the #5640 pattern), and the exact-set acceptance
+// manifest is pinned by `execution-boundary-acceptance.test.ts`. Editing a
+// vendored vector fails those suites.
 //
-// Making the vectors genuinely execute is #5537, which is blocked on the
-// #5536 decision about how the pact vector YAML reaches a build. Until that
-// lands, "adapted" is the accurate word for what this is.
+// The describes below stay as the DB-free restatement of the same normative
+// obligations against the pure modules — they run in this mock suite where
+// the itest cannot (no DATABASE_URL) and pin the module-level invariants
+// (guard verdicts, capability constants, source-level vocabulary sweeps)
+// the executed vectors rest on. "Adapted" remains the accurate word for
+// THESE assertions; the execution now exists next door.
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("vector (adapted): ttl-automerge-creates-no-attestation", () => {

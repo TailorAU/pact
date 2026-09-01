@@ -10,6 +10,7 @@ import { readBodyBounded } from "@/lib/read-body-bounded";
 import { VERIFIED_TOPIC_STATUSES } from "@/lib/consensus-gate";
 import { validateDefeater, challengeSimilarity, CHALLENGE_COALESCE_THRESHOLD } from "@/lib/epistemic";
 import { CANONICAL_CLAIM_MAX, lintAtomicClaim } from "@/lib/claim";
+import { proposalProtocolStatus, topicEffectClassification } from "@/lib/protocol-surface";
 
 export async function GET(
   req: NextRequest,
@@ -346,6 +347,16 @@ export async function POST(
     sectionId: effectiveSectionId,
     proposalType: cleanProposalType,
     status: proposalStatus,
+    // #5535 §25 surface pass — ADDITIVE (#5564: the pre-existing `status`
+    // keeps the KG's own value, unrenamed and unretyped). `proposalId`
+    // aliases `id` for the protocol wire; `created` states the outcome;
+    // `protocol_status` is the §5 rendering of the row status; the
+    // classification comes through the §25.6 guard's own resolver — see
+    // src/lib/protocol-surface.ts.
+    proposalId,
+    created: true,
+    protocol_status: proposalProtocolStatus(proposalStatus, null),
+    ...topicEffectClassification(),
     summary: summaryResult.sanitized,
     ...(isChallenge ? { defeaterType } : {}),
     confidential: !!isConfidential,

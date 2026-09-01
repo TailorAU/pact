@@ -1,0 +1,67 @@
+{
+  "$comment": "KG (Source) acceptance manifest for the PACT v2.3 execution-boundary vector set (#5535 criterion 3). Hand-authored, machine-verified: execution-boundary-acceptance.test.ts pins every claim here against the generated inventory in execution-boundary-vectors.json AND against the live served profile (buildPactProfile()), in both directions — an id unaccounted for, a phantom id, an exclusion whose vector is not genuinely external-irreversible, or a served profile that starts advertising an external-irreversible / attestation-required type all turn the suite red and force this manifest to be revised. The two executed ids are run end-to-end against the real route handlers on real Postgres by execution-boundary-vectors.itest.ts (CI: the kg-integration job).",
+  "pact_commit": "ba74dcdab64a114dc3b1ffce33ac64dab5cb6023",
+  "vector_set": "spec/v2.3/conformance/extended/execution-boundary",
+  "declaration": {
+    "served_at": "/.well-known/pact.json",
+    "fields": [
+      "resourceTypes[*].effectClass",
+      "resourceTypes[*].humanAttestation",
+      "capabilities.applyGuard",
+      "capabilities.authorizationProof",
+      "capabilities.executionCapability"
+    ],
+    "statement": "The KG declares no external-irreversible effects: every resource type advertised in the served profile's resourceTypes[] carries effectClass internal-reversible and humanAttestation not-required, capabilities.authorizationProof and capabilities.executionCapability are false, and capabilities.applyGuard is true — the fail-closed §25.6 guard (effect-class.ts evaluateApplyGuard) is what makes the declaration enforced rather than asserted. Per §25.6, a server that cannot enforce a type's guard MUST NOT advertise the type; the KG advertises none it cannot enforce, and the nine vectors below fix preconditions no server with this declaration can construct."
+  },
+  "executed": [
+    "extended/execution-boundary/ttl-automerge-creates-no-attestation",
+    "extended/execution-boundary/consensus-contract-is-draft-not-signed"
+  ],
+  "capability_excluded": [
+    {
+      "id": "extended/execution-boundary/ttl-transaction-blocks-not-settles",
+      "requires": { "effect_class": "external-irreversible" },
+      "reason": "Preconditions fix resource_type: transaction with effect_class: external-irreversible and human_attestation: required. The served profile advertises no such type — every resourceTypes[].effectClass is internal-reversible — so the vector's server_state is unconstructible against this implementation by declaration, not by omission."
+    },
+    {
+      "id": "extended/execution-boundary/attest-payload-bound-verified",
+      "requires": { "effect_class": "external-irreversible" },
+      "reason": "A §17.7 verification flow over an external-irreversible guarded apply (verification.proof.effect_class). The KG verifies no authorization_proof (capabilities.authorizationProof: false) and advertises no external-irreversible type; its §25.6 guard can only refuse, never release, so a proof-acceptance vector has no seam here. The proof-side flow executes against the Tailor guard via tests/WebApi.UnitTests/Fixtures/PactV23 (#5640) — a different implementation, not claimable for the KG."
+    },
+    {
+      "id": "extended/execution-boundary/attest-wrong-payload-rejected",
+      "requires": { "effect_class": "external-irreversible" },
+      "reason": "A §17.7 verification flow over an external-irreversible guarded apply (verification.proof.effect_class). The KG verifies no authorization_proof (capabilities.authorizationProof: false) and advertises no external-irreversible type; no attestation ever reaches it to be rejected on payload binding."
+    },
+    {
+      "id": "extended/execution-boundary/attest-expired-rejected",
+      "requires": { "effect_class": "external-irreversible" },
+      "reason": "A §17.7 verification flow over an external-irreversible guarded apply (verification.proof.effect_class). The KG verifies no authorization_proof (capabilities.authorizationProof: false) and advertises no external-irreversible type; no attestation ever reaches it to be rejected on freshness."
+    },
+    {
+      "id": "extended/execution-boundary/attest-replayed-rejected",
+      "requires": { "effect_class": "external-irreversible" },
+      "reason": "A §17.7 verification flow over an external-irreversible guarded apply (verification.proof.effect_class). The KG verifies no authorization_proof (capabilities.authorizationProof: false) and advertises no external-irreversible type; no attestation ever reaches it to be rejected on nonce replay."
+    },
+    {
+      "id": "extended/execution-boundary/attest-wrong-principal-rejected",
+      "requires": { "effect_class": "external-irreversible" },
+      "reason": "A §17.7 verification flow over an external-irreversible guarded apply (verification.proof.effect_class). The KG has no §17.4 HumanPrincipal registry (declaredGaps) and advertises no external-irreversible type; no attestation ever reaches it to be rejected on principal mismatch."
+    },
+    {
+      "id": "extended/execution-boundary/guarded-apply-attestation-missing-refused",
+      "requires": { "effect_class": "external-irreversible" },
+      "reason": "Preconditions fix resource_type: transaction with effect_class: external-irreversible and human_attestation: required. The served profile advertises no such type, so the guarded apply this vector drives cannot be staged. The refusal semantics it asserts ARE the KG's own §25.6 posture — evaluateApplyGuard refuses any guarded type with attestation_missing — pinned by effect-class.test.ts against the module, not by this HTTP vector."
+    },
+    {
+      "id": "extended/execution-boundary/guarded-apply-wrong-principal-refused",
+      "requires": { "effect_class": "external-irreversible" },
+      "reason": "Preconditions fix resource_type: transaction with effect_class: external-irreversible and human_attestation: required. The served profile advertises no such type, and the KG can name no required principal (no §17.4 registry, declaredGaps), so a wrong-principal refusal has no constructible server_state here."
+    },
+    {
+      "id": "extended/execution-boundary/guarded-apply-wrong-scope-refused",
+      "requires": { "effect_class": "external-irreversible" },
+      "reason": "Preconditions fix resource_type: transaction with effect_class: external-irreversible and human_attestation: required. The served profile advertises no such type, and the KG verifies no proof whose scope could mismatch (capabilities.authorizationProof: false), so a wrong-scope refusal has no constructible server_state here."
+    }
+  ]
+}

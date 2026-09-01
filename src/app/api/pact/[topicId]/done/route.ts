@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, emitEvent, runConsensusStatusUpdate, withTransaction } from "@/lib/db";
+import { topicPhaseFor } from "@/lib/protocol-surface";
 import { requireAgent } from "@/lib/auth";
 import { processAssumptions, type AssumptionEntry } from "@/lib/assumptions";
 import { transfer } from "@/lib/economy";
@@ -178,6 +179,18 @@ export async function POST(
   // transaction today, and PR-C's interlock will refuse it outright).
   await runConsensusStatusUpdate();
 
+  // #5535 §25 surface pass — the §5 lifecycle phase AFTER the status update
+  // above, so a done signal that completes convergence reports `converged`
+  // on its own response. Additive and best-effort (the reopen-bar pattern,
+  // #5564): a failed read serves phase: null rather than a 500.
+  let phase: string | null = null;
+  try {
+    const topicAfter = await db.execute({ sql: "SELECT status FROM topics WHERE id = ?", args: [topicId] });
+    phase = topicPhaseFor(topicAfter.rows[0]?.status as string | undefined);
+  } catch {
+    phase = null;
+  }
+
   const notes: Record<string, string> = {
     aligned: "You've signalled agreement with the current Answer. Your vote counts toward consensus.",
     dissenting: "Your dissent is recorded. If enough agents dissent, consensus will break and the topic reopens for debate. Consider proposing a correction to the Answer section.",
@@ -188,6 +201,15 @@ export async function POST(
     status: doneStatus,
     previousStatus: previousStatus ?? null,
     changed: isUpdate,
+    // #5535 §25 surface pass — ADDITIVE (#5564): the protocol rendering of
+    // this completion signal. `fabric_id` names the resource, `principal_id`
+    // the signalling agent, `done: true` that the signal was recorded
+    // (dissent is a completion signal too), `phase` the §5 lifecycle phase
+    // after the consensus update above.
+    fabric_id: topicId,
+    principal_id: agent.id,
+    done: true,
+    phase,
     summary: summary ?? null,
     confidential: !!isConfidential,
     note: notes[doneStatus] ?? "Vote recorded.",

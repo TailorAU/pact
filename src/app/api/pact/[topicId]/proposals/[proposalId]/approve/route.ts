@@ -174,6 +174,12 @@ export async function POST(
 
     return NextResponse.json({
       status: "merged",
+      // #5535 §25 surface pass — ADDITIVE (#5564): the vote is on the wire
+      // in protocol vocabulary. `recorded: true` states the vote landed;
+      // `decision` names the §5 verb this route implements.
+      proposalId,
+      recorded: true,
+      decision: "approve",
       approveCount,
       objectCount,
       policy: needsMajority ? "majority" : "multi-approval",
@@ -201,6 +207,11 @@ export async function POST(
 
   return NextResponse.json({
     status: "approved",
+    // #5535 §25 surface pass — ADDITIVE (#5564), same three fields as the
+    // merged branch: the vote is recorded either way.
+    proposalId,
+    recorded: true,
+    decision: "approve",
     approveCount,
     objectCount,
     requiredApprovals,

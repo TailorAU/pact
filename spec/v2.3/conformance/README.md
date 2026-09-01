@@ -2,31 +2,27 @@
 
 ## Consuming these vectors
 
-This directory is also published as **`@pact-protocol/conformance-vectors`** so
-implementations can execute the same corpus rather than hand-transcribing it.
-Spec fixtures only — no code, no runtime dependencies.
+**Consume this corpus by vendoring it at a pinned commit SHA with per-file
+integrity hashes** — that is the distribution mechanism of record
+(maintainer ruling 2026-09-01, `docs/npm-scope-decision.md`). Reference
+implementation of the pattern: `TailorAU/tailor-app` vendors the full 47-id
+inventory with SHA-256 pins and a CI drift gate that regenerates the bundle
+from `pact@<pinned SHA>` and fails loudly on any difference — so the exact
+set a suite measures against can only change deliberately.
 
 ```bash
-npm install --save-dev @pact-protocol/conformance-vectors
+git clone --depth 1 https://github.com/TailorAU/pact && git -C pact checkout <pinned-sha>
+# vectors: spec/v2.3/conformance/{core,extended}/**/*.yaml
 ```
 
-Vector files resolve under `core/` and `extended/`:
+> **npm warning:** do **not** install anything from the `@pact-protocol` npm
+> scope — it is owned by an unrelated third party and is unaffiliated with
+> this project (`docs/npm-scope-decision.md`). npm publication of this corpus
+> is deferred; the `package.json` staged in this directory (under the scope
+> decided 2026-08-05) publishes nothing until that changes.
 
-```js
-import { createRequire } from "node:module";
-const require = createRequire(import.meta.url);
-const dir = require.resolve("@pact-protocol/conformance-vectors/package.json");
-// vectors live alongside it: core/*.yaml, extended/<family>/*.yaml
-```
-
-The published version tracks the spec line: `2.3.0-draft.N` while v2.3 carries
-`Status: DRAFT`, moving to `2.3.0` when the maintainer signs the spec off. Pin
-an exact version — the corpus is an exact set, and a floating range would let
-the set your suite measures against change underneath it.
-
-Publishing is gated on the npm scope decision (issue
-[#5](https://github.com/TailorAU/pact/issues/5)); until `NPM_TOKEN` exists on
-this repo, consume the vectors from a repo checkout.
+Pin an exact commit — the corpus is an exact set, and a floating ref would
+let the set your suite measures against change underneath it.
 
 
 > **v2.3 note.** This directory is carried forward from `spec/v2.2/conformance/`

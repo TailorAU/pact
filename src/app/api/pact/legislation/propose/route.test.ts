@@ -13,6 +13,9 @@ const emitEventMock = vi.fn<(...args: unknown[]) => Promise<void>>(async () => u
 vi.mock("@/lib/db", () => ({
   getDb: () => getDbMock(),
   emitEvent: (...args: unknown[]) => emitEventMock(...args),
+  // #5599 PR-A — the route wraps its mutating region; on this two-method
+  // mock the wrapper degrades to a plain call (same statement stream).
+  withTransaction: <T>(db: DbClient, fn: (tx: DbClient) => Promise<T>) => fn(db),
 }));
 
 vi.mock("@/lib/auth", () => ({

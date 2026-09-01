@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { v4 as uuid } from "uuid";
 
 /**
@@ -63,18 +63,24 @@ export async function GET(req: NextRequest) {
     // Calculate bounty: 25 base + 10 per month stale, capped at 100
     const bountyAmount = Math.min(25 + Math.floor(daysStale / 30) * 10, 100);
 
-    // Create maintenance bounty funded by hub-protocol
-    const bountyId = uuid();
-    await db.execute({
-      sql: `INSERT INTO topic_bounties (id, topic_id, sponsor_id, amount, status)
-            VALUES (?, ?, 'hub-protocol', ?, 'escrow')`,
-      args: [bountyId, topic.id, bountyAmount],
-    });
+    // #5599 PR-A — ONE transaction PER TOPIC (per the adjudicated design:
+    // never one transaction around the whole loop — a late failure must not
+    // roll back every earlier topic's bounty, and the loop can be long).
+    // The bounty INSERT and its §6.4 chain link commit together.
+    await withTransaction(db, async (tx) => {
+      // Create maintenance bounty funded by hub-protocol
+      const bountyId = uuid();
+      await tx.execute({
+        sql: `INSERT INTO topic_bounties (id, topic_id, sponsor_id, amount, status)
+              VALUES (?, ?, 'hub-protocol', ?, 'escrow')`,
+        args: [bountyId, topic.id, bountyAmount],
+      });
 
-    await emitEvent(db, topic.id as string, "pact.topic.stale", "hub-protocol", "", {
-      daysStale,
-      bountyAmount,
-      jurisdiction: topic.jurisdiction,
+      await emitEvent(tx, topic.id as string, "pact.topic.stale", "hub-protocol", "", {
+        daysStale,
+        bountyAmount,
+        jurisdiction: topic.jurisdiction,
+      });
     });
 
     bountiesPosted++;

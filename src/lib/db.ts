@@ -271,6 +271,77 @@ export async function getDb(): Promise<DbClient> {
   return _client;
 }
 
+/**
+ * #5599 PR-A — run a route handler's MUTATING REGION inside one database
+ * transaction, so every state change AND every §6.4 chain link the region
+ * emits commit together or not at all. This is what makes `emitEvent` take
+ * its in-transaction branch on the production HTTP write paths — before
+ * this, `pool.query` autocommitted per statement and the chain link landed
+ * in a second transaction (the completeness hole #5599 names).
+ *
+ * Client dispatch:
+ *   - already in a transaction (`inTransaction`) → participate, no nesting;
+ *   - a production client with `transaction()`  → one BEGIN/COMMIT around fn;
+ *   - a two-method test mock (no `transaction`) → run fn directly against it,
+ *     mirroring emitEvent's mock tolerance so the mock suite's SQL-shape
+ *     dispatch sees the identical statement stream.
+ *
+ * NOTE (PR-C forward pointer): once the emitEvent interlock lands, a pooled
+ * client that has `transaction` but is NOT inside one will make emitEvent
+ * THROW — so every mutating route must reach emitEvent through this wrapper.
+ */
+export async function withTransaction<T>(
+  db: DbClient,
+  fn: (tx: DbClient) => Promise<T>
+): Promise<T> {
+  if (db.inTransaction || !db.transaction) {
+    return fn(db);
+  }
+  return db.transaction(fn);
+}
+
+let _savepointCounter = 0;
+
+/**
+ * #5599 PR-A — best-effort sub-region protection inside an open transaction.
+ *
+ * `db.transaction` has NO savepoints: after ANY statement error, Postgres
+ * aborts the whole transaction and every later statement raises 25P02
+ * (`in_failed_sql_transaction`) — pinned by canary (a) in db.itest.ts. That
+ * turns every pre-#5599 "swallow the SQL error and carry on" site into a
+ * bomb once its route is wrapped. `withSavepoint` is the remediation for
+ * the sites whose failure is NOT a rewritable uniqueness conflict (those
+ * were rewritten to `ON CONFLICT DO NOTHING` instead): it runs `fn` under a
+ * SAVEPOINT and, when `fn` throws, rolls back TO the savepoint — discarding
+ * only the sub-region's work and leaving the enclosing transaction healthy —
+ * then RETHROWS so the caller's existing best-effort `catch` keeps deciding
+ * what a failure means.
+ *
+ * Only a transaction-scoped client (`inTransaction === true`) gets the
+ * SAVEPOINT protocol — `SAVEPOINT` outside a transaction block is itself an
+ * error. On any other client (the pooled client, the consensus sweep's
+ * connection-scoped client, a two-method test mock) it degrades to a plain
+ * `fn()` call: per-statement autocommit already gives those callers the
+ * pre-#5599 behaviour the surrounding `catch` was written for.
+ */
+export async function withSavepoint<T>(db: DbClient, fn: () => Promise<T>): Promise<T> {
+  if (!db.inTransaction) {
+    return fn();
+  }
+  // Lowercase name on purpose: pgify double-quotes bare camelCase words.
+  const name = `sp_5599_${++_savepointCounter}`;
+  await db.execute(`SAVEPOINT ${name}`);
+  try {
+    const result = await fn();
+    await db.execute(`RELEASE SAVEPOINT ${name}`);
+    return result;
+  } catch (e) {
+    await db.execute(`ROLLBACK TO SAVEPOINT ${name}`);
+    await db.execute(`RELEASE SAVEPOINT ${name}`);
+    throw e;
+  }
+}
+
 // ─── Schema (all migrations folded into clean DDL) ──────────────────────────
 
 async function initSchema(db: DbClient) {
@@ -1221,6 +1292,11 @@ export async function emitEvent(
 
   // Already inside a caller's transaction ⇒ the chain link is assigned in
   // the SAME transaction as the state change that transaction is recording.
+  // #5599 PR-A wrapped every mutating production route in `withTransaction`,
+  // so production callers now reach THIS branch with a transaction-scoped
+  // client. The pooled-client branch below (a SECOND transaction, breaking
+  // §6.4 atomicity with the caller's writes — pinned by canary (c) in
+  // db.itest.ts) survives until PR-C replaces it with the interlock throw.
   if (db.inTransaction || !db.transaction) {
     await appendChainedEvent(db, input);
     return;
@@ -1406,32 +1482,44 @@ export async function finalizeApprovedTopic(
     policy: "quorum",
   });
 
-  // Auto-ingest legislation proposals on consensus
+  // Auto-ingest legislation proposals on consensus.
+  //
+  // #5599 PR-A — the ingest attempt runs under `withSavepoint`: this catch
+  // deliberately swallows an ingest failure and falls through to opening
+  // the topic for debate, but when the caller is a transaction-scoped
+  // client (the wrapped vote route), a swallowed SQL error would abort the
+  // whole transaction and the fall-through UPDATE below would raise 25P02.
+  // The savepoint discards only the failed ingest's writes; the enclosing
+  // transaction stays healthy for the 'open' fallback.
   if (applyGuard.allowed && title.startsWith("[Legislation Proposal]")) {
     try {
-      const legislationEvent = await db.execute({
-        sql: "SELECT data FROM events WHERE topic_id = ? AND type = 'pact.legislation.proposed' LIMIT 1",
-        args: [topicId],
-      });
-      if (legislationEvent.rows.length > 0) {
-        const payload = JSON.parse(legislationEvent.rows[0].data as string);
-        if (payload.document) {
-          const { ingestDocuments } = await import("./legislation-sync");
-          await ingestDocuments(db, [payload.document]);
-          const updated = await db.execute({
-            sql: "UPDATE topics SET status = 'consensus' WHERE id = ? AND status = 'proposed'",
-            args: [topicId],
-          });
-          if ((updated.rowsAffected ?? 0) === 0) return "skipped";
-          await emitEvent(db, topicId, "pact.legislation.ingested", payload.proposedBy || "", "", {
-            approvals,
-            docId: payload.document.id,
-            title: payload.document.title,
-            sectionsCount: payload.document.sections?.length ?? 0,
-          });
-          return "ingested";
+      const outcome = await withSavepoint(db, async (): Promise<"ingested" | "skipped" | null> => {
+        const legislationEvent = await db.execute({
+          sql: "SELECT data FROM events WHERE topic_id = ? AND type = 'pact.legislation.proposed' LIMIT 1",
+          args: [topicId],
+        });
+        if (legislationEvent.rows.length > 0) {
+          const payload = JSON.parse(legislationEvent.rows[0].data as string);
+          if (payload.document) {
+            const { ingestDocuments } = await import("./legislation-sync");
+            await ingestDocuments(db, [payload.document]);
+            const updated = await db.execute({
+              sql: "UPDATE topics SET status = 'consensus' WHERE id = ? AND status = 'proposed'",
+              args: [topicId],
+            });
+            if ((updated.rowsAffected ?? 0) === 0) return "skipped";
+            await emitEvent(db, topicId, "pact.legislation.ingested", payload.proposedBy || "", "", {
+              approvals,
+              docId: payload.document.id,
+              title: payload.document.title,
+              sectionsCount: payload.document.sections?.length ?? 0,
+            });
+            return "ingested";
+          }
         }
-      }
+        return null;
+      });
+      if (outcome !== null) return outcome;
     } catch (e) {
       console.error(`Legislation auto-ingest failed for topic ${topicId}:`, e);
     }

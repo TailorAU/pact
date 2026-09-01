@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent, wouldCreateCycle, VALID_RELATIONSHIPS, requiredReopenVotes } from "@/lib/db";
+import { getDb, emitEvent, withTransaction, wouldCreateCycle, VALID_RELATIONSHIPS, requiredReopenVotes } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { readBodyBounded } from "@/lib/read-body-bounded";
 import { warrantKindFromTier, consensusStateFor, credenceFromRatio, DEFEATER_TYPES } from "@/lib/epistemic";
@@ -282,22 +282,33 @@ export async function POST(
   // Store the full justification as JSON
   const justificationText = JSON.stringify(justification);
 
-  try {
-    await db.execute({
-      sql: "INSERT INTO topic_dependencies (topic_id, depends_on, relationship, justification) VALUES (?, ?, ?, ?)",
+  // #5599 PR-A — mutating region in ONE transaction: the edge and its §6.4
+  // chain link commit together or not at all. The duplicate-edge race was a
+  // swallowed-error try/catch around a plain INSERT — fatal inside a
+  // transaction (25P02 on every later statement) — so it is rewritten as
+  // ON CONFLICT DO NOTHING with a rowsAffected probe.
+  const outcome = await withTransaction(db, async (tx) => {
+    const inserted = await tx.execute({
+      sql: "INSERT INTO topic_dependencies (topic_id, depends_on, relationship, justification) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
       args: [topicId, dependsOn, rel, justificationText],
     });
-  } catch {
+    if (inserted.rowsAffected === 0) {
+      return "duplicate" as const;
+    }
+
+    await emitEvent(tx, topicId, "pact.dependency.declared", agent.id, "", {
+      dependsOn,
+      relationship: rel,
+      justification,
+      topicTitle: topic.rows[0].title,
+      dependsOnTitle: dep.rows[0].title,
+    });
+    return "declared" as const;
+  });
+
+  if (outcome === "duplicate") {
     return NextResponse.json({ error: "Dependency already exists" }, { status: 409 });
   }
-
-  await emitEvent(db, topicId, "pact.dependency.declared", agent.id, "", {
-    dependsOn,
-    relationship: rel,
-    justification,
-    topicTitle: topic.rows[0].title,
-    dependsOnTitle: dep.rows[0].title,
-  });
 
   return NextResponse.json({
     topicId,
@@ -350,15 +361,19 @@ export async function DELETE(
     return NextResponse.json({ error: "Dependency not found" }, { status: 404 });
   }
 
-  await db.execute({
-    sql: "DELETE FROM topic_dependencies WHERE topic_id = ? AND depends_on = ?",
-    args: [topicId, dependsOn],
-  });
+  // #5599 PR-A — mutating region in ONE transaction: the edge removal and
+  // its §6.4 chain link commit together or not at all.
+  await withTransaction(db, async (tx) => {
+    await tx.execute({
+      sql: "DELETE FROM topic_dependencies WHERE topic_id = ? AND depends_on = ?",
+      args: [topicId, dependsOn],
+    });
 
-  await emitEvent(db, topicId, "pact.dependency.removed", agent.id, "", {
-    dependsOn,
-    reason,
-    removedRelationship: existing.rows[0].relationship,
+    await emitEvent(tx, topicId, "pact.dependency.removed", agent.id, "", {
+      dependsOn,
+      reason,
+      removedRelationship: existing.rows[0].relationship,
+    });
   });
 
   return NextResponse.json({

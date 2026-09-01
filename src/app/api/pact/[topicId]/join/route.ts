@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 
@@ -27,15 +27,19 @@ export async function POST(
     return NextResponse.json({ error: "Topic not found" }, { status: 404 });
   }
 
-  // Register agent on topic (upsert)
-  await db.execute({
-    sql: `INSERT INTO registrations (id, topic_id, agent_id, role)
-    VALUES (?, ?, ?, 'collaborator')
-    ON CONFLICT(topic_id, agent_id) DO UPDATE SET left_at = NULL, joined_at = NOW()`,
-    args: [uuid(), topicId, agent.id],
-  });
+  // #5599 PR-A — mutating region in ONE transaction: the registration and
+  // its §6.4 chain link commit together or not at all.
+  await withTransaction(db, async (tx) => {
+    // Register agent on topic (upsert)
+    await tx.execute({
+      sql: `INSERT INTO registrations (id, topic_id, agent_id, role)
+      VALUES (?, ?, ?, 'collaborator')
+      ON CONFLICT(topic_id, agent_id) DO UPDATE SET left_at = NULL, joined_at = NOW()`,
+      args: [uuid(), topicId, agent.id],
+    });
 
-  await emitEvent(db, topicId, "pact.agent.joined", agent.id, undefined, { agentName: agent.name });
+    await emitEvent(tx, topicId, "pact.agent.joined", agent.id, undefined, { agentName: agent.name });
+  });
 
   return NextResponse.json({
     topicId,

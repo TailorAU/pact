@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent, updateConsensusStatuses } from "@/lib/db";
+import { getDb, emitEvent, updateConsensusStatuses, withTransaction } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { processAssumptions, type AssumptionEntry } from "@/lib/assumptions";
 import { transfer } from "@/lib/economy";
@@ -61,8 +61,9 @@ export async function POST(
   // Only enforced when:
   //   1. Agent is signaling "aligned" (not dissenting/abstain)
   //   2. Agent hasn't already declared assumptions for this topic
-  let assumptionResult = null;
-
+  //
+  // Pure validation stays out here; the WRITES the gate performs run inside
+  // the #5599 transaction below.
   if (doneStatus === "aligned" && !alreadyDeclared) {
     // assumptions field is REQUIRED when signaling aligned for the first time
     if (assumptions === undefined || assumptions === null) {
@@ -90,65 +91,90 @@ export async function POST(
       }
     }
 
-    if (assumptions.length > 0) {
-      // Validate and process assumptions
-      if (assumptions.length > 5) {
-        return NextResponse.json({
-          error: "Too many assumptions declared at once (max 5). Focus on the most important foundational dependencies.",
-        }, { status: 400 });
+    if (assumptions.length > 5) {
+      return NextResponse.json({
+        error: "Too many assumptions declared at once (max 5). Focus on the most important foundational dependencies.",
+      }, { status: 400 });
+    }
+  }
+
+  // #5599 PR-A — mutating region in ONE transaction: the assumption-gate
+  // writes, the done-status update, the alignment reward and every §6.4
+  // chain link commit together or not at all.
+  const sanitizedSummary = summary ? String(summary).slice(0, 2000) : null;
+  type DoneOutcome =
+    | { kind: "invalid-assumptions"; errors: string[] }
+    | { kind: "done"; assumptionResult: Awaited<ReturnType<typeof processAssumptions>> | null };
+
+  const outcome = await withTransaction(db, async (tx): Promise<DoneOutcome> => {
+    let assumptionResult: Awaited<ReturnType<typeof processAssumptions>> | null = null;
+
+    if (doneStatus === "aligned" && !alreadyDeclared) {
+      if ((assumptions as AssumptionEntry[]).length > 0) {
+        assumptionResult = await processAssumptions(
+          tx,
+          topicId,
+          agent.id,
+          assumptions as AssumptionEntry[]
+        );
+
+        // If ALL entries had errors, fail the request
+        if (assumptionResult.created.length === 0 && assumptionResult.linked.length === 0 && assumptionResult.errors.length > 0) {
+          return { kind: "invalid-assumptions", errors: assumptionResult.errors };
+        }
       }
 
-      assumptionResult = await processAssumptions(
-        db,
-        topicId,
-        agent.id,
-        assumptions as AssumptionEntry[]
-      );
+      // Mark assumptions as declared for this registration
+      await tx.execute({
+        sql: "UPDATE registrations SET assumptions_declared = 1 WHERE topic_id = ? AND agent_id = ?",
+        args: [topicId, agent.id],
+      });
 
-      // If ALL entries had errors, fail the request
-      if (assumptionResult.created.length === 0 && assumptionResult.linked.length === 0 && assumptionResult.errors.length > 0) {
-        return NextResponse.json({
-          error: "All assumption entries were invalid.",
-          details: assumptionResult.errors,
-        }, { status: 400 });
-      }
+      // Emit assumption declaration event
+      await emitEvent(tx, topicId, "pact.assumptions.declared", agent.id, undefined, {
+        count: assumptions.length,
+        created: assumptionResult?.created.length ?? 0,
+        linked: assumptionResult?.linked.length ?? 0,
+        noAssumptionsReason: assumptions.length === 0 ? (noAssumptionsReason ?? null) : null,
+      });
     }
 
-    // Mark assumptions as declared for this registration
-    await db.execute({
-      sql: "UPDATE registrations SET assumptions_declared = 1 WHERE topic_id = ? AND agent_id = ?",
-      args: [topicId, agent.id],
+    // ─── Persist done status ──────────────────────────────────────────
+    await tx.execute({
+      sql: "UPDATE registrations SET done_status = ?, done_at = NOW(), done_summary = ?, confidential = ? WHERE topic_id = ? AND agent_id = ?",
+      args: [doneStatus, sanitizedSummary, isConfidential, topicId, agent.id],
     });
 
-    // Emit assumption declaration event
-    await emitEvent(db, topicId, "pact.assumptions.declared", agent.id, undefined, {
-      count: assumptions.length,
-      created: assumptionResult?.created.length ?? 0,
-      linked: assumptionResult?.linked.length ?? 0,
-      noAssumptionsReason: assumptions.length === 0 ? (noAssumptionsReason ?? null) : null,
+    await emitEvent(tx, topicId, isUpdate ? "pact.agent.vote-changed" : "pact.agent.done", agent.id, undefined, {
+      status: doneStatus,
+      previousStatus: previousStatus ?? null,
+      summary: isConfidential ? null : (summary ?? null),
+      ...(isConfidential ? { confidential: true } : {}),
     });
-  }
 
-  // ─── Persist done status ──────────────────────────────────────────
-  const sanitizedSummary = summary ? String(summary).slice(0, 2000) : null;
-  await db.execute({
-    sql: "UPDATE registrations SET done_status = ?, done_at = NOW(), done_summary = ?, confidential = ? WHERE topic_id = ? AND agent_id = ?",
-    args: [doneStatus, sanitizedSummary, isConfidential, topicId, agent.id],
+    // Truth-seeking reward: credit for signaling alignment
+    if (doneStatus === "aligned") {
+      await transfer(tx, { from: null, to: agent.id, amount: 2, topicId, reason: "alignment-signal" });
+    }
+
+    return { kind: "done", assumptionResult };
   });
 
-  await emitEvent(db, topicId, isUpdate ? "pact.agent.vote-changed" : "pact.agent.done", agent.id, undefined, {
-    status: doneStatus,
-    previousStatus: previousStatus ?? null,
-    summary: isConfidential ? null : (summary ?? null),
-    ...(isConfidential ? { confidential: true } : {}),
-  });
-
-  // Truth-seeking reward: credit for signaling alignment
-  if (doneStatus === "aligned") {
-    await transfer(db, { from: null, to: agent.id, amount: 2, topicId, reason: "alignment-signal" });
+  if (outcome.kind === "invalid-assumptions") {
+    return NextResponse.json({
+      error: "All assumption entries were invalid.",
+      details: outcome.errors,
+    }, { status: 400 });
   }
+  const assumptionResult = outcome.assumptionResult;
 
-  // Evaluate consensus — alignment signals can push topics over the threshold
+  // Evaluate consensus — alignment signals can push topics over the threshold.
+  // #5599 PR-A: deliberately OUTSIDE the route transaction (the design's
+  // step 3 disposition). It is a five-phase sweep with a 60s time budget and
+  // its own advisory locks — enclosing it would hold the route's transaction
+  // open for up to a minute and poison it on any swallowed error. PR-B moves
+  // this call after commit onto a connection-scoped client with per-decision
+  // transactions (#5599 design comment §2).
   await updateConsensusStatuses(db);
 
   const notes: Record<string, string> = {

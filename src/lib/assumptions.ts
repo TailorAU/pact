@@ -315,14 +315,15 @@ export async function processAssumptions(
     }
 
     // ── Add dependency link (idempotent) ──────────────────────────
-    try {
-      await db.execute({
-        sql: "INSERT INTO topic_dependencies (topic_id, depends_on, relationship) VALUES (?, ?, 'assumes')",
-        args: [parentTopicId, assumptionTopicId],
-      });
-    } catch {
-      // Already linked — fine
-    }
+    // #5599 PR-A — was a swallowed-error `catch {}` around a plain INSERT.
+    // The /done route now runs this inside a transaction, where a swallowed
+    // duplicate-key error would abort the whole transaction (25P02 on every
+    // later statement). ON CONFLICT DO NOTHING makes the duplicate a
+    // non-error instead.
+    await db.execute({
+      sql: "INSERT INTO topic_dependencies (topic_id, depends_on, relationship) VALUES (?, ?, 'assumes') ON CONFLICT DO NOTHING",
+      args: [parentTopicId, assumptionTopicId],
+    });
 
     // ── Seed bounty from parent escrow ────────────────────────────
     let bountySeeded = 0;
@@ -369,14 +370,14 @@ export async function processAssumptions(
     }
 
     // ── Record the declaration ────────────────────────────────────
-    try {
-      await db.execute({
-        sql: "INSERT INTO assumption_declarations (id, topic_id, agent_id, assumption_topic_id, created_new) VALUES (?, ?, ?, ?, ?)",
-        args: [uuid(), parentTopicId, agentId, assumptionTopicId, createdNew ? 1 : 0],
-      });
-    } catch {
-      // Already declared by this agent — skip
-    }
+    // #5599 PR-A — same remediation as the dependency link above: the
+    // duplicate declaration (UNIQUE(topic_id, agent_id, assumption_topic_id))
+    // is a non-error, not a swallowed error, so it cannot poison the /done
+    // route's enclosing transaction.
+    await db.execute({
+      sql: "INSERT INTO assumption_declarations (id, topic_id, agent_id, assumption_topic_id, created_new) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+      args: [uuid(), parentTopicId, agentId, assumptionTopicId, createdNew ? 1 : 0],
+    });
 
     // ── Track results ─────────────────────────────────────────────
     if (createdNew) {

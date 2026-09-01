@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { transfer, ensureWallet } from "@/lib/economy";
 import { v4 as uuid } from "uuid";
@@ -96,29 +96,35 @@ export async function POST(
     }, { status: 400 });
   }
 
-  // Deduct from wallet
-  await db.execute({
-    sql: "UPDATE agent_wallets SET balance = balance - ? WHERE agent_id = ?",
-    args: [amount, agent.id],
-  });
-
-  // Create escrow bounty
+  // #5599 PR-A — mutating region in ONE transaction: the wallet debit, the
+  // escrow bounty, the ledger entry and the §6.4 chain link commit together
+  // or not at all (before this, a crash mid-region could debit the wallet
+  // without creating the bounty).
   const bountyId = uuid();
-  await db.execute({
-    sql: "INSERT INTO topic_bounties (id, topic_id, sponsor_id, amount, status) VALUES (?, ?, ?, ?, 'escrow')",
-    args: [bountyId, topicId, agent.id, amount],
-  });
+  await withTransaction(db, async (tx) => {
+    // Deduct from wallet
+    await tx.execute({
+      sql: "UPDATE agent_wallets SET balance = balance - ? WHERE agent_id = ?",
+      args: [amount, agent.id],
+    });
 
-  // Ledger entry
-  await db.execute({
-    sql: "INSERT INTO ledger_txs (id, from_wallet, to_wallet, amount, topic_id, reason) VALUES (?, ?, ?, ?, ?, ?)",
-    args: [uuid(), agent.id, "escrow", amount, topicId, "bounty-posted"],
-  });
+    // Create escrow bounty
+    await tx.execute({
+      sql: "INSERT INTO topic_bounties (id, topic_id, sponsor_id, amount, status) VALUES (?, ?, ?, ?, 'escrow')",
+      args: [bountyId, topicId, agent.id, amount],
+    });
 
-  await emitEvent(db, topicId, "pact.bounty.posted", agent.id, "", {
-    bountyId,
-    amount,
-    sponsorName: agent.name,
+    // Ledger entry
+    await tx.execute({
+      sql: "INSERT INTO ledger_txs (id, from_wallet, to_wallet, amount, topic_id, reason) VALUES (?, ?, ?, ?, ?, ?)",
+      args: [uuid(), agent.id, "escrow", amount, topicId, "bounty-posted"],
+    });
+
+    await emitEvent(tx, topicId, "pact.bounty.posted", agent.id, "", {
+      bountyId,
+      amount,
+      sponsorName: agent.name,
+    });
   });
 
   return NextResponse.json({

@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { getTopicsList } from "@/lib/queries";
 import { requireAgent, checkCivicDuty } from "@/lib/auth";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
@@ -313,96 +313,104 @@ export async function POST(req: NextRequest) {
   // seeds the Answer section); the claim passed the lint, so it is 'atomic'.
   const topicId = uuid();
   const effectiveContent = cleanContent ?? cleanCanonicalClaim;
-  await db.execute({
-    sql: `INSERT INTO topics (id, title, content, tier, status, canonical_claim, claim_support, claim_atomicity_status, convention_stop,
-           jurisdiction, authority, source_ref, effective_date, expiry_date, last_verified_at)
-          VALUES (?, ?, ?, ?, 'proposed', ?, ?, 'atomic', ?, ?, ?, ?, ?, ?, NOW())`,
-    args: [topicId, cleanTitle, effectiveContent, topicTier, cleanCanonicalClaim, cleanClaimSupport, isConventionStop ? 1 : 0,
-           cleanJurisdiction, cleanAuthority, cleanSourceRef, cleanEffectiveDate, cleanExpiryDate],
-  });
 
   // Create standard sections
   const answerId = `sec:answer-${topicId.slice(0, 8)}`;
   const discussionId = `sec:discussion-${topicId.slice(0, 8)}`;
   const consensusId = `sec:consensus-${topicId.slice(0, 8)}`;
 
-  await db.execute({
-    sql: "INSERT INTO sections (id, topic_id, heading, level, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
-    args: [answerId, topicId, "Answer", 2, effectiveContent, 0],
-  });
-  await db.execute({
-    sql: "INSERT INTO sections (id, topic_id, heading, level, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
-    args: [discussionId, topicId, "Discussion", 2, "", 1],
-  });
-  await db.execute({
-    sql: "INSERT INTO sections (id, topic_id, heading, level, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
-    args: [consensusId, topicId, "Consensus", 2, "No consensus reached yet.", 2],
-  });
-
   // Create open invite token
   const token = `pact_open_${topicId.slice(0, 12)}`;
-  await db.execute({
-    sql: "INSERT INTO invite_tokens (token, topic_id, label, max_uses) VALUES (?, ?, ?, ?)",
-    args: [token, topicId, "Open public invite", 999999],
-  });
 
-  // Auto-register the creating agent as first participant
-  const regId = uuid();
-  await db.execute({
-    sql: "INSERT INTO registrations (id, topic_id, agent_id, role) VALUES (?, ?, ?, ?)",
-    args: [regId, topicId, agent.id, "creator"],
-  });
-
-  // Creator automatically approves their own topic proposal
-  const voteId = uuid();
-  await db.execute({
-    sql: "INSERT INTO topic_votes (id, topic_id, agent_id, vote_type) VALUES (?, ?, ?, 'approve')",
-    args: [voteId, topicId, agent.id],
-  });
-
-  // Truth-seeking reward: credit topic creation
-  await db.execute({
-    sql: "UPDATE agents SET topics_created = topics_created + 1 WHERE id = ?",
-    args: [agent.id],
-  });
-  await transfer(db, { from: null, to: agent.id, amount: 5, topicId, reason: "topic-creation-credit" });
-
-  // Record dependencies (builds_on)
+  // #5599 PR-A — mutating region in ONE transaction. This route does 11
+  // writes (the multi-write route the #5599 design comment names): topic,
+  // 3 sections, invite token, registration, creator vote, reputation bump,
+  // creation credit, dependency edges, and the §6.4 chain link. Before this
+  // wrap every one of them autocommitted independently — a crash mid-region
+  // left a partially-created topic with no chain link.
   const depWarnings: string[] = [];
-  for (const dep of deps) {
-    try {
-      await db.execute({
-        sql: "INSERT INTO topic_dependencies (topic_id, depends_on, relationship) VALUES (?, ?, 'builds_on')",
+  await withTransaction(db, async (tx) => {
+    await tx.execute({
+      sql: `INSERT INTO topics (id, title, content, tier, status, canonical_claim, claim_support, claim_atomicity_status, convention_stop,
+           jurisdiction, authority, source_ref, effective_date, expiry_date, last_verified_at)
+          VALUES (?, ?, ?, ?, 'proposed', ?, ?, 'atomic', ?, ?, ?, ?, ?, ?, NOW())`,
+      args: [topicId, cleanTitle, effectiveContent, topicTier, cleanCanonicalClaim, cleanClaimSupport, isConventionStop ? 1 : 0,
+             cleanJurisdiction, cleanAuthority, cleanSourceRef, cleanEffectiveDate, cleanExpiryDate],
+    });
+
+    await tx.execute({
+      sql: "INSERT INTO sections (id, topic_id, heading, level, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
+      args: [answerId, topicId, "Answer", 2, effectiveContent, 0],
+    });
+    await tx.execute({
+      sql: "INSERT INTO sections (id, topic_id, heading, level, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
+      args: [discussionId, topicId, "Discussion", 2, "", 1],
+    });
+    await tx.execute({
+      sql: "INSERT INTO sections (id, topic_id, heading, level, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
+      args: [consensusId, topicId, "Consensus", 2, "No consensus reached yet.", 2],
+    });
+
+    await tx.execute({
+      sql: "INSERT INTO invite_tokens (token, topic_id, label, max_uses) VALUES (?, ?, ?, ?)",
+      args: [token, topicId, "Open public invite", 999999],
+    });
+
+    // Auto-register the creating agent as first participant
+    const regId = uuid();
+    await tx.execute({
+      sql: "INSERT INTO registrations (id, topic_id, agent_id, role) VALUES (?, ?, ?, ?)",
+      args: [regId, topicId, agent.id, "creator"],
+    });
+
+    // Creator automatically approves their own topic proposal
+    const voteId = uuid();
+    await tx.execute({
+      sql: "INSERT INTO topic_votes (id, topic_id, agent_id, vote_type) VALUES (?, ?, ?, 'approve')",
+      args: [voteId, topicId, agent.id],
+    });
+
+    // Truth-seeking reward: credit topic creation
+    await tx.execute({
+      sql: "UPDATE agents SET topics_created = topics_created + 1 WHERE id = ?",
+      args: [agent.id],
+    });
+    await transfer(tx, { from: null, to: agent.id, amount: 5, topicId, reason: "topic-creation-credit" });
+
+    // Record dependencies (builds_on).
+    // #5599 PR-A — was a swallowed-error `catch {}` around a plain INSERT
+    // ("duplicate dependency — ignore"); inside this transaction a swallowed
+    // duplicate-key error would abort the whole region (25P02 on every later
+    // statement), so the duplicate is made a non-error instead.
+    for (const dep of deps) {
+      const inserted = await tx.execute({
+        sql: "INSERT INTO topic_dependencies (topic_id, depends_on, relationship) VALUES (?, ?, 'builds_on') ON CONFLICT DO NOTHING",
         args: [topicId, dep.id],
       });
-      if (dep.status !== "locked") {
+      // Warn only for edges actually written (a duplicate in the request's
+      // own list previously skipped the warning via the swallowed throw).
+      if (inserted.rowsAffected !== 0 && dep.status !== "locked") {
         depWarnings.push(`${dep.id} is not locked yet — this axiom chain link is unverified`);
       }
-    } catch {
-      // Duplicate dependency — ignore
     }
-  }
 
-  // Record assumptions (assumes)
-  for (const a of assumptionTopics) {
-    try {
-      await db.execute({
-        sql: "INSERT INTO topic_dependencies (topic_id, depends_on, relationship) VALUES (?, ?, 'assumes')",
+    // Record assumptions (assumes) — same remediation as builds_on above.
+    for (const a of assumptionTopics) {
+      const inserted = await tx.execute({
+        sql: "INSERT INTO topic_dependencies (topic_id, depends_on, relationship) VALUES (?, ?, 'assumes') ON CONFLICT DO NOTHING",
         args: [topicId, a.id],
       });
-      if (a.status !== "locked") {
+      if (inserted.rowsAffected !== 0 && a.status !== "locked") {
         depWarnings.push(`${a.id} is an unverified assumption — must reach consensus before this topic can lock`);
       }
-    } catch {
-      // Duplicate — ignore
     }
-  }
 
-  await emitEvent(db, topicId, "pact.topic.proposed", agent.id, "", {
-    title: cleanTitle,
-    tier: topicTier,
-    dependencyCount: deps.length,
-    assumptionCount: assumptionTopics.length,
+    await emitEvent(tx, topicId, "pact.topic.proposed", agent.id, "", {
+      title: cleanTitle,
+      tier: topicTier,
+      dependencyCount: deps.length,
+      assumptionCount: assumptionTopics.length,
+    });
   });
 
   // Audit log — WS2 mutation backfill

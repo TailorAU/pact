@@ -276,11 +276,14 @@ describeDb("#5599 B-0 — Source KG real-Postgres canaries", () => {
     });
 
     it("CURRENT #5599 FLAW (pinned): the POOLED client inside a caller's transaction opens a SECOND transaction — the chain link survives the caller's rollback", async () => {
-      // #5599 will flip this to a THROW: passing the pooled client from
+      // #5599 PR-C will flip this to a THROW: passing the pooled client from
       // inside an open transaction must become an error, because the chain
       // link committing independently of the state change it records breaks
-      // the §6.4 atomicity emitEvent exists to provide. Until then, this is
-      // the behaviour production code gets — pinned as-is.
+      // the §6.4 atomicity emitEvent exists to provide. PR-A rerouted every
+      // production route onto transaction-scoped clients (withTransaction),
+      // so no production caller takes this branch any more — but the branch
+      // itself is unchanged and stays pinned as-is until PR-C lands the
+      // interlock.
       const topic = topicId("pooled-second-tx");
       const inTx = requireTransaction(db);
       await expect(

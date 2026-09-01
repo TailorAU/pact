@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { transfer } from "@/lib/economy";
 import { readBodyBounded } from "@/lib/read-body-bounded";
@@ -78,43 +78,48 @@ export async function POST(
     }, { status: 403 });
   }
 
-  // Update verification timestamp
-  await db.execute({
-    sql: "UPDATE topics SET last_verified_at = NOW(), last_verified_by = ? WHERE id = ?",
-    args: [agent.id, topicId],
-  });
-
-  // Award credits based on verification type
   const isChange = status === "amended" || status === "repealed";
   const reward = isChange ? 25 : 10;
   const reason = isChange ? "maintenance-change-detected" : "maintenance-reverification";
 
-  await transfer(db, {
-    from: null,
-    to: agent.id,
-    amount: reward,
-    topicId,
-    reason,
+  // #5599 PR-A — mutating region in ONE transaction: the verification stamp,
+  // the credit award, any status reopen and the §6.4 chain link commit
+  // together or not at all.
+  await withTransaction(db, async (tx) => {
+    // Update verification timestamp
+    await tx.execute({
+      sql: "UPDATE topics SET last_verified_at = NOW(), last_verified_by = ? WHERE id = ?",
+      args: [agent.id, topicId],
+    });
+
+    // Award credits based on verification type
+    await transfer(tx, {
+      from: null,
+      to: agent.id,
+      amount: reward,
+      topicId,
+      reason,
+    });
+
+    // If the law was amended or repealed, reopen the topic for debate
+    if (isChange && ["consensus", "stable", "locked"].includes(topic.status as string)) {
+      await tx.execute({
+        sql: "UPDATE topics SET status = 'challenged' WHERE id = ?",
+        args: [topicId],
+      });
+
+      await emitEvent(tx, topicId, "pact.topic.challenged", agent.id, notes || "", {
+        verificationType: status,
+        previousStatus: topic.status,
+        jurisdiction: topic.jurisdiction,
+      });
+    } else {
+      await emitEvent(tx, topicId, "pact.topic.re-verified", agent.id, notes || "", {
+        verificationType: status,
+        jurisdiction: topic.jurisdiction,
+      });
+    }
   });
-
-  // If the law was amended or repealed, reopen the topic for debate
-  if (isChange && ["consensus", "stable", "locked"].includes(topic.status as string)) {
-    await db.execute({
-      sql: "UPDATE topics SET status = 'challenged' WHERE id = ?",
-      args: [topicId],
-    });
-
-    await emitEvent(db, topicId, "pact.topic.challenged", agent.id, notes || "", {
-      verificationType: status,
-      previousStatus: topic.status,
-      jurisdiction: topic.jurisdiction,
-    });
-  } else {
-    await emitEvent(db, topicId, "pact.topic.re-verified", agent.id, notes || "", {
-      verificationType: status,
-      jurisdiction: topic.jurisdiction,
-    });
-  }
 
   return NextResponse.json({
     verified: true,

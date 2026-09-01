@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { readBodyBounded } from "@/lib/read-body-bounded";
 
@@ -42,16 +42,20 @@ export async function POST(
 
   const db = await getDb();
 
-  await db.execute({
-    sql: `
+  // #5599 PR-A — mutating region in ONE transaction: the salience upsert and
+  // its §6.4 chain link commit together or not at all.
+  await withTransaction(db, async (tx) => {
+    await tx.execute({
+      sql: `
     INSERT INTO salience (topic_id, section_id, agent_id, score)
     VALUES (?, ?, ?, ?)
     ON CONFLICT(topic_id, section_id, agent_id) DO UPDATE SET score = ?, updated_at = NOW()
   `,
-    args: [topicId, sectionId, agent.id, score, score],
-  });
+      args: [topicId, sectionId, agent.id, score, score],
+    });
 
-  await emitEvent(db, topicId, "pact.salience.updated", agent.id, sectionId, { score });
+    await emitEvent(tx, topicId, "pact.salience.updated", agent.id, sectionId, { score });
+  });
 
   return NextResponse.json({ sectionId, score });
 }

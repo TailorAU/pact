@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent, updateConsensusStatuses } from "@/lib/db";
+import { getDb, emitEvent, updateConsensusStatuses, withTransaction } from "@/lib/db";
 import { requireAgent, checkAgentReputation } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { transfer } from "@/lib/economy";
@@ -41,78 +41,98 @@ export async function POST(
     return NextResponse.json({ error: reputation.reason }, { status: 403 });
   }
 
-  // Record vote
-  try {
-    await db.execute({
-      sql: "INSERT INTO votes (id, proposal_id, agent_id, vote_type) VALUES (?, ?, ?, 'approve')",
+  // #5599 PR-A — mutating region in ONE transaction: the approve vote, the
+  // review reward, the merge writes and both §6.4 chain links commit
+  // together or not at all. The duplicate-vote race was a swallowed-error
+  // try/catch around a plain INSERT — fatal inside a transaction (25P02 on
+  // every later statement) — so it is rewritten as ON CONFLICT DO NOTHING
+  // with a rowsAffected probe.
+  type ApproveOutcome =
+    | { kind: "already-voted" }
+    | { kind: "merged"; approveCount: number; objectCount: number; needsMajority: boolean }
+    | {
+        kind: "approved";
+        approveCount: number;
+        objectCount: number;
+        requiredApprovals: number;
+        needsMajority: boolean;
+      };
+
+  const outcome = await withTransaction(db, async (tx): Promise<ApproveOutcome> => {
+    // Record vote
+    const inserted = await tx.execute({
+      sql: "INSERT INTO votes (id, proposal_id, agent_id, vote_type) VALUES (?, ?, ?, 'approve') ON CONFLICT DO NOTHING",
       args: [uuid(), proposalId, agent.id],
     });
-  } catch {
-    return NextResponse.json({ error: "Already voted" }, { status: 409 });
-  }
+    if (inserted.rowsAffected === 0) {
+      return { kind: "already-voted" };
+    }
 
-  // Truth-seeking reward: credit for peer review
-  await db.execute({
-    sql: "UPDATE agents SET reviews_cast = reviews_cast + 1 WHERE id = ?",
-    args: [agent.id],
-  });
-  await transfer(db, { from: null, to: agent.id, amount: 1, topicId, reason: "review-reward" });
+    // Truth-seeking reward: credit for peer review
+    await tx.execute({
+      sql: "UPDATE agents SET reviews_cast = reviews_cast + 1 WHERE id = ?",
+      args: [agent.id],
+    });
+    await transfer(tx, { from: null, to: agent.id, amount: 1, topicId, reason: "review-reward" });
 
-  // Count current votes on this proposal
-  const voteCountResult = await db.execute({
-    sql: `SELECT
+    // Count current votes on this proposal
+    const voteCountResult = await tx.execute({
+      sql: `SELECT
       (SELECT COUNT(*) FROM votes WHERE proposal_id = ? AND vote_type = 'approve') as approveCount,
       (SELECT COUNT(*) FROM votes WHERE proposal_id = ? AND vote_type = 'object') as objectCount`,
-    args: [proposalId, proposalId],
-  });
-  const approveCount = (voteCountResult.rows[0].approveCount as number) || 0;
-  const objectCount = (voteCountResult.rows[0].objectCount as number) || 0;
+      args: [proposalId, proposalId],
+    });
+    const approveCount = (voteCountResult.rows[0].approveCount as number) || 0;
+    const objectCount = (voteCountResult.rows[0].objectCount as number) || 0;
 
-  // Count registered agents for this topic (for majority calculation)
-  const regCountResult = await db.execute({
-    sql: "SELECT COUNT(*) as c FROM registrations WHERE topic_id = ? AND left_at IS NULL",
-    args: [topicId],
-  });
-  const registeredAgents = (regCountResult.rows[0].c as number) || 1;
+    // Count registered agents for this topic (for majority calculation)
+    const regCountResult = await tx.execute({
+      sql: "SELECT COUNT(*) as c FROM registrations WHERE topic_id = ? AND left_at IS NULL",
+      args: [topicId],
+    });
+    const registeredAgents = (regCountResult.rows[0].c as number) || 1;
 
-  // Merge policy:
-  // - No objections: min(2, registeredAgents) approvals needed (prevents single-agent rubber-stamping)
-  // - With objections: need ceil(registeredAgents * 0.5) approvals (majority rule)
-  // - Solo topics (1 participant): 1 approval still required (from a non-author)
-  const needsMajority = objectCount > 0;
-  const requiredApprovals = needsMajority
-    ? Math.ceil(registeredAgents * 0.5)
-    : Math.min(2, Math.max(1, registeredAgents));
+    // Merge policy:
+    // - No objections: min(2, registeredAgents) approvals needed (prevents single-agent rubber-stamping)
+    // - With objections: need ceil(registeredAgents * 0.5) approvals (majority rule)
+    // - Solo topics (1 participant): 1 approval still required (from a non-author)
+    const needsMajority = objectCount > 0;
+    const requiredApprovals = needsMajority
+      ? Math.ceil(registeredAgents * 0.5)
+      : Math.min(2, Math.max(1, registeredAgents));
 
-  await emitEvent(db, topicId, "pact.proposal.approved", agent.id, proposal.section_id as string, { proposalId });
+    await emitEvent(tx, topicId, "pact.proposal.approved", agent.id, proposal.section_id as string, { proposalId });
 
-  if (approveCount >= requiredApprovals) {
+    if (approveCount < requiredApprovals) {
+      return { kind: "approved", approveCount, objectCount, requiredApprovals, needsMajority };
+    }
+
     // Merge the proposal — enough approvals gathered
-    await db.execute({
+    await tx.execute({
       sql: "UPDATE proposals SET status = 'merged', resolved_at = NOW() WHERE id = ?",
       args: [proposalId],
     });
     // Canonicalize proposals update topics.canonical_claim instead of a section
     if (proposal.proposal_type === "canonicalize") {
-      await db.execute({
+      await tx.execute({
         sql: "UPDATE topics SET canonical_claim = ? WHERE id = ?",
         args: [proposal.new_content as string, topicId],
       });
     } else {
-      await db.execute({
+      await tx.execute({
         sql: "UPDATE sections SET content = ? WHERE id = ? AND topic_id = ?",
         args: [proposal.new_content as string, proposal.section_id as string, topicId],
       });
     }
-    await db.execute({
+    await tx.execute({
       sql: "UPDATE agents SET proposals_approved = proposals_approved + 1 WHERE id = ?",
       args: [proposal.agent_id as string],
     });
 
     // Return stake + bonus to proposer (5 returned + 5 bonus = 10)
-    await transfer(db, { from: null, to: proposal.agent_id as string, amount: 10, topicId, reason: "proposal-stake-return-plus-bonus" });
+    await transfer(tx, { from: null, to: proposal.agent_id as string, amount: 10, topicId, reason: "proposal-stake-return-plus-bonus" });
 
-    await emitEvent(db, topicId, "pact.proposal.merged", agent.id, proposal.section_id as string, {
+    await emitEvent(tx, topicId, "pact.proposal.merged", agent.id, proposal.section_id as string, {
       proposalId,
       approveCount,
       objectCount,
@@ -120,7 +140,24 @@ export async function POST(
       policy: needsMajority ? "majority" : "multi-approval",
     });
 
-    // Evaluate consensus after merge — topics may flip to consensus status
+    return { kind: "merged", approveCount, objectCount, needsMajority };
+  });
+
+  if (outcome.kind === "already-voted") {
+    return NextResponse.json({ error: "Already voted" }, { status: 409 });
+  }
+
+  if (outcome.kind === "merged") {
+    const { approveCount, objectCount, needsMajority } = outcome;
+
+    // Evaluate consensus after merge — topics may flip to consensus status.
+    // #5599 PR-A: deliberately OUTSIDE the route transaction (the design's
+    // step 3 disposition). It is a five-phase sweep with a 60s time budget
+    // and its own advisory locks — enclosing it would hold a pooled
+    // connection's transaction open for up to a minute and poison it on any
+    // swallowed error. PR-B moves this call after commit onto a
+    // connection-scoped client with per-decision transactions (#5599 design
+    // comment §2).
     await updateConsensusStatuses(db);
 
     // Audit log (#1308 / MEGA-80 WS5)
@@ -141,33 +178,34 @@ export async function POST(
       objectCount,
       policy: needsMajority ? "majority" : "multi-approval",
     });
-  } else {
-    // Approved but not enough votes to merge yet
-    const remaining = requiredApprovals - approveCount;
-    const reason = needsMajority
-      ? `Proposal has objections. ${remaining} more approval(s) needed for majority merge.`
-      : `${remaining} more approval(s) needed to merge.`;
-
-    // Audit log (#1308 / MEGA-80 WS5)
-    await recordAudit({
-      actorKey: agent.id,
-      actorLabel: agent.name,
-      op: "pact.proposal.approve",
-      entityType: "proposal",
-      entityId: proposalId,
-      after: { topicId, status: "approved-pending-merge", approveCount, objectCount, requiredApprovals, remainingApprovals: remaining },
-      requestId: req.headers.get("x-request-id"),
-      ipCountry: ipCountryFromHeaders(req.headers),
-    });
-
-    return NextResponse.json({
-      status: "approved",
-      approveCount,
-      objectCount,
-      requiredApprovals,
-      remainingApprovals: remaining,
-      policy: needsMajority ? "majority" : "multi-approval",
-      note: reason,
-    });
   }
+
+  // Approved but not enough votes to merge yet
+  const { approveCount, objectCount, requiredApprovals, needsMajority } = outcome;
+  const remaining = requiredApprovals - approveCount;
+  const reason = needsMajority
+    ? `Proposal has objections. ${remaining} more approval(s) needed for majority merge.`
+    : `${remaining} more approval(s) needed to merge.`;
+
+  // Audit log (#1308 / MEGA-80 WS5)
+  await recordAudit({
+    actorKey: agent.id,
+    actorLabel: agent.name,
+    op: "pact.proposal.approve",
+    entityType: "proposal",
+    entityId: proposalId,
+    after: { topicId, status: "approved-pending-merge", approveCount, objectCount, requiredApprovals, remainingApprovals: remaining },
+    requestId: req.headers.get("x-request-id"),
+    ipCountry: ipCountryFromHeaders(req.headers),
+  });
+
+  return NextResponse.json({
+    status: "approved",
+    approveCount,
+    objectCount,
+    requiredApprovals,
+    remainingApprovals: remaining,
+    policy: needsMajority ? "majority" : "multi-approval",
+    note: reason,
+  });
 }

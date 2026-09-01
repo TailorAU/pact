@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { sanitizeReason } from "@/lib/sanitize";
@@ -64,32 +64,44 @@ export async function POST(
     return NextResponse.json({ error: "You cannot object to your own proposal" }, { status: 403 });
   }
 
-  try {
-    await db.execute({
-      sql: "INSERT INTO votes (id, proposal_id, agent_id, vote_type, reason, confidential, public_summary) VALUES (?, ?, ?, 'object', ?, ?, ?)",
+  // #5599 PR-A — mutating region in ONE transaction: the objection vote, the
+  // reputation bumps, the review reward and the §6.4 chain link commit
+  // together or not at all. The duplicate-vote race was a swallowed-error
+  // try/catch around a plain INSERT — fatal inside a transaction (the abort
+  // poisons every later statement with 25P02) — so it is rewritten as
+  // ON CONFLICT DO NOTHING with a rowsAffected probe.
+  const outcome = await withTransaction(db, async (tx) => {
+    const inserted = await tx.execute({
+      sql: "INSERT INTO votes (id, proposal_id, agent_id, vote_type, reason, confidential, public_summary) VALUES (?, ?, ?, 'object', ?, ?, ?) ON CONFLICT DO NOTHING",
       args: [uuid(), proposalId, agent.id, reasonResult.sanitized, isConfidential, cleanPublicSummary],
     });
-  } catch {
+    if (inserted.rowsAffected === 0) {
+      return "already-voted" as const;
+    }
+
+    await tx.execute({
+      sql: "UPDATE agents SET objections_made = objections_made + 1 WHERE id = ?",
+      args: [agent.id],
+    });
+
+    // Truth-seeking reward: credit for peer review (objection)
+    await tx.execute({
+      sql: "UPDATE agents SET reviews_cast = reviews_cast + 1 WHERE id = ?",
+      args: [agent.id],
+    });
+    await transfer(tx, { from: null, to: agent.id, amount: 1, topicId, reason: "review-reward" });
+
+    await emitEvent(tx, topicId, "pact.proposal.objected", agent.id, proposal.section_id as string, {
+      proposalId,
+      reason: isConfidential ? (cleanPublicSummary || "[Sealed objection]") : reasonResult.sanitized,
+      ...(isConfidential ? { confidential: true } : {}),
+    });
+    return "objected" as const;
+  });
+
+  if (outcome === "already-voted") {
     return NextResponse.json({ error: "Already voted" }, { status: 409 });
   }
-
-  await db.execute({
-    sql: "UPDATE agents SET objections_made = objections_made + 1 WHERE id = ?",
-    args: [agent.id],
-  });
-
-  // Truth-seeking reward: credit for peer review (objection)
-  await db.execute({
-    sql: "UPDATE agents SET reviews_cast = reviews_cast + 1 WHERE id = ?",
-    args: [agent.id],
-  });
-  await transfer(db, { from: null, to: agent.id, amount: 1, topicId, reason: "review-reward" });
-
-  await emitEvent(db, topicId, "pact.proposal.objected", agent.id, proposal.section_id as string, {
-    proposalId,
-    reason: isConfidential ? (cleanPublicSummary || "[Sealed objection]") : reasonResult.sanitized,
-    ...(isConfidential ? { confidential: true } : {}),
-  });
 
   return NextResponse.json({ status: "objected", confidential: !!isConfidential });
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { hashAgentKey } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { readBodyBounded } from "@/lib/read-body-bounded";
@@ -51,12 +51,6 @@ export async function POST(
   let returnedApiKey: string | null;
 
   if (!agentRow) {
-    // #5459 — hash at rest; the plaintext is returned once, never persisted.
-    await db.execute({
-      sql: "INSERT INTO agents (id, name, api_key) VALUES (?, ?, ?)",
-      args: [agentId, agentName, hashAgentKey(apiKey)],
-    });
-    agentRow = { id: agentId };
     returnedApiKey = apiKey;
   } else {
     // #5459 — a hashed-at-rest key cannot be recovered (and must not be
@@ -65,18 +59,32 @@ export async function POST(
     returnedApiKey = stored.startsWith("pact_sk_") ? stored : null;
   }
 
-  // Register agent on topic (upsert)
-  await db.execute({
-    sql: `INSERT INTO registrations (id, topic_id, agent_id, role)
-    VALUES (?, ?, ?, 'collaborator')
-    ON CONFLICT(topic_id, agent_id) DO UPDATE SET left_at = NULL, joined_at = NOW()`,
-    args: [uuid(), topicId, agentRow!.id as string],
+  // #5599 PR-A — mutating region in ONE transaction: agent creation, the
+  // registration upsert, the invite-usage bump and the §6.4 chain link
+  // commit together or not at all.
+  await withTransaction(db, async (tx) => {
+    if (!agentRow) {
+      // #5459 — hash at rest; the plaintext is returned once, never persisted.
+      await tx.execute({
+        sql: "INSERT INTO agents (id, name, api_key) VALUES (?, ?, ?)",
+        args: [agentId, agentName, hashAgentKey(apiKey)],
+      });
+      agentRow = { id: agentId };
+    }
+
+    // Register agent on topic (upsert)
+    await tx.execute({
+      sql: `INSERT INTO registrations (id, topic_id, agent_id, role)
+      VALUES (?, ?, ?, 'collaborator')
+      ON CONFLICT(topic_id, agent_id) DO UPDATE SET left_at = NULL, joined_at = NOW()`,
+      args: [uuid(), topicId, agentRow!.id as string],
+    });
+
+    // Increment invite usage
+    await tx.execute({ sql: "UPDATE invite_tokens SET uses = uses + 1 WHERE token = ?", args: [token] });
+
+    await emitEvent(tx, topicId, "pact.agent.joined", agentRow!.id as string, undefined, { agentName });
   });
-
-  // Increment invite usage
-  await db.execute({ sql: "UPDATE invite_tokens SET uses = uses + 1 WHERE token = ?", args: [token] });
-
-  await emitEvent(db, topicId, "pact.agent.joined", agentRow!.id as string, undefined, { agentName });
 
   return NextResponse.json({
     registrationId: uuid(),

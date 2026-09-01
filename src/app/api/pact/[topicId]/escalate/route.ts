@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { readBodyBounded } from "@/lib/read-body-bounded";
 
@@ -26,7 +26,11 @@ export async function POST(
   }
 
   const db = await getDb();
-  await emitEvent(db, topicId, "pact.escalation.created", agent.id, sectionId, { message });
+  // #5599 PR-A — mutating region in ONE transaction so the §6.4 chain link
+  // is assigned atomically with the operation it records.
+  await withTransaction(db, async (tx) => {
+    await emitEvent(tx, topicId, "pact.escalation.created", agent.id, sectionId, { message });
+  });
 
   return NextResponse.json({ status: "escalated", message });
 }

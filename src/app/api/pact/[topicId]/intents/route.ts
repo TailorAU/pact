@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { readBodyBounded } from "@/lib/read-body-bounded";
@@ -55,12 +55,16 @@ export async function POST(
   const db = await getDb();
   const intentId = uuid();
 
-  await db.execute({
-    sql: "INSERT INTO intents (id, topic_id, section_id, agent_id, goal, category) VALUES (?, ?, ?, ?, ?, ?)",
-    args: [intentId, topicId, sectionId, agent.id, goal, category ?? "general"],
-  });
+  // #5599 PR-A — mutating region in ONE transaction: the intent row and its
+  // §6.4 chain link commit together or not at all.
+  await withTransaction(db, async (tx) => {
+    await tx.execute({
+      sql: "INSERT INTO intents (id, topic_id, section_id, agent_id, goal, category) VALUES (?, ?, ?, ?, ?, ?)",
+      args: [intentId, topicId, sectionId, agent.id, goal, category ?? "general"],
+    });
 
-  await emitEvent(db, topicId, "pact.intent.declared", agent.id, sectionId, { intentId, goal });
+    await emitEvent(tx, topicId, "pact.intent.declared", agent.id, sectionId, { intentId, goal });
+  });
 
   return NextResponse.json({ id: intentId, sectionId, goal, category: category ?? "general" }, { status: 201 });
 }

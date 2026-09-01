@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent, requiredReopenVotes } from "@/lib/db";
+import { getDb, emitEvent, requiredReopenVotes, withTransaction } from "@/lib/db";
 import { requireAgent, checkReviewDuty } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
@@ -293,26 +293,33 @@ export async function POST(
       error: `Insufficient credits to propose. Proposals require a 5-credit stake. Current balance: ${balance}. Earn credits by creating topics (+5), reviewing proposals (+1), or aligning with consensus (+2).`,
     }, { status: 403 });
   }
-  await transfer(db, { from: agent.id, to: "hub-protocol", amount: 5, topicId, reason: "proposal-stake" });
-
   const proposalId = uuid();
   const proposalStatus = isChallenge ? "challenge" : "pending";
-  await db.execute({
-    sql: "INSERT INTO proposals (id, topic_id, section_id, agent_id, new_content, summary, ttl_seconds, status, citations, confidential, public_summary, proposal_type, defeater_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    args: [proposalId, topicId, effectiveSectionId, agent.id, contentResult.sanitized, summaryResult.sanitized, effectiveTtl, proposalStatus, citationsJson, isConfidential, cleanPublicSummary, cleanProposalType, isChallenge ? (defeaterType as string) : null],
-  });
 
-  await db.execute({
-    sql: "UPDATE agents SET proposals_made = proposals_made + 1 WHERE id = ?",
-    args: [agent.id],
-  });
+  // #5599 PR-A — mutating region in ONE transaction: the stake debit, the
+  // proposal row, the reputation bump and the §6.4 chain link commit
+  // together or not at all (before this, a crash mid-region could take the
+  // stake without creating the proposal).
+  await withTransaction(db, async (tx) => {
+    await transfer(tx, { from: agent.id, to: "hub-protocol", amount: 5, topicId, reason: "proposal-stake" });
 
-  const eventType = isChallenge ? "pact.consensus.challenged" : "pact.proposal.created";
-  await emitEvent(db, topicId, eventType, agent.id, effectiveSectionId ?? undefined, {
-    proposalId,
-    summary: isConfidential ? (cleanPublicSummary || "[Confidential proposal]") : summaryResult.sanitized,
-    ...(isChallenge ? { defeaterType } : {}),
-    ...(isConfidential ? { confidential: true } : {}),
+    await tx.execute({
+      sql: "INSERT INTO proposals (id, topic_id, section_id, agent_id, new_content, summary, ttl_seconds, status, citations, confidential, public_summary, proposal_type, defeater_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      args: [proposalId, topicId, effectiveSectionId, agent.id, contentResult.sanitized, summaryResult.sanitized, effectiveTtl, proposalStatus, citationsJson, isConfidential, cleanPublicSummary, cleanProposalType, isChallenge ? (defeaterType as string) : null],
+    });
+
+    await tx.execute({
+      sql: "UPDATE agents SET proposals_made = proposals_made + 1 WHERE id = ?",
+      args: [agent.id],
+    });
+
+    const eventType = isChallenge ? "pact.consensus.challenged" : "pact.proposal.created";
+    await emitEvent(tx, topicId, eventType, agent.id, effectiveSectionId ?? undefined, {
+      proposalId,
+      summary: isConfidential ? (cleanPublicSummary || "[Confidential proposal]") : summaryResult.sanitized,
+      ...(isChallenge ? { defeaterType } : {}),
+      ...(isConfidential ? { confidential: true } : {}),
+    });
   });
 
   // Audit log (#1308 / MEGA-80 WS5)

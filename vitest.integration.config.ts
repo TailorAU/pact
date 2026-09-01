@@ -26,6 +26,12 @@ export default defineConfig({
   test: {
     include: ["src/**/*.itest.ts"],
     environment: "node",
+    // #5599 PR-A — the suite is now more than one file, and every file
+    // bootstraps + writes the SAME service-container database. Run files
+    // sequentially: concurrent cold-start initSchema DDL races in Postgres
+    // (pg_type unique-violation on simultaneous CREATE TABLE IF NOT EXISTS)
+    // and cross-file writes would make the canaries flaky for nothing.
+    fileParallelism: false,
     // Verbose reporter: these are CANARIES — the CI log should name every
     // pinned semantic individually, so a #5599 flip is visible per-canary
     // in the job output, not collapsed into one per-file line.

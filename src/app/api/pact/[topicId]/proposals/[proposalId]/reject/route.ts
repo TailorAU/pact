@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, emitEvent } from "@/lib/db";
+import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { sanitizeReason } from "@/lib/sanitize";
@@ -60,24 +60,29 @@ export async function POST(
     return NextResponse.json({ error: "You cannot reject your own proposal" }, { status: 403 });
   }
 
-  await db.execute({
-    sql: "UPDATE proposals SET status = 'rejected', resolved_at = NOW() WHERE id = ?",
-    args: [proposalId],
-  });
-  await db.execute({
-    sql: "UPDATE agents SET proposals_rejected = proposals_rejected + 1 WHERE id = ?",
-    args: [proposal.agent_id as string],
-  });
+  // #5599 PR-A — mutating region in ONE transaction: the status flip, the
+  // reputation bump, the reject vote and the §6.4 chain link commit
+  // together or not at all.
+  await withTransaction(db, async (tx) => {
+    await tx.execute({
+      sql: "UPDATE proposals SET status = 'rejected', resolved_at = NOW() WHERE id = ?",
+      args: [proposalId],
+    });
+    await tx.execute({
+      sql: "UPDATE agents SET proposals_rejected = proposals_rejected + 1 WHERE id = ?",
+      args: [proposal.agent_id as string],
+    });
 
-  await db.execute({
-    sql: "INSERT INTO votes (id, proposal_id, agent_id, vote_type, reason, confidential, public_summary) VALUES (?, ?, ?, 'reject', ?, ?, ?)",
-    args: [uuid(), proposalId, agent.id, cleanReason?.sanitized ?? null, isConfidential, cleanPublicSummary],
-  });
+    await tx.execute({
+      sql: "INSERT INTO votes (id, proposal_id, agent_id, vote_type, reason, confidential, public_summary) VALUES (?, ?, ?, 'reject', ?, ?, ?)",
+      args: [uuid(), proposalId, agent.id, cleanReason?.sanitized ?? null, isConfidential, cleanPublicSummary],
+    });
 
-  await emitEvent(db, topicId, "pact.proposal.rejected", agent.id, proposal.section_id as string, {
-    proposalId,
-    reason: isConfidential ? (cleanPublicSummary || "[Sealed rejection]") : (cleanReason?.sanitized ?? null),
-    ...(isConfidential ? { confidential: true } : {}),
+    await emitEvent(tx, topicId, "pact.proposal.rejected", agent.id, proposal.section_id as string, {
+      proposalId,
+      reason: isConfidential ? (cleanPublicSummary || "[Sealed rejection]") : (cleanReason?.sanitized ?? null),
+      ...(isConfidential ? { confidential: true } : {}),
+    });
   });
 
   // Audit log (#1308 / MEGA-80 WS5)

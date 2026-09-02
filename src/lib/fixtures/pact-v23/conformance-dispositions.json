@@ -1,0 +1,102 @@
+{
+  "$comment": "KG (Source) disposition manifest for every PACT v2.3 vector id OUTSIDE spec/v2.3/conformance/extended/execution-boundary (#5567). Hand-authored, machine-verified — the execution-boundary-acceptance.json pattern: conformance-dispositions.test.ts pins (a) that these 36 ids plus execution-boundary-acceptance.json's 2 executed + 9 capability-excluded ids are EXACTLY the 47-id expected_vector_ids the generated fixture carries from pact's own manifest — disjoint, no phantoms, no id claimed twice; (b) that every capability flag a family cites is live-FALSE on the served profile (buildPactProfile(), the same builder /.well-known/pact.json serializes) and every cited declared gap is live on the wire, so the day a flag flips to true the suite goes red and the family must be re-dispositioned rather than kept as a stale exclusion; (c) that every entry carries a reason, every skip carries a tracking reference, and every skip's `requires` flags are live-TRUE (a skip claims the vector is executable in principle). The results document (src/lib/pact-conformance-report.ts) publishes these verbatim under the pact runner vocabulary: excluded = not executable against this implementation BY ITS OWN SERVED DECLARATION; skip = executable in principle, not yet harnessed, tracked. Neither is ever a silently dropped vector.",
+  "pact_commit": "ba74dcdab64a114dc3b1ffce33ac64dab5cb6023",
+  "scope": "every expected_vector_ids entry not under extended/execution-boundary/ — that family (11 ids) is dispositioned by execution-boundary-acceptance.json",
+  "declaration": {
+    "served_at": "/.well-known/pact.json"
+  },
+  "families": [
+    {
+      "family": "extended/attestation",
+      "status": "excluded",
+      "disposition": "not-served",
+      "cites": {
+        "capabilities": ["authorizationProof"],
+        "declaredGap": "§17.4 / §17.6 principals and proofs"
+      },
+      "reason": "kind: verification — the §17.7 authorization-proof verification flow (envelope and structural checks, freshness, nonce binding, principal resolution, credential revocation, and for real-signature vectors the cryptographic check). The KG verifies no authorization_proof of any kind: capabilities.authorizationProof is served false (AUTHORIZATION_PROOF_SUPPORTED in effect-class.ts) and the '§17.4 / §17.6 principals and proofs' declared gap states there is no HumanPrincipal registry and no proof verification. There is no seam a proof could enter, so no attestation vector — positive or negative — is executable against this implementation. Tailor's separate C# guard executes this family (tests/WebApi.UnitTests/Fixtures/PactV23, #5640); that is a different implementation and is not claimable for the KG.",
+      "ids": [
+        "extended/attestation/verify-alg-disallowed",
+        "extended/attestation/verify-cross-verifier-replay",
+        "extended/attestation/verify-fido2-forged-signature",
+        "extended/attestation/verify-fido2-real-signature",
+        "extended/attestation/verify-fido2-valid",
+        "extended/attestation/verify-replayed-nonce",
+        "extended/attestation/verify-revoked-credential",
+        "extended/attestation/verify-voice-alg-disallowed",
+        "extended/attestation/verify-voice-forged-signature",
+        "extended/attestation/verify-voice-replayed-cross-verifier",
+        "extended/attestation/verify-voice-valid",
+        "extended/attestation/verify-voice-wrong-utterance"
+      ]
+    },
+    {
+      "family": "extended/mandate",
+      "status": "excluded",
+      "disposition": "not-served",
+      "cites": {
+        "capabilities": ["mandates"]
+      },
+      "reason": "kind: mandate — drives the §19–§20 Mandate guard (pact's mcp/ reference implementation of au.tailor.pact/mandate) locally with an injected clock, registry mutation, mid-session revocation and escalation retry. The KG has no mandate guard, no mandate registry and no MCP tool surface such a guard would wrap: capabilities.mandates is served false. Nothing here consumes a mandate, so no mandate vector is executable against this implementation.",
+      "ids": [
+        "extended/mandate/mandate-absent-required",
+        "extended/mandate/mandate-category-denied",
+        "extended/mandate/mandate-clock-skew",
+        "extended/mandate/mandate-commitment-escalation",
+        "extended/mandate/mandate-digest-unknown",
+        "extended/mandate/mandate-disclosure-redacted",
+        "extended/mandate/mandate-escalation-retry",
+        "extended/mandate/mandate-expired-rejected",
+        "extended/mandate/mandate-forged-signature",
+        "extended/mandate/mandate-revoked-key",
+        "extended/mandate/mandate-revoked-midsession",
+        "extended/mandate/mandate-valid-passthrough"
+      ]
+    },
+    {
+      "family": "extended/matters",
+      "status": "excluded",
+      "disposition": "not-served",
+      "cites": {
+        "capabilities": ["matters"]
+      },
+      "reason": "kind: http — the Matter surface (open a matter, attach a fabric, post a matter message, the cross-fabric matter manifest, close without cascade). The KG serves no matter route — the API table in PACT_CONFORMANCE.md is the complete /api/pact route tree, drift-gated, and carries none — and capabilities.matters is served false. Each vector's preconditions fix a matter server_state that is unconstructible against this implementation, by declaration rather than by omission.",
+      "ids": [
+        "extended/matters/matter-attach-fabric",
+        "extended/matters/matter-close-no-cascade",
+        "extended/matters/matter-manifest-cross-fabric",
+        "extended/matters/matter-message-post",
+        "extended/matters/matter-open-success"
+      ]
+    },
+    {
+      "family": "extended/sessions",
+      "status": "excluded",
+      "disposition": "not-served",
+      "cites": {
+        "capabilities": ["atomicOnboard", "manifest", "sessionAwareness"]
+      },
+      "reason": "kind: http / session — the session surface: atomic onboard (onboard-success, onboard-partial-failure rest on capabilities.atomicOnboard), the session manifest with cross-org disclosure (manifest-cross-org-disclosure rests on capabilities.manifest), and session awareness — heartbeat timeout, obligation surfacing and the two-agent negotiation smoke (rest on capabilities.sessionAwareness). All three flags are served false; the KG has no onboard, manifest or heartbeat route. The topic read that stands in for /_status and /manifest inside the two EXECUTED execution-boundary vectors is a declared surface mapping over an existing route, not a manifest capability — which is exactly why capabilities.manifest stays false and why none of these six is executable.",
+      "ids": [
+        "extended/sessions/heartbeat-timeout",
+        "extended/sessions/manifest-cross-org-disclosure",
+        "extended/sessions/obligation-surfacing",
+        "extended/sessions/onboard-partial-failure",
+        "extended/sessions/onboard-success",
+        "extended/sessions/two-agent-negotiation-smoke"
+      ]
+    }
+  ],
+  "vectors": [
+    {
+      "id": "core/join/basic",
+      "status": "skip",
+      "disposition": "unharnessed",
+      "requires": {
+        "capabilities": ["inviteTokens"]
+      },
+      "reason": "Executable in principle: the KG serves POST /api/pact/{topicId}/join-token and advertises capabilities.inviteTokens true — precisely the anonymous invite-token join this vector drives. No adapter exists yet in execution-boundary-vectors.itest.ts (seeding the invite token from the vector's server_state, dispatching its request to the real route module, and pinning the value-level divergences the KG's join-token wire carries: contextMode 'full' where the vector expects 'scoped', and the KG's own pact.agent.joined payload shape). Until it runs, the honest verdict is skip, not excluded; the adapter is tracked.",
+      "tracking": "TailorAU/tailor-app#5737"
+    }
+  ]
+}

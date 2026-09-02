@@ -54,11 +54,39 @@
  * key on exactly those steps (KEY_ALIASES). The new single-proposal read has
  * no such history and serves protocol vocabulary directly.
  *
- * Suite runs only with DATABASE_URL (CI: the kg-integration job's
- * postgres:16-alpine service container) — see db.itest.ts for the guard
- * rationale.
+ * ## The results document (#5567)
+ *
+ * Each executed vector's outcome is RECORDED here — `recordVector()` wraps
+ * the `it` body, captures pass / fail + the assertion message, and rethrows
+ * so vitest still reports it. When `PACT_CONFORMANCE_RESULTS_PATH` is set
+ * (CI: cd-source.yml's `kg-conformance` job) the suite's own `afterAll`
+ * hands the records, the three committed manifests and this run's CI
+ * provenance to the PURE builder in `pact-conformance-report.ts` and
+ * writes the document; unset (local) is a no-op. The records are the ONLY
+ * evidence the document is ever built from — no reporter output is parsed.
+ * vitest's own verdict is the document's verdict: a `testTimeout` rejects
+ * the test but does not stop the wrapped promise, so `afterEach` reconciles
+ * the record from `ctx.task.result` as soon as vitest has ruled
+ * (`reconcileWithRunnerVerdict` — a `fail` verdict forces `fail` + vitest's
+ * error text) and `recordVector()` ignores a settle that arrives after
+ * that. An executed id that neither settled nor was reported failed
+ * (skipped, aborted, cancelled) is filled before the build as `fail` +
+ * `UNSETTLED_VECTOR_REASON` (`fillUnsettledRecords`). The rule: a suite
+ * whose fixture-integrity test passed and that reached its `afterAll`
+ * always produces a document, red where red. No document is written only
+ * when the fixture-integrity check did not pass (including a suite that
+ * never executed it), the harness refuses to start (a results path without
+ * `DATABASE_URL`), the builder refuses what remains (an unstamped run, a
+ * citation no longer live), or the `kg-conformance` job never reaches the
+ * harness at all (dependency install, service-container health, runner
+ * loss, the 15-minute job timeout) — an absent artifact is refused by the
+ * deploy validator the same way.
+ *
+ * Suite runs only with DATABASE_URL (CI: the kg-integration and
+ * kg-conformance jobs' postgres:16-alpine service containers) — see
+ * db.itest.ts for the guard rationale.
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -68,6 +96,15 @@ import type { NextRequest } from "next/server";
 import type { DbClient } from "@/lib/db";
 import type * as DbModule from "@/lib/db";
 import { APPLY_ATTESTED_EVENT } from "@/lib/effect-class";
+import {
+  buildConformanceReport,
+  fillUnsettledRecords,
+  reconcileWithRunnerVerdict,
+  type AcceptanceManifest,
+  type CorpusFixture,
+  type DispositionsManifest,
+  type VectorRecord,
+} from "@/lib/pact-conformance-report";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
@@ -75,6 +112,23 @@ if (!DATABASE_URL) {
   process.stderr.write(
     "\n[execution-boundary.itest] DATABASE_URL is not set — SKIPPING the #5535 vector execution.\n" +
       "[execution-boundary.itest] It runs in CI against the kg-integration job's postgres:16-alpine service container.\n\n"
+  );
+}
+
+/**
+ * #5567 — where this run's v2.3 conformance results document is written by
+ * `afterAll` (CI: `$RUNNER_TEMP/kg-conformance/kg-v23-conformance-report.json`).
+ * Refused loudly when the suite cannot execute: a results path with no
+ * database would mean a document built from a skipped suite. Without this
+ * guard the suite would `describe.skip` itself and its `afterAll` would
+ * never run, so no document would be written anyway — but the refusal
+ * belongs at the top of the log, before three skipped tests read as green.
+ */
+const RESULTS_PATH = process.env.PACT_CONFORMANCE_RESULTS_PATH;
+if (RESULTS_PATH && !DATABASE_URL) {
+  throw new Error(
+    "[execution-boundary.itest] PACT_CONFORMANCE_RESULTS_PATH is set but DATABASE_URL is not — refusing to run: " +
+      "a conformance results document must be built from EXECUTED vectors, never from a skipped suite (#5567)."
   );
 }
 
@@ -117,17 +171,82 @@ interface SessionVector {
   };
 }
 
-interface Fixture {
-  source: { commit: string };
+interface Fixture extends CorpusFixture {
   vectors: SessionVector[];
 }
 
-const fixture = JSON.parse(
-  fs.readFileSync(
-    path.join(__dirname, "fixtures", "pact-v23", "execution-boundary-vectors.json"),
-    "utf8"
-  )
-) as Fixture;
+const FIXTURE_DIR = path.join(__dirname, "fixtures", "pact-v23");
+/** Repo-relative, as the results document names it under `vector_set.vendored_fixture`. */
+const FIXTURE_REPO_PATH = "sites/source/src/lib/fixtures/pact-v23/execution-boundary-vectors.json";
+const fixtureBytes = fs.readFileSync(path.join(FIXTURE_DIR, "execution-boundary-vectors.json"));
+const fixture = JSON.parse(fixtureBytes.toString("utf8")) as Fixture;
+
+// ── #5567 — per-vector outcome records → the results document ──────────────
+
+/**
+ * One entry per executed vector, pushed by `recordVector` as each `it`
+ * settles and reconciled with vitest's own verdict in `afterEach` (which
+ * reassigns it — the reconciliation is pure).
+ */
+let records: VectorRecord[] = [];
+/** Vectors vitest has already reported as failed — a settle arriving afterwards is not evidence. */
+const failedByRunner = new Set<string>();
+/** Test title → vector id, so `afterEach` can map vitest's verdict back to a record. */
+const vectorByTitle = new Map<string, string>();
+/** The fixture-integrity check must have PASSED before any document is built. */
+let fixtureIntegrity: "unchecked" | "pass" | "fail" = "unchecked";
+
+/**
+ * Run a vector's `it` body, record its outcome, and rethrow so vitest still
+ * reports the failure. The message recorded on failure is the assertion's
+ * own text — it becomes the result's `outcome.reason` verbatim. A settle
+ * that arrives AFTER vitest has already reported the test failed (its
+ * `testTimeout` rejects the test without stopping this promise) records
+ * nothing: the runner's verdict, reconciled in `afterEach`, stands.
+ */
+async function recordVector(id: string, fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+    if (!settledAfterVerdict(id, "pass")) records.push({ id, status: "pass" });
+  } catch (err) {
+    if (!settledAfterVerdict(id, "fail")) {
+      records.push({ id, status: "fail", message: err instanceof Error ? err.message : String(err) });
+    }
+    throw err;
+  }
+}
+
+/** True — and says so on stderr — when vitest already reported `id` failed, so this settle is ignored. */
+function settledAfterVerdict(id: string, settle: "pass" | "fail"): boolean {
+  if (!failedByRunner.has(id)) return false;
+  process.stderr.write(
+    `[execution-boundary.itest] ${id} settled ${settle} after vitest had already reported the test failed — ignored, the runner's verdict stands (#5567)\n`
+  );
+  return true;
+}
+
+/** This run's identity, read from the GitHub Actions environment (absent locally). */
+function runProvenance() {
+  const env = process.env;
+  // GITHUB_WORKFLOW_REF: owner/repo/.github/workflows/cd-source.yml@refs/heads/main
+  const workflowFile = env.GITHUB_WORKFLOW_REF?.split("@")[0].split("/").pop();
+  const runUrl =
+    env.GITHUB_SERVER_URL && env.GITHUB_REPOSITORY && env.GITHUB_RUN_ID
+      ? `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`
+      : undefined;
+  return {
+    commit: env.GITHUB_SHA,
+    run_id: env.GITHUB_RUN_ID,
+    run_attempt: env.GITHUB_RUN_ATTEMPT,
+    run_url: runUrl,
+    repository: env.GITHUB_REPOSITORY,
+    workflow: workflowFile,
+    job: env.GITHUB_JOB,
+    generated_at: new Date().toISOString(),
+    // Local eyeballing only: the deploy validator rejects an unstamped document.
+    unstamped: env.PACT_CONFORMANCE_UNSTAMPED === "1",
+  };
+}
 
 function vectorById(suffix: string): SessionVector {
   const found = fixture.vectors.find((v) => v.id.endsWith(suffix));
@@ -588,14 +707,106 @@ describeDb("#5535 — execution-boundary session vectors against the real KG (re
     await Promise.all(trackedPools.map((pool) => pool.end().catch(() => undefined)));
   });
 
+  /**
+   * #5567 — vitest's own verdict is the document's verdict. Its
+   * `testTimeout` rejects the test but does not stop the wrapped promise;
+   * were that promise to resolve later, `recordVector` would push `pass`
+   * for a vector CI reported as failed. So as soon as vitest has ruled
+   * (the runner's `failTask` runs before the afterEach hooks), a `fail`
+   * verdict is reconciled into the records — forced to `fail` + vitest's
+   * own error text (`reconcileWithRunnerVerdict`, pinned by the builder's
+   * tests) — and the id is marked so a later settle records nothing.
+   */
+  afterEach((ctx) => {
+    const id = vectorByTitle.get(ctx.task.name);
+    if (!id) return; // not a vector test (the fixture-integrity check)
+    const result = ctx.task.result;
+    if (result?.state !== "fail") return;
+    failedByRunner.add(id);
+    records = reconcileWithRunnerVerdict(records, id, { state: "fail", message: result.errors?.[0]?.message });
+  });
+
+  /**
+   * #5567 — write this run's results document, from the records above and
+   * nothing else. Runs once every vector has settled OR timed out (pass,
+   * fail, or no outcome — a red run publishes its red verdict). The records
+   * already carry vitest's verdict (afterEach above); an executed id that
+   * neither settled nor was reported failed (skipped, aborted, cancelled)
+   * is filled as `fail` + UNSETTLED_VECTOR_REASON first, so nothing short
+   * of the cases below can turn the soft gate hard by producing no
+   * document. Throws, and therefore writes nothing, only when the
+   * fixture-integrity check did not pass or the builder refuses what
+   * remains (an unstamped run, a citation that is no longer live): an
+   * absent document is what cd-source.yml's validator refuses.
+   */
+  afterAll(() => {
+    if (!RESULTS_PATH) return;
+    if (fixtureIntegrity !== "pass") {
+      throw new Error(
+        `[execution-boundary.itest] fixture integrity is '${fixtureIntegrity}' — no results document is built over a vendored fixture that did not verify (#5567)`
+      );
+    }
+    const acceptance = JSON.parse(
+      fs.readFileSync(path.join(FIXTURE_DIR, "execution-boundary-acceptance.json"), "utf8")
+    ) as AcceptanceManifest;
+    const dispositions = JSON.parse(
+      fs.readFileSync(path.join(FIXTURE_DIR, "conformance-dispositions.json"), "utf8")
+    ) as DispositionsManifest;
+    // Fills are appended after the recorded outcomes, in acceptance order
+    // (pinned by pact-conformance-report.test.ts), so the tail is the list
+    // of vectors that never settled.
+    const settled = fillUnsettledRecords(records, acceptance.executed);
+    const unsettled = settled.slice(records.length).map((record) => record.id);
+    if (unsettled.length > 0) {
+      process.stderr.write(
+        `[execution-boundary.itest] ${unsettled.length} executed vector(s) never settled — recorded as fail: ${unsettled.join(", ")} (#5567)\n`
+      );
+    }
+    const document = buildConformanceReport({
+      records: settled,
+      fixture,
+      acceptance,
+      dispositions,
+      provenance: runProvenance(),
+      vendored: {
+        path: FIXTURE_REPO_PATH,
+        sha256: crypto.createHash("sha256").update(fixtureBytes).digest("hex"),
+      },
+    });
+    fs.mkdirSync(path.dirname(RESULTS_PATH), { recursive: true });
+    fs.writeFileSync(RESULTS_PATH, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+    process.stdout.write(
+      `[execution-boundary.itest] wrote ${RESULTS_PATH} — counts ${JSON.stringify(document.counts)}, ` +
+        `http_coverage ${JSON.stringify(document.http_coverage)}, stamped=${document.provenance.stamped}\n`
+    );
+  });
+
   it("carries the pinned vectors verbatim — the SHA-256 recomputes from the vendored YAML", () => {
-    for (const vector of [ttlVector, consensusVector]) {
-      const recomputed = crypto.createHash("sha256").update(vector.raw_yaml, "utf8").digest("hex");
-      expect(recomputed, vector.id).toBe(vector.sha256);
+    try {
+      for (const vector of [ttlVector, consensusVector]) {
+        const recomputed = crypto.createHash("sha256").update(vector.raw_yaml, "utf8").digest("hex");
+        expect(recomputed, vector.id).toBe(vector.sha256);
+      }
+      fixtureIntegrity = "pass";
+    } catch (err) {
+      fixtureIntegrity = "fail";
+      throw err;
     }
   });
 
-  it("executes ttl-automerge-creates-no-attestation end-to-end (§25.3, §25.4, §25.8)", async () => {
+  /**
+   * Register one executed vector's test. The title carries the FULL vector
+   * id — the binding contract between what the log names and what the
+   * results document records (#5567) — and is mapped back to the id here,
+   * once, so `afterEach` can reconcile vitest's verdict into the record.
+   */
+  function vectorTest(vector: SessionVector, sections: string, body: () => Promise<void>): void {
+    const title = `executes ${vector.id} end-to-end (${sections})`;
+    vectorByTitle.set(title, vector.id);
+    it(title, () => recordVector(vector.id, body));
+  }
+
+  vectorTest(ttlVector, "§25.3, §25.4, §25.8", async () => {
     const bindings = new Map<string, string>();
     await seedVector(
       ttlVector,
@@ -605,7 +816,7 @@ describeDb("#5535 — execution-boundary session vectors against the real KG (re
     await runVector(ttlVector, bindings);
   });
 
-  it("executes consensus-contract-is-draft-not-signed end-to-end (§25.8, §25.10, §15.1)", async () => {
+  vectorTest(consensusVector, "§25.8, §25.10, §15.1", async () => {
     const bindings = new Map<string, string>();
     await seedVector(
       consensusVector,

@@ -100,6 +100,21 @@ import {
 /** The KG's canonical public origin. */
 export const PUBLIC_BASE_URL = "https://pact.tailor.au";
 
+/**
+ * Where the CI-produced PACT v2.3 conformance results document is served
+ * when a deploy shipped one (#5567).
+ *
+ * A static file under `public/.well-known/`, dropped there by
+ * `cd-source.yml` (`build-and-deploy`) from the `kg-conformance` job's
+ * artifact AFTER run-stamp validation, and never committed — `.gitignore`
+ * lists it, and both the PR check and the deploy job refuse a tracked copy.
+ * It is advertised in `endpoints` ONLY on an origin whose deploy actually
+ * shipped it (see {@link buildPactProfile}), so a local, cell or preview
+ * origin never advertises a 404 — the #5539 rule that a discovery document
+ * may not point at what it does not serve.
+ */
+export const CONFORMANCE_RESULTS_PATH = "/.well-known/pact-conformance-v23.json";
+
 /** §15.1 `name`. */
 export const PROFILE_NAME = "Source";
 
@@ -314,11 +329,27 @@ export const DECLARED_GAPS: readonly DeclaredGap[] = [
       "resource type is advertised.",
   },
   {
+    // EXTENDED, not replaced (#5567): the absence statement is still true.
+    // A sentence was added for the results document now served beside the
+    // profile, so a reader of this gap learns where the machine-readable
+    // evidence lives and — just as important — what it does NOT claim. The
+    // three counts are hand-typed here and pinned to the committed
+    // manifests by conformance-dispositions.test.ts, so they cannot drift.
     area: "§15.1 endpoints",
     statement:
       "No realtime endpoint and no credentials registry are advertised, " +
       "because neither exists. Polling is served by " +
-      "GET /api/pact/{topicId}/events?after={eventId}.",
+      "GET /api/pact/{topicId}/events?after={eventId}. " +
+      "A machine-readable v2.3 conformance results document (the pact " +
+      "runner's report schema, TailorAU/tailor-app#5567) is produced by " +
+      "this implementation's own CI harness on every main deploy and " +
+      `served at ${CONFORMANCE_RESULTS_PATH}, advertised as ` +
+      "endpoints.conformanceResults only on an origin whose deploy actually " +
+      "shipped it. It is self-reported, not a third-party certification: of " +
+      "the pinned corpus's 47 vectors, 2 are executed through declared " +
+      "adapters, 1 is skipped pending a join adapter (tracked), and 44 are " +
+      "excluded by this profile's own false capability flags and declared " +
+      "gaps, each with its reason.",
   },
   {
     area: "§15.2 Core primitives",
@@ -598,12 +629,30 @@ export interface PactImplementationProfile {
   readonly declaredGaps: DeclaredGap[];
 }
 
+/** What the caller — never this module — knows about the serving origin. */
+export interface PactProfileOptions {
+  /**
+   * Whether THIS origin's deploy shipped the CI-produced conformance results
+   * document at {@link CONFORMANCE_RESULTS_PATH} (#5567). The route handler
+   * answers it once at module load from the file's presence under
+   * `public/`; production is always `true` because `cd-source.yml` refuses
+   * to build the image without a validated document, and every other
+   * origin is `false`. The builder is TOLD — it reads no filesystem — so it
+   * stays pure and the profile stays identical for every caller with the
+   * same answer.
+   */
+  readonly conformanceReportShipped?: boolean;
+}
+
 /**
  * Build the profile. Pure: no request, no clock, no database — so the
  * document is identical for every caller and safe to cache, and so this is
  * directly assertable from a test without a server.
  */
-export function buildPactProfile(baseUrl: string = PUBLIC_BASE_URL): PactImplementationProfile {
+export function buildPactProfile(
+  baseUrl: string = PUBLIC_BASE_URL,
+  { conformanceReportShipped = false }: PactProfileOptions = {}
+): PactImplementationProfile {
   const origin = baseUrl.replace(/\/+$/, "");
   const unadvertisable = unadvertisableResourceTypes();
 
@@ -622,6 +671,9 @@ export function buildPactProfile(baseUrl: string = PUBLIC_BASE_URL): PactImpleme
       // §15.1 asks for `realtime`; the KG has no hub, so it advertises the
       // poll surface it does serve instead of a socket it does not.
       poll: `${origin}/api/pact/{topicId}/events`,
+      // #5567 — the v2.3 conformance results document, ONLY when this
+      // origin's deploy shipped one. Never advertise a 404 (#5539).
+      ...(conformanceReportShipped ? { conformanceResults: `${origin}${CONFORMANCE_RESULTS_PATH}` } : {}),
     },
     extensions: {
       [EPISTEMICS_EXTENSION]: epistemicsAdvertisement(),

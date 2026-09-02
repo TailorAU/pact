@@ -47,8 +47,17 @@
 
 The block below **is the served `GET /.well-known/pact.json` document**, built
 by `buildPactProfile()` in `src/lib/pact-profile.ts`, reproduced here with
-one departure and no others. It is declared, and it is enforced by the drift
-gate rather than promised:
+one departure and no others. It is the **production rendering** —
+`buildPactProfile(PUBLIC_BASE_URL, { conformanceReportShipped: true })`, the
+call the route makes on an origin whose deploy shipped the CI-produced
+conformance results document
+([#5567](https://github.com/TailorAU/tailor-app/issues/5567); production
+always has, because `cd-source.yml` refuses to build the image without a
+validated one). An origin that did not ship it — local, a preview, a cell —
+serves the same document minus `endpoints.conformanceResults`, never a URL
+that 404s (the #5539 rule); the drift gate asserts that is the only
+difference. The departure is declared, and it is enforced by the drift gate
+rather than promised:
 
 1. **`declaredGaps[].statement` is abridged away.** The seven statements run
    to roughly 5 KB of prose and are served in full on the wire; duplicating
@@ -148,7 +157,8 @@ test failure.
   "endpoints": {
     "rest": "https://pact.tailor.au/api/pact",
     "wellKnown": "https://pact.tailor.au/.well-known/pact.json",
-    "poll": "https://pact.tailor.au/api/pact/{topicId}/events"
+    "poll": "https://pact.tailor.au/api/pact/{topicId}/events",
+    "conformanceResults": "https://pact.tailor.au/.well-known/pact-conformance-v23.json"
   },
   "extensions": {
     "au.tailor.pact/epistemics": {
@@ -342,6 +352,7 @@ test failure.
 | `resourceTypes[0].effectClass` / `.humanAttestation` | *absent* | **`internal-reversible` / `not-required`** | #5535's recorded ruling. See § Effect classification below. |
 | `specVersion` | `1.1` | **`2.3`** | #5539. Re-derived from the served wire: `buildPactProfile()` serves `SPEC_VERSION = "2.3"` (`src/lib/pact-profile.ts`), probed live at `https://pact.tailor.au/.well-known/pact.json` 2026-09-01. The v1.1 claim was nearly five months old and predated every §25 concept this profile describes; #5541 marked it stale rather than upgrading without evidence. The drift gate now pins the header lines and this block to the served values, so neither can diverge from the wire again. |
 | `conformanceLevel` | `core` (stale-marked) | **`core`** | #5539. Unchanged in value, no longer unevidenced: `core` is what the wire serves (`CONFORMANCE_LEVEL`), and the §15.2 shortfalls that hold it there — no §13 mediated communication, no information-barrier model — are `declaredGaps` on the wire, stated rather than implied. Extended is NOT claimed. |
+| `endpoints.conformanceResults` | *absent* | **present when shipped** | #5567. The CI-produced v2.3 conformance results document (see § *Conformance results* below), advertised ONLY on an origin whose deploy shipped it — `buildPactProfile()` is told by the route, which answers it once at module load from the file's presence under `public/.well-known/`. Production always ships it; every other origin omits the key rather than advertising a 404. The `§15.1 endpoints` declared gap was EXTENDED (never deleted) to say where the document lives and that it is self-reported, not a certification. |
 
 ### Live discovery and gaps this revision does NOT close
 
@@ -350,7 +361,150 @@ Stated so a reader is not misled by what the block above *does* say:
 - **§6.3 retention is a SPLIT, and the split is the claim.** The served `retentionPolicy` is derived from `src/lib/retention.ts`, never typed: `minimumDays` reads `UNCHAINED_EVENT_RETENTION_DAYS`, `indefinite` reads `!UNCHAINED_EVENTS_PURGED`, and `tombstoneAfter` fills in only when `PURGE_IS_TOMBSTONE`. Event rows the §6.4 chain does not cover — `sequence_number IS NULL`, meaning everything written before #5566 — are hard-deleted 30 days after creation by the daily cleanup job. They go outright rather than being marked in place: `PURGE_IS_TOMBSTONE` is `false`, so `tombstoneAfter` is `null` and both the row and its payload are simply gone. Chained event rows are retained indefinitely, because §6.4 forbids removing one — a missing sequence number punches a permanent gap every verifier correctly reads as tampering. `indefinite` is `false` for that reason: it asks about the log as a whole, and one half of the log is purged. **The KG still has no written retention policy of any kind**, so what is advertised is observed behaviour: the 30-day bound on unchained event rows is what the purge enforces today, not a floor anyone has committed to keeping. Scope: `retentionPolicy` describes the events log only — the same cleanup route also clears resolved proposals, departed registrations and exhausted invite tokens on schedules of their own, none of which this policy covers.
 - **`/.well-known/pact.json` is live, generated, and never static.** `GET /.well-known/pact.json` is a route handler at `src/app/.well-known/pact.json/route.ts` that calls `buildPactProfile()` in `src/lib/pact-profile.ts`. The builder reads effect classifications, §25 capability flags and epistemics parameters from the live enforcing modules; `src/lib/pact-profile.test.ts` binds the true route-backed capabilities to the served route tree. There is deliberately no `public/.well-known/pact.json` copy to drift. This is a bounded claim: explicit unsupported capabilities remain declarations, and only values wired to enforcing constants or route-existence gates are described as derived.
 - **No `credentialsRegistry` endpoint.** There is nothing to point a §17.8 URL at; publishing one that is not served would be a false claim.
+- **The conformance results document is self-reported, not a certification** — see § *Conformance results (CI-produced, #5567)* below for what it does and does not claim.
 - **§6.4 integrity begins at the #5566 chain genesis; it is not a full-history claim, and since #5598 it is not a full third-party claim either.** Every post-#5566 `emitEvent` append assigns a gapless per-resource `sequenceNumber` (`events.sequence_number`) plus a `prev_hash` and an `event_hash` under `sha256-jcs@1` — atomically within the append itself and — since the #5599 series (PR-A route wrapping, PR-B per-decision sweep transactions, PR-C's `emitEvent` interlock, 2026-09-01) — in the SAME transaction as the state change it records on every production write path; `emitEvent` now refuses an untransacted production client rather than opening a transaction of its own, with a static walker over every emit site guarding regressions; `verifyResourceChain` / `verifyOrderedChain` return a structured first-break report rather than a boolean. Pre-#5566 rows are deliberately never backfilled — hashing history nobody recorded would manufacture a chain that never existed — so a resource whose earlier history the chain does not cover starts at `GENESIS-UNCHAINED`. Since #5598 that verdict rests on TWO pieces of evidence rather than one: rows that still survive (`unchainedPriorEvents` on the verification report, a live count that only falls as the §6.3 purge takes them) OR the durable `resource_chain_meta` presence latch (`hadUnchainedHistory`). The count alone is not the boundary and must never be read as one — zero means *no unchained row survives right now*, never *the chain covers this resource's whole history*. What a third party can check for itself is therefore NARROWER than this server's own verdict: it can re-derive every hash link from the public feed and refute a plain `GENESIS` that surviving rows contradict, but the latch is served on no endpoint, so where those rows are already gone it cannot tell a resource that had no pre-history from one whose pre-history was destroyed. The divergence is one-directional — an external verifier can MISS a break this server would report, never invent one — so a third-party *intact* is the weaker claim, not a contradicting one. Three further shortfalls are declared on the wire and not restated here: no signed `pact.log.root` and no transparency anchor, no production caller for the verifier, and an uncorrectable plain `GENESIS` on any resource whose unchained rows went before the latch existed. The wire's `tracking` for this gap points at the OPEN work — [#5650](https://github.com/TailorAU/tailor-app/issues/5650) for the signed root, transparency anchor and cross-implementation root comparison — not at [#5598](https://github.com/TailorAU/tailor-app/issues/5598) or [#5599](https://github.com/TailorAU/tailor-app/issues/5599), which CLOSED (genesis-evidence/retention repairs; the transactional-link series) and are history, not trackers (repointed by #5539, then by the #5599 closure).
+
+## Conformance results (CI-produced, #5567)
+
+The machine-readable companion to this profile. On every `main` deploy the
+KG publishes its PACT v2.3 conformance results, in the pact runner's own
+report schema (`TailorAU/pact` `spec/v2.3/conformance/runner/README.md`
+§ *Report schema* + § *Consuming implementations*), at
+
+```
+https://pact.tailor.au/.well-known/pact-conformance-v23.json
+```
+
+and advertises it as `endpoints.conformanceResults` in the block above.
+
+**What runs.** `.github/workflows/cd-source.yml` gained a `kg-conformance`
+job — a clone of `source-pr-check.yml`'s `kg-integration` (a
+`postgres:16-alpine` service container, Node 22, `npm ci`) narrowed to ONE
+file: `src/lib/execution-boundary-vectors.itest.ts`, the vendored v2.3
+vectors dispatched to the real route handlers on real Postgres. The harness
+records a pass / fail per executed vector and, in its own `afterAll`, hands
+the records plus the three committed manifests and this run's `GITHUB_SHA`
+/ `GITHUB_RUN_ID` to the pure builder `src/lib/pact-conformance-report.ts`,
+which produces the document (no reporter output is parsed). Two pure
+completions from the builder module, both pinned by its tests, run before
+the build. First, vitest's own verdict is reconciled into the records from
+the suite's `afterEach` (`reconcileWithRunnerVerdict`): a test vitest
+reported as failed publishes as `fail` with vitest's error text — a
+`testTimeout` rejects the test without stopping the wrapped promise, so a
+promise that resolves later can never publish `pass` for a vector CI
+reported red, and `recordVector()` ignores a settle that arrives after that
+verdict. Second, an executed vector that neither settled nor was reported
+failed by vitest (skipped, aborted or cancelled, in a run that still reached
+`afterAll`) is filled in as `fail` with the reason `no outcome recorded —
+the test neither settled nor was reported failed by vitest (skipped, aborted
+or cancelled run)` (disposition `regression`; `fillUnsettledRecords`). The
+rule: a suite whose fixture-integrity test passed and that reached its
+`afterAll` always produces a document, red where red. No document is
+written only when the fixture-integrity check did not pass (including a
+suite that never executed it), the harness refuses to start (a results path
+without `DATABASE_URL`), the builder refuses what remains (an unstamped run,
+a citation no longer live), or the `kg-conformance` job never reaches the
+harness at all (dependency install, service-container health, runner loss,
+the 15-minute job timeout) — an absent artifact is refused by the deploy
+validator the same way. The document is uploaded as the workflow artifact
+`kg-v23-conformance-report` with `if: always()` (and `overwrite: true`, so a
+*Re-run failed jobs* attempt can upload again into the same run — v4
+artifacts are immutable per run), so a red run keeps its evidence.
+
+**How it reaches the wire.** `build-and-deploy` `needs: [kg-conformance]`
+with a **soft** gate (`if: ${{ !cancelled() }}`): it refuses to build the
+image only when the document is ABSENT or INVALID — a red vector run still
+publishes its red document rather than hiding it. The soft gate is the
+orchestrator's DEFAULT pending Knox's ruling — default 2 of the 2026-09-02
+*Design adjudicated* comment on #5567 (a hard gate would have been a
+`cd-source` behaviour change beyond the issue's letter) — not a ruling Knox
+has made. Before `docker build` the job (1) fails if a results document is
+tracked in git, (2) downloads this run's artifact, (3) validates it with
+`jq` — `provenance.stamped`, `implementation.commit == GITHUB_SHA`,
+`implementation.run_id == GITHUB_RUN_ID`, `spec_version == "2.3"`,
+`vector_set_ref` equals the fixture's pinned pact commit, the result ids are
+exactly the fixture's `expected_vector_ids` in order, every status is inside
+`pass` / `fail` / `skip` / `excluded`, every non-pass carries a reason, and
+`counts` recomputes — and (4) copies it to
+`sites/source/public/.well-known/pact-conformance-v23.json`, which the
+Dockerfile's `COPY . .` and `COPY --from=builder /app/public ./public` carry
+into the runtime image, where `next.config.ts` serves it with the discovery
+document's cache + CORS posture. The document is never committed:
+`.gitignore` lists it, and `source-pr-check.yml`, `build-and-deploy` and
+`pact-conformance-profile.test.ts` each refuse a tracked copy. As the LAST
+step of the job — after the four non-fatal #2611 seeds and the Cloudflare
+purge, none of which carries `if: always()`, so a red check cannot skip them
+on an already-deployed image — a FATAL check (deliberately not
+`continue-on-error`) polls the Container App's own ingress FQDN (bypassing
+Cloudflare's edge cache, which would otherwise turn a green deploy red, so
+the check depends on neither the purge nor its outcome; the origin lock-down
+header from `src/proxy.ts` is supplied from the same secret the deploy step
+injects) until the served document carries this run's commit and run id,
+asserts the served bytes equal the built bytes (`jq -S` diff), and asserts
+the served `/.well-known/pact.json` advertises `endpoints.conformanceResults`.
+
+**The accounting: pass 2 / fail 0 / skip 1 / excluded 44 over the 47-id
+corpus.** `src/lib/fixtures/pact-v23/execution-boundary-vectors.json` now
+carries the whole corpus inventory — `expected_vector_ids`, `vector_kinds`,
+`vector_paths`, emitted by
+`tools/pact-conformance/convert_execution_boundary_session_vectors.py` from
+pact's own manifest at the pinned commit `ba74dcda…` — so the document
+accounts for every id from the KG's own fixture, with no cross-tree read of
+Tailor's .NET fixture:
+
+| Ids | Source of the disposition | Status | Disposition |
+|---|---|---|---|
+| 2 execution-boundary session vectors (`ttl-automerge-creates-no-attestation`, `consensus-contract-is-draft-not-signed`) | `execution-boundary-acceptance.json` `executed` — run by the harness | `pass` (`fail` + the assertion message on a red run) | `executed-adapted` (`regression` on a red run) |
+| 9 execution-boundary vectors fixing `effect_class: external-irreversible` | `execution-boundary-acceptance.json` `capability_excluded` | `excluded` | `not-served` |
+| 12 attestation + 12 mandate + 5 matters + 6 sessions | `conformance-dispositions.json` families, each citing the served flag it rests on | `excluded` | `not-served` |
+| `core/join/basic` | `conformance-dispositions.json` — executable in principle (`capabilities.inviteTokens: true`), no adapter yet | `skip` | `unharnessed`, `tracking` [#5737](https://github.com/TailorAU/tailor-app/issues/5737) |
+
+**The status rule**, stated in the document's `runner_disclaimer` and
+applied mechanically by the builder: `pass` = executed and every expectation
+held verbatim or through a DECLARED pure renaming — surface mapping,
+symbolic-id binding, a key alias with the expected value unchanged; the four
+adaptation seams the harness header states plus the `status` →
+`protocol_status` alias, listed per result under `execution.adaptations`;
+`fail` = executed and at least one expected value, status or obligation was
+replaced by a different actual, named in the reason; `skip` = executable in
+principle but not executed, with a reason AND a tracking reference;
+`excluded` = not executable against this implementation by its OWN served
+declaration — a capability `/.well-known/pact.json` carries as `false` or a
+declared gap it states, named under `cites`. `conformance-dispositions.test.ts`
+asserts every cited flag is live-`false` on `buildPactProfile()` and every
+flag a skip requires is live-`true`, so a flag that flips forces a
+re-disposition instead of a stale exclusion; the builder runs the same checks
+before it emits. `http_coverage` is `{ total: 18, executed: 2 }` — the 12
+`http` + 6 `session` ids, of which the two executed session vectors ran. No
+result carries `verification_mode`: every `kind: verification` vector is
+excluded because the KG verifies no `authorization_proof`.
+
+**Provenance a reader can check.** The document names
+`implementation.commit` (the deploying `GITHUB_SHA`), `run_id`, `run_url`,
+`vector_set_ref` (the pinned pact commit the vendored vectors were generated
+from) and `vector_set.fixture_sha256`. The image it ships in is
+Cosign-signed keyless under GitHub OIDC, so
+
+```bash
+cosign verify tailorprodacr.azurecr.io/source-web@<digest> \
+  --certificate-identity-regexp 'https://github.com/TailorAU/tailor-app/.github/workflows/cd-source.yml@.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+proves the image — and therefore the embedded document — was built by
+`cd-source.yml` on GitHub-hosted CI, not hand-placed. The workflow artifact
+is the per-run immutable copy for authenticated collaborators only: this is
+a PRIVATE repository, so an artifact locator can never be what a public
+profile points at, and artifacts are subject to the repository's Actions
+retention (observed ~48 h). The served URL is the canonical public
+location. Every `cd-source.yml` run rebuilds the image, so the served
+document is always the latest deploy's own.
+
+**What it does NOT claim.** It is self-reported by the implementation's own
+harness, not a run of `@pact-protocol/conformance-runner`; the two passes are
+adapted executions whose adaptations are declared; 44 of 47 ids are not
+executed here and say so, and the one skip is tracked. The honest skips are
+the point.
 
 ---
 
@@ -606,5 +760,10 @@ compared only through the shared spec and its conformance vectors.
 | Independence-class counting | `sites/source/src/lib/independence.ts` |
 | §25.5 / §25.6 effect class + apply guard | `sites/source/src/lib/effect-class.ts` |
 | This profile's drift gate | `sites/source/src/lib/pact-conformance-profile.test.ts` |
+| v2.3 corpus fixture — 47-id inventory + the executed vectors, verbatim (#5535 / #5567) | `sites/source/src/lib/fixtures/pact-v23/execution-boundary-vectors.json`, generated by `tools/pact-conformance/convert_execution_boundary_session_vectors.py` (unit-tested under `tools/pact-conformance/tests/`) |
+| Execution-boundary acceptance manifest (2 executed / 9 capability-excluded) | `sites/source/src/lib/fixtures/pact-v23/execution-boundary-acceptance.json` + `execution-boundary-acceptance.test.ts` |
+| Conformance dispositions manifest — the other 36 ids (#5567) | `sites/source/src/lib/fixtures/pact-v23/conformance-dispositions.json` + `conformance-dispositions.test.ts` |
+| Conformance results builder — pure, no fs / clock (#5567) | `sites/source/src/lib/pact-conformance-report.ts` + `pact-conformance-report.test.ts` |
+| Vector harness — records → results document (#5535 / #5567) | `sites/source/src/lib/execution-boundary-vectors.itest.ts` |
 | Database schema | `sites/source/sql/`, `sites/source/scripts/` |
-| Deployment | `.github/workflows/cd-source.yml` |
+| Deployment, and the results document's `kg-conformance` → validate → bake → post-deploy check (#5567) | `.github/workflows/cd-source.yml` |

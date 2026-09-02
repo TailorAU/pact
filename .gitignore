@@ -48,3 +48,10 @@ pact.db
 
 .vercel
 .env*.local
+
+# #5567 — the PACT v2.3 conformance results document is CI-PRODUCED per run
+# (cd-source.yml: kg-conformance emits it, build-and-deploy validates it
+# against the run and bakes it into the image). It is never committed:
+# source-pr-check, build-and-deploy and pact-conformance-profile.test.ts all
+# refuse a tracked copy.
+/public/.well-known/pact-conformance-v23.json

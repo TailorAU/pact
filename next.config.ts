@@ -40,6 +40,19 @@ const nextConfig: NextConfig = {
           { key: "Cloudflare-CDN-Cache-Control", value: "no-store" },
         ],
       },
+      {
+        // #5567 — the CI-produced v2.3 conformance results document, a
+        // static file under public/.well-known/ baked in by cd-source.yml.
+        // Same cache + CORS posture the generated /.well-known/pact.json
+        // route sets by hand: peers on other origins read it, and five
+        // minutes is short enough that a deploy's new document lands
+        // promptly. The /api/:path* no-store rule does not reach /.well-known/.
+        source: "/.well-known/pact-conformance-v23.json",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=300, s-maxage=300" },
+          { key: "Access-Control-Allow-Origin", value: "*" },
+        ],
+      },
     ];
   },
 };

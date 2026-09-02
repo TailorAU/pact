@@ -11,8 +11,21 @@ import {
 import { CONSENSUS_RATIO } from "./db";
 import { INDEPENDENCE_CONFIG } from "./independence";
 import { VERIFIED_TOPIC_STATUSES } from "./consensus-gate";
-import { buildPactProfile, EPISTEMICS_EXTENSION, PUBLIC_BASE_URL } from "./pact-profile";
+import { spawnSync } from "child_process";
+import {
+  CONFORMANCE_RESULTS_PATH,
+  EPISTEMICS_EXTENSION,
+  PUBLIC_BASE_URL,
+  buildPactProfile,
+} from "./pact-profile";
 import type { RetentionPolicy } from "./pact-profile";
+import {
+  RESULTS_ARTIFACT_NAME,
+  flattenDispositions,
+  type AcceptanceManifest,
+  type CorpusFixture,
+  type DispositionsManifest,
+} from "./pact-conformance-report";
 import { UNCHAINED_EVENTS_PURGED, UNCHAINED_EVENT_RETENTION_DAYS } from "./retention";
 
 /**
@@ -191,7 +204,16 @@ const profile = parseProfileJson();
 const pactRoutes = discoverPactRoutes();
 const pactPaths = pactRoutes.map((r) => r.path);
 const documentedRoutes = parseApiTable(profileMarkdown);
-const generatedProfile = buildPactProfile();
+/**
+ * The PRODUCTION rendering (#5567): the Markdown block IS the prod wire, and
+ * on production the deploy always shipped the CI-produced conformance
+ * results document (`cd-source.yml` refuses to build the image without a
+ * validated one), so the route serves `buildPactProfile(PUBLIC_BASE_URL, {
+ * conformanceReportShipped: true })` there. An origin that did not ship it
+ * (local, preview, a cell) serves the same document minus
+ * `endpoints.conformanceResults` — asserted below, never a 404 (#5539).
+ */
+const generatedProfile = buildPactProfile(PUBLIC_BASE_URL, { conformanceReportShipped: true });
 
 /**
  * `buildPactProfile()` rendered the way the Markdown block is PERMITTED to
@@ -556,8 +578,12 @@ describe("published profile — live discovery and remaining gaps (#5541)", () =
 
     expect(fs.existsSync(routePath)).toBe(true);
     expect(fs.existsSync(staticPath)).toBe(false);
-    expect(routeSource).toContain('import { buildPactProfile } from "@/lib/pact-profile"');
-    expect(routeSource).toContain("JSON.stringify(buildPactProfile()");
+    expect(routeSource).toContain(
+      'import { CONFORMANCE_RESULTS_PATH, PUBLIC_BASE_URL, buildPactProfile } from "@/lib/pact-profile"'
+    );
+    expect(routeSource).toContain(
+      "JSON.stringify(buildPactProfile(PUBLIC_BASE_URL, { conformanceReportShipped: CONFORMANCE_REPORT_SHIPPED })"
+    );
     expect(generatedProfile.endpoints.wellKnown).toBe(
       `${PUBLIC_BASE_URL}/.well-known/pact.json`
     );
@@ -615,6 +641,111 @@ describe("published profile — live discovery and remaining gaps (#5541)", () =
     // open trackers so a reader of either rendering lands on live work.
     expect(profileMarkdown).toContain("issues/5599");
     expect(profileMarkdown).toContain("issues/5650");
+  });
+});
+
+/**
+ * THE CONFORMANCE RESULTS DOCUMENT (#5567).
+ *
+ * The block above is the SHIPPED rendering, so it advertises
+ * `endpoints.conformanceResults`; an origin whose deploy did not ship the
+ * document must NOT advertise it (the #5539 never-a-404 rule). The document
+ * itself is CI-produced per run — never committed — so this section holds
+ * the seams that keep it that way: the path is untracked in git and
+ * gitignored, the route decides shipped-ness from the file's presence, and
+ * the producing / validating / verifying steps exist where the profile
+ * says they do.
+ */
+describe("published profile — the conformance results document (#5567)", () => {
+  const REPO_ROOT = path.resolve(SOURCE_ROOT, "..", "..");
+  const RESULTS_REL = "public/.well-known/pact-conformance-v23.json";
+
+  it("the block IS the shipped rendering: endpoints.conformanceResults equals the shipped builder output", () => {
+    expect(profile.endpoints.conformanceResults).toBe(generatedProfile.endpoints.conformanceResults);
+    expect(profile.endpoints.conformanceResults).toBe(`${PUBLIC_BASE_URL}${CONFORMANCE_RESULTS_PATH}`);
+    expect(CONFORMANCE_RESULTS_PATH).toBe(`/${RESULTS_REL.replace(/^public\//, "")}`);
+  });
+
+  it("an origin that did not ship the document does not advertise it — never a 404 (#5539)", () => {
+    const unshipped = buildPactProfile();
+    expect(Object.keys(unshipped.endpoints)).not.toContain("conformanceResults");
+    expect(Object.keys(buildPactProfile(PUBLIC_BASE_URL, { conformanceReportShipped: false }).endpoints)).not.toContain(
+      "conformanceResults"
+    );
+    // ...and that is the ONLY difference between the two renderings.
+    const shippedMinusKey = JSON.parse(JSON.stringify(generatedProfile)) as { endpoints: Record<string, string> };
+    delete shippedMinusKey.endpoints.conformanceResults;
+    expect(jsonDiff(JSON.parse(JSON.stringify(unshipped)), shippedMinusKey)).toEqual([]);
+  });
+
+  it("the route answers shipped-ness from the file's presence, once, and tells the builder", () => {
+    const routeSource = fs.readFileSync(
+      path.join(SOURCE_ROOT, "src", "app", ".well-known", "pact.json", "route.ts"),
+      "utf8"
+    );
+    expect(routeSource).toContain("fs.existsSync(");
+    expect(routeSource).toContain("CONFORMANCE_RESULTS_PATH");
+    expect(routeSource).toContain("conformanceReportShipped: CONFORMANCE_REPORT_SHIPPED");
+  });
+
+  it("no results document is tracked in git — and .gitignore says so", () => {
+    const tracked = spawnSync("git", ["ls-files", "--error-unmatch", RESULTS_REL], {
+      cwd: SOURCE_ROOT,
+      encoding: "utf8",
+    });
+    // git must have RUN (a missing binary would be a vacuous pass) and must
+    // have refused the path (exit 1 = not tracked).
+    expect(tracked.error).toBeUndefined();
+    expect(tracked.status).not.toBe(0);
+    const gitignore = fs.readFileSync(path.join(SOURCE_ROOT, ".gitignore"), "utf8");
+    expect(gitignore.split(/\r?\n/)).toContain(`/${RESULTS_REL}`);
+  });
+
+  it("is produced by cd-source.yml's kg-conformance job, validated before the image build, verified after the deploy", () => {
+    // Line-ending agnostic: a Windows autocrlf checkout materialises CRLF.
+    const cdSource = fs.readFileSync(path.join(REPO_ROOT, ".github", "workflows", "cd-source.yml"), "utf8").replace(/\r\n/g, "\n");
+    expect(cdSource).toContain("\n  kg-conformance:\n");
+    expect(cdSource).toContain("PACT_CONFORMANCE_RESULTS_PATH:");
+    expect(cdSource).toContain("src/lib/execution-boundary-vectors.itest.ts");
+    expect(cdSource).toContain(`name: ${RESULTS_ARTIFACT_NAME}`);
+    expect(cdSource).toContain("needs: [kg-conformance]");
+    expect(cdSource).toContain("if: ${{ !cancelled() }}");
+    expect(cdSource).toContain(`git ls-files --error-unmatch sites/source/${RESULTS_REL}`);
+    expect(cdSource).toContain(`cp "$REPORT" sites/source/${RESULTS_REL}`);
+    expect(cdSource).toContain("Verify the served conformance results are this run's");
+    const prCheck = fs.readFileSync(path.join(REPO_ROOT, ".github", "workflows", "source-pr-check.yml"), "utf8");
+    expect(prCheck).toContain(`git ls-files --error-unmatch sites/source/${RESULTS_REL}`);
+  });
+
+  it("next.config.ts serves the document with the discovery document's cache + CORS posture", () => {
+    const nextConfig = fs.readFileSync(path.join(SOURCE_ROOT, "next.config.ts"), "utf8");
+    expect(nextConfig).toContain(`source: "${CONFORMANCE_RESULTS_PATH}"`);
+    expect(nextConfig).toContain('{ key: "Cache-Control", value: "public, max-age=300, s-maxage=300" }');
+    expect(nextConfig).toContain('{ key: "Access-Control-Allow-Origin", value: "*" }');
+  });
+
+  it("the document names the producing job, the status rule, and the accounting the committed manifests imply", () => {
+    expect(profileMarkdown).toContain("## Conformance results (CI-produced, #5567)");
+    expect(profileMarkdown).toContain("`kg-conformance`");
+    expect(profileMarkdown).toContain("cosign verify");
+    // The headline counts are RECOMPUTED from the manifests the builder reads
+    // — pass = every executed id on a green run, skip / excluded = what the
+    // acceptance + dispositions manifests dispose, corpus = the fixture's
+    // expected_vector_ids — never typed here, so a fixture change forces the
+    // doc edit (the tailor-app side's fixture-implied pin, mirrored).
+    const fixtureDir = path.join(SRC_DIR, "lib", "fixtures", "pact-v23");
+    const read = <T>(name: string): T => JSON.parse(fs.readFileSync(path.join(fixtureDir, name), "utf8")) as T;
+    const fixture = read<CorpusFixture>("execution-boundary-vectors.json");
+    const acceptance = read<AcceptanceManifest>("execution-boundary-acceptance.json");
+    const dispositioned = flattenDispositions(read<DispositionsManifest>("conformance-dispositions.json"));
+    const corpus = fixture.expected_vector_ids.length;
+    const pass = acceptance.executed.length;
+    const skip = dispositioned.filter((entry) => entry.status === "skip").length;
+    const excluded =
+      acceptance.capability_excluded.length + dispositioned.filter((entry) => entry.status === "excluded").length;
+    expect(pass + skip + excluded).toBe(corpus);
+    expect(profileMarkdown).toContain(`pass ${pass} / fail 0 / skip ${skip} / excluded ${excluded} over the ${corpus}-id`);
+    expect(profileMarkdown).toContain(`${excluded} of ${corpus} ids are not`);
   });
 });
 

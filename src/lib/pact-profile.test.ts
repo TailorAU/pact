@@ -4,6 +4,7 @@ import path from "path";
 import { GET } from "@/app/.well-known/pact.json/route";
 import {
   CONFORMANCE_LEVEL,
+  CONFORMANCE_RESULTS_PATH,
   DECLARED_GAPS,
   EPISTEMICS_EXTENSION,
   EPISTEMICS_EXTENSION_VERSION,
@@ -141,7 +142,37 @@ describe("§15.1 — the discovery document is served, generated, and complete",
     expect(cacheControl).not.toContain("no-store");
 
     const body = await response.json();
-    expect(body).toEqual(JSON.parse(JSON.stringify(profile)));
+    // #5567 — the route advertises endpoints.conformanceResults iff the
+    // CI-produced document is on disk under public/. Locally it never is;
+    // asserted against the file's presence rather than a literal so this
+    // holds on a checkout where a developer dropped one in to eyeball it.
+    const shippedOnDisk = fs.existsSync(
+      path.join(SOURCE_ROOT, "public", ...CONFORMANCE_RESULTS_PATH.split("/").filter(Boolean))
+    );
+    expect(body).toEqual(
+      JSON.parse(JSON.stringify(buildPactProfile(PUBLIC_BASE_URL, { conformanceReportShipped: shippedOnDisk })))
+    );
+  });
+
+  it("advertises endpoints.conformanceResults only when this origin shipped the results document (#5567)", () => {
+    // Default and explicit-false: no key at all — never a URL that 404s (#5539).
+    expect(Object.keys(profile.endpoints)).not.toContain("conformanceResults");
+    expect(Object.keys(buildPactProfile(PUBLIC_BASE_URL, { conformanceReportShipped: false }).endpoints)).not.toContain(
+      "conformanceResults"
+    );
+    const shipped = buildPactProfile(PUBLIC_BASE_URL, { conformanceReportShipped: true });
+    expect(shipped.endpoints.conformanceResults).toBe(`${PUBLIC_BASE_URL}${CONFORMANCE_RESULTS_PATH}`);
+    // A trailing slash on the origin is normalised the same way rest/wellKnown are.
+    expect(buildPactProfile("https://example.test/", { conformanceReportShipped: true }).endpoints.conformanceResults).toBe(
+      `https://example.test${CONFORMANCE_RESULTS_PATH}`
+    );
+    // Nothing else moves between the two renderings.
+    const shippedRest = Object.fromEntries(
+      Object.entries(shipped.endpoints).filter(([key]) => key !== "conformanceResults")
+    );
+    expect(shippedRest).toEqual(profile.endpoints);
+    expect(shipped.declaredGaps).toEqual(profile.declaredGaps);
+    expect(shipped.capabilities).toEqual(profile.capabilities);
   });
 
   it("carries every §15.1 required field", () => {

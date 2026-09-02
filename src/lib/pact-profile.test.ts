@@ -416,20 +416,20 @@ describe("declared gaps — what the KG does NOT have, on the same wire", () => 
     // permanently uncorrectable pre-marker GENESIS case (iv), (v) that the
     // GENESIS verdict now turns on a server-side latch the feed does not
     // publish, so an external verifier evaluates a strictly weaker test, and
-    // (vi) that the chain link commits in a transaction separate from the
-    // state change it records on every production route — #5599's finding,
-    // added by #5539.
+    // Former (vi) — the separate-transaction chain link — must now be
+    // described as RESOLVED (#5599 closed via #5692/#5697/#5704): the
+    // statement may narrate it as history, never as an open shortfall.
     expect(provenance!.statement).toContain("pact.log.root");
     expect(provenance!.statement).toMatch(/GENESIS/);
     expect(provenance!.statement).toMatch(/same transaction/i);
-    // #5539: `tracking` must point at OPEN work. #5598 closed with the
-    // genesis-evidence and retention repairs, which made it a dangling
-    // pointer; what remains open is #5599 (the separate-transaction chain
-    // link) and #5650 (signed root + transparency anchor + cross-impl
-    // comparison). The statement may still cite #5598 as history — the
-    // tracking field may not.
-    expect(provenance!.tracking).toContain("5599");
+    // `tracking` must point at OPEN work only. #5598 closed with the
+    // genesis/retention repairs; #5599 closed with the transactional-link
+    // series. What remains open is #5650 (signed root + transparency anchor
+    // + cross-impl comparison). Statements may cite closed issues as
+    // history — the tracking field may not.
+    expect(provenance!.statement).toMatch(/\(vi\)[\s\S]*RESOLVED|RESOLVED[\s\S]*#5599/);
     expect(provenance!.tracking).toContain("5650");
+    expect(provenance!.tracking).not.toContain("5599");
     expect(provenance!.tracking).not.toContain("5598");
     // (v) specifically. `genesisSentinelIsFalsified` reads
     // `hadUnchainedHistory` out of `resource_chain_meta`, and no route serves

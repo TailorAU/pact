@@ -1,5 +1,12 @@
 FROM node:22-alpine AS base
-RUN apk add --no-cache libc6-compat
+# #5644 / #5751 — upgrade the base image's apk packages at build time. The
+# `node:22-alpine` tag lags the alpine 3.24 security repo (e.g. openssl
+# libcrypto3/libssl3 3.5.7-r0 with CVE-2026-14456 while 3.5.8-r0 is already
+# published), and every stage (deps, builder, runner) derives from this one,
+# so the runtime layer inherits the patched packages. Weekly `source-cve-scan`
+# re-measures the pushed image; a finding with a `Fixed Version` in the repo
+# is closed by this line, not by an allowlist entry.
+RUN apk upgrade --no-cache && apk add --no-cache libc6-compat
 WORKDIR /app
 
 # ── Install dependencies ─────────────────────────────────

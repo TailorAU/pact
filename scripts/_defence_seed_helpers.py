@@ -30,6 +30,11 @@ if sys.stdout.encoding != "utf-8":
 # `requests` re-POSTs across the redirect only as GET.
 BASE = os.environ.get("SOURCE_BASE", "https://pact.tailor.au")
 
+# SEED_DRY_RUN=1 → GET-only plan: no agents registered, no topics or edges
+# written. Prints CREATE / EXISTS per item so the run can be diffed against
+# the live graph before anything is applied (tailor-group#7, after #5581).
+DRY_RUN = os.environ.get("SEED_DRY_RUN", "").strip().lower() in ("1", "true", "yes")
+
 
 def api(method: str, path: str, key: Optional[str] = None, data: Optional[dict] = None, silent_429: bool = False):
     """Minimal PACT API client with exponential backoff on 429."""
@@ -194,6 +199,22 @@ def seed_topic_batch(prefix: str, topics: list[dict]) -> dict[str, Optional[str]
     # gate (sites/source/src/lib/auth.ts) makes the "vote on your peers" path
     # impractical for a one-shot seed, so we just pay the registration cost.
     n_agents = len(topics)
+
+    if DRY_RUN:
+        print(f"\n=== DRY RUN — {prefix}: {len(topics)} topics, no writes ===")
+        plan: dict[str, Optional[str]] = {}
+        would_create = 0
+        for idx, t in enumerate(topics):
+            tid = find_topic_id_by_title(t["title"])
+            plan[t["title"]] = tid
+            if not tid:
+                would_create += 1
+            print(f"  [{idx + 1:>2}/{len(topics)}] {'EXISTS ' if tid else 'CREATE '} {t['title'][:80]}")
+            time.sleep(0.2)
+        print(f"\n  plan: {would_create} to create, {len(topics) - would_create} already present; "
+              f"{would_create} agent registrations would be needed")
+        return plan
+
     print(f"\n=== Registering {n_agents} agents for {prefix} ===")
     keys = register_agents(prefix, n_agents)
     print(f"  got {len(keys)} API keys")

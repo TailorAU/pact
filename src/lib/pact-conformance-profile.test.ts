@@ -657,7 +657,7 @@ describe("published profile — live discovery and remaining gaps (#5541)", () =
  * says they do.
  */
 describe("published profile — the conformance results document (#5567)", () => {
-  const REPO_ROOT = path.resolve(SOURCE_ROOT, "..", "..");
+  const REPO_ROOT = SOURCE_ROOT; // the app is the repo root since the #5949 rehome
   const RESULTS_REL = "public/.well-known/pact-conformance-v23.json";
 
   it("the block IS the shipped rendering: endpoints.conformanceResults equals the shipped builder output", () => {
@@ -710,11 +710,11 @@ describe("published profile — the conformance results document (#5567)", () =>
     expect(cdSource).toContain(`name: ${RESULTS_ARTIFACT_NAME}`);
     expect(cdSource).toContain("needs: [kg-conformance]");
     expect(cdSource).toContain("if: ${{ !cancelled() }}");
-    expect(cdSource).toContain(`git ls-files --error-unmatch sites/source/${RESULTS_REL}`);
-    expect(cdSource).toContain(`cp "$REPORT" sites/source/${RESULTS_REL}`);
+    expect(cdSource).toContain(`git ls-files --error-unmatch ${RESULTS_REL}`);
+    expect(cdSource).toContain(`cp "$REPORT" ${RESULTS_REL}`);
     expect(cdSource).toContain("Verify the served conformance results are this run's");
-    const prCheck = fs.readFileSync(path.join(REPO_ROOT, ".github", "workflows", "source-pr-check.yml"), "utf8");
-    expect(prCheck).toContain(`git ls-files --error-unmatch sites/source/${RESULTS_REL}`);
+    const prCheck = fs.readFileSync(path.join(REPO_ROOT, ".github", "workflows", "pr-check.yml"), "utf8");
+    expect(prCheck).toContain(`git ls-files --error-unmatch ${RESULTS_REL}`);
   });
 
   it("next.config.ts serves the document with the discovery document's cache + CORS posture", () => {

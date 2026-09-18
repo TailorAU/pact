@@ -608,19 +608,8 @@ jobs:
               "ADMIN_SECRET=${{ secrets.ADMIN_SECRET }}" \
               "QLD_LEGISLATION_USERNAME=${{ secrets.QLD_LEGISLATION_USERNAME }}" \
               "QLD_LEGISLATION_PASSWORD=${{ secrets.QLD_LEGISLATION_PASSWORD }}" \
-              "AZURE_REDIS_HOSTNAME=${{ secrets.AZURE_REDIS_HOSTNAME }}" \
-              "AZURE_REDIS_PASSWORD=${{ secrets.AZURE_REDIS_PASSWORD }}" \
-              "AMAZON_AFFILIATE_TAG=${{ secrets.AMAZON_AFFILIATE_TAG }}" \
-              "CF_COLES_TAG=${{ secrets.CF_COLES_TAG }}" \
-              "CF_WOOLWORTHS_TAG=${{ secrets.CF_WOOLWORTHS_TAG }}" \
-              "CF_CHEMIST_TAG=${{ secrets.CF_CHEMIST_TAG }}" \
-              "CF_KMART_TAG=${{ secrets.CF_KMART_TAG }}" \
-              "EBAY_CAMPAIGN_ID=${{ secrets.EBAY_CAMPAIGN_ID }}" \
-              "AZURE_OPENAI_KEY=${{ secrets.AZURE_OPENAI_KEY }}" \
               "SOURCE_VERSION=${{ github.sha }}" \
               "AZURE_REGION=australiaeast" \
-              "APPLICATIONINSIGHTS_CONNECTION_STRING=${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}" \
-              "ORIGIN_SHARED_SECRET=${{ secrets.ORIGIN_SHARED_SECRET }}" \
             || \
           az containerapp create \
             --name ${{ env.CONTAINER_APP_NAME }} \
@@ -641,19 +630,8 @@ jobs:
               "ADMIN_SECRET=${{ secrets.ADMIN_SECRET }}" \
               "QLD_LEGISLATION_USERNAME=${{ secrets.QLD_LEGISLATION_USERNAME }}" \
               "QLD_LEGISLATION_PASSWORD=${{ secrets.QLD_LEGISLATION_PASSWORD }}" \
-              "AZURE_REDIS_HOSTNAME=${{ secrets.AZURE_REDIS_HOSTNAME }}" \
-              "AZURE_REDIS_PASSWORD=${{ secrets.AZURE_REDIS_PASSWORD }}" \
-              "AMAZON_AFFILIATE_TAG=${{ secrets.AMAZON_AFFILIATE_TAG }}" \
-              "CF_COLES_TAG=${{ secrets.CF_COLES_TAG }}" \
-              "CF_WOOLWORTHS_TAG=${{ secrets.CF_WOOLWORTHS_TAG }}" \
-              "CF_CHEMIST_TAG=${{ secrets.CF_CHEMIST_TAG }}" \
-              "CF_KMART_TAG=${{ secrets.CF_KMART_TAG }}" \
-              "EBAY_CAMPAIGN_ID=${{ secrets.EBAY_CAMPAIGN_ID }}" \
-              "AZURE_OPENAI_KEY=${{ secrets.AZURE_OPENAI_KEY }}" \
               "SOURCE_VERSION=${{ github.sha }}" \
               "AZURE_REGION=australiaeast" \
-              "APPLICATIONINSIGHTS_CONNECTION_STRING=${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}" \
-              "ORIGIN_SHARED_SECRET=${{ secrets.ORIGIN_SHARED_SECRET }}"
 
       - name: Get App URL
         run: |

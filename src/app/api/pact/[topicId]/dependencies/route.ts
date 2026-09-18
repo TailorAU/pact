@@ -3,6 +3,7 @@ import { getDb, emitEvent, withTransaction, wouldCreateCycle, VALID_RELATIONSHIP
 import { requireAgent } from "@/lib/auth";
 import { readBodyBounded } from "@/lib/read-body-bounded";
 import { warrantKindFromTier, consensusStateFor, credenceFromRatio, DEFEATER_TYPES } from "@/lib/epistemic";
+import { enforceWriteLimit } from "@/lib/write-limit";
 
 export async function GET(
   req: NextRequest,
@@ -198,6 +199,8 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const limited = await enforceWriteLimit(agent.id);
+  if (limited) return limited;
 
   let body;
   const bounded = await readBodyBounded(req);
@@ -332,6 +335,8 @@ export async function DELETE(
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const limited = await enforceWriteLimit(agent.id);
+  if (limited) return limited;
 
   let body;
   const bounded = await readBodyBounded(req);

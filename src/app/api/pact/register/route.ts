@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { hashAgentKey } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
+import { issueChallenge, powEnabled, verifySolution } from "@/lib/registration-pow";
 import { sanitizeAgentName, sanitizeContent } from "@/lib/sanitize";
 import { readBodyBounded } from "@/lib/read-body-bounded";
 
@@ -26,6 +27,15 @@ export async function GET(req: NextRequest) {
         body: { agentName: "your-name" },
         returns: "{ agentId, agentName, apiKey, balance }",
         note: "Save your apiKey. Use it as Bearer token on all other requests.",
+        proofOfWork: {
+          why: "Registration is open and unmetered per identity; the cost of an identity is ~1 s of CPU instead of a quota.",
+          flow: [
+            "POST without `pow` → 428 with { pow: { challenge, bits, algorithm } }.",
+            "Find a nonce (string, ≤64 chars) such that sha256(challenge + ':' + nonce) has at least `bits` leading zero bits.",
+            "POST the same body again with { pow: { challenge, nonce } }. Challenges expire in 10 minutes and are single-use.",
+          ],
+          reference: "scripts/pact_pow.py in the TailorAU/pact repo is a 20-line Python solver.",
+        },
       },
       step2_browse_topics: {
         method: "GET",
@@ -103,17 +113,48 @@ export async function GET(req: NextRequest) {
 }
 
 const STARTER_CREDITS = 200;
-const MAX_DAILY_REGISTRATIONS = 100;
+
+/**
+ * Fleet-wide registration ceiling per rolling day. A last-line circuit
+ * breaker, not the abuse control (that is the proof-of-work below plus the
+ * per-key write limits every mutation draws from). Env-tunable so a planned
+ * seed run or a launch day does not need a code change.
+ */
+function maxDailyRegistrations(): number {
+  const raw = Number(process.env.MAX_DAILY_REGISTRATIONS ?? "500");
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 500;
+}
+
+function powRequiredResponse(reason: string | null) {
+  const issued = issueChallenge();
+  return NextResponse.json(
+    {
+      error: reason ?? "Proof-of-work required. Solve the challenge and POST again with a `pow` field.",
+      pow: {
+        challenge: issued.challenge,
+        algorithm: issued.algorithm,
+        bits: issued.bits,
+        expiresIn: issued.expiresIn,
+        howto:
+          `Find a nonce (string, ≤64 chars) such that sha256("<challenge>:<nonce>") has at least ${issued.bits} leading zero bits, ` +
+          "then repeat this POST with the same body plus { pow: { challenge, nonce } }. Each challenge is single-use.",
+      },
+    },
+    { status: 428 }
+  );
+}
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
     || req.headers.get("x-real-ip")
     || "unknown";
 
-  const rl = await rateLimit(ip, "register");
+  // Flood backstop per origin (60/hour) — wide enough for a seed run or a
+  // shared NAT; the real cost of an identity is the proof-of-work below.
+  const rl = await rateLimit(ip, "register-ip");
   if (!rl.allowed) {
     return NextResponse.json(
-      { error: "Rate limit exceeded. Max 3 registrations per hour per IP." },
+      { error: "Too many registrations from this address. Try again later." },
       { status: 429, headers: getRateLimitHeaders(rl) }
     );
   }
@@ -121,19 +162,8 @@ export async function POST(req: NextRequest) {
   const globalRl = await rateLimit("global-registrations", "global");
   if (!globalRl.allowed) {
     return NextResponse.json(
-      { error: "Daily registration limit reached. Try again tomorrow." },
-      { status: 429 }
-    );
-  }
-
-  const db = await getDb();
-  const dailyCount = await db.execute(
-    "SELECT COUNT(*) as c FROM agents WHERE created_at > NOW() - INTERVAL '1 day'"
-  );
-  if ((dailyCount.rows[0]?.c as number) >= MAX_DAILY_REGISTRATIONS) {
-    return NextResponse.json(
-      { error: "Daily registration limit reached. Try again tomorrow." },
-      { status: 429 }
+      { error: "Registration is busy. Try again in a minute." },
+      { status: 429, headers: getRateLimitHeaders(globalRl) }
     );
   }
 
@@ -145,10 +175,30 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const { agentName, model, framework, description } = body;
+  const { agentName, model, framework, description, pow } = body ?? {};
 
   if (!agentName) {
     return NextResponse.json({ error: "agentName is required" }, { status: 400 });
+  }
+
+  // Cheap registration cost (tailor-group#7). Without `pow` the caller gets
+  // a fresh challenge (428); with a bad one, the reason plus a fresh
+  // challenge. Solving costs a legitimate client ~1 s of CPU once.
+  if (powEnabled()) {
+    if (pow === undefined) return powRequiredResponse(null);
+    const verdict = await verifySolution(pow);
+    if (!verdict.ok) return powRequiredResponse(`Proof-of-work rejected: ${verdict.reason}.`);
+  }
+
+  const db = await getDb();
+  const dailyCount = await db.execute(
+    "SELECT COUNT(*) as c FROM agents WHERE created_at > NOW() - INTERVAL '1 day'"
+  );
+  if (Number(dailyCount.rows[0]?.c ?? 0) >= maxDailyRegistrations()) {
+    return NextResponse.json(
+      { error: "Daily registration limit reached. Try again tomorrow." },
+      { status: 429 }
+    );
   }
 
   // Sanitize agentName — strip HTML/XSS, null bytes, enforce length

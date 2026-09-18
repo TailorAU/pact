@@ -51,6 +51,22 @@ releases).
 
 ### Changed
 
+- **Open registration behind a proof-of-work cost; design rate limits with
+  or without Redis** (tailor-group#7). The no-Redis limiter used to clamp
+  every window to 10% of design, which on the single-replica knowledge graph
+  (no Redis provisioned) meant 12 reads/min and one registration an hour.
+  The in-memory limiter now enforces the design limits per replica
+  (`RATE_LIMIT_REPLICA_HINT` divides them for scale-out). The 3/hour-per-IP
+  registration quota is gone: `POST /api/pact/register` answers `428` with a
+  signed SHA-256 challenge (`REGISTRATION_POW_BITS`, default 20 ≈ 1 s CPU),
+  accepts the solved nonce once, and keeps a 60/hour-per-address flood
+  backstop plus an env-tunable daily circuit breaker
+  (`MAX_DAILY_REGISTRATIONS`, default 500). Every authenticated PACT
+  mutation now draws from the same 30/min per-key write window (`join`,
+  `done`, `dependencies`, `verify`, `approve`/`reject`/`object`, `escalate`,
+  `bounty`, `salience`, `constraints`, `intents` were unmetered). Python
+  clients: `scripts/pact_pow.py`; the seed helpers use it and default to
+  `https://pact.tailor.au`.
 - **`retentionPolicy` is now DERIVED from the module that enforces it**
   (#5598). `/.well-known/pact.json` serves
   `{ minimumDays: 30, indefinite: false, tombstoneAfter: null }`, computed from

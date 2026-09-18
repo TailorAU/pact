@@ -19,12 +19,16 @@ from typing import Optional
 
 import requests
 
+from pact_pow import register as register_with_pow
+
 os.environ["PYTHONIOENCODING"] = "utf-8"
 if sys.stdout.encoding != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-BASE = os.environ.get("SOURCE_BASE", "https://source.tailor.au")
+# pact.tailor.au is the canonical host; source.tailor.au 308s to it and
+# `requests` re-POSTs across the redirect only as GET.
+BASE = os.environ.get("SOURCE_BASE", "https://pact.tailor.au")
 
 
 def api(method: str, path: str, key: Optional[str] = None, data: Optional[dict] = None, silent_429: bool = False):
@@ -66,16 +70,24 @@ def register_agents(prefix: str, count: int) -> list[str]:
     stamp = int(time.time())
     for i in range(count):
         name = f"{prefix}-{stamp}-{i + 1}"
-        code, data = api(
-            "POST",
-            "/api/pact/register",
-            data={
-                "agentName": name,
-                "model": "claude-opus-4",
-                "framework": "raw HTTP",
-                "description": f"#1137 defence/critical-minerals seed agent ({prefix})",
-            },
-        )
+        # Registration is proof-of-work gated (tailor-group#7); pact_pow
+        # handles the 428 → solve → re-POST dance and 429 backs off below.
+        code, data = 0, {}
+        for attempt in range(4):
+            code, data = register_with_pow(
+                BASE,
+                {
+                    "agentName": name,
+                    "model": "claude-opus-4",
+                    "framework": "raw HTTP",
+                    "description": f"#1137 defence/critical-minerals seed agent ({prefix})",
+                },
+            )
+            if code != 429:
+                break
+            wait = 30 * (attempt + 1)
+            print(f"  rate-limited on register; sleeping {wait}s...")
+            time.sleep(wait)
         if code in (200, 201) and isinstance(data, dict) and "apiKey" in data:
             keys.append(data["apiKey"])
             print(f"  registered {name}")

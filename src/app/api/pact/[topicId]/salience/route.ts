@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { readBodyBounded } from "@/lib/read-body-bounded";
+import { enforceWriteLimit } from "@/lib/write-limit";
 
 export async function GET(
   req: NextRequest,
@@ -25,6 +26,8 @@ export async function POST(
   const { topicId } = await params;
   let agent;
   try { agent = await requireAgent(req); } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+  const limited = await enforceWriteLimit(agent.id);
+  if (limited) return limited;
 
   let body;
   const bounded = await readBodyBounded(req);

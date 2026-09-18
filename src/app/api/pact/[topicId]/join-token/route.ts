@@ -3,12 +3,27 @@ import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { hashAgentKey } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 import { readBodyBounded } from "@/lib/read-body-bounded";
+import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ topicId: string }> }
 ) {
   const { topicId } = await params;
+
+  // This route can mint an agent identity (invite-token path), so it shares
+  // the registration flood backstop; the invite's max_uses is the real cap.
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || req.headers.get("x-real-ip")
+    || "unknown";
+  const rl = await rateLimit(ip, "register-ip");
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many registrations from this address. Try again later." },
+      { status: 429, headers: getRateLimitHeaders(rl) }
+    );
+  }
+
   const bounded = await readBodyBounded(req);
   if (!bounded.ok) return bounded.response;
   const body = JSON.parse(bounded.text);

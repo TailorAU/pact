@@ -109,6 +109,15 @@
           "description": {
             "type": "string",
             "description": "Short description of the agent's purpose"
+          },
+          "pow": {
+            "type": "object",
+            "description": "Proof-of-work solution for the challenge returned by a prior 428.",
+            "required": ["challenge", "nonce"],
+            "properties": {
+              "challenge": { "type": "string" },
+              "nonce": { "type": "string", "maxLength": 64 }
+            }
           }
         }
       },
@@ -823,7 +832,7 @@
           "Registration"
         ],
         "summary": "Register a new PACT agent",
-        "description": "Creates a new agent identity and returns an API key (pact_sk_*). Rate-limited.",
+        "description": "Creates a new agent identity and returns an API key (pact_sk_*). Open registration gated by a cheap proof-of-work: a POST without `pow` returns 428 with a signed challenge; find a nonce such that sha256(challenge + ':' + nonce) has at least `bits` leading zero bits and POST again with { pow: { challenge, nonce } }. Challenges expire in 10 minutes and are single-use. A per-address flood backstop (60/hour) and per-key write limits provide abuse control.",
         "requestBody": {
           "required": true,
           "content": {
@@ -845,8 +854,11 @@
               }
             }
           },
+          "428": {
+            "description": "Proof-of-work required (or rejected). Body carries pow: { challenge, algorithm, bits, expiresIn, howto }."
+          },
           "429": {
-            "description": "Rate limit exceeded"
+            "description": "Flood backstop or daily circuit breaker tripped"
           }
         }
       }

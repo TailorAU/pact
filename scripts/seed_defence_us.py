@@ -29,11 +29,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "US Department of State (Directorate of Defense Trade Controls)",
         "sourceRef": "International Traffic in Arms Regulations, 22 CFR 120-130; Arms Export Control Act, 22 USC 2778",
-        "canonicalClaim": (
-            "ITAR (22 CFR 120-130) controls the export, re-export and brokering of US Munitions "
-            "List articles, services, and technical data — including deemed exports to foreign "
-            "persons inside the US — with criminal penalties up to 20 years imprisonment."
-        ),
+        "canonicalClaim": "ITAR (22 CFR 120-130) controls the export of US Munitions List defence articles, services and technical data",
     },
     {
         "title": "EAR (15 CFR 730-774) governs the export of US dual-use and commercial technology",
@@ -49,11 +45,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "US Department of Commerce (Bureau of Industry and Security)",
         "sourceRef": "Export Administration Regulations, 15 CFR 730-774; Export Control Reform Act of 2018, 50 USC 4801",
-        "canonicalClaim": (
-            "EAR (15 CFR 730-774) controls US commercial and dual-use exports via ECCN classification "
-            "on the Commerce Control List, with licence determinations driven by destination, "
-            "end-user and end-use analysis administered by BIS."
-        ),
+        "canonicalClaim": "EAR (15 CFR 730-774) controls US dual-use exports through ECCN classification on the Commerce Control List",
     },
     {
         "title": "NEPA (42 USC 4321+) requires environmental impact assessment for major federal actions",
@@ -70,11 +62,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "US Council on Environmental Quality; federal action agencies",
         "sourceRef": "National Environmental Policy Act of 1969, 42 USC 4321 et seq; 40 CFR Parts 1500-1508",
-        "canonicalClaim": (
-            "NEPA (42 USC 4321+) requires federal agencies to prepare an Environmental Impact "
-            "Statement for major federal actions significantly affecting the human environment, "
-            "implemented via 40 CFR 1500-1508."
-        ),
+        "canonicalClaim": "NEPA (42 USC 4321) requires an Environmental Impact Statement for major federal actions significantly affecting the environment",
     },
     {
         "title": "BLM 43 CFR 3809 governs surface management of hardrock mining on federal land",
@@ -90,10 +78,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "US Bureau of Land Management (Department of the Interior)",
         "sourceRef": "43 CFR Part 3809, Subparts 3809.1-3809.605 (Surface Management)",
-        "canonicalClaim": (
-            "BLM 43 CFR 3809 regulates hardrock mining on federal land via the Notice / Plan-of-"
-            "Operations regime, triggering NEPA review, reclamation bonding and Tribal consultation."
-        ),
+        "canonicalClaim": "BLM 43 CFR 3809 requires a Plan of Operations for hardrock mining on federal land beyond casual use",
     },
     {
         "title": "DFARS 252.225-7052 restricts DoD acquisition of non-domestic specialty metals including antimony",
@@ -110,11 +95,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "US Department of Defense (Defense Acquisition Regulations System)",
         "sourceRef": "DFARS 252.225-7052; DFARS 252.225-7008; 10 USC 4863 (specialty metals)",
-        "canonicalClaim": (
-            "DFARS 252.225-7052 and the underlying specialty-metals statute (10 USC 4863) restrict "
-            "DoD acquisition of end items containing non-domestic specialty metals including "
-            "antimony, tungsten, samarium-cobalt and NdFeB magnets."
-        ),
+        "canonicalClaim": "The DFARS specialty-metals clause restricts DoD acquisition of end items containing non-domestic specialty metals such as antimony",
     },
     {
         "title": "California SMARA requires state permitting and reclamation for surface-mining operations",
@@ -129,11 +110,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US-CA",
         "authority": "California Department of Conservation (Division of Mine Reclamation); State Mining and Geology Board",
         "sourceRef": "Surface Mining and Reclamation Act of 1975, California Public Resources Code §§ 2710-2796",
-        "canonicalClaim": (
-            "California SMARA (PRC §§ 2710-2796) requires surface-mining operators in California to "
-            "obtain a local lead-agency permit, approved Reclamation Plan and financial assurance, "
-            "overseen by the State Geologist and State Mining and Geology Board."
-        ),
+        "canonicalClaim": "California SMARA requires an approved reclamation plan and financial assurance for surface-mining operations",
     },
     {
         "title": "Defense Production Act Title III funds domestic industrial-base expansion for critical materials",
@@ -149,11 +126,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "Executive Office of the President; Department of Defense (Office of the Under Secretary for Acquisition and Sustainment)",
         "sourceRef": "Defense Production Act of 1950, Title III, 50 USC 4531-4533",
-        "canonicalClaim": (
-            "DPA Title III (50 USC 4531-4533) authorises the President to fund expansion of US "
-            "domestic industrial capacity for defence-essential materials through purchase "
-            "commitments, guarantees and plant-expansion grants."
-        ),
+        "canonicalClaim": "DPA Title III (50 USC 4531-4533) authorises federal funding to expand domestic industrial capacity for defence-essential materials",
     },
     {
         "title": "CFIUS reviews foreign investment in US critical-technology and critical-minerals businesses",
@@ -169,12 +142,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "US Department of the Treasury (chair of CFIUS); interagency committee",
         "sourceRef": "Section 721 of the Defense Production Act, 50 USC 4565; Foreign Investment Risk Review Modernization Act 2018",
-        "canonicalClaim": (
-            "CFIUS, reformed by FIRRMA 2018, reviews foreign acquisitions of US businesses in "
-            "critical technology, critical infrastructure, sensitive personal data and covered "
-            "real-estate near national-security sites, with mandatory declarations for specified "
-            "transactions."
-        ),
+        "canonicalClaim": "CFIUS reviews foreign acquisitions of US businesses in critical technology, critical infrastructure or sensitive personal data",
     },
     {
         "title": "Inflation Reduction Act ties clean-energy tax credits to critical-minerals sourcing requirements",
@@ -191,12 +159,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "US Congress; Internal Revenue Service (Treasury)",
         "sourceRef": "Inflation Reduction Act of 2022, Pub L 117-169; Internal Revenue Code §§ 30D, 45X, 45, 45Y",
-        "canonicalClaim": (
-            "The Inflation Reduction Act conditions the IRC § 30D clean-vehicle credit on "
-            "critical-minerals content sourced from the US or a US free-trade-agreement partner "
-            "(explicitly including Australia) and excludes content sourced from Foreign Entities "
-            "of Concern."
-        ),
+        "canonicalClaim": "The IRA conditions the IRC s 30D clean-vehicle credit on critical minerals sourced from the US or a free-trade-agreement partner",
     },
     {
         "title": "Buy American Act 1933 requires federal agencies to prefer domestic end products in procurement",
@@ -211,11 +174,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "US Congress; federal contracting agencies",
         "sourceRef": "Buy American Act, 41 USC 8301-8305; FAR Part 25; 2022 Executive Order 14005 domestic-content amendments",
-        "canonicalClaim": (
-            "The Buy American Act 1933 (41 USC 8301-8305) requires federal agencies to prefer "
-            "domestic end products in procurement, with the domestic-content threshold rising to "
-            "75% by 2029 under the 2022 amendments."
-        ),
+        "canonicalClaim": "The Buy American Act 1933 (41 USC 8301-8305) requires federal agencies to prefer domestic end products in procurement",
     },
 ]
 

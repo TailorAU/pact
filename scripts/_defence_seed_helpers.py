@@ -13,6 +13,7 @@ Idempotency model:
 * Safe to re-run: second run creates zero new rows, only prints EXISTS messages.
 """
 import os
+import re
 import sys
 import time
 from typing import Optional
@@ -186,6 +187,51 @@ def find_topic_id_by_title(title: str) -> Optional[str]:
     return None
 
 
+# ── Client-side mirror of src/lib/claim.ts lintAtomicClaim (tailor-group#7) ──
+# The server rejects a canonicalClaim over 140 chars, with more than one
+# sentence, with a top-level and/or joining two verb-bearing clauses, or with
+# a motte-and-bailey hedge. The first live apply of these corpora lost all 30
+# topics to that rule after 30 agents had already been registered; lint here
+# so a dry-run fails on the claim, before any registration.
+CANONICAL_CLAIM_MAX = 140
+_CLAUSE_CONJUNCTION = re.compile(r"\b(?:and|or)\b", re.I)
+_VERB_HINT = re.compile(
+    r"\b(?:is|are|was|were|has|have|had|does|do|did|can|cannot|must|shall|should|will|would|may|might|"
+    r"equals|contains|requires|prohibits|permits|applies|boils|melts|freezes|rises|falls|exceeds|measures|"
+    r"weighs|holds|states|provides|mandates|forbids|bans|allows|increased|decreased|causes|caused)\b", re.I)
+_HEDGES = [re.compile(p, re.I) for p in (
+    r"\barguably\b", r"\bsome (?:might|may|would) (?:say|argue|claim)\b", r"\bit could be (?:said|argued)\b",
+    r"\bin some sense\b", r"\bmore or less\b", r"\bbasically\b", r"\bsort of\b|\bkind of\b")]
+
+
+def lint_atomic_claim(claim: str) -> Optional[str]:
+    """Return an error string mirroring the server's 422, or None if atomic."""
+    text = (claim or "").strip()
+    if not text:
+        return "canonicalClaim is required"
+    if len(text) > CANONICAL_CLAIM_MAX:
+        return f"canonicalClaim must be at most {CANONICAL_CLAIM_MAX} characters (got {len(text)})"
+    if len([s for s in re.split(r"[.!?]+", text) if s.strip()]) > 1:
+        return "canonicalClaim must be a single sentence"
+    m = _CLAUSE_CONJUNCTION.search(text)
+    if m and _VERB_HINT.search(text[: m.start()]) and _VERB_HINT.search(text[m.end():]):
+        return "canonicalClaim bundles multiple propositions (top-level conjunction joins two verb-bearing clauses)"
+    for p in _HEDGES:
+        if p.search(text):
+            return "canonicalClaim carries a motte-and-bailey hedge"
+    return None
+
+
+def lint_corpus(topics: list[dict]) -> list[str]:
+    """Lint every claim in a corpus; returns human-readable failures (empty = clean)."""
+    failures = []
+    for t in topics:
+        err = lint_atomic_claim(t.get("canonicalClaim") or t.get("content") or "")
+        if err:
+            failures.append(f"{t['title'][:70]} → {err}")
+    return failures
+
+
 def seed_topic_batch(prefix: str, topics: list[dict]) -> dict[str, Optional[str]]:
     """Register agents and create a batch of topics round-robin. Idempotent.
 
@@ -199,6 +245,13 @@ def seed_topic_batch(prefix: str, topics: list[dict]) -> dict[str, Optional[str]
     # gate (sites/source/src/lib/auth.ts) makes the "vote on your peers" path
     # impractical for a one-shot seed, so we just pay the registration cost.
     n_agents = len(topics)
+
+    bad = lint_corpus(topics)
+    if bad:
+        print(f"\n=== {prefix}: {len(bad)} claim(s) fail the atomic-claim rule — nothing registered, nothing written ===")
+        for line in bad:
+            print("  ", line)
+        sys.exit(2)
 
     if DRY_RUN:
         print(f"\n=== DRY RUN — {prefix}: {len(topics)} topics, no writes ===")

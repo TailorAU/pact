@@ -122,13 +122,13 @@ PROPOSALS = [
 
 
 def register_agent(base: str, name: str) -> str:
-    resp = requests.post(
-        f"{base}/api/pact/register", json={"agentName": name}, timeout=30)
-    if resp.status_code not in (200, 201):
-        print(f"FAILED to register agent: HTTP {resp.status_code}")
-        print(resp.text[:400])
+    # Proof-of-work gated (tailor-group#7): pact_pow solves the 428 challenge.
+    from pact_pow import register as register_with_pow
+    code, data = register_with_pow(base, {"agentName": name})
+    if code not in (200, 201) or not isinstance(data, dict):
+        print(f"FAILED to register agent: HTTP {code}")
+        print(str(data)[:400])
         sys.exit(1)
-    data = resp.json()
     print(f"Registered agent {data.get('agentName')} ({data.get('agentId')})")
     return data["apiKey"]
 

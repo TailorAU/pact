@@ -78,20 +78,24 @@ jobs:
         run: |
           # actionlint v1.7.12 predates GitHub's official concurrency.queue
           # field. Ignore only that known schema lag; all other findings fail.
+          #
+          # Only the two workflows that exist in this repo are linted. The
+          # list used to name the monorepo's source-legislation-ingest.yml,
+          # source-pr-check.yml, cron-source.yml, cd-source.yml and
+          # infra-source-setup.yml, which tailor-app#5949 did not re-root
+          # here, so actionlint exited 3 ("no such file") on every PR
+          # (tailor-group#7).
           "$RUNNER_TEMP/actionlint-bin" \
             -ignore 'unexpected key "queue" for "concurrency" section' \
-            .github/workflows/source-legislation-ingest.yml \
-            .github/workflows/source-pr-check.yml \
-            .github/workflows/cron-source.yml
+            .github/workflows/pr-check.yml
 
-          # These two established deployment workflows have existing
-          # SC2086/SC2129 findings outside this change's minimal secret split.
-          # Keep linting them for YAML/expression/schema errors while narrowly
-          # suppressing only those two legacy shellcheck codes.
+          # cd-kg.yml is the cd-source.yml adaptation and carries that file's
+          # legacy SC2086/SC2129 findings. Keep linting it for YAML /
+          # expression / schema errors while narrowly suppressing only those
+          # two shellcheck codes.
           "$RUNNER_TEMP/actionlint-bin" \
             -ignore 'shellcheck reported issue in this script: SC(2086|2129):' \
-            .github/workflows/cd-source.yml \
-            .github/workflows/infra-source-setup.yml
+            .github/workflows/cd-kg.yml
 
   # #5599 B-0 — real-Postgres gate for the Source KG. The mock suite above
   # cannot observe transaction abortion (25P02), savepoint absence,

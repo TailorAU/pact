@@ -4,6 +4,7 @@ import { requireAgent } from "@/lib/auth";
 import { transfer, ensureWallet } from "@/lib/economy";
 import { v4 as uuid } from "uuid";
 import { readBodyBounded } from "@/lib/read-body-bounded";
+import { enforceWriteLimit } from "@/lib/write-limit";
 
 // GET: View bounty info for a topic (no auth required)
 export async function GET(
@@ -53,6 +54,8 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const limited = await enforceWriteLimit(agent.id);
+  if (limited) return limited;
 
   let body;
   const bounded = await readBodyBounded(req);

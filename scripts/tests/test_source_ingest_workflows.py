@@ -11,6 +11,15 @@ WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 SCRIPTS = REPOSITORY_ROOT / "sites" / "source" / "scripts"
 
 
+# These tests pin the shape of `source-legislation-ingest.yml` and
+# `cron-source.yml`, which still live in the tailor-app monorepo
+# (tailor-app#5949 re-rooted the knowledge graph here without them). Outside
+# that monorepo the files do not exist, so the suite skips rather than
+# erroring in this repo's PR check (tailor-group#7).
+@unittest.skipUnless(
+    (WORKFLOWS / "source-legislation-ingest.yml").exists(),
+    "workflow files live in the tailor-app monorepo",
+)
 class WorkflowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.ingest = (WORKFLOWS / "source-legislation-ingest.yml").read_text(

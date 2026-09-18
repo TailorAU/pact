@@ -568,7 +568,6 @@ jobs:
           fi
 
       - name: Ensure Container App has ACR pull access
-        continue-on-error: true  # pre-wired at creation (#5949); the deploy SP holds no role-assignment rights
         continue-on-error: true
         run: |
           if az containerapp show --name ${{ env.CONTAINER_APP_NAME }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "id" -o tsv 2>/dev/null; then

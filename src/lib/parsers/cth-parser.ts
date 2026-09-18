@@ -5,7 +5,16 @@ import { ingestDocuments } from "../legislation-sync";
 const CTH_API = "https://api.prod.legislation.gov.au/v1";
 const CTH_WEB = "https://www.legislation.gov.au";
 const BATCH_SIZE = 10;
-const MAX_ACTS = 50;
+const DEFAULT_MAX_ACTS = 50;
+
+/**
+ * Newest-first ceiling on acts examined per run. Env-tunable so an operator
+ * can widen a refill (or narrow a smoke run) without a code change.
+ */
+function maxActs(): number {
+  const raw = Number(process.env.CTH_SYNC_MAX_ACTS ?? DEFAULT_MAX_ACTS);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MAX_ACTS;
+}
 
 /**
  * Parser version stamp written into legislation_sync_log.parser_version.
@@ -13,7 +22,7 @@ const MAX_ACTS = 50;
  * fallback paths) so downstream regressions can be tied back to a specific
  * parser revision. WS9 introduces 2.0.0 alongside the silent-zero alarm.
  */
-const CTH_PARSER_VERSION = "cth-parser@2.0.0";
+const CTH_PARSER_VERSION = "cth-parser@2.1.0";
 
 interface CthTitle {
   id: string;
@@ -42,11 +51,26 @@ async function fetchJson<T>(url: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function fetchInForceActs(skip: number, top: number): Promise<CthTitle[]> {
-  const filter = encodeURIComponent("collection eq 'Act' and status eq 'InForce'");
+/**
+ * Titles query (tailor-group#7). `status` and `collection` are OData enums
+ * on this service; `status eq 'InForce'` parses alone but, conjoined with
+ * `collection eq 'Act'`, the binder mis-reads the literal as a property and
+ * answers 400 "Could not find a property named 'InForce'" — every run since
+ * the API moved to enums fetched zero titles and recorded one error. The `in`
+ * operator binds the enum literal correctly in a conjunction (verified live
+ * 2026-09-18: 4,768 in-force Acts). The secondary `number desc` makes the
+ * newest-first paging stable; `year desc` alone left ties unordered so
+ * consecutive `$skip` pages could repeat or drop acts.
+ */
+export function buildTitlesUrl(skip: number, top: number): string {
+  const filter = encodeURIComponent("collection eq 'Act' and status in ('InForce')");
   const select = encodeURIComponent("id,name,year,number,status,seriesType,makingDate");
-  const url = `${CTH_API}/Titles?$filter=${filter}&$top=${top}&$skip=${skip}&$select=${select}&$orderby=year desc`;
-  const data = await fetchJson<{ value: CthTitle[] }>(url);
+  const orderby = encodeURIComponent("year desc,number desc");
+  return `${CTH_API}/Titles?$filter=${filter}&$top=${top}&$skip=${skip}&$select=${select}&$orderby=${orderby}`;
+}
+
+export async function fetchInForceActs(skip: number, top: number): Promise<CthTitle[]> {
+  const data = await fetchJson<{ value: CthTitle[] }>(buildTitlesUrl(skip, top));
   return data.value;
 }
 
@@ -85,7 +109,21 @@ async function fetchLegislationHtml(titleId: string, version: CthVersion): Promi
   }
 }
 
-function parseActHtml(html: string): LegislationSection[] {
+/** Named + numeric HTML entities → text. The EPUB uses `&#xa0;` heavily. */
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/ /g, " ");
+}
+
+export function parseActHtml(html: string): LegislationSection[] {
   const sections: LegislationSection[] = [];
   let currentPart = "";
   let order = 0;
@@ -120,18 +158,23 @@ function parseActHtml(html: string): LegislationSection[] {
     const relevantPart = parts.filter(p => p.index < sec.index).pop();
     if (relevantPart) currentPart = relevantPart.title;
 
-    const contentSlice = html.slice(sec.index, Math.min(sec.index + 5000, nextSecIndex));
+    // The EPUB now wraps every run of text in its own <span> (indent spacers
+    // as `<span style=…>&#xa0;</span>`, then the words), so a block is many
+    // sibling spans, not bare text. The old extractor stopped at the first
+    // closing tag and came away with a non-breaking space; every section
+    // then failed the 10-char floor and the act was recorded as "No sections
+    // parsed" (tailor-group#7). Take each provision-level <p> block whole,
+    // up to its </p>, and strip the markup. The markup slice is wider than
+    // before because the spacer spans inflate it ~5×; the text itself is
+    // still capped at 4,000 chars below.
+    const contentSlice = html.slice(sec.index, Math.min(sec.index + 40_000, nextSecIndex));
     const textParts: string[] = [];
-    const textPattern = /class="(?:subsection|paragraph|subparagraph|note|definition|DefnSectn)"[^>]*>([^<]*(?:<[^/][^>]*>[^<]*)*)/g;
+    const textPattern = /<p[^>]*class="(?:subsection2?|paragraph(?:sub)?|subparagraph|note(?:text|para|ToPara)?|[Dd]efinition|DefnSectn|Penalty|SubsectionHead)"[^>]*>([\s\S]*?)<\/p>/g;
     let textMatch;
     while ((textMatch = textPattern.exec(contentSlice)) !== null) {
-      const text = textMatch[1]
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;|&#xa0;/g, " ")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
+      const text = decodeEntities(textMatch[1].replace(/<[^>]+>/g, " "))
         .replace(/\s+/g, " ")
+        .replace(/\s+([.,;:)\]])/g, "$1") // "Act 2026 ." → "Act 2026." after span joins
         .trim();
       if (text.length > 5) textParts.push(text);
     }
@@ -171,14 +214,18 @@ export async function syncCth(db: DbClient): Promise<SyncResult> {
   const docsToIngest: LegislationDoc[] = [];
   let skip = 0;
 
-  while (result.docsChecked < MAX_ACTS) {
+  const ceiling = maxActs();
+  while (result.docsChecked < ceiling) {
     let titles: CthTitle[];
     try {
       titles = await fetchInForceActs(skip, BATCH_SIZE);
     } catch (e) {
-      // Top-of-loop fetch failure — record and stop. Doesn't count as a
-      // per-doc crash (no doc was being parsed yet).
+      // Top-of-loop fetch failure — record and stop. Counted as a crash so
+      // a run that never reached a single title is visible in
+      // legislation_sync_log.parser_crash_count, not only in `errors`
+      // (this is exactly how the enum-filter 400 hid for months).
       result.errors.push(`Titles fetch at skip=${skip}: ${e instanceof Error ? e.message : String(e)}`);
+      result.parserCrashCount++;
       break;
     }
     if (titles.length === 0) break;

@@ -27,6 +27,36 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("ref: ${{ inputs.", self.ingest)
         self.assertEqual(self.ingest.count("persist-credentials: false"), 2)
 
+    def test_no_workflow_calls_the_retired_source_host(self) -> None:
+        """`source.tailor.au` was retired by the #3690 cutover and now 308s.
+
+        Every scheduled Source cron pointed at it and asserted `200`, so all of
+        them failed silently for two months (#5582) — no legislation refresh, no
+        staleness marking, no consensus sweep. Only `auth-check`, the one job
+        operators run by hand, was wired to the live host, which is precisely
+        why nobody noticed. This test is the thing that makes a silent
+        reintroduction impossible.
+        """
+        offenders = sorted(
+            path.name
+            for path in WORKFLOWS.glob("*.yml")
+            if "https://source.tailor.au" in path.read_text(encoding="utf-8")
+        )
+        self.assertEqual(offenders, [])
+
+    def test_cron_jobs_share_one_live_base_url(self) -> None:
+        cron = (WORKFLOWS / "cron-source.yml").read_text(encoding="utf-8")
+        self.assertIn("SOURCE_URL: https://pact.tailor.au", cron)
+        # A second base is what let the two drift apart in the first place.
+        # Assert on the definition and the use, not on prose — the comment
+        # naming the removed variable is the documentation that keeps it gone.
+        self.assertNotIn("SOURCE_CANONICAL_URL:", cron)
+        self.assertNotIn("env.SOURCE_CANONICAL_URL", cron)
+        # Following a redirect would forward the cron secret to the redirect
+        # target; the host is pinned instead.
+        self.assertNotIn("curl -sL", cron)
+        self.assertNotIn("--location", cron)
+
     def test_per_document_queue_never_cancels(self) -> None:
         self.assertIn(
             "group: source-legislation-ingest-prod-${{ inputs.document_lock }}",

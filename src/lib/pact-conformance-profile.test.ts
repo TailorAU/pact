@@ -207,7 +207,7 @@ const documentedRoutes = parseApiTable(profileMarkdown);
 /**
  * The PRODUCTION rendering (#5567): the Markdown block IS the prod wire, and
  * on production the deploy always shipped the CI-produced conformance
- * results document (`cd-source.yml` refuses to build the image without a
+ * results document (`cd-kg.yml` refuses to build the image without a
  * validated one), so the route serves `buildPactProfile(PUBLIC_BASE_URL, {
  * conformanceReportShipped: true })` there. An origin that did not ship it
  * (local, preview, a cell) serves the same document minus
@@ -701,9 +701,9 @@ describe("published profile — the conformance results document (#5567)", () =>
     expect(gitignore.split(/\r?\n/)).toContain(`/${RESULTS_REL}`);
   });
 
-  it("is produced by cd-source.yml's kg-conformance job, validated before the image build, verified after the deploy", () => {
+  it("is produced by cd-kg.yml's kg-conformance job, validated before the image build, verified after the deploy", () => {
     // Line-ending agnostic: a Windows autocrlf checkout materialises CRLF.
-    const cdSource = fs.readFileSync(path.join(REPO_ROOT, ".github", "workflows", "cd-source.yml"), "utf8").replace(/\r\n/g, "\n");
+    const cdSource = fs.readFileSync(path.join(REPO_ROOT, ".github", "workflows", "cd-kg.yml"), "utf8").replace(/\r\n/g, "\n");
     expect(cdSource).toContain("\n  kg-conformance:\n");
     expect(cdSource).toContain("PACT_CONFORMANCE_RESULTS_PATH:");
     expect(cdSource).toContain("src/lib/execution-boundary-vectors.itest.ts");

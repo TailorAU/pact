@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { runLegislationSync } from "@/lib/legislation-sync";
+import { safeSecretEqual } from "@/lib/secret-compare";
 
 /**
  * Cron job: syncs legislation from official government APIs.
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 503 });
   }
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
+  if (!safeSecretEqual(authHeader, `Bearer ${cronSecret}`)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

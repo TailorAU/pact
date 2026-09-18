@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { refreshLayer, LOGAN_LAYERS } from "@/lib/spatial-snapshot";
+import { safeSecretEqual } from "@/lib/secret-compare";
 
 /**
  * Cron job: daily Logan ArcGIS spatial snapshot (Refs #874, parent #852).
@@ -15,7 +16,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 503 });
   }
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
+  if (!safeSecretEqual(authHeader, `Bearer ${cronSecret}`)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

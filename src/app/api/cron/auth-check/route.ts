@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { safeSecretEqual } from "@/lib/secret-compare";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
+  if (!safeSecretEqual(req.headers.get("authorization"), `Bearer ${cronSecret}`)) {
     return NextResponse.json(
       { error: "Unauthorized" },
       { status: 401, headers: NO_STORE_HEADERS },

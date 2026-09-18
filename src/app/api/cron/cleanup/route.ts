@@ -10,6 +10,7 @@ import {
   buildUnchainedHistoryStamp,
   readUnchainedPurgeResult,
 } from "@/lib/retention";
+import { safeSecretEqual } from "@/lib/secret-compare";
 
 /**
  * Cron job: runs daily at 3am UTC (triggered by GitHub Actions).
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 503 });
   }
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
+  if (!safeSecretEqual(authHeader, `Bearer ${cronSecret}`)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

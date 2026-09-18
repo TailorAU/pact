@@ -2,8 +2,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
-import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bounded";
 import { requireAdmin } from "@/lib/admin-auth";
+import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bounded";
 import {
   LegislationValidationError,
   normalizeLegislationRequest,
@@ -48,6 +48,7 @@ import { log } from "@/lib/logger";
 //
 // Auth: Requires admin secret in X-Admin-Key header (env: ADMIN_SECRET)
 export async function POST(req: NextRequest) {
+  // Admin auth — shared timing-safe middleware (#2881)
   const denied = requireAdmin(req);
   if (denied) return denied;
 

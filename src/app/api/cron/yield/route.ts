@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { distributeAxiomYield } from "@/lib/yield";
 import { log } from "@/lib/logger";
+import { safeSecretEqual } from "@/lib/secret-compare";
 
 /**
  * Cron job: runs weekly on Sundays at 4am UTC (triggered by GitHub Actions).
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 503 });
   }
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
+  if (!safeSecretEqual(authHeader, `Bearer ${cronSecret}`)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

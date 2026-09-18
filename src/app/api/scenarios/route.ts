@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { listScenarios } from "@/lib/scenarios/queries";
 import { recordAudit } from "@/lib/audit";
+import { safeSecretEqual } from "@/lib/secret-compare";
 import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bounded";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "admin secret not configured" }, { status: 503 });
   }
   const auth = req.headers.get("authorization") ?? "";
-  if (!auth.startsWith("Bearer ") || auth.slice(7) !== adminSecret) {
+  if (!auth.startsWith("Bearer ") || !safeSecretEqual(auth.slice(7), adminSecret)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

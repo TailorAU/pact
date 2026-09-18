@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { recordAudit, ipCountryFromHeaders } from "@/lib/audit";
+import { requireAdmin } from "@/lib/admin-auth";
 import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bounded";
 
 // POST /api/curriculum/ingest — Bulk-ingest authoritative curriculum descriptors (#2520)
@@ -41,11 +42,9 @@ import { readBodyBounded, ADMIN_INGEST_MAX_BODY_BYTES } from "@/lib/read-body-bo
 //
 // Auth: X-Admin-Key header must equal ADMIN_SECRET (same gate as legislation).
 export async function POST(req: NextRequest) {
-  const adminKey = req.headers.get("x-admin-key");
-  const expectedKey = process.env.ADMIN_SECRET;
-  if (!expectedKey || adminKey !== expectedKey) {
-    return NextResponse.json({ error: "Unauthorized. Requires X-Admin-Key header." }, { status: 401 });
-  }
+  // Admin auth — shared timing-safe middleware (#2881)
+  const denied = requireAdmin(req);
+  if (denied) return denied;
 
   const bounded = await readBodyBounded(req, ADMIN_INGEST_MAX_BODY_BYTES);
   if (!bounded.ok) return bounded.response;

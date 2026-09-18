@@ -49,10 +49,13 @@ async function probeDb(): Promise<CheckResult> {
     await withTimeout(db.execute({ sql: "SELECT 1 AS ok", args: [] }), PROBE_TIMEOUT_MS, "db");
     return { ok: true, latencyMs: Date.now() - start };
   } catch (err) {
+    // Generic detail to anonymous callers — raw driver messages can leak
+    // internal hostnames/ports (#2881). Full error goes to the server log.
+    log.error({ op: "health.probe.db", err: err instanceof Error ? err.message : String(err) }, "db health probe failed");
     return {
       ok: false,
       latencyMs: Date.now() - start,
-      detail: err instanceof Error ? err.message : String(err),
+      detail: "probe failed",
     };
   }
 }
@@ -80,10 +83,13 @@ async function probeRedis(): Promise<CheckResult> {
     );
     return { ok: true, latencyMs: Date.now() - start };
   } catch (err) {
+    // Generic detail to anonymous callers — raw driver messages can leak
+    // internal hostnames/ports (#2881). Full error goes to the server log.
+    log.error({ op: "health.probe.redis", err: err instanceof Error ? err.message : String(err) }, "redis health probe failed");
     return {
       ok: false,
       latencyMs: Date.now() - start,
-      detail: err instanceof Error ? err.message : String(err),
+      detail: "probe failed",
     };
   }
 }

@@ -107,12 +107,21 @@ agree the disclosure date with you in writing.
 |---|---|
 | TLS-only ingress to ACA | Azure Container Apps default; HSTS pinned at [`next.config.ts:31`](../next.config.ts) |
 | Comprehensive security headers (CSP, X-Frame, X-Content-Type, Referrer, Permissions) | [`next.config.ts:23-41`](../next.config.ts) |
+| Timing-safe operator-secret comparison (`ADMIN_SECRET` / `CRON_SECRET` via SHA-256 + `crypto.timingSafeEqual`) | [`src/lib/secret-compare.ts`](../src/lib/secret-compare.ts), consumed by [`src/lib/admin-auth.ts`](../src/lib/admin-auth.ts) + cron routes (#2881) |
 | Rate limiting (Redis sliding window + in-memory fallback) | [`src/lib/rate-limit.ts`](../src/lib/rate-limit.ts) |
 | Audit log with 7-year retention | [`src/lib/audit.ts`](../src/lib/audit.ts); see [`AUDIT.md`](AUDIT.md) |
 | Container runs as non-root user | `Dockerfile` (UID 1001) |
 | API key hashing (SHA-256) before logging or storage | [`src/lib/audit.ts`](../src/lib/audit.ts) hashes; logger conventions in [`OBSERVABILITY.md`](OBSERVABILITY.md) |
 | Encryption in transit (PG `sslmode=require`, Redis SSL-only port 6380) | See [`COMPLIANCE.md`](COMPLIANCE.md) |
 | Encryption at rest (Azure-managed keys) | Azure Postgres Flexible Server + Azure Cache for Redis defaults |
+
+> **Known trade-off:** the CSP `script-src` directive includes
+> `'unsafe-inline'` and `'unsafe-eval'` ([`next.config.ts:11`](../next.config.ts))
+> to support the Google Maps JS integration on the spatial surfaces. This
+> weakens XSS mitigation relative to a strict CSP. Removing it requires
+> reworking the Maps loader (nonce- or hash-based CSP) — tracked as a
+> follow-on; until then the primary XSS defence is input sanitisation at
+> write time plus React's default output escaping.
 
 ## What we are not certified to (honest list)
 

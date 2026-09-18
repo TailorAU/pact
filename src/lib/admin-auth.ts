@@ -16,6 +16,7 @@
  * We deliberately do NOT log or echo the supplied key anywhere.
  */
 import { NextResponse } from "next/server";
+import { safeSecretEqual } from "./secret-compare";
 
 export function requireAdmin(req: Request): NextResponse | null {
   const expected = process.env.ADMIN_SECRET;
@@ -26,7 +27,7 @@ export function requireAdmin(req: Request): NextResponse | null {
     );
   }
   const supplied = req.headers.get("x-admin-key");
-  if (!supplied || supplied !== expected) {
+  if (!safeSecretEqual(supplied, expected)) {
     return NextResponse.json(
       { error: "Unauthorized — X-Admin-Key required" },
       { status: 401 },

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
+import { enforceWriteLimit } from "@/lib/write-limit";
 
 // Open join — authenticated agents can join any open topic directly.
 // No invite token required for public topics.
@@ -17,6 +18,8 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "Unauthorized. Register first: POST /api/pact/register" }, { status: 401 });
   }
+  const limited = await enforceWriteLimit(agent.id);
+  if (limited) return limited;
 
   const db = await getDb();
 

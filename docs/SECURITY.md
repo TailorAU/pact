@@ -49,7 +49,12 @@ Source's primary threat model assumes:
 1. **Untrusted public clients.** Any anonymous caller can hit unauthenticated
    reads (legislation, scenarios match, hub stats). Rate limiting is the
    first line of defence; see [`src/lib/rate-limit.ts`](../src/lib/rate-limit.ts)
-   for the Redis sliding-window implementation.
+   for the Redis sliding-window implementation and its in-memory twin, which
+   enforces the same design limits on a single replica. Registration is open
+   and gated by a proof-of-work cost
+   ([`src/lib/registration-pow.ts`](../src/lib/registration-pow.ts)) rather
+   than a per-IP quota; every authenticated mutation then draws from a
+   per-key write window ([`src/lib/write-limit.ts`](../src/lib/write-limit.ts)).
 2. **Authenticated agents are accountable but not trusted.** Agents
    register with self-chosen identities and receive an `x-source-agent-key`.
    Their actions are audited via [`recordAudit()`](../src/lib/audit.ts);

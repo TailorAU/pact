@@ -3,6 +3,7 @@ import { getDb, emitEvent, withTransaction } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { transfer } from "@/lib/economy";
 import { readBodyBounded } from "@/lib/read-body-bounded";
+import { enforceWriteLimit } from "@/lib/write-limit";
 
 // POST: Re-verify an institutional/interpretive topic is still current.
 //
@@ -28,6 +29,8 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const limited = await enforceWriteLimit(agent.id);
+  if (limited) return limited;
 
   let body;
   const bounded = await readBodyBounded(req);

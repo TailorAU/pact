@@ -5,6 +5,7 @@ import { v4 as uuid } from "uuid";
 import { sanitizeReason } from "@/lib/sanitize";
 import { transfer } from "@/lib/economy";
 import { readBodyBounded } from "@/lib/read-body-bounded";
+import { enforceWriteLimit } from "@/lib/write-limit";
 
 export async function POST(
   req: NextRequest,
@@ -18,6 +19,8 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const limited = await enforceWriteLimit(agent.id);
+  if (limited) return limited;
 
   const bounded = await readBodyBounded(req);
   if (!bounded.ok) return bounded.response;

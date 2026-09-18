@@ -15,6 +15,7 @@ import time
 
 from _defence_seed_helpers import (  # noqa: E402
     BASE,
+    DRY_RUN,
     api,
     find_topic_id_by_title,
     register_agents,
@@ -243,6 +244,36 @@ def main() -> None:
     # Single agent is enough; dependency POST only requires a valid API key
     # (no age gate, no civic-duty gate).
     print(f"\n=== #1137 seed_topic_dependencies against {BASE} ===")
+
+    if DRY_RUN:
+        # GET-only plan: resolve titles, then check each edge against the
+        # child's current dependency list. No agent, no writes.
+        edges, missing = resolve_edges()
+        would_create = existed = 0
+        seen: dict[str, set[str]] = {}
+        for child_id, parent_id, rel, _j in edges:
+            if child_id not in seen:
+                code, data = api("GET", f"/api/pact/{child_id}/dependencies")
+                deps = set()
+                if code == 200 and isinstance(data, dict):
+                    for key in ("assumptions", "buildsOn"):
+                        for row in data.get(key) or []:
+                            if row.get("depends_on"):
+                                deps.add(row["depends_on"])
+                seen[child_id] = deps
+                time.sleep(0.2)
+            if parent_id in seen[child_id]:
+                existed += 1
+                print(f"  EXISTS  {rel:<10} {child_id[:8]} -> {parent_id[:8]}")
+            else:
+                would_create += 1
+                print(f"  CREATE  {rel:<10} {child_id[:8]} -> {parent_id[:8]}")
+        print(
+            f"\n=== DRY RUN plan: {would_create} edges to create, {existed} already present, "
+            f"{missing} unresolvable (topics missing) of {len(EDGES)} ==="
+        )
+        return
+
     keys = register_agents("seed-deps", 1)
     agent_key = keys[0]
 

@@ -96,6 +96,17 @@ releases).
 
 ### Fixed
 
+- **The weekly CTH legislation sync fetched zero titles on every run**
+  (tailor-group#7). `status` and `collection` are OData enums on
+  `api.prod.legislation.gov.au`; the parser's
+  `collection eq 'Act' and status eq 'InForce'` filter answered 400
+  ("Could not find a property named 'InForce'"), which the loop recorded as
+  a single error string with `docs_checked = 0` — below the silent-zero
+  alarm's threshold — so the corpus never refilled. The filter now uses
+  `status in ('InForce')` (verified live: 4,768 in-force Acts), paging is
+  stable (`year desc,number desc`), a Titles-fetch failure counts as a
+  parser crash, the ceiling is env-tunable (`CTH_SYNC_MAX_ACTS`, default
+  50), and `cth-parser@2.1.0` is stamped on the sync log.
 - **Retention no longer flips an honest §6.4 chain to "tampered"** (#5598).
   The verifier re-derived the expected genesis sentinel from a LIVE count of
   unchained rows, and the daily purge deletes exactly those rows — so a

@@ -14,7 +14,7 @@ Usage:
     python seed_defence_au.py                         # targets https://source.tailor.au
     SOURCE_BASE=http://localhost:3001 python seed_defence_au.py   # dev
 """
-from _defence_seed_helpers import seed_topic_batch  # noqa: E402
+from _defence_seed_helpers import DRY_RUN, seed_topic_batch  # noqa: E402
 
 
 TOPICS: list[dict] = [
@@ -210,7 +210,11 @@ TOPICS: list[dict] = [
 def main() -> None:
     result = seed_topic_batch("seed-au-def", TOPICS)
     ok = sum(1 for v in result.values() if v)
-    print(f"\n=== seed_defence_au.py complete: {ok}/{len(TOPICS)} topics in place ===")
+    if DRY_RUN:
+        print(f"\n=== seed_defence_au.py dry run: {ok}/{len(TOPICS)} already present, "
+              f"{len(TOPICS) - ok} to create — nothing written ===")
+    else:
+        print(f"\n=== seed_defence_au.py complete: {ok}/{len(TOPICS)} topics in place ===")
 
 
 if __name__ == "__main__":

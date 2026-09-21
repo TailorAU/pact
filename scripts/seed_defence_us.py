@@ -9,7 +9,7 @@ minerals provisions and Buy American.
 
 No admin secret required. Idempotent.
 """
-from _defence_seed_helpers import seed_topic_batch  # noqa: E402
+from _defence_seed_helpers import DRY_RUN, seed_topic_batch  # noqa: E402
 
 
 TOPICS: list[dict] = [
@@ -182,7 +182,11 @@ TOPICS: list[dict] = [
 def main() -> None:
     result = seed_topic_batch("seed-us-def", TOPICS)
     ok = sum(1 for v in result.values() if v)
-    print(f"\n=== seed_defence_us.py complete: {ok}/{len(TOPICS)} topics in place ===")
+    if DRY_RUN:
+        print(f"\n=== seed_defence_us.py dry run: {ok}/{len(TOPICS)} already present, "
+              f"{len(TOPICS) - ok} to create — nothing written ===")
+    else:
+        print(f"\n=== seed_defence_us.py complete: {ok}/{len(TOPICS)} topics in place ===")
 
 
 if __name__ == "__main__":

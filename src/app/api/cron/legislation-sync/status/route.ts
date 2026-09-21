@@ -32,17 +32,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: NO_STORE_HEADERS });
   }
 
+  // Lock first, rows second — not concurrently. The job stamps `completed_at`
+  // and only then unlocks, so a lock observed FREE at time t means every row
+  // of the run that held it was committed before t, and a row read after t
+  // sees them. Read the other way round (or in parallel, on two pool
+  // connections) the poller can see `running: false` next to a row whose
+  // `completed_at` is still NULL and call a run that finished fine "died".
+  const running = await isDetachedJobRunning(LEGISLATION_SYNC_LOCK_KEY);
   const db = await getDb();
-  const [running, latest] = await Promise.all([
-    isDetachedJobRunning(LEGISLATION_SYNC_LOCK_KEY),
-    db.execute(
-      `SELECT DISTINCT ON (jurisdiction)
-         id, jurisdiction, started_at, completed_at, docs_checked, docs_updated,
-         sections_total, errors, parser_crash_count, parser_anomaly_count, silent_zero_flag
-       FROM legislation_sync_log
-       ORDER BY jurisdiction, started_at DESC`
-    ),
-  ]);
+  const latest = await db.execute(
+    `SELECT DISTINCT ON (jurisdiction)
+       id, jurisdiction, started_at, completed_at, docs_checked, docs_updated,
+       sections_total, errors, parser_crash_count, parser_anomaly_count, silent_zero_flag
+     FROM legislation_sync_log
+     ORDER BY jurisdiction, started_at DESC`
+  );
 
   const runs = latest.rows.map(row => ({
     id: String(row.id),

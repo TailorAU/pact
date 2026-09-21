@@ -20,6 +20,10 @@
  * would strand it — mirroring `runConsensusSweep` (`CONSENSUS_SWEEP_LOCK_KEY`,
  * src/lib/db.ts, where the key registry lives).
  *
+ * `runJobInline` is the same lock around a run that completes INSIDE the
+ * caller's turn (the routes' `?wait=1`), so an inline run can never overlap
+ * a detached one, or another inline one, on any replica.
+ *
  * `isDetachedJobRunning` answers "is the lock held anywhere?" from
  * `pg_locks`, not from a jobs table: a table row would need a heartbeat and
  * a reaper to stay honest when a replica dies mid-run, whereas the session
@@ -27,20 +31,24 @@
  * as current as the thing it describes, needs no schema, and is the same
  * source of truth the trigger path consults through `pg_try_advisory_lock`.
  *
- * Nothing thrown by the job reaches a request: it is logged as
+ * Nothing thrown by a detached job reaches a request: it is logged as
  * `cron.<job>.failed` and the lock is released regardless.
  */
 import { v4 as uuid } from "uuid";
 import { getDb, getDedicatedConnection } from "./db";
 import { log } from "./logger";
 
-export interface DetachedJobSpec {
+export interface DetachedJobSpec<T = unknown> {
   /** Short job name; becomes the `cron.<name>.*` log op. */
   name: string;
   /** One-bigint advisory-lock key from the registry in src/lib/db.ts. */
   lockKey: number;
-  /** The work. Its resolved value is discarded; a throw is logged, never propagated. */
-  run: () => Promise<unknown>;
+  /**
+   * The work. Detached, its resolved value is discarded and a throw is
+   * logged, never propagated; inline, the value is handed back and a throw
+   * propagates once the lock and connection are released.
+   */
+  run: () => Promise<T>;
 }
 
 export type DetachedJobStart =
@@ -58,71 +66,120 @@ export type DetachedJobStart =
     }
   | { started: false; running: true };
 
+export type InlineJobOutcome<T> = { started: true; result: T } | { started: false; running: true };
+
+/**
+ * The slice of `pg.PoolClient` the lock protocol needs. `release(err)` is
+ * pg-pool's contract: released with an Error the client is DESTROYED, not
+ * returned to the pool.
+ */
+interface LockClient {
+  query(text: string, values?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
+  release(err?: Error): void;
+}
+
 /**
  * Try to take the job's advisory lock; on success schedule `run` to execute
  * after the current turn (so the caller's response goes out first) and
  * return immediately. When another connection — this replica or any other —
  * already holds the lock, report `running: true` and touch nothing.
  */
-export async function startDetachedJob(spec: DetachedJobSpec): Promise<DetachedJobStart> {
+export async function startDetachedJob<T>(spec: DetachedJobSpec<T>): Promise<DetachedJobStart> {
   const client = await getDedicatedConnection();
-  let acquired = false;
-  let handedOff = false;
+  if (!(await tryAdvisoryLock(spec, client))) {
+    log.info({ op: `cron.${spec.name}.skipped`, lockKey: spec.lockKey }, "detached job skipped: advisory lock held by a concurrent run");
+    client.release();
+    return { started: false, running: true };
+  }
+
+  let startedAt: string;
   try {
-    const lockResult = await client.query("SELECT pg_try_advisory_lock($1) AS acquired", [spec.lockKey]);
-    acquired = lockResult.rows[0]?.acquired === true;
-    if (!acquired) {
-      log.info({ op: `cron.${spec.name}.skipped`, lockKey: spec.lockKey }, "detached job skipped: advisory lock held by a concurrent run");
-      return { started: false, running: true };
-    }
     const nowResult = await client.query("SELECT now() AS started_at");
-    const startedAt = toIsoString(nowResult.rows[0]?.started_at) ?? new Date().toISOString();
-    const jobId = uuid();
+    startedAt = toIsoString(nowResult.rows[0]?.started_at) ?? new Date().toISOString();
+  } catch (err) {
+    // The lock WAS taken; without this it would be stranded for the
+    // replica's lifetime (or until the connection dies).
+    await releaseLockAndConnection(spec, client, null);
+    throw err;
+  }
 
-    setImmediate(() => {
-      void execute(spec, client, jobId, startedAt);
-    });
-    handedOff = true;
+  // Ownership of the connection (and the lock) passes to `execute` here.
+  const jobId = uuid();
+  setImmediate(() => {
+    void execute(spec, client, jobId, startedAt);
+  });
+  log.info({ op: `cron.${spec.name}.started`, jobId, startedAt }, "detached job started");
+  return { started: true, jobId, startedAt };
+}
 
-    log.info({ op: `cron.${spec.name}.started`, jobId, startedAt }, "detached job started");
-    return { started: true, jobId, startedAt };
+/**
+ * Run `spec.run` to completion inside the caller's turn under the job's
+ * advisory lock — the routes' `?wait=1`. Same single-flight guarantee as
+ * `startDetachedJob`, whichever path holds the lock: when it is held
+ * elsewhere the job is not run and `running: true` is reported. A throw from
+ * the job propagates to the caller after the lock and connection are
+ * released.
+ */
+export async function runJobInline<T>(spec: DetachedJobSpec<T>): Promise<InlineJobOutcome<T>> {
+  const client = await getDedicatedConnection();
+  if (!(await tryAdvisoryLock(spec, client))) {
+    log.info({ op: `cron.${spec.name}.skipped`, lockKey: spec.lockKey }, "inline job skipped: advisory lock held by a concurrent run");
+    client.release();
+    return { started: false, running: true };
+  }
+  try {
+    return { started: true, result: await spec.run() };
   } finally {
-    // Ownership of the connection (and the lock) passes to `execute` only
-    // once `setImmediate` is scheduled. Every other exit path releases here:
-    // lock busy, the lock query threw, or — the case that would otherwise
-    // strand the lock for the replica's lifetime — the lock WAS taken and a
-    // later query (`now()`) threw before the hand-off.
-    if (!handedOff) {
-      if (acquired) await releaseLock(spec, client, null);
-      client.release();
-    }
+    await releaseLockAndConnection(spec, client, null);
   }
 }
 
 /**
- * Best-effort `pg_advisory_unlock` on the connection that holds the lock.
- * A dead connection has already dropped its session locks, so a throw here
- * strands nothing; it is logged so an unlock failure on a live connection
- * is visible.
+ * `pg_try_advisory_lock` on the dedicated connection. A throw here leaves the
+ * connection's session state unknown — the server may have granted the lock
+ * before the response was lost — so the client is released WITH the error,
+ * which makes pg-pool destroy it (ending the session and any lock it holds)
+ * instead of lending it to the next borrower; the error then propagates.
  */
-async function releaseLock(
-  spec: DetachedJobSpec,
-  client: { query(text: string, values?: unknown[]): Promise<unknown> },
+async function tryAdvisoryLock(spec: Pick<DetachedJobSpec, "lockKey">, client: LockClient): Promise<boolean> {
+  try {
+    const lockResult = await client.query("SELECT pg_try_advisory_lock($1) AS acquired", [spec.lockKey]);
+    return lockResult.rows[0]?.acquired === true;
+  } catch (err) {
+    client.release(asError(err));
+    throw err;
+  }
+}
+
+/**
+ * `pg_advisory_unlock` on the connection that holds the lock, then hand the
+ * connection back to the pool. A clean unlock returns it as reusable. An
+ * unlock that throws returns it WITH the error so pg-pool destroys it rather
+ * than pooling it: if the connection is dead its session locks died with it
+ * and nothing is stranded, and if it is somehow alive it still holds the
+ * session lock, which would otherwise travel with it to the next borrower and
+ * hold `isDetachedJobRunning` true with no job running. Either way the throw
+ * is logged and never propagated.
+ */
+export async function releaseLockAndConnection(
+  spec: Pick<DetachedJobSpec, "name" | "lockKey">,
+  client: LockClient,
   jobId: string | null
 ): Promise<void> {
   try {
     await client.query("SELECT pg_advisory_unlock($1)", [spec.lockKey]);
   } catch (err) {
-    log.warn({ op: `cron.${spec.name}.unlock-failed`, jobId, err }, "advisory unlock threw; the lock dies with the connection");
+    log.warn(
+      { op: `cron.${spec.name}.unlock-failed`, jobId, err },
+      "advisory unlock threw; the connection is destroyed rather than pooled so the lock dies with it"
+    );
+    client.release(asError(err));
+    return;
   }
+  client.release();
 }
 
-async function execute(
-  spec: DetachedJobSpec,
-  client: { query(text: string, values?: unknown[]): Promise<unknown>; release(): void },
-  jobId: string,
-  startedAt: string
-): Promise<void> {
+async function execute<T>(spec: DetachedJobSpec<T>, client: LockClient, jobId: string, startedAt: string): Promise<void> {
   const t0 = Date.now();
   try {
     await spec.run();
@@ -130,15 +187,17 @@ async function execute(
   } catch (err) {
     log.error({ op: `cron.${spec.name}.failed`, jobId, startedAt, err, durationMs: Date.now() - t0 }, "detached job failed");
   } finally {
-    await releaseLock(spec, client, jobId);
-    client.release();
+    await releaseLockAndConnection(spec, client, jobId);
   }
 }
 
 /**
- * Whether the job's advisory lock is held by ANY session in the cluster.
- * A one-bigint advisory key shows in `pg_locks` as `classid` = high 32 bits,
- * `objid` = low 32 bits, `objsubid` = 1.
+ * Whether the job's advisory lock is held by ANY session in the cluster, in
+ * THIS database: advisory locks are per database and `pg_locks` lists every
+ * database's, so an unrelated database on the same server that happens to
+ * use the same key must not read as a running job. A one-bigint advisory key
+ * shows in `pg_locks` as `classid` = high 32 bits, `objid` = low 32 bits,
+ * `objsubid` = 1.
  */
 export async function isDetachedJobRunning(lockKey: number): Promise<boolean> {
   const db = await getDb();
@@ -146,6 +205,7 @@ export async function isDetachedJobRunning(lockKey: number): Promise<boolean> {
     sql: `SELECT EXISTS (
       SELECT 1 FROM pg_locks
       WHERE locktype = 'advisory' AND granted AND objsubid = 1
+        AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
         AND classid = ((?::bigint >> 32) & 4294967295)::oid
         AND objid = (?::bigint & 4294967295)::oid
     ) AS held`,
@@ -162,4 +222,9 @@ export function toIsoString(value: unknown): string | null {
     return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
   }
   return null;
+}
+
+/** pg-pool destroys a released client only when handed an Error, so a non-Error rejection is wrapped. */
+function asError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
 }

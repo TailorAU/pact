@@ -1,8 +1,9 @@
 /**
  * tailor-group#38 — GET /api/cron/legislation-sync answers 202 at once and
  * runs the sync behind the response under the advisory lock; ?wait=1 keeps
- * the synchronous 200. The detached-job helper runs for real against a
- * mocked dedicated connection so the trigger → job hand-off is exercised.
+ * the synchronous 200 under the SAME lock. The detached-job helper runs for
+ * real against a mocked dedicated connection so the trigger → job hand-off
+ * and the lock protocol on both paths are exercised.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DbClient } from "@/lib/db";
@@ -11,7 +12,7 @@ import type { SyncResult } from "@/lib/legislation-sync";
 const mockDb = { execute: vi.fn(), batch: vi.fn() };
 const mockClient = {
   query: vi.fn<(text: string, values?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>>(),
-  release: vi.fn(),
+  release: vi.fn<(err?: Error) => void>(),
 };
 
 vi.mock("@/lib/db", () => ({
@@ -70,6 +71,19 @@ function syncResult(jurisdiction: string, docsUpdated = 0): SyncResult {
 }
 
 const flushImmediates = () => new Promise<void>(resolve => setImmediate(resolve));
+
+/** Lock taken, then unlocked, then the connection went back to the pool reusable. */
+function expectLockedThenReleased() {
+  const texts = mockClient.query.mock.calls.map(([text]) => text);
+  const lockAt = texts.findIndex(t => t.includes("pg_try_advisory_lock"));
+  const unlockAt = texts.findIndex(t => t.includes("pg_advisory_unlock"));
+  expect(lockAt).toBeGreaterThan(-1);
+  expect(unlockAt).toBeGreaterThan(lockAt);
+  expect(mockClient.query).toHaveBeenCalledWith("SELECT pg_try_advisory_lock($1) AS acquired", [542502]);
+  expect(mockClient.query).toHaveBeenCalledWith("SELECT pg_advisory_unlock($1)", [542502]);
+  expect(mockClient.release).toHaveBeenCalledTimes(1);
+  expect(mockClient.release.mock.calls[0]).toEqual([]);
+}
 
 beforeEach(() => {
   vi.stubEnv("CRON_SECRET", "cron-test-secret");
@@ -146,8 +160,7 @@ describe("GET /api/cron/legislation-sync", () => {
     await flushImmediates();
     expect(runLegislationSync).toHaveBeenCalledTimes(1);
     expect(runLegislationSync).toHaveBeenCalledWith(["QLD", "CTH"]);
-    expect(mockClient.query).toHaveBeenCalledWith("SELECT pg_advisory_unlock($1)", [542502]);
-    expect(mockClient.release).toHaveBeenCalledTimes(1);
+    expectLockedThenReleased();
     expect(logInfo).toHaveBeenCalledWith(
       expect.objectContaining({ op: "cron.legislation-sync.completed" }),
       expect.any(String)
@@ -167,27 +180,55 @@ describe("GET /api/cron/legislation-sync", () => {
       expect.objectContaining({ op: "cron.legislation-sync.failed" }),
       expect.any(String)
     );
-    expect(mockClient.query).toHaveBeenCalledWith("SELECT pg_advisory_unlock($1)", [542502]);
-    expect(mockClient.release).toHaveBeenCalledTimes(1);
+    expectLockedThenReleased();
   });
 
-  it("?wait=1 keeps the synchronous 200 with results and takes no lock", async () => {
+  it("?wait=1 keeps the synchronous 200 with results and takes and releases the lock", async () => {
+    armClient(true);
+
     const response = await GET(request("?wait=1&jurisdiction=CTH"));
 
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.message).toBe("Legislation sync complete: 1 docs updated, 24 sections, 0 errors");
     expect(body.results).toHaveLength(2);
+    expect(runLegislationSync).toHaveBeenCalledTimes(1);
     expect(runLegislationSync).toHaveBeenCalledWith(["CTH"]);
-    expect(mockClient.query).not.toHaveBeenCalled();
+    // The sync ran INSIDE the lock: the lock query precedes the run, the unlock follows it.
+    const lockAt = mockClient.query.mock.invocationCallOrder[0];
+    const runAt = runLegislationSync.mock.invocationCallOrder[0];
+    const unlockAt = mockClient.query.mock.invocationCallOrder[1];
+    expect(lockAt).toBeLessThan(runAt);
+    expect(runAt).toBeLessThan(unlockAt);
+    expectLockedThenReleased();
   });
 
-  it("?wait=1 answers 500 when the synchronous sync throws", async () => {
+  it("?wait=1 answers 202 started:false and runs nothing while a sync holds the lock", async () => {
+    armClient(false);
+
+    const response = await GET(request("?wait=1&jurisdiction=CTH"));
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({
+      started: false,
+      running: true,
+      jurisdictions: ["CTH"],
+    });
+    expect(runLegislationSync).not.toHaveBeenCalled();
+    expect(mockClient.query).toHaveBeenCalledWith("SELECT pg_try_advisory_lock($1) AS acquired", [542502]);
+    expect(mockClient.query).not.toHaveBeenCalledWith(expect.stringContaining("pg_advisory_unlock"), expect.anything());
+    expect(mockClient.release).toHaveBeenCalledTimes(1);
+    expect(mockClient.release.mock.calls[0]).toEqual([]);
+  });
+
+  it("?wait=1 answers 500 when the synchronous sync throws, after releasing the lock", async () => {
+    armClient(true);
     runLegislationSync.mockRejectedValue(new Error("boom"));
 
     const response = await GET(request("?wait=1"));
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({ error: "Legislation sync failed: boom" });
+    expectLockedThenReleased();
   });
 });

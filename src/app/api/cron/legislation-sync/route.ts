@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { LEGISLATION_SYNC_LOCK_KEY } from "@/lib/db";
-import { startDetachedJob } from "@/lib/detached-jobs";
+import { runJobInline, startDetachedJob } from "@/lib/detached-jobs";
 import { DEFAULT_LEGISLATION_JURISDICTIONS, runLegislationSync } from "@/lib/legislation-sync";
 import { safeSecretEqual } from "@/lib/secret-compare";
 
@@ -19,12 +19,15 @@ import { safeSecretEqual } from "@/lib/secret-compare";
  * Query params:
  *   ?jurisdiction=CTH,QLD  — comma-separated list (default: all configured)
  *   ?wait=1                — run synchronously and answer 200 with the
- *                            results (local use and tests; takes no lock)
+ *                            results (local use and tests). Same lock: a
+ *                            wait run never overlaps a detached one.
  *
  * Responses:
  *   202 { started: true, jobId, startedAt, jurisdictions }
  *   202 { started: false, running: true, jurisdictions }  — lock already held
+ *                                                            (either mode)
  *   200 { message, results }                               — ?wait=1 only
+ *   500 { error }                                          — ?wait=1 threw
  *
  * Protected by CRON_SECRET.
  */
@@ -42,21 +45,25 @@ export async function GET(req: NextRequest) {
   const jurisdictions = jurisdictionParam
     ? jurisdictionParam.split(",").map(j => j.trim().toUpperCase())
     : undefined;
+  const targeted = jurisdictions ?? [...DEFAULT_LEGISLATION_JURISDICTIONS];
+
+  const job = {
+    name: "legislation-sync",
+    lockKey: LEGISLATION_SYNC_LOCK_KEY,
+    run: () => runLegislationSync(jurisdictions),
+  };
 
   if (req.nextUrl.searchParams.get("wait") !== "1") {
-    const start = await startDetachedJob({
-      name: "legislation-sync",
-      lockKey: LEGISLATION_SYNC_LOCK_KEY,
-      run: () => runLegislationSync(jurisdictions),
-    });
-    return NextResponse.json(
-      { ...start, jurisdictions: jurisdictions ?? [...DEFAULT_LEGISLATION_JURISDICTIONS] },
-      { status: 202 }
-    );
+    const start = await startDetachedJob(job);
+    return NextResponse.json({ ...start, jurisdictions: targeted }, { status: 202 });
   }
 
   try {
-    const results = await runLegislationSync(jurisdictions);
+    const outcome = await runJobInline(job);
+    if (!outcome.started) {
+      return NextResponse.json({ started: false, running: true, jurisdictions: targeted }, { status: 202 });
+    }
+    const results = outcome.result;
 
     const totalUpdated = results.reduce((sum, r) => sum + r.docsUpdated, 0);
     const totalSections = results.reduce((sum, r) => sum + r.sectionsTotal, 0);

@@ -127,13 +127,16 @@ releases).
   advisory lock (`LEGISLATION_SYNC_LOCK_KEY = 542502`, held on one dedicated
   pooled connection for the whole run — single flight across replicas, no
   Redis needed) and answers `202 { started, jobId, startedAt, jurisdictions }`
-  at once, or `202 { started: false, running: true }` when a run already
-  holds the lock; `?wait=1` keeps the synchronous 200. A sync that throws is
-  logged as `cron.legislation-sync.failed` and releases the lock. New
-  `GET /api/cron/legislation-sync/status` reports `running` (the lock, read
-  from `pg_locks`) and the latest `legislation_sync_log` row per jurisdiction;
-  `cron.yml` polls it every 30 s until every targeted jurisdiction's row is
-  newer than the trigger and completed, printing one summary line each. The
+  at once, or `202 { started: false, running: true, jurisdictions }` when a
+  run already holds the lock; `?wait=1` keeps the synchronous 200 under the
+  same lock, so it answers that 202 too while a run holds it. A sync that
+  throws is logged as `cron.legislation-sync.failed` and releases the lock.
+  New `GET /api/cron/legislation-sync/status` reports `running` (the lock,
+  read from `pg_locks`) and the latest `legislation_sync_log` row per
+  jurisdiction; `cron.yml` polls it every 30 s, to a 27-minute wall-clock
+  deadline, until every targeted jurisdiction's row is at least as new as
+  the trigger and completed, printing one summary line each, and fails at
+  the first poll that finds the lock released without such a row. The
   helper (`src/lib/detached-jobs.ts`) is generic so the other long jobs can
   follow. Unit suites for the helper and both routes.
 - **`GET /api/cron/auto-merge` names its failure** (tailor-group#9). The

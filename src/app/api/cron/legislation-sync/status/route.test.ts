@@ -105,6 +105,13 @@ describe("GET /api/cron/legislation-sync/status", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store, max-age=0");
+    // The lock is probed BEFORE the rows are read, and the read waits for the
+    // probe: a lock seen free guarantees the rows read next carry the run's
+    // completed_at (the job commits, then unlocks).
+    expect(mockDb.execute).toHaveBeenCalledTimes(2);
+    const sqlOf = (stmt: string | { sql: string }) => (typeof stmt === "string" ? stmt : stmt.sql);
+    expect(sqlOf(mockDb.execute.mock.calls[0][0])).toContain("pg_locks");
+    expect(sqlOf(mockDb.execute.mock.calls[1][0])).toContain("legislation_sync_log");
     await expect(response.json()).resolves.toEqual({
       running: true,
       runs: [
@@ -136,6 +143,27 @@ describe("GET /api/cron/legislation-sync/status", () => {
         },
       ],
     });
+  });
+
+  it("does not read the sync log until the lock probe has answered", async () => {
+    let answerProbe!: (held: boolean) => void;
+    mockDb.execute.mockImplementation(async (stmt) => {
+      const sql = typeof stmt === "string" ? stmt : stmt.sql;
+      if (sql.includes("pg_locks")) {
+        return new Promise(resolve => { answerProbe = (held) => resolve({ rows: [{ held }] }); });
+      }
+      if (sql.includes("legislation_sync_log")) return { rows: [] };
+      throw new Error(`unexpected sql: ${sql}`);
+    });
+
+    const pending = GET(request());
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(mockDb.execute).toHaveBeenCalledTimes(1); // the probe is in flight; no row read yet
+
+    answerProbe(false);
+    const response = await pending;
+    expect(mockDb.execute).toHaveBeenCalledTimes(2);
+    await expect(response.json()).resolves.toEqual({ running: false, runs: [] });
   });
 
   it("reports running:false and an empty runs list on a fresh database", async () => {

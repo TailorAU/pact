@@ -27,7 +27,8 @@ releases).
   `cron-source.yml` re-homed here job for job — cleanup, yield, staleness,
   legislation-sync, spatial-snapshot, gtfs-sync, fiscal-sync, auto-merge and
   the manual read-only `auth-check` — against `https://pact.tailor.au` with
-  this repository's `CRON_SECRET` (the same secret `cd-kg.yml` deploys).
+  the `prod` environment's `CRON_SECRET` (the same secret `cd-kg.yml`
+  deploys; every job declares `environment: prod` to read it).
   Inert as a schedule until the default branch carries it; every job is
   dispatchable on `rehome-review` today (a `push` trigger on the file's own
   path gives GitHub the first run it needs to list the workflow — `gh workflow

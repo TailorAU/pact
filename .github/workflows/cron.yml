@@ -4,9 +4,13 @@ name: "Cron — PACT Knowledge Graph Maintenance"
 #
 # Re-homed from tailor-app's cron-source.yml, which tailor-app#5954 retired
 # together with its secrets when the KG moved here (tailor-group#9). Same
-# jobs, same cadence. The bearer is this repository's CRON_SECRET — the same
-# secret cd-kg.yml deploys into the pact-web container app, so the credential
-# has exactly one source.
+# jobs, same cadence. The bearer is the `prod` environment's CRON_SECRET —
+# the same secret cd-kg.yml's build-and-deploy job (environment: prod)
+# deploys into the pact-web container app, so the credential has exactly one
+# source. Every job below declares that environment for the same reason: an
+# environment secret is empty in a job that does not, which is how the first
+# auth-check run answered 401 (tailor-group#9). `prod` has no required
+# reviewers, so scheduled runs never wait on anyone.
 #
 # GitHub runs `schedule` triggers from the DEFAULT branch only. The KG deploys
 # from `rehome-review` until tailor-group#7 step 3 promotes it, so until then
@@ -80,6 +84,7 @@ jobs:
   auth-check:
     name: Cron Authentication Check (manual, read-only)
     runs-on: ubuntu-latest
+    environment: prod
     if: github.event_name == 'workflow_dispatch' && inputs.job == 'auth-check'
     steps:
       - name: Verify deployed cron authentication
@@ -109,6 +114,7 @@ jobs:
   cleanup:
     name: Cleanup (daily 3am UTC)
     runs-on: ubuntu-latest
+    environment: prod
     if: >-
       github.event.schedule == '0 3 * * *' ||
       github.event_name == 'workflow_dispatch' && (inputs.job == 'cleanup' || inputs.job == 'all')
@@ -127,6 +133,7 @@ jobs:
   yield:
     name: Yield Distribution (Sunday 4am UTC)
     runs-on: ubuntu-latest
+    environment: prod
     if: >-
       github.event.schedule == '0 4 * * 0' ||
       github.event_name == 'workflow_dispatch' && (inputs.job == 'yield' || inputs.job == 'all')
@@ -145,6 +152,7 @@ jobs:
   staleness:
     name: Staleness Check (daily 5am UTC)
     runs-on: ubuntu-latest
+    environment: prod
     if: >-
       github.event.schedule == '0 5 * * *' ||
       github.event_name == 'workflow_dispatch' && (inputs.job == 'staleness' || inputs.job == 'all')
@@ -163,6 +171,7 @@ jobs:
   legislation-sync:
     name: Legislation Sync (Sunday 6am UTC)
     runs-on: ubuntu-latest
+    environment: prod
     timeout-minutes: 30
     if: >-
       github.event.schedule == '0 6 * * 0' ||
@@ -182,6 +191,7 @@ jobs:
   spatial-snapshot:
     name: Logan ArcGIS Spatial Snapshot (daily 2am UTC) — Refs #874
     runs-on: ubuntu-latest
+    environment: prod
     timeout-minutes: 30
     if: >-
       github.event.schedule == '0 2 * * *' ||
@@ -212,6 +222,7 @@ jobs:
   gtfs-sync:
     name: Translink SEQ GTFS Sync (Monday 17:00 UTC = 3am AEST Tuesday) — Refs #875
     runs-on: ubuntu-latest
+    environment: prod
     timeout-minutes: 30
     if: >-
       github.event.schedule == '0 17 * * 1' ||
@@ -231,6 +242,7 @@ jobs:
   auto-merge:
     name: Consensus Sweep (every 30 min) — Refs #5425
     runs-on: ubuntu-latest
+    environment: prod
     if: >-
       github.event.schedule == '*/30 * * * *' ||
       github.event_name == 'workflow_dispatch' && (inputs.job == 'auto-merge' || inputs.job == 'all')
@@ -249,6 +261,7 @@ jobs:
   fiscal-sync:
     name: QLD Fiscal Reconstruction (daily 18:00 UTC = 4am AEST) — Refs #3053
     runs-on: ubuntu-latest
+    environment: prod
     timeout-minutes: 30
     if: >-
       github.event.schedule == '0 18 * * *' ||

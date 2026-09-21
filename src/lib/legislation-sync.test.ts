@@ -16,7 +16,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DbClient, DbResult } from "./db";
-import type { SyncResult } from "./legislation-sync";
+import type { LegislationDoc, SyncResult } from "./legislation-sync";
 
 type MockDb = {
   execute: ReturnType<
@@ -210,5 +210,94 @@ describe("runLegislationSync — silent-zero alarm", () => {
     // this case via "no completed sync recently" instead.
     expect(update!.args[4]).toBe(false);
     expect(findSilentZeroLog()).toBeUndefined();
+  });
+});
+
+describe("ingestDocuments — per-document isolation (tailor-group#37)", () => {
+  function doc(id: string, sections: LegislationDoc["sections"]): LegislationDoc {
+    return { id, jurisdiction: "CTH", type: "act", title: `${id} (Cth)`, sections };
+  }
+
+  it("writes the valid documents together and reports the invalid one with its first issue", async () => {
+    const batch = vi.fn<(statements: { sql: string; args: unknown[] }[]) => Promise<void>>(async () => undefined);
+    const db = { execute: vi.fn(async () => ({ rows: [] })), batch } as unknown as DbClient;
+    const { ingestDocuments } = await import("./legislation-sync");
+
+    const outcome = await ingestDocuments(db, [
+      doc("cth/act-2026-081", [{ sectionId: "s 1", content: "Short title text", order: 0 }]),
+      doc("cth/act-2026-082", [
+        { sectionId: "s 1", content: "Short title text", order: 0 },
+        { sectionId: "s 308", content: "First amendment", order: 1 },
+        { sectionId: "s 308", content: "Second amendment", order: 2 },
+      ]),
+      doc("cth/act-2026-083", [
+        { sectionId: "s 1", content: "Short title text", order: 0 },
+        { sectionId: "s 2", content: "Commencement text", order: 1 },
+      ]),
+    ]);
+
+    expect(outcome.ingested).toBe(2);
+    expect(outcome.sectionsTotal).toBe(3);
+    expect(outcome.rejected).toEqual([{
+      id: "cth/act-2026-082",
+      path: "documents[0].sections[2].sectionId",
+      message: "must be unique within the document",
+    }]);
+
+    expect(batch).toHaveBeenCalledTimes(1);
+    const statements = batch.mock.calls[0][0];
+    const upserts = statements.filter((s) => s.sql.includes("INSERT INTO legislation_docs"));
+    expect(upserts.map((s) => s.args[0])).toEqual(["cth/act-2026-081", "cth/act-2026-083"]);
+    const touched = new Set(statements.map((s) => s.args[s.sql.includes("INSERT INTO legislation_sections") ? 1 : 0]));
+    expect(touched).toEqual(new Set(["cth/act-2026-081", "cth/act-2026-083"]));
+  });
+
+  it("writes nothing when every document is invalid, without throwing", async () => {
+    const batch = vi.fn(async () => undefined);
+    const db = { execute: vi.fn(async () => ({ rows: [] })), batch } as unknown as DbClient;
+    const { ingestDocuments } = await import("./legislation-sync");
+
+    const outcome = await ingestDocuments(db, [doc("cth/act-2026-082", [])]);
+
+    expect(outcome).toEqual({
+      ingested: 0,
+      sectionsTotal: 0,
+      rejected: [{ id: "cth/act-2026-082", path: "documents[0].sections", message: "must be a non-empty array" }],
+    });
+    expect(batch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a repeated document id within one batch instead of double-writing it", async () => {
+    const batch = vi.fn(async () => undefined);
+    const db = { execute: vi.fn(async () => ({ rows: [] })), batch } as unknown as DbClient;
+    const { ingestDocuments } = await import("./legislation-sync");
+
+    const outcome = await ingestDocuments(db, [
+      doc("cth/act-2026-081", [{ sectionId: "s 1", content: "Short title text" }]),
+      doc(" cth/act-2026-081 ", [{ sectionId: "s 1", content: "Short title text" }]),
+    ]);
+
+    expect(outcome.ingested).toBe(1);
+    expect(outcome.rejected).toEqual([{ id: "cth/act-2026-081", path: "id", message: "must be unique within the request" }]);
+  });
+
+  it("folds an outcome into the SyncResult: written docs only, one anomaly per rejection", async () => {
+    const { recordIngestOutcome } = await import("./legislation-sync");
+    const result: SyncResult = {
+      jurisdiction: "CTH", docsChecked: 5, docsUpdated: 1, sectionsTotal: 4, errors: ["earlier"],
+      parserVersion: "cth-parser@2.2.0", parserAnomalyCount: 1, parserCrashCount: 0,
+    };
+    recordIngestOutcome(result, {
+      ingested: 2,
+      sectionsTotal: 30,
+      rejected: [{ id: "cth/act-2026-082", path: "documents[0].sections[5].sectionId", message: "must be unique within the document" }],
+    });
+    expect(result).toMatchObject({
+      docsUpdated: 3,
+      sectionsTotal: 34,
+      parserAnomalyCount: 2,
+      parserCrashCount: 0,
+      errors: ["earlier", "Rejected cth/act-2026-082: documents[0].sections[5].sectionId must be unique within the document"],
+    });
   });
 });

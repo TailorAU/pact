@@ -117,6 +117,24 @@ releases).
 
 ### Fixed
 
+- **The weekly CTH legislation sync never wrote a document** (tailor-group#37).
+  After tailor-group#7 the parser reached the Acts (10 checked, 0 anomalies)
+  and then every ingest batch failed with "Legislation payload validation
+  failed": an amending Act's schedule amends one section of the principal Act
+  several times (s 308 five times in `cth/act-2026-082`), `parseActHtml`
+  emits one section per heading, and `normalizeLegislationDocuments` rejects
+  repeated section ids — for the whole five-document batch, in one
+  transaction. Newest-first paging makes amending Acts the majority of every
+  batch, so the live graph had CTH = 0. Two changes: both parsers now pass
+  their sections through one shared `uniqueSectionIds` rule (first
+  occurrence unchanged, later ones `s 308 [2]`, `s 308 [3]`, …; nothing
+  dropped, order kept), and `ingestDocuments` validates each document on
+  its own, writes the valid ones together and returns the rejected ones,
+  which the sync records as `Rejected <id>: <path> <message>` and counts as
+  parser anomalies; `docsUpdated` now counts only documents actually
+  written. Stamps `cth-parser@2.2.0` / `qld-parser@1.6.0`. Verified live on
+  21 Sep 2026 with `CTH_SYNC_MAX_ACTS=3` (the ceiling rounds up to one page
+  of 10): docsChecked 10, docsUpdated 10, 147 sections, no errors.
 - **`GET /api/cron/auto-merge` names its failure** (tailor-group#9). The
   scheduled caller saw bare HTTP 500s every 30 minutes on 17–18 Sep with no
   log line saying which phase threw. The route now catches the sweep's error,

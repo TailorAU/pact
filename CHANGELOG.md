@@ -140,7 +140,12 @@ releases).
   throwing, the finalizer throws itself when its one document was not
   written, so the savepoint catch opens the topic for debate as before and
   a rejected proposal is never promoted to 'consensus' or reported as
-  `pact.legislation.ingested`.
+  `pact.legislation.ingested`. A suffixed id is a storage key, not a
+  pinpoint: `isCitableSectionId` now rejects a trailing ` [n]`, so
+  `GET /api/axiom/legislation/search` serves `s 308 [2]` as
+  `sectionKind: "extract"` with the document-level `sourceRef` instead of
+  `"<Act> s 308 [2]"`; the bare `s 308` stays a pinpoint. `syncQld` is
+  pinned by a new test in the same shape as the `syncCth` one.
 - **`GET /api/cron/auto-merge` names its failure** (tailor-group#9). The
   scheduled caller saw bare HTTP 500s every 30 minutes on 17–18 Sep with no
   log line saying which phase threw. The route now catches the sweep's error,

@@ -33,6 +33,15 @@
 //     App Insights, and Source's existing `log.*` calls continue working
 //     unchanged.
 //
+// Consensus heartbeat (tailor-group#9): after the tracing decision, and
+// independent of it, `register()` starts the engine's in-process heartbeat
+// (`src/lib/consensus-heartbeat.ts`). Nothing external schedules the
+// consensus sweep while the KG deploys from `rehome-review` — GitHub cron
+// schedules fire from the default branch only — so the server ticks
+// `runConsensusSweep` itself every CONSENSUS_SWEEP_INTERVAL_MINUTES
+// (default 30). It starts only when DATABASE_URL is set and can be switched
+// off with CONSENSUS_SWEEP_INTERVAL_MINUTES=0.
+//
 // `runtime` guard: Next 16 may invoke `register()` from both Node.js and Edge
 // runtimes (e.g. middleware preview compilations). The Azure Monitor exporter
 // requires Node.js APIs and will not run on Edge, so we early-return when
@@ -48,6 +57,11 @@ export async function register(): Promise<void> {
     return;
   }
 
+  await registerTracing();
+  await startHeartbeat();
+}
+
+async function registerTracing(): Promise<void> {
   const connectionString = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING;
   if (!connectionString) {
     // Forward-compatible no-op. Structured-JSON logging on stdout is still
@@ -75,4 +89,24 @@ export async function register(): Promise<void> {
     },
     traceExporter: new AzureMonitorTraceExporter({ connectionString }),
   });
+}
+
+// tailor-group#9 — the engine's own clock. Dynamic import for the same
+// reason as above: `@/lib/db` (pg) must stay out of the Edge bundle, and the
+// `NEXT_RUNTIME` guard in `register()` has already ruled Edge out here. A
+// failure to start is logged, never thrown: a broken heartbeat must not take
+// the request path down with it.
+async function startHeartbeat(): Promise<void> {
+  try {
+    const { startConsensusHeartbeatFromEnv } = await import(
+      "@/lib/consensus-heartbeat"
+    );
+    await startConsensusHeartbeatFromEnv();
+  } catch (err) {
+    const { log } = await import("@/lib/logger");
+    log.error(
+      { op: "consensus.heartbeat.start-failed", err },
+      "consensus heartbeat failed to start; the request path is unaffected"
+    );
+  }
 }

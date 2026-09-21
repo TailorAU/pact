@@ -1,0 +1,257 @@
+name: "Cron — PACT Knowledge Graph Maintenance"
+
+# Scheduled maintenance for the knowledge graph at pact.tailor.au.
+#
+# Re-homed from tailor-app's cron-source.yml, which tailor-app#5954 retired
+# together with its secrets when the KG moved here (tailor-group#9). Same
+# jobs, same cadence. The bearer is this repository's CRON_SECRET — the same
+# secret cd-kg.yml deploys into the pact-web container app, so the credential
+# has exactly one source.
+#
+# GitHub runs `schedule` triggers from the DEFAULT branch only. The KG deploys
+# from `rehome-review` until tailor-group#7 step 3 promotes it, so until then
+# the schedules below are inert and every job is reachable by hand:
+#
+#   gh workflow run cron.yml --repo TailorAU/pact --ref rehome-review -f job=auth-check
+#
+# The consensus sweep does not wait for promotion: the server runs its own
+# in-process heartbeat (src/lib/consensus-heartbeat.ts) on the same engine
+# entry point, under the same Postgres advisory lock. Nothing here changes at
+# promotion.
+
+on:
+  schedule:
+    # Cleanup: daily at 3am UTC
+    - cron: "0 3 * * *"
+    # Yield distribution: Sunday at 4am UTC
+    - cron: "0 4 * * 0"
+    # Staleness check: daily at 5am UTC
+    - cron: "0 5 * * *"
+    # Legislation sync: Sunday at 6am UTC (4pm AEST)
+    - cron: "0 6 * * 0"
+    # Logan ArcGIS spatial snapshot: daily at 2am UTC (#874)
+    - cron: "0 2 * * *"
+    # Translink SEQ GTFS sync: Monday at 17:00 UTC (3am AEST Tuesday) (#875)
+    - cron: "0 17 * * 1"
+    # QLD fiscal reconstruction: daily at 18:00 UTC (4am AEST) (#3053)
+    - cron: "0 18 * * *"
+    # Consensus sweep (Silence=Consent auto-merge + topic approve/reject
+    # evaluation): every 30 minutes (#5425 — the engine does not run on GET
+    # traffic; the route holds a Postgres advisory lock so overlapping runs,
+    # including the in-process heartbeat's, skip rather than double-run)
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which cron job to run"
+        required: true
+        type: choice
+        options:
+          - auth-check
+          - cleanup
+          - yield
+          - staleness
+          - legislation-sync
+          - spatial-snapshot
+          - gtfs-sync
+          - fiscal-sync
+          - auto-merge
+          - all
+
+permissions:
+  contents: read
+
+env:
+  # The ONLY base. Never "fix" a redirect here by adding `-L` to a curl: that
+  # would forward the `Authorization: Bearer` cron secret to whatever host
+  # the redirect names (tailor-app#5582). Pin the correct host instead.
+  PACT_URL: https://pact.tailor.au
+
+jobs:
+  auth-check:
+    name: Cron Authentication Check (manual, read-only)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.job == 'auth-check'
+    steps:
+      - name: Verify deployed cron authentication
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          RESPONSE_FILE="$RUNNER_TEMP/pact-cron-auth-check.json"
+          trap 'rm -f "$RESPONSE_FILE"' EXIT
+          STATUS=$(curl --silent --show-error \
+            --connect-timeout 10 --max-time 30 --max-redirs 0 \
+            --proto '=https' --tlsv1.2 \
+            --output "$RESPONSE_FILE" --write-out '%{http_code}' \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            "${{ env.PACT_URL }}/api/cron/auth-check")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Cron authentication check failed with status $STATUS"
+            exit 1
+          fi
+          if ! jq --exit-status \
+            'type == "object" and length == 1 and .status == "ok"' \
+            "$RESPONSE_FILE" > /dev/null; then
+            echo "::error::Cron authentication check returned an invalid response"
+            exit 1
+          fi
+
+  cleanup:
+    name: Cleanup (daily 3am UTC)
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.schedule == '0 3 * * *' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'cleanup' || inputs.job == 'all')
+    steps:
+      - name: Run cleanup cron
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 300 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.PACT_URL }}/api/cron/cleanup")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Cleanup cron failed with status $STATUS"
+            exit 1
+          fi
+
+  yield:
+    name: Yield Distribution (Sunday 4am UTC)
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.schedule == '0 4 * * 0' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'yield' || inputs.job == 'all')
+    steps:
+      - name: Run yield cron
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 300 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.PACT_URL }}/api/cron/yield")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Yield cron failed with status $STATUS"
+            exit 1
+          fi
+
+  staleness:
+    name: Staleness Check (daily 5am UTC)
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.schedule == '0 5 * * *' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'staleness' || inputs.job == 'all')
+    steps:
+      - name: Run staleness cron
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 300 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.PACT_URL }}/api/cron/staleness")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Staleness cron failed with status $STATUS"
+            exit 1
+          fi
+
+  legislation-sync:
+    name: Legislation Sync (Sunday 6am UTC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >-
+      github.event.schedule == '0 6 * * 0' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'legislation-sync' || inputs.job == 'all')
+    steps:
+      - name: Run legislation sync cron
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 600 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.PACT_URL }}/api/cron/legislation-sync")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Legislation sync failed with status $STATUS"
+            exit 1
+          fi
+
+  spatial-snapshot:
+    name: Logan ArcGIS Spatial Snapshot (daily 2am UTC) — Refs #874
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >-
+      github.event.schedule == '0 2 * * *' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'spatial-snapshot' || inputs.job == 'all')
+    steps:
+      - name: Run spatial snapshot cron
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 900 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.PACT_URL }}/api/cron/spatial-snapshot")
+          echo "HTTP Status: $STATUS"
+          # Distinguish "we are unreachable" from "ArcGIS throttled a layer".
+          # A transport failure, a redirect, or a 4xx is OUR endpoint being
+          # wrong (tailor-app#5582). Upstream 5xx stays non-fatal, which is
+          # what the tolerance was always for.
+          if [ "$STATUS" = "000" ]; then
+            echo "::error::Spatial snapshot could not connect to our own endpoint."
+            exit 1
+          fi
+          if [ "$STATUS" -ge 300 ] && [ "$STATUS" -lt 500 ]; then
+            echo "::error::Spatial snapshot got $STATUS from our own endpoint — a redirect or client error, not an ArcGIS throttle."
+            exit 1
+          fi
+          if [ "$STATUS" != "200" ]; then
+            echo "::warning::Spatial snapshot returned $STATUS — layer errors are non-fatal (ArcGIS may throttle). Check logs."
+          fi
+
+  gtfs-sync:
+    name: Translink SEQ GTFS Sync (Monday 17:00 UTC = 3am AEST Tuesday) — Refs #875
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >-
+      github.event.schedule == '0 17 * * 1' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'gtfs-sync' || inputs.job == 'all')
+    steps:
+      - name: Run GTFS sync cron
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 1200 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.PACT_URL }}/api/cron/gtfs-sync")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::GTFS sync failed with status $STATUS"
+            exit 1
+          fi
+
+  auto-merge:
+    name: Consensus Sweep (every 30 min) — Refs #5425
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.schedule == '*/30 * * * *' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'auto-merge' || inputs.job == 'all')
+    steps:
+      - name: Run consensus sweep cron
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 300 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.PACT_URL }}/api/cron/auto-merge")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Consensus sweep failed with status $STATUS"
+            exit 1
+          fi
+
+  fiscal-sync:
+    name: QLD Fiscal Reconstruction (daily 18:00 UTC = 4am AEST) — Refs #3053
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >-
+      github.event.schedule == '0 18 * * *' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'fiscal-sync' || inputs.job == 'all')
+    steps:
+      - name: Run fiscal sync cron
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 900 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.PACT_URL }}/api/cron/fiscal-sync")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Fiscal sync failed with status $STATUS"
+            exit 1
+          fi

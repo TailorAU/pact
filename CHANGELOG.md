@@ -29,8 +29,9 @@ releases).
   the manual read-only `auth-check` — against `https://pact.tailor.au` with
   this repository's `CRON_SECRET` (the same secret `cd-kg.yml` deploys).
   Inert as a schedule until the default branch carries it; every job is
-  dispatchable on `rehome-review` today. `docs/CRON_INVENTORY.md` rewritten
-  to match.
+  dispatchable on `rehome-review` today (a `push` trigger on the file's own
+  path gives GitHub the first run it needs to list the workflow — `gh workflow
+  run` answered 404 before it). `docs/CRON_INVENTORY.md` rewritten to match.
 - **PACT v2.3 §6.4 provenance chain over the PACT operation log** (#5566).
   Every event written through `emitEvent` now carries a per-resource gapless
   `sequence_number`, a `prev_hash` linking it to the previous event's hash,

@@ -14,12 +14,21 @@ name: "Cron — PACT Knowledge Graph Maintenance"
 #
 #   gh workflow run cron.yml --repo TailorAU/pact --ref rehome-review -f job=auth-check
 #
+# GitHub only lists (and only dispatches) a workflow that has run at least
+# once, or that lives on the default branch — a schedule + dispatch file on
+# rehome-review alone never gets that first run and `workflow run` answers
+# 404. The `push` trigger below, limited to this file's own path, is that
+# first run: every job's `if:` ignores a push, so the run does nothing but
+# register the workflow. Drop it at promotion or leave it; it is harmless.
+#
 # The consensus sweep does not wait for promotion: the server runs its own
 # in-process heartbeat (src/lib/consensus-heartbeat.ts) on the same engine
-# entry point, under the same Postgres advisory lock. Nothing here changes at
-# promotion.
+# entry point, under the same Postgres advisory lock.
 
 on:
+  push:
+    branches: [rehome-review]
+    paths: [".github/workflows/cron.yml"]
   schedule:
     # Cleanup: daily at 3am UTC
     - cron: "0 3 * * *"

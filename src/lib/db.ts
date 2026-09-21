@@ -1469,7 +1469,28 @@ export async function autoMergeExpired(db: DbClient, sweepOptions: ConsensusSwee
 // #5425 — Postgres advisory-lock key for the consensus sweep. Arbitrary
 // app-unique constant; only this code path uses it. Session-level lock,
 // acquired and released on the SAME pooled connection (see below).
+//
+// Registry of one-bigint advisory keys (tailor-group#38). Every detached
+// cron job takes its own key through `startDetachedJob` in
+// src/lib/detached-jobs.ts, on a dedicated connection from
+// `getDedicatedConnection`. Pick the next unused number here; never reuse
+// one, and never collide with the §6.4 chain's two-int4 space.
+//
+//   542501  consensus sweep (`runConsensusSweep`, below)
+//   542502  legislation sync (`GET /api/cron/legislation-sync`)
 export const CONSENSUS_SWEEP_LOCK_KEY = 542501;
+export const LEGISLATION_SYNC_LOCK_KEY = 542502;
+
+/**
+ * tailor-group#38 — check out ONE dedicated pooled connection for a caller
+ * that needs session-level state (an advisory lock held across a whole
+ * background run). The caller MUST `release()` it. Runs `getDb()` first so
+ * the schema is initialised through the normal path, as the sweep does.
+ */
+export async function getDedicatedConnection(): Promise<pg.PoolClient> {
+  await getDb();
+  return getPool().connect();
+}
 
 /**
  * #5425 — the ONLY production entry point to the consensus engine.

@@ -117,6 +117,25 @@ releases).
 
 ### Fixed
 
+- **`GET /api/cron/legislation-sync` no longer dies in the proxy**
+  (tailor-group#38). `pact.tailor.au` is served by the tailor-app frontend,
+  which proxies every path to `pact-web` through a Next.js rewrite with a
+  30 s `proxyTimeout`; the synchronous sync took 31 s at `CTH_SYNC_MAX_ACTS=3`
+  and minutes at the default, so every scheduled run ended as a bare
+  `500 Internal Server Error` with no application headers while the work
+  ran on unobserved. The route now starts the sync detached under a Postgres
+  advisory lock (`LEGISLATION_SYNC_LOCK_KEY = 542502`, held on one dedicated
+  pooled connection for the whole run — single flight across replicas, no
+  Redis needed) and answers `202 { started, jobId, startedAt, jurisdictions }`
+  at once, or `202 { started: false, running: true }` when a run already
+  holds the lock; `?wait=1` keeps the synchronous 200. A sync that throws is
+  logged as `cron.legislation-sync.failed` and releases the lock. New
+  `GET /api/cron/legislation-sync/status` reports `running` (the lock, read
+  from `pg_locks`) and the latest `legislation_sync_log` row per jurisdiction;
+  `cron.yml` polls it every 30 s until every targeted jurisdiction's row is
+  newer than the trigger and completed, printing one summary line each. The
+  helper (`src/lib/detached-jobs.ts`) is generic so the other long jobs can
+  follow. Unit suites for the helper and both routes.
 - **`GET /api/cron/auto-merge` names its failure** (tailor-group#9). The
   scheduled caller saw bare HTTP 500s every 30 minutes on 17–18 Sep with no
   log line saying which phase threw. The route now catches the sweep's error,

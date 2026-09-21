@@ -49,7 +49,7 @@ Single workflow, multiple jobs dispatched by schedule. Every job calls
 | **cleanup** | `0 3 * * *` | 1:00 pm daily | Latch + purge unchained pre-#5566 events past retention (#5598), prune resolved proposals and stale registrations older than 90 days, drop spent invite tokens, run the consensus sweep, classify claim atomicity (#3691 W6) | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml` |
 | **yield** | `0 4 * * 0` | 2:00 pm Sunday | Distribute Axiom Yield revenue pro-rata to contributing agent wallets | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml` |
 | **staleness** | `0 5 * * *` | 3:00 pm daily | Mark legislation documents as stale when `last_synced` > threshold; sets `is_stale` consumed by `/api/admin/freshness` (#1401 Round B) | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml` |
-| **legislation-sync** | `0 6 * * 0` | 4:00 pm Sunday | Full legislation re-sync from AU government sources (CTH, QLD) into `legislation_sections`. CTH filter + extractor fixed by #69. Runs with `timeout-minutes: 30` | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml` |
+| **legislation-sync** | `0 6 * * 0` | 4:00 pm Sunday | Full legislation re-sync from AU government sources (CTH, QLD) into `legislation_sections`. CTH filter + extractor fixed by #69. The route answers **202** at once and runs the sync detached under a Postgres advisory lock (`LEGISLATION_SYNC_LOCK_KEY`, single flight across replicas; `?wait=1` keeps the synchronous 200 for local use); the job then polls `GET /api/cron/legislation-sync/status` every 30 s until `running` is false and every targeted jurisdiction's latest `legislation_sync_log` row is newer than the trigger and completed, printing one summary line per jurisdiction (tailor-group#38). Runs with `timeout-minutes: 30`; polling budget 27 min | KG platform | GitHub Actions job failure → workflow summary email; a sync that throws is a `cron.legislation-sync.failed` log line | `gh run list --repo TailorAU/pact --workflow cron.yml`; `GET /api/cron/legislation-sync/status` with the bearer |
 | **spatial-snapshot** | `0 2 * * *` | 12:00 pm daily | Logan City ArcGIS REST API snapshot — fetches planning layers into `spatial_features` (#874). Our own transport/3xx/4xx failures are fatal; an upstream ArcGIS 5xx is a warning | KG platform | `::warning::` annotation in Actions for upstream 5xx; job failure otherwise | `gh run list --repo TailorAU/pact --workflow cron.yml` |
 | **gtfs-sync** | `0 17 * * 1` | 3:00 am Tuesday | Translink SEQ GTFS static feed into `transit_stops`, `transit_routes`, `transit_trips`, `transit_stop_times` (#875). Weekly cadence matches GTFS feed publication | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml` |
 | **fiscal-sync** | `0 18 * * *` | 4:00 am daily | Reconstruct QLD fiscal source data. Runs with `timeout-minutes: 30` (#3053) | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml` |
@@ -130,7 +130,12 @@ No centralised dashboard exists yet. Current monitoring surface:
 3. **Heartbeat** — container console logs in Log Analytics
    (`ContainerAppConsoleLogs_CL`), `op` starting `consensus.heartbeat.`; a
    route-level sweep failure is `cron.auto-merge.failed`.
-4. **Future** — once App Insights is wired, cron and heartbeat success/failure
+4. **Detached jobs** (tailor-group#38) — `op` = `cron.<job>.started` /
+   `.completed` / `.failed` / `.skipped` with a `jobId`;
+   `GET /api/cron/<job>/status` (bearer) reports whether the job's advisory
+   lock is held anywhere in the cluster plus its latest log rows. Today:
+   `legislation-sync`.
+5. **Future** — once App Insights is wired, cron and heartbeat success/failure
    become custom metrics with alert rules for consecutive failures.
 
 ---

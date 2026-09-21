@@ -1,0 +1,169 @@
+/**
+ * tailor-group#38 — the detached-job helper: single flight via a Postgres
+ * advisory lock on ONE dedicated connection, work scheduled behind the
+ * caller's response, failures logged and never thrown, lock always released.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DbClient, DbResult } from "./db";
+
+type MockDb = {
+  execute: ReturnType<
+    typeof vi.fn<(stmt: string | { sql: string; args: unknown[] }) => Promise<DbResult>>
+  >;
+  batch: ReturnType<typeof vi.fn>;
+};
+
+const mockDb: MockDb = { execute: vi.fn(), batch: vi.fn() };
+const mockClient = {
+  query: vi.fn<(text: string, values?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>>(),
+  release: vi.fn(),
+};
+
+vi.mock("./db", () => ({
+  getDb: async () => mockDb as unknown as DbClient,
+  getDedicatedConnection: async () => mockClient,
+}));
+
+const logInfo = vi.fn();
+const logWarn = vi.fn();
+const logError = vi.fn();
+vi.mock("./logger", () => ({
+  log: {
+    info: (...args: unknown[]) => logInfo(...args),
+    warn: (...args: unknown[]) => logWarn(...args),
+    error: (...args: unknown[]) => logError(...args),
+  },
+}));
+
+import { isDetachedJobRunning, startDetachedJob, toIsoString } from "./detached-jobs";
+
+const STARTED = new Date("2026-09-21T06:00:00.250Z");
+
+/** Drive the dedicated connection: lock outcome, then `now()`, then unlock. */
+function armClient(acquired: boolean) {
+  mockClient.query.mockImplementation(async (text: string) => {
+    if (text.includes("pg_try_advisory_lock")) return { rows: [{ acquired }] };
+    if (text.includes("now()")) return { rows: [{ started_at: STARTED }] };
+    if (text.includes("pg_advisory_unlock")) return { rows: [{ pg_advisory_unlock: true }] };
+    throw new Error(`unexpected query: ${text}`);
+  });
+}
+
+const flushImmediates = () => new Promise<void>(resolve => setImmediate(resolve));
+
+beforeEach(() => {
+  mockDb.execute.mockReset();
+  mockClient.query.mockReset();
+  mockClient.release.mockReset();
+  logInfo.mockReset();
+  logWarn.mockReset();
+  logError.mockReset();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("startDetachedJob", () => {
+  it("reports running and runs nothing when the advisory lock is held elsewhere", async () => {
+    armClient(false);
+    const run = vi.fn(async () => undefined);
+
+    const result = await startDetachedJob({ name: "demo", lockKey: 542599, run });
+
+    expect(result).toEqual({ started: false, running: true });
+    expect(run).not.toHaveBeenCalled();
+    expect(mockClient.query).toHaveBeenCalledWith("SELECT pg_try_advisory_lock($1) AS acquired", [542599]);
+    expect(mockClient.query).not.toHaveBeenCalledWith(expect.stringContaining("pg_advisory_unlock"), expect.anything());
+    expect(mockClient.release).toHaveBeenCalledTimes(1);
+    expect(logInfo).toHaveBeenCalledWith(expect.objectContaining({ op: "cron.demo.skipped" }), expect.any(String));
+  });
+
+  it("takes the lock, answers first, then runs the job once and releases lock + connection", async () => {
+    armClient(true);
+    let resolveRun!: () => void;
+    const run = vi.fn(() => new Promise<void>(resolve => { resolveRun = resolve; }));
+
+    const result = await startDetachedJob({ name: "demo", lockKey: 542599, run });
+
+    expect(result).toEqual({ started: true, jobId: expect.any(String), startedAt: STARTED.toISOString() });
+    // The job has NOT run yet: it is scheduled behind the caller's response.
+    expect(run).not.toHaveBeenCalled();
+    expect(mockClient.release).not.toHaveBeenCalled();
+
+    await flushImmediates();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(mockClient.release).not.toHaveBeenCalled(); // still running
+
+    resolveRun();
+    await flushImmediates();
+    expect(mockClient.query).toHaveBeenCalledWith("SELECT pg_advisory_unlock($1)", [542599]);
+    expect(mockClient.release).toHaveBeenCalledTimes(1);
+    expect(logInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ op: "cron.demo.completed", jobId: result.started ? result.jobId : "" }),
+      expect.any(String)
+    );
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it("logs cron.<job>.failed and still releases the lock when the job throws", async () => {
+    armClient(true);
+    const boom = new Error("upstream 503");
+    const run = vi.fn(async () => { throw boom; });
+
+    const result = await startDetachedJob({ name: "demo", lockKey: 542599, run });
+    expect(result.started).toBe(true);
+
+    await flushImmediates();
+    await flushImmediates();
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith(
+      expect.objectContaining({ op: "cron.demo.failed", err: boom }),
+      expect.any(String)
+    );
+    const unlockIndex = mockClient.query.mock.calls.findIndex(([text]) => text.includes("pg_advisory_unlock"));
+    expect(unlockIndex).toBeGreaterThan(-1);
+    expect(mockClient.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the connection and rethrows when the lock query itself fails", async () => {
+    mockClient.query.mockRejectedValue(new Error("connection terminated"));
+    const run = vi.fn(async () => undefined);
+
+    await expect(startDetachedJob({ name: "demo", lockKey: 542599, run })).rejects.toThrow("connection terminated");
+
+    expect(run).not.toHaveBeenCalled();
+    expect(mockClient.release).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("isDetachedJobRunning", () => {
+  it("reads the advisory key out of pg_locks", async () => {
+    mockDb.execute.mockResolvedValue({ rows: [{ held: true }] });
+
+    await expect(isDetachedJobRunning(542502)).resolves.toBe(true);
+
+    const stmt = mockDb.execute.mock.calls[0][0] as { sql: string; args: unknown[] };
+    expect(stmt.sql).toContain("pg_locks");
+    expect(stmt.sql).toContain("locktype = 'advisory'");
+    expect(stmt.args).toEqual([542502, 542502]);
+  });
+
+  it("is false when no session holds the key", async () => {
+    mockDb.execute.mockResolvedValue({ rows: [{ held: false }] });
+    await expect(isDetachedJobRunning(542502)).resolves.toBe(false);
+  });
+});
+
+describe("toIsoString", () => {
+  it("accepts a Date or an ISO string and rejects everything else", () => {
+    expect(toIsoString(STARTED)).toBe("2026-09-21T06:00:00.250Z");
+    expect(toIsoString("2026-09-21T06:00:00Z")).toBe("2026-09-21T06:00:00.000Z");
+    expect(toIsoString(null)).toBeNull();
+    expect(toIsoString("")).toBeNull();
+    expect(toIsoString("not a date")).toBeNull();
+    expect(toIsoString(new Date("nope"))).toBeNull();
+  });
+});

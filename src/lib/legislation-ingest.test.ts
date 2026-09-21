@@ -6,9 +6,15 @@ import {
   normalizeLegislationDocuments,
   normalizeLegislationRequest,
   replaceLegislationDocuments,
+  reviewHashForDocument,
   type LegislationDocumentInput,
   type NormalizedLegislationDocument,
 } from "./legislation-ingest";
+import { hashCanonicalLegislation } from "./legislation-canonical";
+
+type Statement = { sql: string; args: unknown[] };
+const REVIEWED: { source: "reviewed" } = { source: "reviewed" };
+const SCHEDULED: { source: "scheduled" } = { source: "scheduled" };
 
 function document(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -258,7 +264,7 @@ describe("atomic legislation persistence", () => {
       document({ id: "a/doc", title: "A document" }),
     ]);
 
-    const result = await replaceLegislationDocuments(db, documents);
+    const result = await replaceLegislationDocuments(db, documents, REVIEWED);
 
     expect(batch).toHaveBeenCalledTimes(1);
     expect(db.execute).not.toHaveBeenCalled();
@@ -292,6 +298,7 @@ describe("atomic legislation persistence", () => {
         { id: "z/doc", title: "Z document", sectionsInserted: 1 },
         { id: "a/doc", title: "A document", sectionsInserted: 1 },
       ],
+      skipped: [],
     });
   });
 
@@ -299,7 +306,7 @@ describe("atomic legislation persistence", () => {
     const batch = vi.fn<(statements: { sql: string; args: unknown[] }[]) => Promise<void>>(
       async () => undefined,
     );
-    await replaceLegislationDocuments(dbWithBatch(batch), [normalizeOne({ relatedDocs: [] })]);
+    await replaceLegislationDocuments(dbWithBatch(batch), [normalizeOne({ relatedDocs: [] })], REVIEWED);
 
     const statements = batch.mock.calls[0][0];
     expect(statements.some((statement) => statement.sql.includes("DELETE FROM legislation_relations"))).toBe(true);
@@ -322,6 +329,7 @@ describe("atomic legislation persistence", () => {
     await expect(replaceLegislationDocuments(
       dbWithBatch(batch),
       [normalizeOne({ relatedDocs: ["missing/doc"] })],
+      REVIEWED,
     )).rejects.toMatchObject({ code: "23503" });
     expect(committed).toEqual({ marker: "prior-complete-state" });
     expect(batch).toHaveBeenCalledTimes(1);
@@ -358,12 +366,27 @@ describe("atomic legislation persistence", () => {
     });
 
     await Promise.all([
-      replaceLegislationDocuments(db, [payloadA]),
-      replaceLegislationDocuments(db, [payloadB]),
+      replaceLegislationDocuments(db, [payloadA], REVIEWED),
+      replaceLegislationDocuments(db, [payloadB], REVIEWED),
     ]);
 
     expect(batch).toHaveBeenCalledTimes(2);
     expect(committed).toEqual({ title: "Payload B", content: "Content B", relatedDoc: "related/b" });
+  });
+
+  it("refuses a write that does not declare its source", async () => {
+    const batch = vi.fn(async () => undefined);
+    await expect(replaceLegislationDocuments(
+      dbWithBatch(batch),
+      [normalizeOne()],
+      undefined as never,
+    )).rejects.toThrow(/explicit source/);
+    await expect(replaceLegislationDocuments(
+      dbWithBatch(batch),
+      [normalizeOne()],
+      { source: "cron" } as never,
+    )).rejects.toThrow(/explicit source/);
+    expect(batch).not.toHaveBeenCalled();
   });
 
   it("keeps the shared parser DTO compatible with deterministic defaults", () => {
@@ -381,5 +404,155 @@ describe("atomic legislation persistence", () => {
       status: "in_force",
       crossReferences: [],
     });
+  });
+});
+
+describe("reviewed-document guard (tailor-group#35)", () => {
+  const REVIEWED_AT = "2026-09-20T01:02:03.000Z";
+
+  function markedDb(
+    marked: { id: string; reviewed_at: unknown }[],
+    batch: DbClient["batch"] = async () => undefined,
+  ): DbClient & { execute: ReturnType<typeof vi.fn> } {
+    return {
+      execute: vi.fn(async (statement: string | Statement) => {
+        const sql = typeof statement === "string" ? statement : statement.sql;
+        if (sql.includes("reviewed_at IS NOT NULL")) return { rows: marked };
+        return { rows: [] };
+      }),
+      batch,
+    };
+  }
+
+  /** The document id each statement acts on (section and relation inserts carry it second). */
+  function idsTouched(statements: Statement[]): Set<unknown> {
+    return new Set(statements.map((s) => s.args[
+      s.sql.includes("INSERT INTO legislation_sections") || s.sql.includes("INSERT INTO legislation_relations") ? 1 : 0
+    ]));
+  }
+
+  it("a scheduled payload for a marked id leaves it untouched and writes the other documents", async () => {
+    const batch = vi.fn<(statements: Statement[]) => Promise<void>>(async () => undefined);
+    const db = markedDb([{ id: "a/doc", reviewed_at: REVIEWED_AT }], batch);
+    const documents = normalizeLegislationDocuments([
+      document({ id: "z/doc", title: "Z document", relatedDocs: ["b/doc"] }),
+      document({ id: "a/doc", title: "Planning Act 2016", sections: [{ sectionId: "s 1", content: "parser output" }] }),
+      document({ id: "b/doc", title: "B document" }),
+    ]);
+
+    const result = await replaceLegislationDocuments(db, documents, SCHEDULED);
+
+    // One pre-select over the batch's ids, before the batch.
+    expect(db.execute).toHaveBeenCalledTimes(1);
+    const select = db.execute.mock.calls[0][0] as Statement;
+    expect(select.sql).toContain("FROM legislation_docs");
+    expect(select.sql).toContain("reviewed_at IS NOT NULL");
+    expect(select.args).toEqual(["a/doc", "b/doc", "z/doc"]);
+    expect(db.execute.mock.invocationCallOrder[0]).toBeLessThan(batch.mock.invocationCallOrder[0]);
+
+    expect(batch).toHaveBeenCalledTimes(1);
+    const statements = batch.mock.calls[0][0];
+    // No upsert, no section DELETE/INSERT, no relation statement for the marked id.
+    expect(idsTouched(statements)).toEqual(new Set(["b/doc", "z/doc"]));
+    expect(statements.some((s) => s.args.includes("a/doc"))).toBe(false);
+    expect(statements.filter((s) => s.sql.includes("DELETE FROM legislation_sections")).map((s) => s.args[0]))
+      .toEqual(["b/doc", "z/doc"]);
+    expect(statements.filter((s) => s.sql.includes("INSERT INTO legislation_sections")).map((s) => s.args[1]))
+      .toEqual(["b/doc", "z/doc"]);
+
+    expect(result).toEqual({
+      ingested: 2,
+      sectionsTotal: 2,
+      documents: [
+        { id: "z/doc", title: "Z document", sectionsInserted: 1 },
+        { id: "b/doc", title: "B document", sectionsInserted: 1 },
+      ],
+      skipped: [{ id: "a/doc", reviewedAt: REVIEWED_AT }],
+    });
+  });
+
+  it("the scheduled upsert never names reviewed_at / review_hash, so an existing marker survives", async () => {
+    const batch = vi.fn<(statements: Statement[]) => Promise<void>>(async () => undefined);
+    await replaceLegislationDocuments(markedDb([], batch), [normalizeOne()], SCHEDULED);
+
+    const upserts = batch.mock.calls[0][0].filter((s) => s.sql.includes("INSERT INTO legislation_docs"));
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].sql).not.toContain("reviewed_at");
+    expect(upserts[0].sql).not.toContain("review_hash");
+    expect(upserts[0].args).toHaveLength(12);
+  });
+
+  it("the proposal source is guarded the same way", async () => {
+    const batch = vi.fn<(statements: Statement[]) => Promise<void>>(async () => undefined);
+    const db = markedDb([{ id: "qld/act-1999-039", reviewed_at: REVIEWED_AT }], batch);
+
+    const result = await replaceLegislationDocuments(db, [normalizeOne()], { source: "proposal" });
+
+    expect(db.execute).toHaveBeenCalledTimes(1);
+    expect(batch).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ingested: 0,
+      sectionsTotal: 0,
+      documents: [],
+      skipped: [{ id: "qld/act-1999-039", reviewedAt: REVIEWED_AT }],
+    });
+  });
+
+  it("normalizes the stored reviewed_at to ISO-8601 UTC for the skip report", async () => {
+    const db = markedDb([
+      { id: "qld/act-1999-039", reviewed_at: "2026-09-20 11:02:03.123456+10" },
+    ]);
+    const result = await replaceLegislationDocuments(db, [normalizeOne()], SCHEDULED);
+    expect(result.skipped).toEqual([{ id: "qld/act-1999-039", reviewedAt: "2026-09-20T01:02:03.123Z" }]);
+  });
+
+  it("a reviewed payload for the same id replaces the sections and re-stamps the marker without a pre-select", async () => {
+    const batch = vi.fn<(statements: Statement[]) => Promise<void>>(async () => undefined);
+    const db = markedDb([{ id: "a/doc", reviewed_at: REVIEWED_AT }], batch);
+    const [reviewedDocument] = normalizeLegislationDocuments([
+      document({ id: "a/doc", title: "Planning Act 2016", sections: [{ sectionId: "s 1", content: "reviewed text" }] }),
+    ]);
+
+    const result = await replaceLegislationDocuments(db, [reviewedDocument], REVIEWED);
+
+    expect(db.execute).not.toHaveBeenCalled();
+    expect(batch).toHaveBeenCalledTimes(1);
+    const statements = batch.mock.calls[0][0];
+    const upserts = statements.filter((s) => s.sql.includes("INSERT INTO legislation_docs"));
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].sql).toContain("reviewed_at, review_hash");
+    expect(upserts[0].sql).toContain("NOW(), ?)");
+    expect(upserts[0].sql).toContain("reviewed_at = NOW()");
+    expect(upserts[0].sql).toContain("review_hash = excluded.review_hash");
+    expect(upserts[0].args).toHaveLength(13);
+    expect(upserts[0].args[12]).toBe(reviewHashForDocument(reviewedDocument));
+    expect(upserts[0].args[12]).toMatch(/^[0-9a-f]{64}$/);
+    expect(statements.filter((s) => s.sql.includes("DELETE FROM legislation_sections")).map((s) => s.args[0]))
+      .toEqual(["a/doc"]);
+    const sectionInserts = statements.filter((s) => s.sql.includes("INSERT INTO legislation_sections"));
+    expect(sectionInserts).toHaveLength(1);
+    expect(sectionInserts[0].args[4]).toBe("reviewed text");
+    expect(result).toEqual({
+      ingested: 1,
+      sectionsTotal: 1,
+      documents: [{ id: "a/doc", title: "Planning Act 2016", sectionsInserted: 1 }],
+      skipped: [],
+    });
+  });
+
+  it("review_hash is the canonical legislation-payload-v1 digest of the normalized document", () => {
+    const explicit = normalizeOne({ relatedDocs: ["qld/reg-2020-002"] });
+    expect(reviewHashForDocument(explicit)).toBe(hashCanonicalLegislation({
+      ...explicit,
+      relatedDocs: explicit.relatedDocs ?? [],
+    }));
+    // Stable across raw-input differences that normalize away …
+    expect(reviewHashForDocument(normalizeOne({ title: "  Judicial Review Act 1991  " })))
+      .toBe(reviewHashForDocument(normalizeOne()));
+    // … and sensitive to reviewed content.
+    expect(reviewHashForDocument(normalizeOne({ sections: [{ sectionId: "s 1", content: "Text." }] })))
+      .not.toBe(reviewHashForDocument(normalizeOne()));
+    // Omitted relatedDocs (preserve) is a different reviewed payload from an explicit clear.
+    expect(reviewHashForDocument(normalizeOne())).not.toBe(reviewHashForDocument(normalizeOne({ relatedDocs: [] })));
   });
 });

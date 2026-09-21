@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DbClient } from "./db";
 
 export const LEGISLATION_DOCUMENT_TYPES = [
@@ -150,10 +150,34 @@ export class LegislationValidationError extends Error {
   }
 }
 
+/**
+ * Who is writing (tailor-group#35). Every caller declares itself; there is no
+ * default. Only `reviewed` (the admin `X-Admin-Key` ingest route) stamps
+ * `legislation_docs.reviewed_at` / `review_hash`; `scheduled` (the CTH/QLD
+ * parsers) and `proposal` (the PACT proposal finalizer) never touch those
+ * columns and never overwrite a document that carries the marker.
+ */
+export type LegislationIngestSource =
+  | { source: "reviewed" }
+  | { source: "scheduled" }
+  | { source: "proposal" };
+
+const LEGISLATION_INGEST_SOURCES: ReadonlySet<string> = new Set(["reviewed", "scheduled", "proposal"]);
+
+/** A document left untouched because a reviewed ingest marked it. */
+export interface SkippedReviewedDocument {
+  id: string;
+  /** ISO-8601 UTC timestamp of the reviewed ingest that stamped the row. */
+  reviewedAt: string;
+}
+
 export interface LegislationIngestResult {
+  /** Documents actually written; skipped documents are not counted. */
   ingested: number;
   sectionsTotal: number;
   documents: { id: string; title: string; sectionsInserted: number }[];
+  /** Reviewed documents excluded from every statement. Always `[]` for source `reviewed`. */
+  skipped: SkippedReviewedDocument[];
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -661,6 +685,38 @@ function normalizeDocumentsWithCollector(
   return documents;
 }
 
+function deepSortObjectKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(deepSortObjectKeys);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => compareCodePoints(left, right))
+      .map(([key, child]) => [key, deepSortObjectKeys(child)]),
+  );
+}
+
+/**
+ * `legislation_docs.review_hash` (tailor-group#35): lowercase SHA-256 hex of
+ * the normalized document as compact JSON with recursively code-point-sorted
+ * keys. It is computed from the normalized document, never the raw request,
+ * so the same reviewed content always stamps the same hash. When `relatedDocs`
+ * is explicit this is byte-for-byte the `legislation-payload-v1` digest the
+ * canonical read publishes (`hashCanonicalLegislation`); an omitted
+ * `relatedDocs` (preserve stored relations) hashes without that key.
+ */
+export function reviewHashForDocument(document: NormalizedLegislationDocument): string {
+  return createHash("sha256")
+    .update(JSON.stringify(deepSortObjectKeys(document)), "utf8")
+    .digest("hex");
+}
+
+function isoTimestamp(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value);
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? text : parsed.toISOString();
+}
+
 /** Validate and normalize the HTTP request envelope without acquiring a DB client. */
 export function normalizeLegislationRequest(input: unknown): NormalizedLegislationDocument[] {
   const collector = new ValidationCollector();
@@ -690,51 +746,101 @@ export function normalizeLegislationDocuments(input: unknown): NormalizedLegisla
  * ON CONFLICT update locks an existing row, so overlapping writers acquire
  * the same document locks in the same order. Sections and explicitly-owned
  * relations are then replaced inside the same `DbClient.batch` transaction.
+ *
+ * Reviewed-document guard (tailor-group#35): a `reviewed` write stamps
+ * `reviewed_at = NOW()` and `review_hash` on every document it writes. A
+ * `scheduled` or `proposal` write first selects the batch's ids whose
+ * `reviewed_at IS NOT NULL`, excludes them from every statement (no upsert,
+ * no section delete/insert, no relation change) and reports them in
+ * `skipped`; its upsert never names the two marker columns, so the
+ * ON CONFLICT update preserves an existing marker. Without this a scheduled
+ * QLD run whose KEY_ACTS overlapped a reviewed document replaced the
+ * human-reviewed sections with parser output.
  */
 export async function replaceLegislationDocuments(
   db: DbClient,
   documents: readonly NormalizedLegislationDocument[],
+  options: LegislationIngestSource,
 ): Promise<LegislationIngestResult> {
   if (documents.length === 0) {
     throw new TypeError("replaceLegislationDocuments requires at least one normalized document");
   }
+  if (!options || !LEGISLATION_INGEST_SOURCES.has(options.source)) {
+    throw new TypeError(
+      "replaceLegislationDocuments requires an explicit source: reviewed, scheduled or proposal",
+    );
+  }
+  const reviewed = options.source === "reviewed";
 
-  const orderedDocuments = [...documents].sort((a, b) => compareCodePoints(a.id, b.id));
+  let orderedDocuments = [...documents].sort((a, b) => compareCodePoints(a.id, b.id));
+  const skipped: SkippedReviewedDocument[] = [];
+
+  if (!reviewed) {
+    const marked = await db.execute({
+      sql: `SELECT id, reviewed_at FROM legislation_docs
+        WHERE id IN (${orderedDocuments.map(() => "?").join(", ")})
+          AND reviewed_at IS NOT NULL
+        ORDER BY id ASC`,
+      args: orderedDocuments.map((document) => document.id),
+    });
+    for (const row of marked.rows) {
+      skipped.push({ id: String(row.id), reviewedAt: isoTimestamp(row.reviewed_at) });
+    }
+    const skippedIds = new Set(skipped.map((document) => document.id));
+    orderedDocuments = orderedDocuments.filter((document) => !skippedIds.has(document.id));
+  }
+
+  const written = documents.filter((document) => orderedDocuments.includes(document));
+  if (orderedDocuments.length === 0) {
+    return { ingested: 0, sectionsTotal: 0, documents: [], skipped };
+  }
+
   const statements: SqlStatement[] = [];
 
   for (const document of orderedDocuments) {
-    statements.push({
-      sql: `INSERT INTO legislation_docs
-        (id, jurisdiction, doc_type, title, short_title, year, number, in_force_date,
-         last_amended_date, repealed_date, administered_by, legislation_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (id) DO UPDATE SET
-          jurisdiction = excluded.jurisdiction,
-          doc_type = excluded.doc_type,
-          title = excluded.title,
-          short_title = excluded.short_title,
-          year = excluded.year,
-          number = excluded.number,
-          in_force_date = excluded.in_force_date,
-          last_amended_date = excluded.last_amended_date,
-          repealed_date = excluded.repealed_date,
-          administered_by = excluded.administered_by,
-          legislation_url = excluded.legislation_url`,
-      args: [
-        document.id,
-        document.jurisdiction,
-        document.type,
-        document.title,
-        document.shortTitle,
-        document.year,
-        document.number,
-        document.inForceDate,
-        document.lastAmendedDate,
-        document.repealedDate,
-        document.administeredBy,
-        document.legislationUrl,
-      ],
-    });
+    statements.push(reviewed
+      ? {
+        sql: `INSERT INTO legislation_docs
+          (id, jurisdiction, doc_type, title, short_title, year, number, in_force_date,
+           last_amended_date, repealed_date, administered_by, legislation_url,
+           reviewed_at, review_hash)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
+          ON CONFLICT (id) DO UPDATE SET
+            jurisdiction = excluded.jurisdiction,
+            doc_type = excluded.doc_type,
+            title = excluded.title,
+            short_title = excluded.short_title,
+            year = excluded.year,
+            number = excluded.number,
+            in_force_date = excluded.in_force_date,
+            last_amended_date = excluded.last_amended_date,
+            repealed_date = excluded.repealed_date,
+            administered_by = excluded.administered_by,
+            legislation_url = excluded.legislation_url,
+            reviewed_at = NOW(),
+            review_hash = excluded.review_hash`,
+        args: [...documentUpsertArgs(document), reviewHashForDocument(document)],
+      }
+      : {
+        // No reviewed_at / review_hash here: an existing marker survives the update.
+        sql: `INSERT INTO legislation_docs
+          (id, jurisdiction, doc_type, title, short_title, year, number, in_force_date,
+           last_amended_date, repealed_date, administered_by, legislation_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT (id) DO UPDATE SET
+            jurisdiction = excluded.jurisdiction,
+            doc_type = excluded.doc_type,
+            title = excluded.title,
+            short_title = excluded.short_title,
+            year = excluded.year,
+            number = excluded.number,
+            in_force_date = excluded.in_force_date,
+            last_amended_date = excluded.last_amended_date,
+            repealed_date = excluded.repealed_date,
+            administered_by = excluded.administered_by,
+            legislation_url = excluded.legislation_url`,
+        args: documentUpsertArgs(document),
+      });
   }
 
   for (const document of orderedDocuments) {
@@ -789,12 +895,30 @@ export async function replaceLegislationDocuments(
   await db.batch(statements);
 
   return {
-    ingested: documents.length,
-    sectionsTotal: documents.reduce((total, document) => total + document.sections.length, 0),
-    documents: documents.map((document) => ({
+    ingested: written.length,
+    sectionsTotal: written.reduce((total, document) => total + document.sections.length, 0),
+    documents: written.map((document) => ({
       id: document.id,
       title: document.title,
       sectionsInserted: document.sections.length,
     })),
+    skipped,
   };
+}
+
+function documentUpsertArgs(document: NormalizedLegislationDocument): unknown[] {
+  return [
+    document.id,
+    document.jurisdiction,
+    document.type,
+    document.title,
+    document.shortTitle,
+    document.year,
+    document.number,
+    document.inForceDate,
+    document.lastAmendedDate,
+    document.repealedDate,
+    document.administeredBy,
+    document.legislationUrl,
+  ];
 }

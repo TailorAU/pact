@@ -17,7 +17,14 @@ CREATE TABLE IF NOT EXISTS legislation_docs (
   repealed_date TEXT,
   administered_by TEXT,
   legislation_url TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- tailor-group#35 reviewed-document marker (also augmented via
+  -- legislation-reviewed-augment.sql; both files must agree). Stamped only by
+  -- the admin ingest route (reviewed path): reviewed_at = NOW() and review_hash
+  -- = SHA-256 hex of the normalized document. The scheduled CTH/QLD syncs and
+  -- the PACT proposal finalizer never set, clear or overwrite a marked row.
+  reviewed_at TIMESTAMPTZ,
+  review_hash TEXT
 );
 
 CREATE TABLE IF NOT EXISTS legislation_sections (

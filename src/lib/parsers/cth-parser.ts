@@ -292,7 +292,7 @@ export async function syncCth(db: DbClient): Promise<SyncResult> {
     if (docsToIngest.length >= 5) {
       const batch = docsToIngest.splice(0, 5);
       try {
-        recordIngestOutcome(result, await ingestDocuments(db, batch));
+        recordIngestOutcome(result, await ingestDocuments(db, batch, { source: "scheduled" }));
       } catch (e) {
         // Ingest batch failure — counts as a crash because the parser had
         // already produced output that's now lost.
@@ -306,7 +306,7 @@ export async function syncCth(db: DbClient): Promise<SyncResult> {
 
   if (docsToIngest.length > 0) {
     try {
-      recordIngestOutcome(result, await ingestDocuments(db, docsToIngest));
+      recordIngestOutcome(result, await ingestDocuments(db, docsToIngest, { source: "scheduled" }));
     } catch (e) {
       result.errors.push(`Final ingest batch failed: ${e instanceof Error ? e.message : String(e)}`);
       result.parserCrashCount++;

@@ -85,6 +85,14 @@ const _legislationSyncLogAugmentStatements: string[] = _loadSqlStatements(
   "legislation-sync-log-augment.sql"
 );
 
+// tailor-group#35 — reviewed-document marker (reviewed_at, review_hash) on
+// legislation_docs. Idempotent ALTERs so databases created before the columns
+// were added to legislation-schema.sql get them at boot. Both files must agree
+// on the column shape — see sql/legislation-reviewed-augment.sql.
+const _legislationReviewedAugmentStatements: string[] = _loadSqlStatements(
+  "legislation-reviewed-augment.sql"
+);
+
 // WS12 — per-agent spending_cap_daily column on agents. Idempotent ALTER; safe
 // to apply after the base agents table is created in initSchema. NULL = no cap;
 // see sql/spending-cap.sql header for the cap-enforcement contract.
@@ -611,6 +619,13 @@ async function initSchema(db: DbClient) {
     // parser_anomaly_count to legislation_sync_log. Idempotent ALTERs —
     // see sql/legislation-sync-log-augment.sql.
     ..._legislationSyncLogAugmentStatements,
+
+    // ── Legislation reviewed-document marker (tailor-group#35) ───────
+    // Adds reviewed_at TIMESTAMPTZ, review_hash TEXT to legislation_docs.
+    // Stamped only by the admin ingest route; the scheduled syncs and the
+    // proposal finalizer skip a marked document. Idempotent ALTERs — see
+    // sql/legislation-reviewed-augment.sql.
+    ..._legislationReviewedAugmentStatements,
 
     // ── Spending-cap WS12 augment ────────────────────────────────────
     // Adds spending_cap_daily INTEGER (NULL = unlimited) to agents. The
@@ -1647,13 +1662,21 @@ export async function finalizeApprovedTopic(
             // rejected document is a failed ingest, so throw into the
             // savepoint catch below and the topic opens for debate instead
             // of being promoted to 'consensus' with nothing written.
-            const ingest = await ingestDocuments(db, [payload.document]);
+            //
+            // tailor-group#35 — the same holds when the ingest SKIPPED the
+            // document because a reviewed ingest marked it: a proposal can
+            // never replace human-reviewed sections, and a topic whose
+            // document was not written is not promoted.
+            const ingest = await ingestDocuments(db, [payload.document], { source: "proposal" });
             if (ingest.ingested !== 1) {
+              const skipped = ingest.skipped[0];
               const r = ingest.rejected[0];
               throw new Error(
-                `Legislation proposal ${r?.id ?? String(payload.document.id)} rejected: ${
-                  r ? `${r.path} ${r.message}` : "nothing written"
-                }`
+                skipped
+                  ? `Legislation proposal ${skipped.id} skipped: reviewed document (reviewed_at ${skipped.reviewedAt})`
+                  : `Legislation proposal ${r?.id ?? String(payload.document.id)} rejected: ${
+                    r ? `${r.path} ${r.message}` : "nothing written"
+                  }`
               );
             }
             const updated = await db.execute({

@@ -47,6 +47,11 @@ import { log } from "@/lib/logger";
 // }
 //
 // Auth: Requires admin secret in X-Admin-Key header (env: ADMIN_SECRET)
+//
+// This is the reviewed path (tailor-group#35): every document it writes is
+// stamped `legislation_docs.reviewed_at = NOW()` and `review_hash` (SHA-256 of
+// the normalized document), and the scheduled CTH/QLD syncs and the PACT
+// proposal finalizer never overwrite a document that carries that marker.
 export async function POST(req: NextRequest) {
   // Admin auth — shared timing-safe middleware (#2881)
   const denied = requireAdmin(req);
@@ -89,7 +94,7 @@ export async function POST(req: NextRequest) {
   let result: Awaited<ReturnType<typeof replaceLegislationDocuments>>;
   try {
     db = await getDb();
-    result = await replaceLegislationDocuments(db, documents);
+    result = await replaceLegislationDocuments(db, documents, { source: "reviewed" });
   } catch (error) {
     const databaseCode = typeof error === "object" && error !== null && "code" in error
       ? String(error.code)

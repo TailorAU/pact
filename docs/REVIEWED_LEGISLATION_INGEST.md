@@ -1,5 +1,24 @@
 # Reviewed one-document legislation ingest
 
+> **Note (2026-09-21, tailor-group#35).** The tailor-app dispatcher
+> (`sites/source/scripts/dispatch_reviewed_legislation_ingest.py`), its
+> `reviewed_legislation_builders.json` manifest and the `cron-source.yml` /
+> `Source — Reviewed Legislation Ingest` workflow paths this runbook describes
+> were retired by tailor-app#5954 and are **not in this repository**. What is
+> here: the admin ingest route `POST /api/axiom/legislation/ingest`
+> (`X-Admin-Key`) is the reviewed path, and every document it writes is stamped
+> `legislation_docs.reviewed_at = NOW()` and `review_hash` (SHA-256 hex of the
+> normalized document; equals the canonical read's `legislation-payload-v1`
+> digest when `relatedDocs` is explicit). The scheduled CTH/QLD syncs and the
+> PACT proposal finalizer declare themselves (`{ source: "scheduled" }` /
+> `{ source: "proposal" }`) and never overwrite a marked document: it is
+> excluded from every statement, reported as
+> `Skipped <id>: reviewed document (reviewed_at <iso>)` in the sync log's
+> `errors` and counted as a parser anomaly; a proposal whose one document was
+> skipped opens the topic for debate instead of promoting it. Only a later
+> reviewed ingest replaces and re-stamps. The rest of this document is kept as
+> history of the retired dispatcher.
+
 This is the production runbook for repository-allowlisted legislation builds.
 It covers the dedicated `Source — Reviewed Legislation Ingest` workflow and
 the local dispatcher in `sites/source/scripts/`.

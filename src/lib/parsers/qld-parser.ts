@@ -110,6 +110,14 @@ async function getLatestVersion(actId: string, token: string): Promise<QldDocume
   });
 }
 
+// tailor-group#35: no reviewed-legislation manifest exists in this repository
+// (the tailor-app-era `reviewed_legislation_builders.json` was never re-homed),
+// so this list cannot be checked against one. What protects a human-reviewed
+// document from a re-run is the guard in `replaceLegislationDocuments`
+// (src/lib/legislation-ingest.ts): an act here whose `legislation_docs` row
+// carries `reviewed_at` is skipped, reported as
+// "Skipped <id>: reviewed document (reviewed_at <iso>)" and counted as a
+// parser anomaly, never overwritten.
 const KEY_ACTS = [
   "Act-1999-039",  // Coal Mining Safety and Health Act 1999
   "Act-1999-040",  // Mining and Quarrying Safety and Health Act 1999
@@ -317,7 +325,7 @@ export async function syncQld(db: DbClient): Promise<SyncResult> {
 
   if (docsToIngest.length > 0) {
     try {
-      recordIngestOutcome(result, await ingestDocuments(db, docsToIngest));
+      recordIngestOutcome(result, await ingestDocuments(db, docsToIngest, { source: "scheduled" }));
     } catch (e) {
       // Ingest batch failure — counts as a crash because the parser had
       // already produced output that's now lost.

@@ -117,6 +117,37 @@ releases).
 
 ### Fixed
 
+- **A scheduled legislation sync can no longer overwrite a human-reviewed
+  document** (tailor-group#35). `replaceLegislationDocuments` upserts
+  `legislation_docs`, deletes the document's sections and re-inserts the
+  caller's, and nothing recorded which documents a person had reviewed — so
+  a scheduled QLD run whose `KEY_ACTS` overlapped a reviewed document (the
+  "Planning Act 2016 destroyed by a re-run" regression) replaced the reviewed
+  sections with parser output. `legislation_docs` gains `reviewed_at
+  TIMESTAMPTZ` and `review_hash TEXT` (SHA-256 hex of the normalized
+  document, computed server-side; equal to the canonical read's
+  `legislation-payload-v1` digest when `relatedDocs` is explicit), in
+  `sql/legislation-schema.sql` and as an idempotent boot-time augment
+  (`sql/legislation-reviewed-augment.sql`) so existing databases get the
+  columns. `replaceLegislationDocuments` and `ingestDocuments` now take an
+  explicit source with no default: the admin `X-Admin-Key` ingest route is
+  `reviewed` and stamps both columns on every document it writes; the CTH/QLD
+  parsers are `scheduled` and the PACT proposal finalizer is `proposal`, and
+  both select the batch's ids whose `reviewed_at IS NOT NULL` before writing,
+  exclude them from every statement and return them as `skipped`, which the
+  syncs record as `Skipped <id>: reviewed document (reviewed_at <iso>)` and
+  count as parser anomalies (`docsUpdated` counts only written documents).
+  Their upsert never names the marker columns, so an existing marker survives
+  a scheduled update. A proposal whose one document was skipped still fails
+  closed: the topic opens for debate, never `consensus`. No
+  reviewed-legislation manifest (`reviewed_legislation_builders.json`) exists
+  in this repository, so `KEY_ACTS` could not be reviewed against one; the
+  list now carries a comment pointing at the guard, and
+  `docs/REVIEWED_LEGISLATION_INGEST.md` notes that the tailor-app dispatcher
+  and `cron-source.yml` paths it describes were retired by tailor-app#5954.
+  Unit suites pin the skip (no DELETE/INSERT for the marked id, the other
+  documents written), the reviewed re-stamp, the untouched marker on a
+  scheduled upsert and the fail-closed proposal.
 - **`GET /api/cron/legislation-sync` no longer dies in the proxy**
   (tailor-group#38). `pact.tailor.au` is served by the tailor-app frontend,
   which proxies every path to `pact-web` through a Next.js rewrite with a

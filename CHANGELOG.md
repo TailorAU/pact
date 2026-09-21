@@ -12,6 +12,25 @@ releases).
 
 ### Added
 
+- **In-process consensus heartbeat** (tailor-group#9). `instrumentation.ts`
+  now starts `src/lib/consensus-heartbeat.ts` on every server boot, which
+  calls `runConsensusSweep` every `CONSENSUS_SWEEP_INTERVAL_MINUTES` (default
+  30, `0` disables, requires `DATABASE_URL`) after a 60-second boot delay.
+  tailor-app#5954 retired the `cron-source.yml` workflow that had been the
+  engine's only heartbeat since #5425, and a GitHub `schedule` fires from the
+  default branch only, which the KG does not deploy from yet — so the engine
+  had no clock at all from 2026-09-18. Same single entry point, same Postgres
+  advisory lock; a tick that overlaps a running sweep is skipped and counted,
+  a sweep that throws is logged (`consensus.heartbeat.failed`) and the next
+  tick still fires. Fake-timer unit suite in `consensus-heartbeat.test.ts`.
+- **`.github/workflows/cron.yml`** (tailor-group#9). tailor-app's
+  `cron-source.yml` re-homed here job for job — cleanup, yield, staleness,
+  legislation-sync, spatial-snapshot, gtfs-sync, fiscal-sync, auto-merge and
+  the manual read-only `auth-check` — against `https://pact.tailor.au` with
+  this repository's `CRON_SECRET` (the same secret `cd-kg.yml` deploys).
+  Inert as a schedule until the default branch carries it; every job is
+  dispatchable on `rehome-review` today. `docs/CRON_INVENTORY.md` rewritten
+  to match.
 - **PACT v2.3 §6.4 provenance chain over the PACT operation log** (#5566).
   Every event written through `emitEvent` now carries a per-resource gapless
   `sequence_number`, a `prev_hash` linking it to the previous event's hash,
@@ -96,6 +115,12 @@ releases).
 
 ### Fixed
 
+- **`GET /api/cron/auto-merge` names its failure** (tailor-group#9). The
+  scheduled caller saw bare HTTP 500s every 30 minutes on 17–18 Sep with no
+  log line saying which phase threw. The route now catches the sweep's error,
+  logs it as a structured `cron.auto-merge.failed` entry (stderr → Log
+  Analytics) and returns a generic `{ error: "Consensus sweep failed" }` 500 —
+  no driver text on the wire (#2881).
 - **The weekly CTH legislation sync fetched zero titles on every run**
   (tailor-group#7). `status` and `collection` are OData enums on
   `api.prod.legislation.gov.au`; the parser's

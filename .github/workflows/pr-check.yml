@@ -79,15 +79,17 @@ jobs:
           # actionlint v1.7.12 predates GitHub's official concurrency.queue
           # field. Ignore only that known schema lag; all other findings fail.
           #
-          # Only the two workflows that exist in this repo are linted. The
-          # list used to name the monorepo's source-legislation-ingest.yml,
+          # Only the workflows that exist in this repo are linted. The list
+          # used to name the monorepo's source-legislation-ingest.yml,
           # source-pr-check.yml, cron-source.yml, cd-source.yml and
           # infra-source-setup.yml, which tailor-app#5949 did not re-root
           # here, so actionlint exited 3 ("no such file") on every PR
-          # (tailor-group#7).
+          # (tailor-group#7). cron.yml is cron-source.yml re-homed
+          # (tailor-group#9).
           "$RUNNER_TEMP/actionlint-bin" \
             -ignore 'unexpected key "queue" for "concurrency" section' \
-            .github/workflows/pr-check.yml
+            .github/workflows/pr-check.yml \
+            .github/workflows/cron.yml
 
           # cd-kg.yml is the cd-source.yml adaptation and carries that file's
           # legacy SC2086/SC2129 findings. Keep linting it for YAML /

@@ -221,6 +221,41 @@ describe("POST /api/pact/{topicId}/vote — quorum transition (#5277)", () => {
     expect(events).not.toContain("pact.topic.approved");
   });
 
+  it("tailor-group#37: 3rd approval whose document the ingest REJECTS opens the topic for debate (never 'consensus', no ingested event)", async () => {
+    // ingestDocuments now returns the rejection instead of throwing; the
+    // finalizer must treat "nothing written" as a failed ingest.
+    ingestDocuments.mockResolvedValueOnce({
+      ingested: 0,
+      sectionsTotal: 0,
+      rejected: [{ id: "qld/report-2026-moonside", path: "documents[0].sections[1].id", message: "must be unique within the document" }],
+    } as never);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    armDb({
+      topic: { id: LEGISLATION_TOPIC_ID, title: "[Legislation Proposal] Moonside Report 2026" },
+      approveCount: 3,
+    });
+
+    const res = await callPost(LEGISLATION_TOPIC_ID);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("open");
+
+    expect(ingestDocuments).toHaveBeenCalledTimes(1);
+    const updates = statusUpdates();
+    expect(updates).toHaveLength(1);
+    expect(updates[0].sql).toContain("'open'");
+
+    const events = eventInserts();
+    expect(events).not.toContain("pact.legislation.ingested");
+    expect(events).toContain("pact.topic.approved");
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Legislation auto-ingest failed"),
+      expect.objectContaining({ message: expect.stringContaining("qld/report-2026-moonside rejected") })
+    );
+    consoleError.mockRestore();
+  });
+
   it("3rd approval on a non-legislation topic opens it for debate (no ingest)", async () => {
     armDb({
       topic: { id: PLAIN_TOPIC_ID, title: "Some ordinary institutional topic" },

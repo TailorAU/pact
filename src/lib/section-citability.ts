@@ -13,8 +13,9 @@
  * Non-citable shapes: missing/whitespace; a synthetic fragment key (any
  * `chunk` / `frag` / `fragment` / `segment` / `excerpt` / `extract` token,
  * bare or prefixed — `chunk-1` and `planning-act-2016-chunk-12` both match);
- * or a raw GUID. `s 10` / `Part 3` / `21A` / `Schedule 2` and friends are
- * real pinpoints and pass through untouched.
+ * a raw GUID; or a parser ordinal suffix (`s 308 [2]`, tailor-group#37).
+ * `s 10` / `Part 3` / `21A` / `Schedule 2` and friends are real pinpoints
+ * and pass through untouched.
  */
 
 // Mirror of the C# SyntheticSectionId regex (#5083): the token must stand
@@ -28,6 +29,15 @@ const GUID_DASHED =
   /^\{?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}?$/i;
 const GUID_BARE = /^[0-9a-f]{32}$/i;
 
+// tailor-group#37: the parsers keep every heading of an amending Act by
+// suffixing a repeated id with a deterministic ordinal ("s 308", "s 308 [2]",
+// "s 308 [3]", … — src/lib/legislation-section-ids.ts). The suffix is a
+// storage disambiguator, not a locator a reader can look up in the Act, so
+// the row is served like a chunk key: findable, cited at document level.
+// The first occurrence keeps its bare id and stays a pinpoint. (The C#
+// mirror of #5083 predates this shape.)
+const ORDINAL_SUFFIX = /\s\[\d+\]$/;
+
 export type SectionKind = "pinpoint" | "extract";
 
 /** True iff the section id is a real, citable pinpoint. */
@@ -39,6 +49,7 @@ export function isCitableSectionId(
   if (trimmed.length === 0) return false;
   if (SYNTHETIC_SECTION_ID.test(trimmed)) return false;
   if (GUID_DASHED.test(trimmed) || GUID_BARE.test(trimmed)) return false;
+  if (ORDINAL_SUFFIX.test(trimmed)) return false;
   return true;
 }
 

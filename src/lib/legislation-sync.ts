@@ -4,10 +4,13 @@ import { log } from "./logger";
 import { syncCth } from "./parsers/cth-parser";
 import { syncQld } from "./parsers/qld-parser";
 import {
+  LEGISLATION_INGEST_LIMITS,
+  LegislationValidationError,
   normalizeLegislationDocuments,
   replaceLegislationDocuments,
   type LegislationDocumentInput,
   type LegislationSectionInput,
+  type NormalizedLegislationDocument,
 } from "./legislation-ingest";
 
 // Preserve the public parser / #5277 type names while sharing the write DTO.
@@ -40,10 +43,78 @@ export interface SyncResult {
   parserCrashCount: number;
 }
 
-export async function ingestDocuments(db: DbClient, documents: LegislationDoc[]): Promise<{ ingested: number; sectionsTotal: number }> {
-  const normalized = normalizeLegislationDocuments(documents);
-  const result = await replaceLegislationDocuments(db, normalized);
-  return { ingested: result.ingested, sectionsTotal: result.sectionsTotal };
+/** A document the ingest refused, with the first validation issue it hit. */
+export interface RejectedDocument {
+  id: string;
+  path: string;
+  message: string;
+}
+
+export interface IngestOutcome {
+  /** Documents actually written by `replaceLegislationDocuments`. */
+  ingested: number;
+  sectionsTotal: number;
+  rejected: RejectedDocument[];
+}
+
+/**
+ * Validate each document on its own, then write the valid ones in one
+ * transaction (tailor-group#37). Validating the batch as a whole meant one
+ * document with a repeated section id rejected all five in it, and with
+ * newest-first paging amending Acts are the majority of every CTH batch, so
+ * no CTH document was ever written. The cross-document checks the batch
+ * normalizer made (unique ids, total section cap) are kept here.
+ */
+export async function ingestDocuments(db: DbClient, documents: LegislationDoc[]): Promise<IngestOutcome> {
+  const valid: NormalizedLegislationDocument[] = [];
+  const rejected: RejectedDocument[] = [];
+  const seenIds = new Set<string>();
+  let totalSections = 0;
+
+  for (const document of documents) {
+    let normalized: NormalizedLegislationDocument;
+    try {
+      [normalized] = normalizeLegislationDocuments([document]);
+    } catch (e) {
+      if (!(e instanceof LegislationValidationError)) throw e;
+      const issue = e.issues[0] ?? { path: "documents[0]", message: e.message };
+      rejected.push({ id: String(document.id), path: issue.path, message: issue.message });
+      continue;
+    }
+    if (seenIds.has(normalized.id)) {
+      rejected.push({ id: normalized.id, path: "id", message: "must be unique within the request" });
+      continue;
+    }
+    if (totalSections + normalized.sections.length > LEGISLATION_INGEST_LIMITS.totalSections) {
+      rejected.push({
+        id: normalized.id,
+        path: "sections",
+        message: `must fit within ${LEGISLATION_INGEST_LIMITS.totalSections} sections per request`,
+      });
+      continue;
+    }
+    seenIds.add(normalized.id);
+    totalSections += normalized.sections.length;
+    valid.push(normalized);
+  }
+
+  if (valid.length === 0) return { ingested: 0, sectionsTotal: 0, rejected };
+  const result = await replaceLegislationDocuments(db, valid);
+  return { ingested: result.ingested, sectionsTotal: result.sectionsTotal, rejected };
+}
+
+/**
+ * Fold an ingest outcome into a jurisdiction's SyncResult: `docsUpdated`
+ * counts only documents actually written; each rejected document is one
+ * error line and one parser anomaly (its output was unusable, nothing threw).
+ */
+export function recordIngestOutcome(result: SyncResult, outcome: IngestOutcome): void {
+  result.docsUpdated += outcome.ingested;
+  result.sectionsTotal += outcome.sectionsTotal;
+  for (const doc of outcome.rejected) {
+    result.errors.push(`Rejected ${doc.id}: ${doc.path} ${doc.message}`);
+    result.parserAnomalyCount++;
+  }
 }
 
 /**

@@ -256,6 +256,40 @@ describe("finalizeApprovedTopic guard (#5425)", () => {
     expect(statusById.t1).toBe("open");
     expect(eventTypes(statements)).toContain("pact.topic.approved");
   });
+
+  it("tailor-group#37: a legislation document the ingest REJECTS (nothing written) opens the topic, never 'consensus', no ingested event", async () => {
+    // ingestDocuments no longer throws on an invalid document — it isolates
+    // the rejection per document for the syncs. The single-document
+    // proposal path must still fail closed on that outcome.
+    ingestDocuments.mockResolvedValueOnce({
+      ingested: 0,
+      sectionsTotal: 0,
+      rejected: [{ id: "doc-1", path: "documents[0].sections", message: "must be a non-empty array" }],
+    } as never);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { db, statements, statusById } = makeDb({ statusById: { t1: "proposed" } });
+
+    const outcome = await finalizeApprovedTopic(
+      db,
+      "t1",
+      "[Legislation Proposal] Rejected Payload Act 2026",
+      3,
+      3
+    );
+
+    expect(outcome).toBe("opened");
+    expect(statusById.t1).toBe("open");
+    expect(ingestDocuments).toHaveBeenCalledTimes(1);
+    expect(eventTypes(statements)).not.toContain("pact.legislation.ingested");
+    expect(eventTypes(statements)).toContain("pact.topic.approved");
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Legislation auto-ingest failed for topic t1"),
+      expect.objectContaining({
+        message: "Legislation proposal doc-1 rejected: documents[0].sections must be a non-empty array",
+      })
+    );
+    consoleError.mockRestore();
+  });
 });
 
 describe("evaluateTopicProposals sweep (#5425)", () => {

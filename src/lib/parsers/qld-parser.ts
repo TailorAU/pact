@@ -1,6 +1,7 @@
 import type { DbClient } from "../db";
 import type { LegislationDoc, LegislationSection, SyncResult } from "../legislation-sync";
-import { ingestDocuments } from "../legislation-sync";
+import { ingestDocuments, recordIngestOutcome } from "../legislation-sync";
+import { uniqueSectionIds } from "../legislation-section-ids";
 
 const QLD_API = "https://api.legislation.qld.gov.au";
 const MAX_ACTS = 100;
@@ -9,9 +10,10 @@ const MAX_ACTS = 100;
  * Parser version stamp written into legislation_sync_log.parser_version.
  * Bump when parsing semantics change (regex shape, anomaly detection rules,
  * fallback paths) so downstream regressions can be tied back to a specific
- * parser revision. WS9 introduces 1.5.0 alongside the silent-zero alarm.
+ * parser revision. WS9 introduces 1.5.0 alongside the silent-zero alarm;
+ * 1.6.0 suffixes repeated section ids (tailor-group#37).
  */
-const QLD_PARSER_VERSION = "qld-parser@1.5.0";
+const QLD_PARSER_VERSION = "qld-parser@1.6.0";
 
 interface QldAuthResponse {
   auth_type: string;
@@ -206,7 +208,10 @@ function parseQldHtml(html: string): QldParseOutput {
     }
   }
 
-  return { sections, usedFallbackChunker };
+  // The structured selector matches every heading occurrence, so a reprint
+  // that repeats a section number would repeat its id; the fallback chunker
+  // numbers its own. Same rule as the CTH parser (tailor-group#37).
+  return { sections: uniqueSectionIds(sections), usedFallbackChunker };
 }
 
 export async function syncQld(db: DbClient): Promise<SyncResult> {
@@ -312,9 +317,7 @@ export async function syncQld(db: DbClient): Promise<SyncResult> {
 
   if (docsToIngest.length > 0) {
     try {
-      const { sectionsTotal } = await ingestDocuments(db, docsToIngest);
-      result.docsUpdated = docsToIngest.length;
-      result.sectionsTotal = sectionsTotal;
+      recordIngestOutcome(result, await ingestDocuments(db, docsToIngest));
     } catch (e) {
       // Ingest batch failure — counts as a crash because the parser had
       // already produced output that's now lost.

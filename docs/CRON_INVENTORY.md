@@ -14,9 +14,11 @@ All times are UTC unless noted. AEST = UTC+10 (non-DST). AEDT = UTC+11 (DST).
 
 - **`.github/workflows/cron.yml`** in this repository calls
   `https://pact.tailor.au/api/cron/<name>` with
-  `Authorization: Bearer ${CRON_SECRET}` — the same repository secret
+  `Authorization: Bearer ${CRON_SECRET}` — the `prod` environment secret
   `cd-kg.yml` deploys into the `pact-web` container app, so the credential has
-  exactly one source.
+  exactly one source. Every job declares `environment: prod` to read it (an
+  environment secret is empty in a job that does not); `prod` has no required
+  reviewers, so nothing waits.
 - **GitHub runs `schedule` triggers from the default branch only.** The KG
   deploys from `rehome-review` until tailor-group#7 step 3 promotes it, so
   until then the schedules below are inert and every job is reachable through
@@ -57,9 +59,10 @@ Single workflow, multiple jobs dispatched by schedule. Every job calls
 base, no second host to drift from (tailor-app#5582). Never add `-L` to a curl
 here; a redirect would forward the bearer to whatever host it names.
 
-**Auth:** `Authorization: Bearer ${CRON_SECRET}` from this repository's
-secrets. `auth-check` is the credential proof: it hits a route with no
-database dependency, so a 200 says only that the deployed secret matches.
+**Auth:** `Authorization: Bearer ${CRON_SECRET}` from the `prod` environment
+(each job declares `environment: prod`). `auth-check` is the credential proof:
+it hits a route with no database dependency, so a 200 says only that the
+deployed secret matches.
 
 ---
 

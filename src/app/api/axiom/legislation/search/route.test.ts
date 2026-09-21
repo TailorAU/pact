@@ -534,3 +534,48 @@ describe("GET /api/axiom/legislation/search — pact#28 designation + exact-titl
     expect(sectionCall.args).toContain("privacy act 1988%");
   });
 });
+
+// ── tailor-group#37 — parser-suffixed section ids are not citable pinpoints ─
+// The parsers suffix a repeated heading's id ("s 308", "s 308 [2]", …) so an
+// amending Act ingests whole. The suffix is a storage key: the route must
+// serve such a row as an extract with the document-level sourceRef, never as
+// `"<Act> s 308 [2]"`, while the bare first occurrence stays a pinpoint.
+describe("GET /api/axiom/legislation/search — suffixed section ids (tailor-group#37)", () => {
+  it("serves `s 308` as a pinpoint and `s 308 [2]` as an extract cited at document level", async () => {
+    const doc = {
+      doc_id: "cth/act-2026-082",
+      doc_title: "Combatting Illicit Tobacco Act 2026 (Cth)",
+      short_title: "Combatting Illicit Tobacco Act 2026",
+      jurisdiction: "AU-CTH",
+    };
+    const first = legislationRow({
+      ...doc,
+      section_id: "s 308",
+      content: "Subsection 308(1) is amended by omitting the words about tobacco.",
+    });
+    const second = legislationRow({
+      ...doc,
+      section_id: "s 308 [2]",
+      content: "Subsection 308(2) is amended by inserting the words about tobacco.",
+    });
+    prime(2, [first, second], []);
+
+    const res = await callGet("q=tobacco");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      results: Array<{ sectionId: string; sectionKind: string; sourceRef: string }>;
+    };
+
+    expect(body.results).toHaveLength(2);
+    const byId = Object.fromEntries(body.results.map((r) => [r.sectionId, r]));
+    expect(byId["s 308"]).toMatchObject({
+      sectionKind: "pinpoint",
+      sourceRef: "Combatting Illicit Tobacco Act 2026 s 308",
+    });
+    expect(byId["s 308 [2]"]).toMatchObject({
+      sectionKind: "extract",
+      sourceRef: "Combatting Illicit Tobacco Act 2026",
+    });
+    for (const r of body.results) expect(r.sourceRef).not.toContain("[2]");
+  });
+});

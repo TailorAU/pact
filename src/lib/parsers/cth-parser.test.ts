@@ -11,10 +11,11 @@
  * run it by hand as evidence when the parser changes.
  */
 import { readFileSync } from "node:fs";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db", () => ({ getDb: async () => ({}) }));
 
+import { normalizeLegislationDocuments } from "../legislation-ingest";
 import { buildTitlesUrl, fetchInForceActs, parseActHtml, syncCth } from "./cth-parser";
 
 describe("buildTitlesUrl", () => {
@@ -70,6 +71,104 @@ describe("parseActHtml on current EPUB markup", () => {
     const sections = parseActHtml(html);
     expect(sections.map((s) => s.order)).toEqual(sections.map((_, i) => i));
     expect(new Set(sections.map((s) => s.status))).toEqual(new Set(["in_force"]));
+  });
+});
+
+describe("parseActHtml on an amending Act that repeats a section (tailor-group#37)", () => {
+  // Synthetic excerpt in the same EPUB shape: the schedule amends s 308 of
+  // the principal Act five times, so the ActHead5 "308" heading recurs. The
+  // real case was cth/act-2026-082, whose repeated ids failed validation and
+  // discarded its whole batch.
+  const html = readFileSync(
+    new URL("../fixtures/cth/amending-act-repeated-s308.excerpt.html", import.meta.url),
+    "utf8"
+  );
+
+  it("suffixes the later occurrences deterministically and drops nothing", () => {
+    const sections = parseActHtml(html);
+    expect(sections.map((s) => s.sectionId)).toEqual([
+      "s 1", "s 2", "s 3", "s 117C",
+      "s 308", "s 308 [2]", "s 308 [3]", "s 308 [4]", "s 308 [5]",
+      "s 228AA",
+    ]);
+    expect(sections.map((s) => s.order)).toEqual(sections.map((_, i) => i));
+    expect(sections[4].content).toMatch(/^Subsection 308\(1\) is amended/);
+    expect(sections[8].content).toMatch(/^At the end of section 308/);
+    expect(sections[8].title).toBe("Amendment 5 of section 308 of the principal Act");
+  });
+
+  it("passes normalizeLegislationDocuments as one document", () => {
+    const [doc] = normalizeLegislationDocuments([{
+      id: "cth/act-2026-082",
+      jurisdiction: "CTH",
+      type: "act",
+      title: "Combatting Illicit Tobacco Act 2026 (Cth)",
+      sections: parseActHtml(html),
+    }]);
+    expect(doc.sections).toHaveLength(10);
+  });
+});
+
+describe("syncCth isolates ingest failures per document (tailor-group#37)", () => {
+  const amendingHtml = readFileSync(
+    new URL("../fixtures/cth/amending-act-repeated-s308.excerpt.html", import.meta.url),
+    "utf8"
+  );
+  const titles = [
+    { id: "C2026A00082", name: "Combatting Illicit Tobacco Act 2026", year: 2026, number: 82, status: "InForce", seriesType: "Act", makingDate: "2026-09-01T00:00:00" },
+    // year 0 fails `documents[0].year` validation, so this one is rejected at ingest.
+    { id: "C0000A00005", name: "Broken Metadata Act", year: 0, number: 5, status: "InForce", seriesType: "Act", makingDate: "2026-08-01T00:00:00" },
+    { id: "C2026A00003", name: "Administrative Review Tribunal and Other Legislation Amendment Act 2026", year: 2026, number: 3, status: "InForce", seriesType: "Act", makingDate: "2026-02-09T00:00:00" },
+  ];
+
+  function fakeFetch(url: string | URL | Request): Promise<Response> {
+    const href = String(url);
+    if (href.includes("/Titles")) {
+      const skip = new URL(href).searchParams.get("$skip");
+      return Promise.resolve(Response.json({ value: skip === "0" ? titles : [] }));
+    }
+    if (href.includes("/Versions")) {
+      const titleId = /titleId eq '([^']+)'/.exec(decodeURIComponent(href))?.[1];
+      return Promise.resolve(Response.json({
+        value: [{ titleId, start: "2026-09-10T00:00:00", registerId: "r", compilationNumber: "0", isLatest: true }],
+      }));
+    }
+    if (href.endsWith("document_1.html")) {
+      return Promise.resolve(new Response(amendingHtml, { status: 200 }));
+    }
+    return Promise.resolve(new Response("not found", { status: 404 }));
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("writes the valid documents, counts only them, and records the rejected one as an anomaly", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(fakeFetch);
+    vi.useFakeTimers({ toFake: ["setTimeout"] }); // skip the 2 s per-act pause
+    const batch = vi.fn<(statements: { sql: string; args: unknown[] }[]) => Promise<void>>(async () => undefined);
+    const db = { execute: vi.fn(async () => ({ rows: [] })), batch };
+
+    const pending = syncCth(db as never);
+    await vi.runAllTimersAsync();
+    const r = await pending;
+
+    expect(r.docsChecked).toBe(3);
+    expect(r.docsUpdated).toBe(2);
+    expect(r.sectionsTotal).toBe(20);
+    expect(r.parserCrashCount).toBe(0);
+    expect(r.parserAnomalyCount).toBe(1);
+    expect(r.errors).toEqual(["Rejected cth/act-0-005: documents[0].year must be an integer from 1 to 9999, or null"]);
+
+    expect(batch).toHaveBeenCalledTimes(1);
+    const upserts = batch.mock.calls[0][0].filter((s) => s.sql.includes("INSERT INTO legislation_docs"));
+    expect(upserts.map((s) => s.args[0])).toEqual(["cth/act-2026-003", "cth/act-2026-082"]);
+    const sectionIds = batch.mock.calls[0][0]
+      .filter((s) => s.sql.includes("INSERT INTO legislation_sections"))
+      .map((s) => s.args[0]);
+    expect(sectionIds).toContain("cth/act-2026-082/s 308 [5]");
+    expect(sectionIds.some((id) => String(id).startsWith("cth/act-0-005/"))).toBe(false);
   });
 });
 

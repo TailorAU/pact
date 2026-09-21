@@ -1,6 +1,7 @@
 import type { DbClient } from "../db";
 import type { LegislationDoc, LegislationSection, SyncResult } from "../legislation-sync";
-import { ingestDocuments } from "../legislation-sync";
+import { ingestDocuments, recordIngestOutcome } from "../legislation-sync";
+import { uniqueSectionIds } from "../legislation-section-ids";
 
 const CTH_API = "https://api.prod.legislation.gov.au/v1";
 const CTH_WEB = "https://www.legislation.gov.au";
@@ -20,9 +21,10 @@ function maxActs(): number {
  * Parser version stamp written into legislation_sync_log.parser_version.
  * Bump when parsing semantics change (regex shape, anomaly detection rules,
  * fallback paths) so downstream regressions can be tied back to a specific
- * parser revision. WS9 introduces 2.0.0 alongside the silent-zero alarm.
+ * parser revision. WS9 introduces 2.0.0 alongside the silent-zero alarm;
+ * 2.2.0 suffixes repeated section ids (tailor-group#37).
  */
-const CTH_PARSER_VERSION = "cth-parser@2.1.0";
+const CTH_PARSER_VERSION = "cth-parser@2.2.0";
 
 interface CthTitle {
   id: string;
@@ -193,7 +195,9 @@ export function parseActHtml(html: string): LegislationSection[] {
     });
   }
 
-  return sections;
+  // An amending Act repeats the principal Act's section headings (s 308 five
+  // times in cth/act-2026-082); ids must be unique per document (tailor-group#37).
+  return uniqueSectionIds(sections);
 }
 
 function cthSourceId(year: number, number: number): string {
@@ -288,9 +292,7 @@ export async function syncCth(db: DbClient): Promise<SyncResult> {
     if (docsToIngest.length >= 5) {
       const batch = docsToIngest.splice(0, 5);
       try {
-        const { sectionsTotal } = await ingestDocuments(db, batch);
-        result.docsUpdated += batch.length;
-        result.sectionsTotal += sectionsTotal;
+        recordIngestOutcome(result, await ingestDocuments(db, batch));
       } catch (e) {
         // Ingest batch failure — counts as a crash because the parser had
         // already produced output that's now lost.
@@ -304,9 +306,7 @@ export async function syncCth(db: DbClient): Promise<SyncResult> {
 
   if (docsToIngest.length > 0) {
     try {
-      const { sectionsTotal } = await ingestDocuments(db, docsToIngest);
-      result.docsUpdated += docsToIngest.length;
-      result.sectionsTotal += sectionsTotal;
+      recordIngestOutcome(result, await ingestDocuments(db, docsToIngest));
     } catch (e) {
       result.errors.push(`Final ingest batch failed: ${e instanceof Error ? e.message : String(e)}`);
       result.parserCrashCount++;

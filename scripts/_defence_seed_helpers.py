@@ -13,6 +13,7 @@ Idempotency model:
 * Safe to re-run: second run creates zero new rows, only prints EXISTS messages.
 """
 import os
+import re
 import sys
 import time
 from typing import Optional
@@ -34,6 +35,32 @@ BASE = os.environ.get("SOURCE_BASE", "https://pact.tailor.au")
 # written. Prints CREATE / EXISTS per item so the run can be diffed against
 # the live graph before anything is applied (tailor-group#7, after #5581).
 DRY_RUN = os.environ.get("SEED_DRY_RUN", "").strip().lower() in ("1", "true", "yes")
+# Optional: append every minted agent key (one per line, file mode 0600) so a later
+# script — seed_topic_dependencies.py — can reuse one instead of registering again.
+# Registration is 60/hour per address and each registration costs two hits, so a full
+# 30-topic run leaves no budget for a 31st agent (tailor-group#7). Never commit this file.
+KEYS_FILE = os.environ.get("PACT_SEED_KEYS_FILE", "").strip()
+
+
+def persist_key(api_key: str) -> None:
+    """Append a freshly minted key to PACT_SEED_KEYS_FILE (no-op when unset)."""
+    if not KEYS_FILE:
+        return
+    fd = os.open(KEYS_FILE, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a") as fh:
+        fh.write(api_key + "\n")
+
+
+def reusable_key() -> Optional[str]:
+    """PACT_SEED_AGENT_KEY, else the last key in PACT_SEED_KEYS_FILE, else None."""
+    direct = os.environ.get("PACT_SEED_AGENT_KEY", "").strip()
+    if direct:
+        return direct
+    if KEYS_FILE and os.path.isfile(KEYS_FILE):
+        lines = [ln.strip() for ln in open(KEYS_FILE, encoding="utf-8") if ln.strip()]
+        if lines:
+            return lines[-1]
+    return None
 
 
 def api(method: str, path: str, key: Optional[str] = None, data: Optional[dict] = None, silent_429: bool = False):
@@ -95,6 +122,7 @@ def register_agents(prefix: str, count: int) -> list[str]:
             time.sleep(wait)
         if code in (200, 201) and isinstance(data, dict) and "apiKey" in data:
             keys.append(data["apiKey"])
+            persist_key(data["apiKey"])
             print(f"  registered {name}")
         else:
             err = data.get("error", str(data)[:140]) if isinstance(data, dict) else str(data)[:140]
@@ -150,7 +178,16 @@ def create_topic(key: str, payload: dict, retry_on_civic: bool = True) -> tuple[
         return data.get("id"), "CREATED"
 
     if code == 409 and isinstance(data, dict) and data.get("existingTopicId"):
-        return data["existingTopicId"], "EXISTS"
+        # The server 409s for an exact-title duplicate (no existingTitle) and
+        # for a fuzzy 75%-overlap near-duplicate (existingTitle = the OTHER
+        # topic's title). Only the former is "our topic already exists".
+        existing_title = data.get("existingTitle")
+        err = str(data.get("error", ""))
+        if existing_title is None and "exact title" in err:
+            return data["existingTopicId"], "EXISTS"
+        if isinstance(existing_title, str) and existing_title.strip().lower() == str(payload.get("title", "")).strip().lower():
+            return data["existingTopicId"], "EXISTS"
+        return None, f"FAIL: 409 near-duplicate of a different topic {data['existingTopicId']}: {existing_title!r}"
 
     if code == 403 and retry_on_civic and isinstance(data, dict) and data.get("votesNeeded"):
         # Agent has created other topics but not voted enough. Fulfil duty + retry once.
@@ -186,6 +223,68 @@ def find_topic_id_by_title(title: str) -> Optional[str]:
     return None
 
 
+# ── Client-side mirror of src/lib/claim.ts lintAtomicClaim (tailor-group#7) ──
+# The server rejects a canonicalClaim over 140 UTF-16 code units (JS .length),
+# with more than one sentence (ANY internal '.', '!' or '?' counts, so no
+# 'Rule 3.1', 's 5.6', 'e.g.', '252.225-7052' — section numbers belong in
+# sourceRef), with a top-level and/or joining two verb-bearing clauses, or with
+# a motte-and-bailey hedge. It lints AFTER sanitizeContent() strips control
+# characters and HTML tags, so the mirror cleans the same way first. The first live apply of these corpora lost all 30
+# topics to that rule after 30 agents had already been registered; lint here
+# so a dry-run fails on the claim, before any registration.
+CANONICAL_CLAIM_MAX = 140
+# re.A: the server's regexes are non-unicode JS, so \b and /i are ASCII-only there.
+_CLAUSE_CONJUNCTION = re.compile(r"\b(?:and|or)\b", re.I | re.A)
+_VERB_HINT = re.compile(
+    r"\b(?:is|are|was|were|has|have|had|does|do|did|can|cannot|must|shall|should|will|would|may|might|"
+    r"equals|contains|requires|prohibits|permits|applies|boils|melts|freezes|rises|falls|exceeds|measures|"
+    r"weighs|holds|states|provides|mandates|forbids|bans|allows|increased|decreased|causes|caused)\b", re.I | re.A)
+_HEDGES = [re.compile(p, re.I | re.A) for p in (
+    r"\barguably\b", r"\bsome (?:might|may|would) (?:say|argue|claim)\b", r"\bit could be (?:said|argued)\b",
+    r"\bin some sense\b", r"\bmore or less\b", r"\bbasically\b", r"\bsort of\b|\bkind of\b")]
+
+
+# ECMAScript WhiteSpace + LineTerminator, the set String.prototype.trim removes
+# (U+0085 is NOT in it; U+FEFF is).
+_JS_WS = "\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+
+
+def _server_clean(claim: str) -> str:
+    """sanitizeContent() as src/lib/sanitize.ts does it, then JS String.prototype.trim."""
+    s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", claim or "")
+    s = re.sub(r"<[^>]*>", "", s)
+    return s.strip(_JS_WS)
+
+
+def lint_atomic_claim(claim: str) -> Optional[str]:
+    """Return an error string mirroring the server's 422, or None if atomic."""
+    text = _server_clean(claim)
+    if not text:
+        return "canonicalClaim is required"
+    n = len(text.encode("utf-16-le")) // 2  # JS String.length counts UTF-16 code units
+    if n > CANONICAL_CLAIM_MAX:
+        return f"canonicalClaim must be at most {CANONICAL_CLAIM_MAX} characters (got {n})"
+    if len([s for s in re.split(r"[.!?]+", text) if s.strip()]) > 1:
+        return "canonicalClaim must be a single sentence"
+    m = _CLAUSE_CONJUNCTION.search(text)
+    if m and _VERB_HINT.search(text[: m.start()]) and _VERB_HINT.search(text[m.end():]):
+        return "canonicalClaim bundles multiple propositions (top-level conjunction joins two verb-bearing clauses)"
+    for p in _HEDGES:
+        if p.search(text):
+            return "canonicalClaim carries a motte-and-bailey hedge"
+    return None
+
+
+def lint_corpus(topics: list[dict]) -> list[str]:
+    """Lint every claim in a corpus; returns human-readable failures (empty = clean)."""
+    failures = []
+    for t in topics:
+        err = lint_atomic_claim(t.get("canonicalClaim") or t.get("content") or "")
+        if err:
+            failures.append(f"{t['title'][:70]} → {err}")
+    return failures
+
+
 def seed_topic_batch(prefix: str, topics: list[dict]) -> dict[str, Optional[str]]:
     """Register agents and create a batch of topics round-robin. Idempotent.
 
@@ -198,7 +297,13 @@ def seed_topic_batch(prefix: str, topics: list[dict]) -> dict[str, Optional[str]
     # so N agents → N topics with zero voting required. The 5-minute voting age
     # gate (sites/source/src/lib/auth.ts) makes the "vote on your peers" path
     # impractical for a one-shot seed, so we just pay the registration cost.
-    n_agents = len(topics)
+
+    bad = lint_corpus(topics)
+    if bad:
+        print(f"\n=== {prefix}: {len(bad)} claim(s) fail the atomic-claim rule — nothing registered, nothing written ===")
+        for line in bad:
+            print("  ", line)
+        sys.exit(2)
 
     if DRY_RUN:
         print(f"\n=== DRY RUN — {prefix}: {len(topics)} topics, no writes ===")
@@ -215,16 +320,37 @@ def seed_topic_batch(prefix: str, topics: list[dict]) -> dict[str, Optional[str]
               f"{would_create} agent registrations would be needed")
         return plan
 
-    print(f"\n=== Registering {n_agents} agents for {prefix} ===")
-    keys = register_agents(prefix, n_agents)
-    print(f"  got {len(keys)} API keys")
-
-    print(f"\n=== Creating {len(topics)} topics ({prefix}) ===")
+    # Existence check BEFORE any registration: a re-run after a partial apply
+    # must not mint agents for topics that are already on the graph.
+    print(f"\n=== Checking {len(topics)} titles against {BASE} ({prefix}) ===")
     result: dict[str, Optional[str]] = {}
+    for t in topics:
+        result[t["title"]] = find_topic_id_by_title(t["title"])
+        time.sleep(0.2)
+    missing = [t for t in topics if not result[t["title"]]]
+    print(f"  {len(topics) - len(missing)} already present, {len(missing)} to create")
+    if not missing:
+        print(f"\n  {len(topics)}/{len(topics)} topics in place (all already existed) — nothing registered")
+        return result
+
+    print(f"\n=== Registering {len(missing)} agents for {prefix} ===")
+    keys = register_agents(prefix, len(missing))
+    print(f"  got {len(keys)} API keys")
+    if len(keys) < len(missing):
+        # One agent → one topic, strictly. A key's second topic is refused by
+        # civic duty and fresh agents cannot vote (5-minute age gate), so
+        # round-robin can only produce FAILs and orphan agents. Stop here,
+        # before any topic is written.
+        print(f"FATAL: {len(keys)} keys for {len(missing)} missing topics — refusing to round-robin. "
+              f"Wait for the register-ip window to reset and re-run (existing topics are skipped).")
+        sys.exit(3)
+
+    print(f"\n=== Creating {len(missing)} topics ({prefix}) ===")
     for idx, t in enumerate(topics):
-        # One agent → one topic. If we ever run short (e.g. registration
-        # failures), fall back to round-robin on whatever keys we got.
-        key = keys[idx] if idx < len(keys) else keys[idx % len(keys)]
+        if result[t["title"]]:
+            print(f"  [{idx + 1:>2}/{len(topics)}] OK  EXISTS   {t['title'][:80]}")
+            continue
+        key = keys[missing.index(t)]
         payload = {
             "title": t["title"],
             "content": t["content"],

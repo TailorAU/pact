@@ -14,7 +14,7 @@ Usage:
     python seed_defence_au.py                         # targets https://source.tailor.au
     SOURCE_BASE=http://localhost:3001 python seed_defence_au.py   # dev
 """
-from _defence_seed_helpers import seed_topic_batch  # noqa: E402
+from _defence_seed_helpers import DRY_RUN, seed_topic_batch  # noqa: E402
 
 
 TOPICS: list[dict] = [
@@ -31,11 +31,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Commonwealth Parliament of Australia",
         "sourceRef": "Defence Trade Controls Act 2012 (Cth), Act No. 153 of 2012",
-        "canonicalClaim": (
-            "The Defence Trade Controls Act 2012 (Cth) requires a permit for the supply, brokering "
-            "or publication of DSGL-listed defence and dual-use technology out of Australia, with "
-            "criminal penalties up to 10 years imprisonment."
-        ),
+        "canonicalClaim": "The Defence Trade Controls Act 2012 (Cth) requires a permit for the supply of DSGL-listed technology out of Australia",
     },
     {
         "title": "Defence and Strategic Goods List (DSGL) enumerates export-controlled goods and technology",
@@ -51,10 +47,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Department of Defence (Defence Export Controls)",
         "sourceRef": "Defence and Strategic Goods List (current edition), made under the Customs Act 1901 (Cth) and DTCA 2012",
-        "canonicalClaim": (
-            "The DSGL defines the goods and technology whose export from Australia requires a permit "
-            "under the DTCA 2012 and Customs Act 1901 prohibited-exports regime."
-        ),
+        "canonicalClaim": "The Defence and Strategic Goods List enumerates the goods and technology whose export from Australia requires a permit",
     },
     {
         "title": "Defence Industry Security Program (DISP) is required for access to classified Defence contracts",
@@ -69,10 +62,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Department of Defence (Defence Industry Security Office)",
         "sourceRef": "Defence Industry Security Program — DISP Member Handbook (current edition)",
-        "canonicalClaim": (
-            "DISP membership is the Australian Government's minimum security-accreditation baseline "
-            "for industry access to classified Defence information, assets and contracts."
-        ),
+        "canonicalClaim": "DISP membership is the minimum security accreditation for industry access to classified Defence information and contracts",
     },
     {
         "title": "FIRB critical-technologies list triggers mandatory foreign-investment notification",
@@ -88,11 +78,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Foreign Investment Review Board (Treasury)",
         "sourceRef": "Foreign Acquisitions and Takeovers Act 1975 (Cth) s 55B; List of Critical Technologies in the National Interest (2023)",
-        "canonicalClaim": (
-            "Acquisitions of Australian businesses operating in listed critical-technology sectors "
-            "(including critical minerals) trigger mandatory FIRB notification under FATA s 55B, "
-            "irrespective of monetary threshold."
-        ),
+        "canonicalClaim": "Acquiring an Australian business in a listed critical-technology sector requires FIRB notification under FATA s 55B regardless of value",
     },
     {
         "title": "ASX Listing Rule 3.1 requires immediate disclosure of price-sensitive information",
@@ -108,11 +94,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "ASX Limited (with statutory backing via Corporations Act s 674)",
         "sourceRef": "ASX Listing Rules Chapter 3, Rule 3.1 (continuous disclosure); Corporations Act 2001 (Cth) s 674",
-        "canonicalClaim": (
-            "ASX Listing Rule 3.1 requires immediate disclosure to the market of information a "
-            "reasonable person would expect to materially affect the price or value of an entity's "
-            "securities, backed by Corporations Act s 674."
-        ),
+        "canonicalClaim": "ASX Listing Rules require immediate disclosure of information a reasonable person would expect to materially affect a security's price",
     },
     {
         "title": "JORC Code 2012 governs public reporting of mineral exploration results, resources and reserves",
@@ -128,11 +110,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Joint Ore Reserves Committee (AusIMM, AIG, MCA)",
         "sourceRef": "JORC Code 2012 (Australasian Code for Reporting of Exploration Results, Mineral Resources and Ore Reserves)",
-        "canonicalClaim": (
-            "JORC Code 2012 mandates Competent Person sign-off and Inferred/Indicated/Measured "
-            "classification for public resource statements by ASX-listed mining companies, via ASX "
-            "Listing Rule 5.6."
-        ),
+        "canonicalClaim": "JORC Code 2012 mandates Competent Person sign-off for public mineral resource statements by ASX-listed companies",
     },
     {
         "title": "Customs Act 1901 (Cth) prohibited-exports regime criminalises unauthorised export of DSGL goods",
@@ -147,11 +125,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Commonwealth Parliament of Australia; Australian Border Force",
         "sourceRef": "Customs Act 1901 (Cth) s 112; Customs (Prohibited Exports) Regulations 1958",
-        "canonicalClaim": (
-            "The Customs Act 1901 s 112 and Prohibited Exports Regulations 1958 criminalise "
-            "unauthorised export of DSGL-listed goods from Australia with penalties up to 10 years "
-            "imprisonment."
-        ),
+        "canonicalClaim": "Customs Act 1901 (Cth) s 112 criminalises the unauthorised export of DSGL-listed goods from Australia",
     },
     {
         "title": "AUKUS Pillar 2 establishes trilateral advanced-capability technology transfer between AU, UK and US",
@@ -167,11 +141,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Department of Defence; trilateral AUKUS working arrangements",
         "sourceRef": "AUKUS Pillar 2 Joint Leaders Statement (2021); Defence Trade Controls Amendment Act 2024 (Cth); 22 CFR 126.7 AUKUS exemption",
-        "canonicalClaim": (
-            "AUKUS Pillar 2 is the trilateral framework for advanced-capability technology transfer "
-            "between Australia, the UK and the US, operationalised via reciprocal national export-"
-            "control exemptions."
-        ),
+        "canonicalClaim": "AUKUS Pillar 2 is the trilateral framework for advanced-capability technology transfer between Australia, the UK and the US",
     },
     {
         "title": "Safeguards Act 1987 (Cth) implements Australia's nuclear non-proliferation obligations",
@@ -186,10 +156,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Australian Safeguards and Non-Proliferation Office (DFAT)",
         "sourceRef": "Nuclear Non-Proliferation (Safeguards) Act 1987 (Cth), Act No. 8 of 1987",
-        "canonicalClaim": (
-            "The Safeguards Act 1987 (Cth) implements Australia's NPT and IAEA obligations and "
-            "controls possession, transport and communication of nuclear material and technology."
-        ),
+        "canonicalClaim": "The Safeguards Act 1987 (Cth) implements Australia's obligations under the Nuclear Non-Proliferation Treaty",
     },
     {
         "title": "Weapons of Mass Destruction (Prevention of Proliferation) Act 1995 (Cth) prohibits WMD programme support",
@@ -204,11 +171,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Commonwealth Parliament of Australia; Department of Foreign Affairs and Trade",
         "sourceRef": "Weapons of Mass Destruction (Prevention of Proliferation) Act 1995 (Cth), Act No. 72 of 1995",
-        "canonicalClaim": (
-            "The WMD Act 1995 (Cth) applies a catch-all prohibition on supplying goods, services or "
-            "technology where the supplier knows or ought to suspect the end-use involves a WMD "
-            "programme, beyond the listed-goods DSGL regime."
-        ),
+        "canonicalClaim": "The WMD (Prevention of Proliferation) Act 1995 (Cth) prohibits supplying goods or services suspected to serve a WMD programme",
     },
     {
         "title": "Autonomous Sanctions Act 2011 (Cth) authorises Australian targeted financial and trade sanctions",
@@ -224,10 +187,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Department of Foreign Affairs and Trade (Australian Sanctions Office)",
         "sourceRef": "Autonomous Sanctions Act 2011 (Cth); Autonomous Sanctions Regulations 2011; 2021 Magnitsky amendments",
-        "canonicalClaim": (
-            "The Autonomous Sanctions Act 2011 (Cth) authorises Australia's targeted financial, "
-            "travel and sectoral sanctions, extended in 2021 to thematic Magnitsky-style designations."
-        ),
+        "canonicalClaim": "The Autonomous Sanctions Act 2011 (Cth) authorises Australia's targeted financial, travel and sectoral sanctions",
     },
     {
         "title": "National Security Legislation Amendment (Espionage and Foreign Interference) Act 2018 criminalises foreign interference",
@@ -242,11 +202,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Commonwealth Parliament of Australia",
         "sourceRef": "National Security Legislation Amendment (Espionage and Foreign Interference) Act 2018 (Cth); Criminal Code 1995 (Cth) Division 92",
-        "canonicalClaim": (
-            "The NSLA EFI Act 2018 inserted modern espionage, foreign-interference and sabotage "
-            "offences into the Commonwealth Criminal Code and complements the Foreign Influence "
-            "Transparency Scheme."
-        ),
+        "canonicalClaim": "The NSLA (Espionage and Foreign Interference) Act 2018 (Cth) inserted foreign-interference offences into the Criminal Code 1995",
     },
 ]
 
@@ -254,7 +210,11 @@ TOPICS: list[dict] = [
 def main() -> None:
     result = seed_topic_batch("seed-au-def", TOPICS)
     ok = sum(1 for v in result.values() if v)
-    print(f"\n=== seed_defence_au.py complete: {ok}/{len(TOPICS)} topics in place ===")
+    if DRY_RUN:
+        print(f"\n=== seed_defence_au.py dry run: {ok}/{len(TOPICS)} already present, "
+              f"{len(TOPICS) - ok} to create — nothing written ===")
+    else:
+        print(f"\n=== seed_defence_au.py complete: {ok}/{len(TOPICS)} topics in place ===")
 
 
 if __name__ == "__main__":

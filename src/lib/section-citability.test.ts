@@ -128,3 +128,49 @@ describe("formatSourceRef", () => {
     expect(ref).not.toContain("extract");
   });
 });
+
+// ── tailor-group#37 — parser ordinal suffixes ───────────────────────────────
+// uniqueSectionIds keeps every heading of an amending Act by suffixing a
+// repeated id ("s 308", "s 308 [2]", "s 308 [3]", …). The suffix is a storage
+// disambiguator, not a locator a reader can look up, so it is served like a
+// chunk key; the bare first occurrence is still the pinpoint.
+describe("isCitableSectionId — parser ordinal suffixes are not citable (tailor-group#37)", () => {
+  it.each([
+    "s 308 [2]",
+    "s 308 [3]",
+    "s 308 [12]",
+    "s 6(1) [2]",
+    "21A [2]",
+    "Schedule 2 [2]",
+    "  s 308 [2]  ",
+  ])("rejects the suffixed id %j", (id) => {
+    expect(isCitableSectionId(id)).toBe(false);
+  });
+
+  it.each([
+    "s 308",
+    "s 308A",
+    "s 308(2)",
+    "s 308(2)(a)",
+  ])("keeps the unsuffixed occurrence %j citable", (id) => {
+    expect(isCitableSectionId(id)).toBe(true);
+  });
+
+  it("classifies a suffixed id as an extract", () => {
+    expect(sectionKindOf("s 308 [2]")).toBe("extract");
+    expect(sectionKindOf("s 308")).toBe("pinpoint");
+  });
+
+  it("serves the suffixed row at document level and the first occurrence as the pinpoint", () => {
+    expect(
+      formatSourceRef("Combatting Illicit Tobacco Act 2026", "Combatting Illicit Tobacco Act 2026 (Cth)", "s 308")
+    ).toBe("Combatting Illicit Tobacco Act 2026 s 308");
+    const ref = formatSourceRef(
+      "Combatting Illicit Tobacco Act 2026",
+      "Combatting Illicit Tobacco Act 2026 (Cth)",
+      "s 308 [2]"
+    );
+    expect(ref).toBe("Combatting Illicit Tobacco Act 2026");
+    expect(ref).not.toContain("[");
+  });
+});

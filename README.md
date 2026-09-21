@@ -154,15 +154,31 @@ The Source knowledge graph is intentionally topic-scoped: every node on `/map` i
 
 ### Running a content top-up
 
-From `sites/source/scripts/`:
+From `scripts/`:
 
 ```bash
-# Each script is idempotent — rerunning creates no duplicates.
-# All four hit the public POST /api/pact/topics endpoint (no admin secret).
-python seed_defence_au.py
-python seed_defence_us.py
-python seed_critical_minerals.py
-python seed_topic_dependencies.py       # run LAST — depends on topic IDs from the first three
+# Each script is idempotent — rerunning creates no duplicates and registers
+# no agent for a topic that already exists. All four hit the public
+# POST /api/pact/topics and /dependencies endpoints (no admin secret).
+#
+# 1. Plan first (GET-only, nothing written, nothing registered):
+SEED_DRY_RUN=1 python seed_defence_au.py
+#
+# 2. Apply, one script at a time, checking "N/N topics in place" before the next.
+#    Every canonicalClaim is linted against the server's atomic-claim rule
+#    (<= 140 chars, one sentence, no bundled and/or, no hedges) BEFORE any
+#    agent is registered; a failing corpus exits 2 with nothing written.
+#    Registration is limited to 60 per hour per address and each registration
+#    costs two requests, so a 30-topic run spends the whole hour's budget:
+#    do not re-run inside the hour, and keep the keys for step 3.
+PACT_SEED_KEYS_FILE=/secure/path/seed-keys python seed_defence_au.py
+PACT_SEED_KEYS_FILE=/secure/path/seed-keys python seed_defence_us.py
+PACT_SEED_KEYS_FILE=/secure/path/seed-keys python seed_critical_minerals.py
+#
+# 3. Edges LAST — needs the topic IDs from the first three. With a keys file
+#    (or PACT_SEED_AGENT_KEY) it reuses a topic-script agent instead of
+#    registering a 31st; keep that file outside the repository and delete it after.
+PACT_SEED_KEYS_FILE=/secure/path/seed-keys python seed_topic_dependencies.py
 
 # Structured legislation ingest (requires ADMIN_SECRET / X-Admin-Key)
 python seed_sa_tas_legislation.py       # SA/TAS industrial, WHS, environment, resources
@@ -170,7 +186,7 @@ python seed_qld_liquor_legislation.py   # Liquor Act 1992 (Qld) + Liquor Regulat
 python seed_qld_lga_legislation.py      # Local Government Act 2009 (Qld) — council competence framework (#5117)
 ```
 
-Against a different env: `export BASE=https://source-dev.tailor.au` (default `https://source.tailor.au`).
+Against a different env: `export SOURCE_BASE=http://localhost:3000` (default `https://pact.tailor.au`).
 
 ### Council-instrument class (#5117)
 

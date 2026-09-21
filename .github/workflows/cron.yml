@@ -121,10 +121,15 @@ jobs:
     steps:
       - name: Run cleanup cron
         run: |
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 300 \
+          STATUS=$(curl -s -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 300 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ env.PACT_URL }}/api/cron/cleanup")
           echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Response body (first 2000 bytes):"
+            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            echo
+          fi
           if [ "$STATUS" != "200" ]; then
             echo "::error::Cleanup cron failed with status $STATUS"
             exit 1
@@ -140,10 +145,15 @@ jobs:
     steps:
       - name: Run yield cron
         run: |
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 300 \
+          STATUS=$(curl -s -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 300 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ env.PACT_URL }}/api/cron/yield")
           echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Response body (first 2000 bytes):"
+            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            echo
+          fi
           if [ "$STATUS" != "200" ]; then
             echo "::error::Yield cron failed with status $STATUS"
             exit 1
@@ -159,10 +169,15 @@ jobs:
     steps:
       - name: Run staleness cron
         run: |
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 300 \
+          STATUS=$(curl -s -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 300 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ env.PACT_URL }}/api/cron/staleness")
           echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Response body (first 2000 bytes):"
+            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            echo
+          fi
           if [ "$STATUS" != "200" ]; then
             echo "::error::Staleness cron failed with status $STATUS"
             exit 1
@@ -179,10 +194,15 @@ jobs:
     steps:
       - name: Run legislation sync cron
         run: |
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 600 \
+          STATUS=$(curl -s -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 600 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ env.PACT_URL }}/api/cron/legislation-sync")
           echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Response body (first 2000 bytes):"
+            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            echo
+          fi
           if [ "$STATUS" != "200" ]; then
             echo "::error::Legislation sync failed with status $STATUS"
             exit 1
@@ -199,10 +219,15 @@ jobs:
     steps:
       - name: Run spatial snapshot cron
         run: |
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 900 \
+          STATUS=$(curl -s -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 900 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ env.PACT_URL }}/api/cron/spatial-snapshot")
           echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Response body (first 2000 bytes):"
+            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            echo
+          fi
           # Distinguish "we are unreachable" from "ArcGIS throttled a layer".
           # A transport failure, a redirect, or a 4xx is OUR endpoint being
           # wrong (tailor-app#5582). Upstream 5xx stays non-fatal, which is
@@ -230,10 +255,15 @@ jobs:
     steps:
       - name: Run GTFS sync cron
         run: |
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 1200 \
+          STATUS=$(curl -s -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 1200 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ env.PACT_URL }}/api/cron/gtfs-sync")
           echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Response body (first 2000 bytes):"
+            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            echo
+          fi
           if [ "$STATUS" != "200" ]; then
             echo "::error::GTFS sync failed with status $STATUS"
             exit 1
@@ -249,10 +279,15 @@ jobs:
     steps:
       - name: Run consensus sweep cron
         run: |
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 300 \
+          STATUS=$(curl -s -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 300 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ env.PACT_URL }}/api/cron/auto-merge")
           echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Response body (first 2000 bytes):"
+            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            echo
+          fi
           if [ "$STATUS" != "200" ]; then
             echo "::error::Consensus sweep failed with status $STATUS"
             exit 1
@@ -269,10 +304,15 @@ jobs:
     steps:
       - name: Run fiscal sync cron
         run: |
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 900 \
+          STATUS=$(curl -s -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 900 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ env.PACT_URL }}/api/cron/fiscal-sync")
           echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Response body (first 2000 bytes):"
+            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            echo
+          fi
           if [ "$STATUS" != "200" ]; then
             echo "::error::Fiscal sync failed with status $STATUS"
             exit 1

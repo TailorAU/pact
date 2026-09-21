@@ -20,8 +20,10 @@ All times are UTC unless noted. AEST = UTC+10 (non-DST). AEDT = UTC+11 (DST).
 - **GitHub runs `schedule` triggers from the default branch only.** The KG
   deploys from `rehome-review` until tailor-group#7 step 3 promotes it, so
   until then the schedules below are inert and every job is reachable through
-  `workflow_dispatch` on that branch (see Quick commands). Nothing in the
-  workflow changes at promotion.
+  `workflow_dispatch` on that branch (see Quick commands). GitHub lists and
+  dispatches only a workflow that has run at least once, so `cron.yml` carries
+  a `push` trigger on its own path: that no-op run (every job's `if:` ignores
+  a push) is what registers it. Nothing else changes at promotion.
 - **The consensus sweep does not wait for promotion.** `instrumentation.ts`
   starts `src/lib/consensus-heartbeat.ts` on every server boot; it calls
   `runConsensusSweep` every `CONSENSUS_SWEEP_INTERVAL_MINUTES` (default 30,

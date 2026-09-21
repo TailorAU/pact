@@ -17,6 +17,8 @@ on:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
+      # The maintenance schedule is not part of the image (tailor-group#9).
+      - ".github/workflows/cron.yml"
 
 permissions:
   id-token: write           # Azure OIDC + Cosign keyless signing

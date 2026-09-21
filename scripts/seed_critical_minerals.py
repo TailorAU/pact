@@ -9,7 +9,7 @@ and Japan JOGMEC stockpiling.
 
 No admin secret required. Idempotent.
 """
-from _defence_seed_helpers import seed_topic_batch  # noqa: E402
+from _defence_seed_helpers import DRY_RUN, seed_topic_batch  # noqa: E402
 
 
 TOPICS: list[dict] = [
@@ -28,11 +28,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Australian Government (Department of Industry, Science and Resources)",
         "sourceRef": "Australia's Critical Minerals Strategy 2023-2030 (June 2023); Australian Critical Minerals List 2023",
-        "canonicalClaim": (
-            "Australia's Critical Minerals Strategy 2023-2030 names 31 critical minerals "
-            "(including antimony, rare earths, lithium and graphite) and allocates AUD 4bn via "
-            "Export Finance Australia's Critical Minerals Facility to unlock downstream processing."
-        ),
+        "canonicalClaim": "Australia's Critical Minerals Strategy 2023-2030 is accompanied by a Critical Minerals List naming 31 critical minerals",
     },
     {
         "title": "US Critical Minerals List identifies 50 minerals essential to US economy and national security",
@@ -48,11 +44,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "US Geological Survey (Department of the Interior)",
         "sourceRef": "Energy Act of 2020, 30 USC 1606; US Critical Minerals List (2022)",
-        "canonicalClaim": (
-            "The US Critical Minerals List (USGS, under 30 USC 1606) identifies 50 non-fuel minerals "
-            "essential to US economic and national security with disruption-vulnerable supply "
-            "chains, updated at least every three years."
-        ),
+        "canonicalClaim": "The USGS Critical Minerals List identifies 50 non-fuel minerals essential to US economic and national security",
     },
     {
         "title": "China controls approximately 80 percent of global antimony production and refining",
@@ -69,11 +61,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "INTERNATIONAL",
         "authority": "US Geological Survey (Mineral Commodity Summaries); China Ministry of Commerce",
         "sourceRef": "USGS Mineral Commodity Summaries: Antimony (2023, 2024); MOFCOM Announcement No. 33 of 2024 (antimony export licensing)",
-        "canonicalClaim": (
-            "China supplies roughly 80 percent of global antimony (mine production and refining) "
-            "per USGS data, and in August 2024 announced export licensing on antimony and its "
-            "compounds effective 15 September 2024."
-        ),
+        "canonicalClaim": "USGS reports recent Chinese antimony mine production near 40,000 tonnes of a global total near 83,000 tonnes",
     },
     {
         "title": "China controls approximately 70 percent of global rare-earth mining and over 85 percent of refining",
@@ -89,11 +77,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "INTERNATIONAL",
         "authority": "US Geological Survey; International Energy Agency (Critical Minerals Outlook)",
         "sourceRef": "USGS Mineral Commodity Summaries: Rare Earths (2024); IEA Critical Minerals Outlook 2024",
-        "canonicalClaim": (
-            "China accounts for approximately 70 percent of global rare-earth mine production and "
-            "over 85 percent of separation / refining capacity per USGS and IEA data, with "
-            "accelerating export controls on rare-earth processing technology since 2023."
-        ),
+        "canonicalClaim": "China accounts for about 70 percent of global rare-earth mine production per USGS data",
     },
     {
         "title": "AUKUS Critical Minerals Cooperation coordinates trilateral supply-chain investment",
@@ -109,12 +93,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "INTERNATIONAL",
         "authority": "AUKUS partner governments (AU, UK, US)",
         "sourceRef": "Australia-US Climate, Critical Minerals and Clean Energy Transformation Compact (May 2023); AUKUS Joint Leaders Statement (2023)",
-        "canonicalClaim": (
-            "AUKUS partners have formally designated Australia as a domestic source for DPA Title "
-            "III purposes via the May 2023 Australia-US Climate, Critical Minerals and Clean Energy "
-            "Transformation Compact, coordinating trilateral critical-minerals supply-chain "
-            "investment."
-        ),
+        "canonicalClaim": "The 2023 Australia-US Climate, Critical Minerals and Clean Energy Compact designates Australia a domestic source under DPA Title III",
     },
     {
         "title": "Quad Critical Minerals Partnership coordinates diversification across AU, IN, JP and US",
@@ -130,12 +109,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "INTERNATIONAL",
         "authority": "Quad partner governments (Australia, India, Japan, United States)",
         "sourceRef": "Quad Joint Leaders Statements 2021-2024; Quad Critical and Emerging Technology Working Group",
-        "canonicalClaim": (
-            "The Quad Critical and Emerging Technology Working Group coordinates critical-minerals "
-            "supply-chain diversification between Australia, India, Japan and the United States, "
-            "spanning reserve mapping, trade-restriction information sharing, ESG standards and "
-            "export-credit alignment."
-        ),
+        "canonicalClaim": "The Quad Critical and Emerging Technology Working Group coordinates critical-minerals supply-chain diversification among its members",
     },
     {
         "title": "EU Critical Raw Materials Act sets 2030 domestic benchmarks for extraction, processing and recycling",
@@ -151,12 +125,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "EU",
         "authority": "European Parliament and Council",
         "sourceRef": "Regulation (EU) 2024/1252 (Critical Raw Materials Act)",
-        "canonicalClaim": (
-            "The EU Critical Raw Materials Act (Regulation 2024/1252) sets binding 2030 benchmarks "
-            "for EU extraction (10%), processing (40%), recycling (25%) and single-country sourcing "
-            "(<=65%) of strategic raw materials, with faster permitting for designated Strategic "
-            "Projects."
-        ),
+        "canonicalClaim": "The EU Critical Raw Materials Act (Regulation 2024/1252) sets binding 2030 benchmarks for extraction, processing and recycling",
     },
     {
         "title": "Japan JOGMEC maintains strategic metals stockpiles and co-invests in overseas supply",
@@ -172,11 +141,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "JP",
         "authority": "Japan Organization for Metals and Energy Security (under METI)",
         "sourceRef": "Japan Organization for Metals and Energy Security Act (Act No. 94 of 2002); METI Stockpile Policy",
-        "canonicalClaim": (
-            "Japan's JOGMEC operates a 60-day rare-metals strategic stockpile under METI policy "
-            "and takes equity positions in overseas critical-minerals projects (including "
-            "Australian rare-earth separation) to secure off-take."
-        ),
+        "canonicalClaim": "Japan's JOGMEC operates a 60-day strategic stockpile of rare metals under METI policy",
     },
 ]
 
@@ -184,7 +149,11 @@ TOPICS: list[dict] = [
 def main() -> None:
     result = seed_topic_batch("seed-crit-min", TOPICS)
     ok = sum(1 for v in result.values() if v)
-    print(f"\n=== seed_critical_minerals.py complete: {ok}/{len(TOPICS)} topics in place ===")
+    if DRY_RUN:
+        print(f"\n=== seed_critical_minerals.py dry run: {ok}/{len(TOPICS)} already present, "
+              f"{len(TOPICS) - ok} to create — nothing written ===")
+    else:
+        print(f"\n=== seed_critical_minerals.py complete: {ok}/{len(TOPICS)} topics in place ===")
 
 
 if __name__ == "__main__":

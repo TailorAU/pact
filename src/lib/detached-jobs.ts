@@ -67,6 +67,7 @@ export type DetachedJobStart =
 export async function startDetachedJob(spec: DetachedJobSpec): Promise<DetachedJobStart> {
   const client = await getDedicatedConnection();
   let acquired = false;
+  let handedOff = false;
   try {
     const lockResult = await client.query("SELECT pg_try_advisory_lock($1) AS acquired", [spec.lockKey]);
     acquired = lockResult.rows[0]?.acquired === true;
@@ -81,13 +82,38 @@ export async function startDetachedJob(spec: DetachedJobSpec): Promise<DetachedJ
     setImmediate(() => {
       void execute(spec, client, jobId, startedAt);
     });
+    handedOff = true;
 
     log.info({ op: `cron.${spec.name}.started`, jobId, startedAt }, "detached job started");
     return { started: true, jobId, startedAt };
   } finally {
-    // Ownership of the connection passes to `execute` only once the lock is
-    // held; every other exit path (lock busy, a query threw) releases here.
-    if (!acquired) client.release();
+    // Ownership of the connection (and the lock) passes to `execute` only
+    // once `setImmediate` is scheduled. Every other exit path releases here:
+    // lock busy, the lock query threw, or — the case that would otherwise
+    // strand the lock for the replica's lifetime — the lock WAS taken and a
+    // later query (`now()`) threw before the hand-off.
+    if (!handedOff) {
+      if (acquired) await releaseLock(spec, client, null);
+      client.release();
+    }
+  }
+}
+
+/**
+ * Best-effort `pg_advisory_unlock` on the connection that holds the lock.
+ * A dead connection has already dropped its session locks, so a throw here
+ * strands nothing; it is logged so an unlock failure on a live connection
+ * is visible.
+ */
+async function releaseLock(
+  spec: DetachedJobSpec,
+  client: { query(text: string, values?: unknown[]): Promise<unknown> },
+  jobId: string | null
+): Promise<void> {
+  try {
+    await client.query("SELECT pg_advisory_unlock($1)", [spec.lockKey]);
+  } catch (err) {
+    log.warn({ op: `cron.${spec.name}.unlock-failed`, jobId, err }, "advisory unlock threw; the lock dies with the connection");
   }
 }
 
@@ -104,15 +130,8 @@ async function execute(
   } catch (err) {
     log.error({ op: `cron.${spec.name}.failed`, jobId, startedAt, err, durationMs: Date.now() - t0 }, "detached job failed");
   } finally {
-    try {
-      await client.query("SELECT pg_advisory_unlock($1)", [spec.lockKey]);
-    } catch (err) {
-      // A dead connection has already dropped its session locks; nothing to
-      // strand. Log so an unlock failure on a live connection is visible.
-      log.warn({ op: `cron.${spec.name}.unlock-failed`, jobId, err }, "advisory unlock threw; the lock dies with the connection");
-    } finally {
-      client.release();
-    }
+    await releaseLock(spec, client, jobId);
+    client.release();
   }
 }
 

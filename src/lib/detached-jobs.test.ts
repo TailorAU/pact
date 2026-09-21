@@ -137,6 +137,43 @@ describe("startDetachedJob", () => {
     expect(run).not.toHaveBeenCalled();
     expect(mockClient.release).toHaveBeenCalledTimes(1);
   });
+
+  it("unlocks and releases when the lock was taken but now() throws before the hand-off; run is never invoked", async () => {
+    mockClient.query.mockImplementation(async (text: string) => {
+      if (text.includes("pg_try_advisory_lock")) return { rows: [{ acquired: true }] };
+      if (text.includes("now()")) throw new Error("statement cancelled");
+      if (text.includes("pg_advisory_unlock")) return { rows: [{ pg_advisory_unlock: true }] };
+      throw new Error(`unexpected query: ${text}`);
+    });
+    const run = vi.fn(async () => undefined);
+
+    await expect(startDetachedJob({ name: "demo", lockKey: 542599, run })).rejects.toThrow("statement cancelled");
+    await flushImmediates();
+
+    expect(run).not.toHaveBeenCalled();
+    expect(mockClient.query).toHaveBeenCalledWith("SELECT pg_advisory_unlock($1)", [542599]);
+    expect(mockClient.release).toHaveBeenCalledTimes(1);
+    expect(logWarn).not.toHaveBeenCalled();
+  });
+
+  it("still releases the connection when both now() and the unlock throw (dead connection)", async () => {
+    const dead = new Error("connection terminated");
+    mockClient.query.mockImplementation(async (text: string) => {
+      if (text.includes("pg_try_advisory_lock")) return { rows: [{ acquired: true }] };
+      throw dead;
+    });
+    const run = vi.fn(async () => undefined);
+
+    await expect(startDetachedJob({ name: "demo", lockKey: 542599, run })).rejects.toThrow("connection terminated");
+
+    expect(run).not.toHaveBeenCalled();
+    expect(mockClient.query).toHaveBeenCalledWith("SELECT pg_advisory_unlock($1)", [542599]);
+    expect(mockClient.release).toHaveBeenCalledTimes(1);
+    expect(logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ op: "cron.demo.unlock-failed", err: dead }),
+      expect.any(String)
+    );
+  });
 });
 
 describe("isDetachedJobRunning", () => {

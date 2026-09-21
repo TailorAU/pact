@@ -62,7 +62,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "US Council on Environmental Quality; federal action agencies",
         "sourceRef": "National Environmental Policy Act of 1969, 42 USC 4321 et seq; 40 CFR Parts 1500-1508",
-        "canonicalClaim": "NEPA (42 USC 4321) requires an Environmental Impact Statement for major federal actions significantly affecting the environment",
+        "canonicalClaim": "NEPA (42 USC 4321 et seq) requires an Environmental Impact Statement for major federal actions significantly affecting the human environment",
     },
     {
         "title": "BLM 43 CFR 3809 governs surface management of hardrock mining on federal land",
@@ -78,7 +78,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "US Bureau of Land Management (Department of the Interior)",
         "sourceRef": "43 CFR Part 3809, Subparts 3809.1-3809.605 (Surface Management)",
-        "canonicalClaim": "BLM 43 CFR 3809 requires a Plan of Operations for hardrock mining on federal land beyond casual use",
+        "canonicalClaim": "BLM 43 CFR 3809 requires an approved Plan of Operations for commercial hardrock mining on federal land",
     },
     {
         "title": "DFARS 252.225-7052 restricts DoD acquisition of non-domestic specialty metals including antimony",
@@ -95,7 +95,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "US",
         "authority": "US Department of Defense (Defense Acquisition Regulations System)",
         "sourceRef": "DFARS 252.225-7052; DFARS 252.225-7008; 10 USC 4863 (specialty metals)",
-        "canonicalClaim": "The DFARS specialty-metals clause restricts DoD acquisition of end items containing non-domestic specialty metals such as antimony",
+        "canonicalClaim": "The DFARS specialty-metals clause bars DoD end items containing specialty metals not melted or produced in the US or a qualifying country",
     },
     {
         "title": "California SMARA requires state permitting and reclamation for surface-mining operations",

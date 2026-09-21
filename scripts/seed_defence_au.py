@@ -31,7 +31,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Commonwealth Parliament of Australia",
         "sourceRef": "Defence Trade Controls Act 2012 (Cth), Act No. 153 of 2012",
-        "canonicalClaim": "The Defence Trade Controls Act 2012 (Cth) requires a permit to supply DSGL-listed technology from Australia to a foreign person",
+        "canonicalClaim": "The Defence Trade Controls Act 2012 (Cth) requires a permit for the supply of DSGL-listed technology out of Australia",
     },
     {
         "title": "Defence and Strategic Goods List (DSGL) enumerates export-controlled goods and technology",
@@ -94,7 +94,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "ASX Limited (with statutory backing via Corporations Act s 674)",
         "sourceRef": "ASX Listing Rules Chapter 3, Rule 3.1 (continuous disclosure); Corporations Act 2001 (Cth) s 674",
-        "canonicalClaim": "ASX listing rules require an entity to disclose immediately information that would materially affect the price of its securities",
+        "canonicalClaim": "ASX Listing Rules require immediate disclosure of information a reasonable person would expect to materially affect a security's price",
     },
     {
         "title": "JORC Code 2012 governs public reporting of mineral exploration results, resources and reserves",
@@ -202,7 +202,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Commonwealth Parliament of Australia",
         "sourceRef": "National Security Legislation Amendment (Espionage and Foreign Interference) Act 2018 (Cth); Criminal Code 1995 (Cth) Division 92",
-        "canonicalClaim": "The Espionage and Foreign Interference Act 2018 (Cth) inserted foreign-interference offences into the Commonwealth Criminal Code",
+        "canonicalClaim": "The NSLA (Espionage and Foreign Interference) Act 2018 (Cth) inserted foreign-interference offences into the Criminal Code 1995",
     },
 ]
 

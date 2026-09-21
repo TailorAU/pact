@@ -19,6 +19,7 @@ from _defence_seed_helpers import (  # noqa: E402
     api,
     find_topic_id_by_title,
     register_agents,
+    reusable_key,
 )
 
 
@@ -274,13 +275,21 @@ def main() -> None:
         )
         return
 
-    keys = register_agents("seed-deps", 1)
-    agent_key = keys[0]
-
     edges, missing = resolve_edges()
     if not edges:
         print("\nFATAL: no edges resolved. Did the three topic seed scripts run first?")
         sys.exit(1)
+
+    # Reuse a topic-script key when one is available (PACT_SEED_AGENT_KEY or the last
+    # line of PACT_SEED_KEYS_FILE): edge writes need any registered agent, and the
+    # per-address registration budget is spent by the 30 topic agents. Otherwise
+    # register only once there is something to write.
+    agent_key = reusable_key()
+    if agent_key:
+        print("  reusing a topic-script agent key for the edge writes (no registration)")
+    else:
+        keys = register_agents("seed-deps", 1)
+        agent_key = keys[0]
 
     print(f"\n=== Creating {len(edges)} dependency edges ===")
     created = 0

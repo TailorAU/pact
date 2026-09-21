@@ -50,7 +50,17 @@ def register(base: str, payload: dict[str, Any], timeout: int = 30, attempts: in
     url = f"{base}/api/pact/register"
     body = dict(payload)
     for _ in range(attempts):
-        r = requests.post(url, json=body, timeout=timeout)
+        r = None
+        for net_attempt in range(4):
+            try:
+                r = requests.post(url, json=body, timeout=timeout)
+                break
+            except requests.RequestException as e:
+                if net_attempt == 3:
+                    print(f"  NETWORK ERR on POST /api/pact/register: {e}")
+                    return 0, {"error": f"network: {e}"}
+                time.sleep(5 * (net_attempt + 1))
+        assert r is not None
         try:
             data = r.json()
         except ValueError:

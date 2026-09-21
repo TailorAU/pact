@@ -28,7 +28,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "AU",
         "authority": "Australian Government (Department of Industry, Science and Resources)",
         "sourceRef": "Australia's Critical Minerals Strategy 2023-2030 (June 2023); Australian Critical Minerals List 2023",
-        "canonicalClaim": "Australia's Critical Minerals Strategy 2023-2030 lists 31 critical minerals for priority downstream processing support",
+        "canonicalClaim": "Australia's Critical Minerals Strategy 2023-2030 is accompanied by a Critical Minerals List naming 31 critical minerals",
     },
     {
         "title": "US Critical Minerals List identifies 50 minerals essential to US economy and national security",
@@ -61,7 +61,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "INTERNATIONAL",
         "authority": "US Geological Survey (Mineral Commodity Summaries); China Ministry of Commerce",
         "sourceRef": "USGS Mineral Commodity Summaries: Antimony (2023, 2024); MOFCOM Announcement No. 33 of 2024 (antimony export licensing)",
-        "canonicalClaim": "China supplies roughly 80 percent of global antimony mine production and refining per USGS data",
+        "canonicalClaim": "USGS reports recent Chinese antimony mine production near 40,000 tonnes of a global total near 83,000 tonnes",
     },
     {
         "title": "China controls approximately 70 percent of global rare-earth mining and over 85 percent of refining",
@@ -77,7 +77,7 @@ TOPICS: list[dict] = [
         "jurisdiction": "INTERNATIONAL",
         "authority": "US Geological Survey; International Energy Agency (Critical Minerals Outlook)",
         "sourceRef": "USGS Mineral Commodity Summaries: Rare Earths (2024); IEA Critical Minerals Outlook 2024",
-        "canonicalClaim": "China accounts for about 70 percent of global rare-earth mine production and over 85 percent of refining capacity",
+        "canonicalClaim": "China accounts for about 70 percent of global rare-earth mine production per USGS data",
     },
     {
         "title": "AUKUS Critical Minerals Cooperation coordinates trilateral supply-chain investment",

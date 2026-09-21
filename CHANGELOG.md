@@ -134,7 +134,13 @@ releases).
   parser anomalies; `docsUpdated` now counts only documents actually
   written. Stamps `cth-parser@2.2.0` / `qld-parser@1.6.0`. Verified live on
   21 Sep 2026 with `CTH_SYNC_MAX_ACTS=3` (the ceiling rounds up to one page
-  of 10): docsChecked 10, docsUpdated 10, 147 sections, no errors.
+  of 10): docsChecked 10, docsUpdated 10, 147 sections, no errors. The
+  single-document PACT proposal path (`finalizeApprovedTopic`) stays
+  fail-closed: because `ingestDocuments` now returns a rejection instead of
+  throwing, the finalizer throws itself when its one document was not
+  written, so the savepoint catch opens the topic for debate as before and
+  a rejected proposal is never promoted to 'consensus' or reported as
+  `pact.legislation.ingested`.
 - **`GET /api/cron/auto-merge` names its failure** (tailor-group#9). The
   scheduled caller saw bare HTTP 500s every 30 minutes on 17–18 Sep with no
   log line saying which phase threw. The route now catches the sweep's error,

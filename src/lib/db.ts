@@ -1563,8 +1563,9 @@ export async function runConsensusStatusUpdate(
  *
  * Legislation proposals: ingest the proposed document, mark the topic
  * 'consensus', emit `pact.legislation.ingested`. Everything else (including
- * a legislation proposal whose payload is missing/corrupt, or whose ingest
- * throws): open the topic for debate and emit `pact.topic.approved`.
+ * a legislation proposal whose payload is missing/corrupt, whose ingest
+ * throws, or whose document the ingest rejects without writing it): open the
+ * topic for debate and emit `pact.topic.approved`.
  *
  * #5425 guard: this transition can NEVER run on a topic that has left
  * 'proposed' — in particular a 'rejected' topic (terminal) is re-checked
@@ -1619,7 +1620,21 @@ export async function finalizeApprovedTopic(
           const payload = JSON.parse(legislationEvent.rows[0].data as string);
           if (payload.document) {
             const { ingestDocuments } = await import("./legislation-sync");
-            await ingestDocuments(db, [payload.document]);
+            // tailor-group#37 — ingestDocuments isolates rejections per
+            // document for the syncs and no longer throws on an invalid
+            // payload. This single-document caller stays fail-closed: a
+            // rejected document is a failed ingest, so throw into the
+            // savepoint catch below and the topic opens for debate instead
+            // of being promoted to 'consensus' with nothing written.
+            const ingest = await ingestDocuments(db, [payload.document]);
+            if (ingest.ingested !== 1) {
+              const r = ingest.rejected[0];
+              throw new Error(
+                `Legislation proposal ${r?.id ?? String(payload.document.id)} rejected: ${
+                  r ? `${r.path} ${r.message}` : "nothing written"
+                }`
+              );
+            }
             const updated = await db.execute({
               sql: "UPDATE topics SET status = 'consensus' WHERE id = ? AND status = 'proposed'",
               args: [topicId],

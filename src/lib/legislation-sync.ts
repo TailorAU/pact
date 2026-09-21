@@ -136,10 +136,13 @@ function emptySyncResult(jurisdiction: string, errors: string[]): SyncResult {
   };
 }
 
+/** The jurisdictions a sync covers when the caller names none. */
+export const DEFAULT_LEGISLATION_JURISDICTIONS = ["CTH", "QLD"] as const;
+
 export async function runLegislationSync(jurisdictions?: string[]): Promise<SyncResult[]> {
   const db = await getDb();
   const results: SyncResult[] = [];
-  const targets = jurisdictions ?? ["CTH", "QLD"];
+  const targets = jurisdictions ?? [...DEFAULT_LEGISLATION_JURISDICTIONS];
 
   for (const jurisdiction of targets) {
     const runId = uuid();

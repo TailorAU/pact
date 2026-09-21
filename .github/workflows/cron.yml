@@ -198,23 +198,132 @@ jobs:
       github.event.schedule == '0 6 * * 0' ||
       github.event_name == 'workflow_dispatch' && (inputs.job == 'legislation-sync' || inputs.job == 'all')
     steps:
-      - name: Run legislation sync cron
+      # tailor-group#38 — the sync takes minutes and pact.tailor.au sits
+      # behind a Next.js rewrite proxy with a 30 s timeout, so the route no
+      # longer runs it inside the request: it starts the sync detached under
+      # a Postgres advisory lock and answers 202 at once. This step triggers,
+      # then polls /status every 30 s until the lock is free and every
+      # targeted jurisdiction's latest legislation_sync_log row is at least
+      # as new as the trigger and has a completedAt. The poll loop is a
+      # wall-clock deadline (bash $SECONDS, counted from the step's start),
+      # not an iteration count, so however long each poll takes it ends —
+      # with the header+body dump — inside timeout-minutes: 30. A run of ours
+      # that ends without completing fails at the first poll that sees it:
+      # the lock is free but our row never got a completedAt (the replica
+      # died mid-run), or there is no row of ours at all (the sync threw
+      # before writing one — cron.legislation-sync.failed in the app logs).
+      - name: Run legislation sync cron and poll until it completes
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          STATUS=$(curl -s -D "$RUNNER_TEMP/cron-response-headers.txt" -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 600 \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ env.PACT_URL }}/api/cron/legislation-sync")
-          echo "HTTP Status: $STATUS"
-          if [ "$STATUS" != "200" ]; then
+          BASE="${{ env.PACT_URL }}/api/cron/legislation-sync"
+          HEADERS="$RUNNER_TEMP/cron-response-headers.txt"
+          BODY="$RUNNER_TEMP/cron-response.json"
+          # Polling stops once $SECONDS (since the step started) passes this:
+          # 27 min. The last poll can begin up to one interval past it and take
+          # its own --max-time, still inside timeout-minutes: 30.
+          DEADLINE=1620
+          POLL_INTERVAL=30
+          dump() {
             echo "Response headers:"
-            cat "$RUNNER_TEMP/cron-response-headers.txt" || true
+            cat "$HEADERS" || true
             echo "Response body (first 2000 bytes):"
-            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            head -c 2000 "$BODY" || true
             echo
-          fi
-          if [ "$STATUS" != "200" ]; then
-            echo "::error::Legislation sync failed with status $STATUS"
+          }
+          fail() {
+            dump
+            echo "::error::$1"
             exit 1
+          }
+
+          # `|| STATUS=000`: on a transport failure (DNS, TLS, connect, timeout)
+          # curl exits non-zero and writes no status, and under the step's
+          # `bash -e` that would abort before the dump. 000 takes the
+          # ordinary non-2xx branch instead.
+          STATUS=$(curl -s -D "$HEADERS" -o "$BODY" -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$BASE") || STATUS=000
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "202" ]; then
+            fail "Legislation sync trigger failed with status $STATUS"
           fi
+          if ! jq -e 'type == "object"' "$BODY" > /dev/null 2>&1; then
+            fail "Legislation sync trigger returned a body that is not a JSON object"
+          fi
+
+          if [ "$STATUS" = "200" ]; then
+            # The route ran synchronously (?wait=1 semantics): results are in the body.
+            if ! jq -e '.results | type == "array"' "$BODY" > /dev/null; then
+              fail "Legislation sync answered 200 without a results array"
+            fi
+            jq -r '.results[] | "\(.jurisdiction): docsChecked=\(.docsChecked) docsUpdated=\(.docsUpdated) sectionsTotal=\(.sectionsTotal) errors=\(.errors | length) crashes=\(.parserCrashCount) anomalies=\(.parserAnomalyCount)"' "$BODY"
+            exit 0
+          fi
+
+          if ! jq -e '(.started | type == "boolean") and (.jurisdictions | type == "array" and length > 0)' "$BODY" > /dev/null; then
+            fail "Legislation sync answered 202 without started/jurisdictions"
+          fi
+          TARGETS=$(jq -c '.jurisdictions' "$BODY")
+          if [ "$(jq -r '.started' "$BODY")" = "true" ]; then
+            SINCE=$(jq -r '.startedAt' "$BODY")
+            echo "Started job $(jq -r '.jobId' "$BODY") at $SINCE for $TARGETS"
+          else
+            SINCE=""
+            echo "::warning::A legislation sync was already running; waiting for it instead (its rows may predate this trigger)"
+          fi
+
+          POLL=0
+          while [ "$SECONDS" -lt "$DEADLINE" ]; do
+            sleep "$POLL_INTERVAL"
+            POLL=$((POLL + 1))
+            STATUS=$(curl -s -D "$HEADERS" -o "$BODY" -w '%{http_code}' --max-time 30 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "$BASE/status") || STATUS=000
+            if [ "$STATUS" != "200" ]; then
+              fail "Legislation sync status poll $POLL failed with status $STATUS"
+            fi
+            if ! jq -e '(.running | type == "boolean") and (.runs | type == "array")' "$BODY" > /dev/null 2>&1; then
+              fail "Legislation sync status poll $POLL returned an invalid response"
+            fi
+            if jq -e --arg since "$SINCE" --argjson targets "$TARGETS" '
+              def ts: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+              . as $doc
+              | ($doc.running == false)
+                and all($targets[]; . as $j
+                  | ([$doc.runs[] | select(.jurisdiction == $j)] | first // null) as $r
+                  | $r != null
+                    and ($r.startedAt != null)
+                    and $r.completedAt != null
+                    and ($since == "" or (($r.startedAt | ts) >= ($since | ts))))
+            ' "$BODY" > /dev/null; then
+              jq -r --argjson targets "$TARGETS" '
+                .runs[] | select(.jurisdiction as $j | $targets | index($j))
+                | "\(.jurisdiction): docsChecked=\(.docsChecked) docsUpdated=\(.docsUpdated) sectionsTotal=\(.sectionsTotal) errors=\(.errors | length) crashes=\(.parserCrashCount) anomalies=\(.parserAnomalyCount) silentZero=\(.silentZeroFlag) startedAt=\(.startedAt) completedAt=\(.completedAt)"
+              ' "$BODY"
+              exit 0
+            fi
+            if [ -n "$SINCE" ] && [ "$(jq -r '.running' "$BODY")" = "false" ]; then
+              # Our run no longer holds the lock yet did not complete. That is
+              # terminal — no later poll can change it — so fail now rather
+              # than at the deadline. A row of ours with no completedAt means
+              # the replica died mid-run; no row of ours at all means the sync
+              # threw before writing one.
+              DIED=$(jq -r --arg since "$SINCE" --argjson targets "$TARGETS" '
+                def ts: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+                [ .runs[]
+                  | select(.jurisdiction as $j | $targets | index($j))
+                  | select(.startedAt != null and (.startedAt | ts) >= ($since | ts) and .completedAt == null)
+                  | .jurisdiction ] | first // empty
+              ' "$BODY")
+              if [ -n "$DIED" ]; then
+                fail "Legislation sync run died (lock released, $DIED row never completed)"
+              fi
+              fail "Legislation sync ended without a completed row newer than $SINCE for $TARGETS (see cron.legislation-sync.failed in the app logs)"
+            fi
+            echo "poll $POLL at ${SECONDS}s of ${DEADLINE}s: running=$(jq -r '.running' "$BODY"); waiting"
+          done
+          fail "Legislation sync did not complete within the polling deadline (${DEADLINE}s from the start of the step)"
 
   spatial-snapshot:
     name: Logan ArcGIS Spatial Snapshot (daily 2am UTC) — Refs #874

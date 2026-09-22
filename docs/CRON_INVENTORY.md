@@ -87,7 +87,7 @@ The locked connection is idle for the whole run (the job's own queries go
 through the pool), so the pool sets TCP keepalive (`PG_POOL_OPTIONS` in
 `src/lib/db.ts`, 30 s) to stop a NAT or load balancer dropping it mid-run,
 which would leave `running: true` and the poller at its deadline for a run
-that finished.
+that finished. A status poll that gets no answer (transport failure or a proxy 5xx) is tolerated up to `max-transient-polls` times (default 4) before the job fails, since a replica that dies mid-run looks exactly like that while it restarts. The GTFS ingest streams `stop_times.txt` (~220 MB uncompressed) line by line and keeps only the key stations' rail rows, so it fits the 1 GiB replica.
 
 ---
 

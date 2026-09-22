@@ -40,6 +40,15 @@ inputs:
     description: "Seconds between status polls"
     required: false
     default: "30"
+  max-transient-polls:
+    description: >-
+      Consecutive status polls that may get no answer from the app (curl
+      transport failure, or a 5xx from the proxy in front of it) before the
+      job fails. A replica that dies mid-run looks exactly like this while
+      Container Apps restarts it; once the app answers again the lock and
+      the run row say what happened.
+    required: false
+    default: "4"
   not-ok:
     description: >-
       What a COMPLETED run with ok:false does to the job: `fail` (the
@@ -68,6 +77,7 @@ runs:
         QUERY: ${{ inputs.query }}
         DEADLINE: ${{ inputs.deadline-seconds }}
         POLL_INTERVAL: ${{ inputs.poll-interval-seconds }}
+        MAX_TRANSIENT: ${{ inputs.max-transient-polls }}
         NOT_OK: ${{ inputs.not-ok }}
         SUMMARY_JQ: ${{ inputs.summary-jq }}
       run: |
@@ -130,13 +140,27 @@ runs:
         fi
 
         POLL=0
+        TRANSIENT=0
         while [ "$SECONDS" -lt "$DEADLINE" ]; do
           sleep "$POLL_INTERVAL"
           POLL=$((POLL + 1))
           fetch 30 "$BASE/status"
-          if [ "$STATUS" != "200" ]; then
-            fail "$JOB status poll $POLL failed with status $STATUS"
-          fi
+          case "$STATUS" in
+            200) TRANSIENT=0 ;;
+            000|5??)
+              # No answer from the app (timeout, connection refused, proxy
+              # 5xx). A replica that dies mid-run looks exactly like this
+              # while Container Apps restarts it, so allow a few polls; once
+              # the app answers again, a run that died fails fast below.
+              TRANSIENT=$((TRANSIENT + 1))
+              if [ "$TRANSIENT" -ge "$MAX_TRANSIENT" ]; then
+                fail "$JOB status poll $POLL failed with status $STATUS — $TRANSIENT consecutive polls got no answer from the app (down or restarting; a run that killed its replica shows up here)"
+              fi
+              echo "poll $POLL at ${SECONDS}s of ${DEADLINE}s: status $STATUS (no answer, $TRANSIENT of $MAX_TRANSIENT allowed); waiting"
+              continue
+              ;;
+            *) fail "$JOB status poll $POLL failed with status $STATUS" ;;
+          esac
           if ! jq -e '(.running | type == "boolean") and ((.lastRun | type) == "object" or .lastRun == null)' "$BODY" > /dev/null 2>&1; then
             fail "$JOB status poll $POLL returned an invalid response"
           fi

@@ -726,7 +726,7 @@ lists a route twice.
 | `GET`, `POST` | `/api/pact/{topicId}/bounty` | Read · sponsor a topic bounty (escrowed, distributed on promotion) |
 | `GET` | `/api/pact/wallet` | Agent credit balance |
 | `GET` | `/api/pact/axioms` | Axiom listing |
-| `POST` | `/api/pact/axioms/keys` | Mint an Axiom API key |
+| `POST` | `/api/pact/axioms/keys` | Retired: answers 410 Gone and mints nothing. Axiom API keys come from the rate-limited free tier at `POST /api/axiom/keys` |
 | `POST` | `/api/pact/legislation/propose` | Contribute legislation for PACT-verified ingestion |
 
 > The free, unauthenticated legislation **read** surface lives under

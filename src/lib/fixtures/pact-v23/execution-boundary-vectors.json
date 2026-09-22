@@ -1,0 +1,881 @@
+{
+  "suite": "PACT v2.3 execution-boundary — internal-reversible session vectors + exact-set inventory",
+  "source": {
+    "repo": "TailorAU/pact",
+    "commit": "ba74dcdab64a114dc3b1ffce33ac64dab5cb6023",
+    "conformance_path": "spec/v2.3/conformance",
+    "vector_path": "spec/v2.3/conformance/extended/execution-boundary",
+    "inventory_path": ".github/conformance/v2.3-reference-server-expected-failures.json"
+  },
+  "generated_by": "tools/pact-conformance/convert_execution_boundary_session_vectors.py",
+  "expected_vector_ids": [
+    "core/join/basic",
+    "extended/attestation/verify-alg-disallowed",
+    "extended/attestation/verify-cross-verifier-replay",
+    "extended/attestation/verify-fido2-forged-signature",
+    "extended/attestation/verify-fido2-real-signature",
+    "extended/attestation/verify-fido2-valid",
+    "extended/attestation/verify-replayed-nonce",
+    "extended/attestation/verify-revoked-credential",
+    "extended/attestation/verify-voice-alg-disallowed",
+    "extended/attestation/verify-voice-forged-signature",
+    "extended/attestation/verify-voice-replayed-cross-verifier",
+    "extended/attestation/verify-voice-valid",
+    "extended/attestation/verify-voice-wrong-utterance",
+    "extended/execution-boundary/attest-expired-rejected",
+    "extended/execution-boundary/attest-payload-bound-verified",
+    "extended/execution-boundary/attest-replayed-rejected",
+    "extended/execution-boundary/attest-wrong-payload-rejected",
+    "extended/execution-boundary/attest-wrong-principal-rejected",
+    "extended/execution-boundary/consensus-contract-is-draft-not-signed",
+    "extended/execution-boundary/guarded-apply-attestation-missing-refused",
+    "extended/execution-boundary/guarded-apply-wrong-principal-refused",
+    "extended/execution-boundary/guarded-apply-wrong-scope-refused",
+    "extended/execution-boundary/ttl-automerge-creates-no-attestation",
+    "extended/execution-boundary/ttl-transaction-blocks-not-settles",
+    "extended/mandate/mandate-absent-required",
+    "extended/mandate/mandate-category-denied",
+    "extended/mandate/mandate-clock-skew",
+    "extended/mandate/mandate-commitment-escalation",
+    "extended/mandate/mandate-digest-unknown",
+    "extended/mandate/mandate-disclosure-redacted",
+    "extended/mandate/mandate-escalation-retry",
+    "extended/mandate/mandate-expired-rejected",
+    "extended/mandate/mandate-forged-signature",
+    "extended/mandate/mandate-revoked-key",
+    "extended/mandate/mandate-revoked-midsession",
+    "extended/mandate/mandate-valid-passthrough",
+    "extended/matters/matter-attach-fabric",
+    "extended/matters/matter-close-no-cascade",
+    "extended/matters/matter-manifest-cross-fabric",
+    "extended/matters/matter-message-post",
+    "extended/matters/matter-open-success",
+    "extended/sessions/heartbeat-timeout",
+    "extended/sessions/manifest-cross-org-disclosure",
+    "extended/sessions/obligation-surfacing",
+    "extended/sessions/onboard-partial-failure",
+    "extended/sessions/onboard-success",
+    "extended/sessions/two-agent-negotiation-smoke"
+  ],
+  "vector_kinds": {
+    "core/join/basic": "http",
+    "extended/attestation/verify-alg-disallowed": "verification",
+    "extended/attestation/verify-cross-verifier-replay": "verification",
+    "extended/attestation/verify-fido2-forged-signature": "verification",
+    "extended/attestation/verify-fido2-real-signature": "verification",
+    "extended/attestation/verify-fido2-valid": "verification",
+    "extended/attestation/verify-replayed-nonce": "verification",
+    "extended/attestation/verify-revoked-credential": "verification",
+    "extended/attestation/verify-voice-alg-disallowed": "verification",
+    "extended/attestation/verify-voice-forged-signature": "verification",
+    "extended/attestation/verify-voice-replayed-cross-verifier": "verification",
+    "extended/attestation/verify-voice-valid": "verification",
+    "extended/attestation/verify-voice-wrong-utterance": "verification",
+    "extended/execution-boundary/attest-expired-rejected": "verification",
+    "extended/execution-boundary/attest-payload-bound-verified": "verification",
+    "extended/execution-boundary/attest-replayed-rejected": "verification",
+    "extended/execution-boundary/attest-wrong-payload-rejected": "verification",
+    "extended/execution-boundary/attest-wrong-principal-rejected": "verification",
+    "extended/execution-boundary/consensus-contract-is-draft-not-signed": "session",
+    "extended/execution-boundary/guarded-apply-attestation-missing-refused": "http",
+    "extended/execution-boundary/guarded-apply-wrong-principal-refused": "http",
+    "extended/execution-boundary/guarded-apply-wrong-scope-refused": "http",
+    "extended/execution-boundary/ttl-automerge-creates-no-attestation": "session",
+    "extended/execution-boundary/ttl-transaction-blocks-not-settles": "session",
+    "extended/mandate/mandate-absent-required": "mandate",
+    "extended/mandate/mandate-category-denied": "mandate",
+    "extended/mandate/mandate-clock-skew": "mandate",
+    "extended/mandate/mandate-commitment-escalation": "mandate",
+    "extended/mandate/mandate-digest-unknown": "mandate",
+    "extended/mandate/mandate-disclosure-redacted": "mandate",
+    "extended/mandate/mandate-escalation-retry": "mandate",
+    "extended/mandate/mandate-expired-rejected": "mandate",
+    "extended/mandate/mandate-forged-signature": "mandate",
+    "extended/mandate/mandate-revoked-key": "mandate",
+    "extended/mandate/mandate-revoked-midsession": "mandate",
+    "extended/mandate/mandate-valid-passthrough": "mandate",
+    "extended/matters/matter-attach-fabric": "http",
+    "extended/matters/matter-close-no-cascade": "http",
+    "extended/matters/matter-manifest-cross-fabric": "http",
+    "extended/matters/matter-message-post": "http",
+    "extended/matters/matter-open-success": "http",
+    "extended/sessions/heartbeat-timeout": "http",
+    "extended/sessions/manifest-cross-org-disclosure": "http",
+    "extended/sessions/obligation-surfacing": "session",
+    "extended/sessions/onboard-partial-failure": "session",
+    "extended/sessions/onboard-success": "http",
+    "extended/sessions/two-agent-negotiation-smoke": "session"
+  },
+  "vector_paths": {
+    "core/join/basic": "spec/v2.3/conformance/core/join.yaml",
+    "extended/attestation/verify-alg-disallowed": "spec/v2.3/conformance/extended/attestation/verify-alg-disallowed.yaml",
+    "extended/attestation/verify-cross-verifier-replay": "spec/v2.3/conformance/extended/attestation/verify-cross-verifier-replay.yaml",
+    "extended/attestation/verify-fido2-forged-signature": "spec/v2.3/conformance/extended/attestation/verify-fido2-forged-signature.yaml",
+    "extended/attestation/verify-fido2-real-signature": "spec/v2.3/conformance/extended/attestation/verify-fido2-real-signature.yaml",
+    "extended/attestation/verify-fido2-valid": "spec/v2.3/conformance/extended/attestation/verify-fido2-valid.yaml",
+    "extended/attestation/verify-replayed-nonce": "spec/v2.3/conformance/extended/attestation/verify-replayed-nonce.yaml",
+    "extended/attestation/verify-revoked-credential": "spec/v2.3/conformance/extended/attestation/verify-revoked-credential.yaml",
+    "extended/attestation/verify-voice-alg-disallowed": "spec/v2.3/conformance/extended/attestation/verify-voice-alg-disallowed.yaml",
+    "extended/attestation/verify-voice-forged-signature": "spec/v2.3/conformance/extended/attestation/verify-voice-forged-signature.yaml",
+    "extended/attestation/verify-voice-replayed-cross-verifier": "spec/v2.3/conformance/extended/attestation/verify-voice-replayed-cross-verifier.yaml",
+    "extended/attestation/verify-voice-valid": "spec/v2.3/conformance/extended/attestation/verify-voice-valid.yaml",
+    "extended/attestation/verify-voice-wrong-utterance": "spec/v2.3/conformance/extended/attestation/verify-voice-wrong-utterance.yaml",
+    "extended/execution-boundary/attest-expired-rejected": "spec/v2.3/conformance/extended/execution-boundary/attest-expired-rejected.yaml",
+    "extended/execution-boundary/attest-payload-bound-verified": "spec/v2.3/conformance/extended/execution-boundary/attest-payload-bound-verified.yaml",
+    "extended/execution-boundary/attest-replayed-rejected": "spec/v2.3/conformance/extended/execution-boundary/attest-replayed-rejected.yaml",
+    "extended/execution-boundary/attest-wrong-payload-rejected": "spec/v2.3/conformance/extended/execution-boundary/attest-wrong-payload-rejected.yaml",
+    "extended/execution-boundary/attest-wrong-principal-rejected": "spec/v2.3/conformance/extended/execution-boundary/attest-wrong-principal-rejected.yaml",
+    "extended/execution-boundary/consensus-contract-is-draft-not-signed": "spec/v2.3/conformance/extended/execution-boundary/consensus-contract-is-draft-not-signed.yaml",
+    "extended/execution-boundary/guarded-apply-attestation-missing-refused": "spec/v2.3/conformance/extended/execution-boundary/guarded-apply-attestation-missing-refused.yaml",
+    "extended/execution-boundary/guarded-apply-wrong-principal-refused": "spec/v2.3/conformance/extended/execution-boundary/guarded-apply-wrong-principal-refused.yaml",
+    "extended/execution-boundary/guarded-apply-wrong-scope-refused": "spec/v2.3/conformance/extended/execution-boundary/guarded-apply-wrong-scope-refused.yaml",
+    "extended/execution-boundary/ttl-automerge-creates-no-attestation": "spec/v2.3/conformance/extended/execution-boundary/ttl-automerge-creates-no-attestation.yaml",
+    "extended/execution-boundary/ttl-transaction-blocks-not-settles": "spec/v2.3/conformance/extended/execution-boundary/ttl-transaction-blocks-not-settles.yaml",
+    "extended/mandate/mandate-absent-required": "spec/v2.3/conformance/extended/mandate/mandate-absent-required.yaml",
+    "extended/mandate/mandate-category-denied": "spec/v2.3/conformance/extended/mandate/mandate-category-denied.yaml",
+    "extended/mandate/mandate-clock-skew": "spec/v2.3/conformance/extended/mandate/mandate-clock-skew.yaml",
+    "extended/mandate/mandate-commitment-escalation": "spec/v2.3/conformance/extended/mandate/mandate-commitment-escalation.yaml",
+    "extended/mandate/mandate-digest-unknown": "spec/v2.3/conformance/extended/mandate/mandate-digest-unknown.yaml",
+    "extended/mandate/mandate-disclosure-redacted": "spec/v2.3/conformance/extended/mandate/mandate-disclosure-redacted.yaml",
+    "extended/mandate/mandate-escalation-retry": "spec/v2.3/conformance/extended/mandate/mandate-escalation-retry.yaml",
+    "extended/mandate/mandate-expired-rejected": "spec/v2.3/conformance/extended/mandate/mandate-expired-rejected.yaml",
+    "extended/mandate/mandate-forged-signature": "spec/v2.3/conformance/extended/mandate/mandate-forged-signature.yaml",
+    "extended/mandate/mandate-revoked-key": "spec/v2.3/conformance/extended/mandate/mandate-revoked-key.yaml",
+    "extended/mandate/mandate-revoked-midsession": "spec/v2.3/conformance/extended/mandate/mandate-revoked-midsession.yaml",
+    "extended/mandate/mandate-valid-passthrough": "spec/v2.3/conformance/extended/mandate/mandate-valid-passthrough.yaml",
+    "extended/matters/matter-attach-fabric": "spec/v2.3/conformance/extended/matters/matter-attach-fabric.yaml",
+    "extended/matters/matter-close-no-cascade": "spec/v2.3/conformance/extended/matters/matter-close-no-cascade.yaml",
+    "extended/matters/matter-manifest-cross-fabric": "spec/v2.3/conformance/extended/matters/matter-manifest-cross-fabric.yaml",
+    "extended/matters/matter-message-post": "spec/v2.3/conformance/extended/matters/matter-message-post.yaml",
+    "extended/matters/matter-open-success": "spec/v2.3/conformance/extended/matters/matter-open-success.yaml",
+    "extended/sessions/heartbeat-timeout": "spec/v2.3/conformance/extended/sessions/heartbeat-timeout.yaml",
+    "extended/sessions/manifest-cross-org-disclosure": "spec/v2.3/conformance/extended/sessions/manifest-cross-org-disclosure.yaml",
+    "extended/sessions/obligation-surfacing": "spec/v2.3/conformance/extended/sessions/obligation-surfacing.yaml",
+    "extended/sessions/onboard-partial-failure": "spec/v2.3/conformance/extended/sessions/onboard-partial-failure.yaml",
+    "extended/sessions/onboard-success": "spec/v2.3/conformance/extended/sessions/onboard-success.yaml",
+    "extended/sessions/two-agent-negotiation-smoke": "spec/v2.3/conformance/extended/sessions/two-agent-negotiation-smoke.yaml"
+  },
+  "inventory": [
+    {
+      "id": "extended/execution-boundary/attest-expired-rejected",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/attest-expired-rejected.yaml",
+      "sha256": "35c0933ebf002db65f35bec96fde23c133d0b9ca3bb8fb2f25564b888b150967",
+      "kind": "verification",
+      "classification": {
+        "declared_at": "verification.proof",
+        "resource_type": null,
+        "effect_class": "external-irreversible",
+        "human_attestation": null
+      }
+    },
+    {
+      "id": "extended/execution-boundary/attest-payload-bound-verified",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/attest-payload-bound-verified.yaml",
+      "sha256": "17a4bdeceb4b4a44082e773c1a84e1ac722fad05d9f3e06ecc6bf02b5814b956",
+      "kind": "verification",
+      "classification": {
+        "declared_at": "verification.proof",
+        "resource_type": null,
+        "effect_class": "external-irreversible",
+        "human_attestation": null
+      }
+    },
+    {
+      "id": "extended/execution-boundary/attest-replayed-rejected",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/attest-replayed-rejected.yaml",
+      "sha256": "785021d26126bbbe256b157bee6a1b43b5e14efe462cff35b9f7f7fe3804ad68",
+      "kind": "verification",
+      "classification": {
+        "declared_at": "verification.proof",
+        "resource_type": null,
+        "effect_class": "external-irreversible",
+        "human_attestation": null
+      }
+    },
+    {
+      "id": "extended/execution-boundary/attest-wrong-payload-rejected",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/attest-wrong-payload-rejected.yaml",
+      "sha256": "63b6e269930dd0747c6a086420b2b5753a938bdf7b57629628aeb8b846d3e6a8",
+      "kind": "verification",
+      "classification": {
+        "declared_at": "verification.proof",
+        "resource_type": null,
+        "effect_class": "external-irreversible",
+        "human_attestation": null
+      }
+    },
+    {
+      "id": "extended/execution-boundary/attest-wrong-principal-rejected",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/attest-wrong-principal-rejected.yaml",
+      "sha256": "8e89a6deae27dc4249d106d6e393bb51cdfa803409da5a067620529f159854ef",
+      "kind": "verification",
+      "classification": {
+        "declared_at": "verification.proof",
+        "resource_type": null,
+        "effect_class": "external-irreversible",
+        "human_attestation": null
+      }
+    },
+    {
+      "id": "extended/execution-boundary/consensus-contract-is-draft-not-signed",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/consensus-contract-is-draft-not-signed.yaml",
+      "sha256": "d9a1127d41f5c364ca614cc7975ff1a0ee92a1848eb4aa92a9f6875495250906",
+      "kind": "session",
+      "classification": {
+        "declared_at": "preconditions.server_state",
+        "resource_type": "document",
+        "effect_class": "internal-reversible",
+        "human_attestation": "not-required"
+      }
+    },
+    {
+      "id": "extended/execution-boundary/guarded-apply-attestation-missing-refused",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/guarded-apply-attestation-missing-refused.yaml",
+      "sha256": "e9bd25c3e26c8e272d900a04844f7dd9769f3efd2c1c9722808fc8b4c3ce9ca2",
+      "kind": "http",
+      "classification": {
+        "declared_at": "preconditions.server_state",
+        "resource_type": "transaction",
+        "effect_class": "external-irreversible",
+        "human_attestation": "required"
+      }
+    },
+    {
+      "id": "extended/execution-boundary/guarded-apply-wrong-principal-refused",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/guarded-apply-wrong-principal-refused.yaml",
+      "sha256": "a26886798bbaea6cb0a167fbc12d02ef9b78af583b07403951cafe65de195afd",
+      "kind": "http",
+      "classification": {
+        "declared_at": "preconditions.server_state",
+        "resource_type": "transaction",
+        "effect_class": "external-irreversible",
+        "human_attestation": "required"
+      }
+    },
+    {
+      "id": "extended/execution-boundary/guarded-apply-wrong-scope-refused",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/guarded-apply-wrong-scope-refused.yaml",
+      "sha256": "28d56e1a00c21fff6ac9a2b40ef43933f64c75d917b0ff2c65805bf683f1352d",
+      "kind": "http",
+      "classification": {
+        "declared_at": "preconditions.server_state",
+        "resource_type": "transaction",
+        "effect_class": "external-irreversible",
+        "human_attestation": "required"
+      }
+    },
+    {
+      "id": "extended/execution-boundary/ttl-automerge-creates-no-attestation",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/ttl-automerge-creates-no-attestation.yaml",
+      "sha256": "14dc70a106951ddfedc9fc2f2998e9ce6559a1b41de0a541a5f25eeeb5266d0b",
+      "kind": "session",
+      "classification": {
+        "declared_at": "preconditions.server_state",
+        "resource_type": "document",
+        "effect_class": "internal-reversible",
+        "human_attestation": "not-required"
+      }
+    },
+    {
+      "id": "extended/execution-boundary/ttl-transaction-blocks-not-settles",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/ttl-transaction-blocks-not-settles.yaml",
+      "sha256": "5e62cb780ab3ba42d4115e5e564c98b0ef2b2f9d37aa980859e3f68d76e91e30",
+      "kind": "session",
+      "classification": {
+        "declared_at": "preconditions.server_state",
+        "resource_type": "transaction",
+        "effect_class": "external-irreversible",
+        "human_attestation": "required"
+      }
+    }
+  ],
+  "vectors": [
+    {
+      "id": "extended/execution-boundary/consensus-contract-is-draft-not-signed",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/consensus-contract-is-draft-not-signed.yaml",
+      "sha256": "d9a1127d41f5c364ca614cc7975ff1a0ee92a1848eb4aa92a9f6875495250906",
+      "kind": "session",
+      "classification": {
+        "declared_at": "preconditions.server_state",
+        "resource_type": "document",
+        "effect_class": "internal-reversible",
+        "human_attestation": "not-required"
+      },
+      "parsed": {
+        "kind": "session",
+        "metadata": {
+          "id": "extended/execution-boundary/consensus-contract-is-draft-not-signed",
+          "description": "Two counterparties reach full protocol consensus on an NDA fabric. The server MUST report aligned / merged / consensus_reached with execution_state unexecuted, MUST NOT label the document signed or executed, and MUST NOT expose a signature record — it advertises no §25.8 execution capability.",
+          "spec_section": "§25.3, §25.8, §25.10, §15.1",
+          "conformance_level": "core",
+          "track": "T-execution-boundary"
+        },
+        "preconditions": {
+          "server_state": {
+            "resource_id": "fab_nda_atlas",
+            "resource_type": "document",
+            "effect_class": "internal-reversible",
+            "human_attestation": "not-required",
+            "approval_policy": "unanimous",
+            "registered_agents": [
+              "did:web:alpha-legal.example",
+              "did:web:beta-legal.example"
+            ],
+            "profile": {
+              "capabilities": {
+                "executionCapability": false
+              }
+            }
+          },
+          "request_context": {
+            "auth": "bearer",
+            "principal_id": "did:web:alpha-legal.example"
+          }
+        },
+        "steps": [
+          {
+            "id": "profile-advertises-no-execution-capability",
+            "request": {
+              "method": "GET",
+              "path": "/.well-known/pact.json"
+            },
+            "expected_response": {
+              "status": 200,
+              "body_match": {
+                "mode": "subset",
+                "value": {
+                  "capabilities": {
+                    "executionCapability": false
+                  }
+                }
+              },
+              "body_ignore_fields": [
+                "name",
+                "version",
+                "specVersion",
+                "conformanceLevel",
+                "resourceTypes",
+                "retentionPolicy",
+                "endpoints"
+              ]
+            }
+          },
+          {
+            "id": "alpha-proposes-confidentiality-clause",
+            "request": {
+              "method": "POST",
+              "path": "/api/pact/fab_nda_atlas/proposals",
+              "headers": {
+                "Content-Type": "application/json",
+                "X-Pact-Principal": "did:web:alpha-legal.example"
+              },
+              "body": {
+                "proposalId": "prop_confidentiality",
+                "sectionId": "sec:confidentiality",
+                "summary": "Mutual confidentiality, 3-year tail, standard carve-outs"
+              }
+            },
+            "expected_response": {
+              "status": 200,
+              "body_match": {
+                "mode": "subset",
+                "value": {
+                  "proposalId": "prop_confidentiality",
+                  "status": "open",
+                  "created": true
+                }
+              },
+              "body_ignore_fields": [
+                "required_voters",
+                "created_at",
+                "event_id"
+              ]
+            }
+          },
+          {
+            "id": "beta-approves-confidentiality-clause",
+            "request": {
+              "method": "POST",
+              "path": "/api/pact/fab_nda_atlas/proposals/prop_confidentiality/approve",
+              "headers": {
+                "Content-Type": "application/json",
+                "X-Pact-Principal": "did:web:beta-legal.example"
+              },
+              "body": {
+                "decision": "approve"
+              }
+            },
+            "expected_response": {
+              "status": 200,
+              "body_match": {
+                "mode": "subset",
+                "value": {
+                  "proposalId": "prop_confidentiality",
+                  "recorded": true,
+                  "decision": "approve"
+                }
+              },
+              "body_ignore_fields": [
+                "vote_id",
+                "recorded_at"
+              ]
+            }
+          },
+          {
+            "id": "alpha-done-aligned",
+            "request": {
+              "method": "POST",
+              "path": "/api/pact/fab_nda_atlas/done",
+              "headers": {
+                "Content-Type": "application/json",
+                "X-Pact-Principal": "did:web:alpha-legal.example"
+              },
+              "body": {
+                "status": "aligned",
+                "summary": "Terms agreed subject to execution"
+              }
+            },
+            "expected_response": {
+              "status": 200,
+              "body_match": {
+                "mode": "subset",
+                "value": {
+                  "fabric_id": "fab_nda_atlas",
+                  "principal_id": "did:web:alpha-legal.example",
+                  "done": true
+                }
+              },
+              "body_ignore_fields": [
+                "completed_at",
+                "event_id",
+                "phase"
+              ]
+            }
+          },
+          {
+            "id": "beta-done-aligned-fabric-converges",
+            "request": {
+              "method": "POST",
+              "path": "/api/pact/fab_nda_atlas/done",
+              "headers": {
+                "Content-Type": "application/json",
+                "X-Pact-Principal": "did:web:beta-legal.example"
+              },
+              "body": {
+                "status": "aligned",
+                "summary": "Terms agreed subject to execution"
+              }
+            },
+            "expected_response": {
+              "status": 200,
+              "body_match": {
+                "mode": "subset",
+                "value": {
+                  "fabric_id": "fab_nda_atlas",
+                  "principal_id": "did:web:beta-legal.example",
+                  "done": true,
+                  "phase": "converged"
+                }
+              },
+              "body_ignore_fields": [
+                "completed_at",
+                "event_id"
+              ]
+            }
+          },
+          {
+            "id": "converged-state-is-a-draft",
+            "request": {
+              "method": "GET",
+              "path": "/api/pact/fab_nda_atlas/_status",
+              "headers": {
+                "X-Pact-Principal": "did:web:alpha-legal.example"
+              }
+            },
+            "expected_response": {
+              "status": 200,
+              "body_match": {
+                "mode": "subset",
+                "value": {
+                  "fabric_id": "fab_nda_atlas",
+                  "phase": "converged",
+                  "consensus_reached": true,
+                  "document_state": "merged",
+                  "execution_state": "unexecuted",
+                  "legal_status": null
+                }
+              },
+              "body_ignore_fields": [
+                "members",
+                "latest_event_id",
+                "pending_obligations",
+                "snapshot_at",
+                "effect_class"
+              ]
+            },
+            "cross_call_assertions": [
+              {
+                "kind": "negative_obligation",
+                "body_path": "signature_records",
+                "match": {}
+              },
+              {
+                "kind": "negative_obligation",
+                "body_path": "signers",
+                "match": {}
+              }
+            ]
+          },
+          {
+            "id": "export-carries-draft-vocabulary",
+            "request": {
+              "method": "GET",
+              "path": "/api/pact/fab_nda_atlas/manifest",
+              "headers": {
+                "X-Pact-Principal": "did:web:alpha-legal.example"
+              }
+            },
+            "expected_response": {
+              "status": 200,
+              "body_match": {
+                "mode": "subset",
+                "value": {
+                  "fabric_id": "fab_nda_atlas",
+                  "execution_state": "unexecuted",
+                  "document_state": "merged"
+                }
+              },
+              "body_ignore_fields": [
+                "caller",
+                "counterparties",
+                "generated_at",
+                "last_event_seq",
+                "snapshot_at"
+              ]
+            },
+            "cross_call_assertions": [
+              {
+                "kind": "negative_obligation",
+                "body_path": "signature_records",
+                "match": {}
+              }
+            ]
+          }
+        ],
+        "expected_events": {
+          "ordered": true,
+          "sequence": [
+            {
+              "event_type": "pact.proposal.created",
+              "match": {
+                "mode": "subset",
+                "value": {
+                  "proposalId": "prop_confidentiality"
+                }
+              },
+              "body_ignore_fields": [
+                "id",
+                "epochMs",
+                "sequenceNumber",
+                "actorId"
+              ]
+            },
+            {
+              "event_type": "pact.proposal.voted",
+              "match": {
+                "mode": "subset",
+                "value": {
+                  "proposalId": "prop_confidentiality",
+                  "decision": "approve"
+                }
+              },
+              "body_ignore_fields": [
+                "id",
+                "epochMs",
+                "sequenceNumber",
+                "actorId"
+              ]
+            },
+            {
+              "event_type": "pact.proposal.merged",
+              "match": {
+                "mode": "subset",
+                "value": {
+                  "proposalId": "prop_confidentiality"
+                }
+              },
+              "body_ignore_fields": [
+                "id",
+                "epochMs",
+                "sequenceNumber",
+                "actorId"
+              ]
+            },
+            {
+              "event_type": "pact.agent.done",
+              "match": {
+                "mode": "subset",
+                "value": {
+                  "principalId": "did:web:alpha-legal.example"
+                }
+              },
+              "body_ignore_fields": [
+                "id",
+                "epochMs",
+                "sequenceNumber",
+                "actorId"
+              ]
+            },
+            {
+              "event_type": "pact.agent.done",
+              "match": {
+                "mode": "subset",
+                "value": {
+                  "principalId": "did:web:beta-legal.example"
+                }
+              },
+              "body_ignore_fields": [
+                "id",
+                "epochMs",
+                "sequenceNumber",
+                "actorId"
+              ]
+            }
+          ]
+        },
+        "postconditions": {
+          "server_state": {
+            "resource_modified": true,
+            "apply_attested_events_added": 0,
+            "signature_records_created": 0
+          }
+        },
+        "notes": "Everything in this vector goes right. Both sides agreed. That is precisely\nthe point: the strongest thing PACT can honestly say about a contract is\n\"the parties' agents converged on this text\". Whether the parties are bound\nis a question about signatures, capacity, authority and law that PACT does\nnot answer and MUST NOT appear to answer (§25.11, §17.14).\n\nTo legitimately report `signed`, a server must satisfy all four §25.8\nconditions — advertise `capabilities.executionCapability: true` plus the\nexecution system's identifier, capture each required signer's intentional\nact separately from any PACT state, retain exportable evidence of each act,\nand still not represent the result as a determination of enforceability.\nThis server advertises `false`, so `signed` is simply unavailable to it.\n",
+        "failure_classification": {
+          "severity": "blocker",
+          "common_causes": [
+            "Converged fabric reported as `signed`, `executed`, or `legally accepted`",
+            "execution_state omitted, so consumers default to assuming execution",
+            "legal_status populated with an enforceability claim PACT cannot make",
+            "Signature record fabricated from the consensus state",
+            "Export / PDF stamped \"executed\" while the API correctly says merged (the boundary must hold on every surface, §25.3)",
+            {
+              "Server advertises executionCapability": "true without a separate execution system (§25.8 condition 1)"
+            }
+          ]
+        }
+      },
+      "raw_yaml": "# Conformance test vector — §25.8: consensus on a contract / NDA yields an\n# ALIGNED, MERGED DRAFT. It does not yield `signed` or `executed`.\n#\n# Two agents negotiate an NDA to convergence: every proposal merged, both\n# parties `done --status aligned`, `consensus_reached: true`. That is the\n# strongest protocol state PACT can produce — and it is still a draft.\n#\n# The server under test does NOT advertise capabilities.executionCapability,\n# so §25.8's four conditions are unmet and the words `signed` / `executed`\n# MUST NOT appear on any surface.\n\nkind: session\n\nmetadata:\n  id: extended/execution-boundary/consensus-contract-is-draft-not-signed\n  description: Two counterparties reach full protocol consensus on an NDA fabric. The server MUST report aligned / merged / consensus_reached with execution_state unexecuted, MUST NOT label the document signed or executed, and MUST NOT expose a signature record — it advertises no §25.8 execution capability.\n  spec_section: \"§25.3, §25.8, §25.10, §15.1\"\n  conformance_level: core\n  track: T-execution-boundary\n\npreconditions:\n  server_state:\n    resource_id: fab_nda_atlas\n    resource_type: document\n    effect_class: internal-reversible\n    human_attestation: not-required\n    approval_policy: unanimous\n    registered_agents:\n      - did:web:alpha-legal.example\n      - did:web:beta-legal.example\n    profile:\n      capabilities:\n        executionCapability: false             # §25.8 condition 1 NOT satisfied\n  request_context:\n    auth: bearer\n    principal_id: did:web:alpha-legal.example\n\nsteps:\n  # 1. The counterparty confirms the server advertises no execution capability.\n  #    Everything else in this vector follows from that.\n  - id: profile-advertises-no-execution-capability\n    request:\n      method: GET\n      path: /.well-known/pact.json\n    expected_response:\n      status: 200\n      body_match:\n        mode: subset\n        value:\n          capabilities:\n            executionCapability: false\n      body_ignore_fields:\n        - name\n        - version\n        - specVersion\n        - conformanceLevel\n        - resourceTypes\n        - retentionPolicy\n        - endpoints\n\n  # 2. Alpha proposes the confidentiality clause; Beta approves it. Unanimous\n  #    policy, so the approval merges it.\n  - id: alpha-proposes-confidentiality-clause\n    request:\n      method: POST\n      path: /api/pact/fab_nda_atlas/proposals\n      headers:\n        Content-Type: application/json\n        X-Pact-Principal: did:web:alpha-legal.example\n      body:\n        proposalId: prop_confidentiality\n        sectionId: sec:confidentiality\n        summary: \"Mutual confidentiality, 3-year tail, standard carve-outs\"\n    expected_response:\n      status: 200\n      body_match:\n        mode: subset\n        value:\n          proposalId: prop_confidentiality\n          status: open\n          created: true\n      body_ignore_fields:\n        - required_voters\n        - created_at\n        - event_id\n\n  - id: beta-approves-confidentiality-clause\n    request:\n      method: POST\n      path: /api/pact/fab_nda_atlas/proposals/prop_confidentiality/approve\n      headers:\n        Content-Type: application/json\n        X-Pact-Principal: did:web:beta-legal.example\n      body:\n        decision: approve\n    expected_response:\n      status: 200\n      body_match:\n        mode: subset\n        value:\n          proposalId: prop_confidentiality\n          recorded: true\n          decision: approve\n      body_ignore_fields:\n        - vote_id\n        - recorded_at\n\n  # 3. Both parties declare done / aligned. The fabric converges. This is\n  #    maximal protocol consensus.\n  - id: alpha-done-aligned\n    request:\n      method: POST\n      path: /api/pact/fab_nda_atlas/done\n      headers:\n        Content-Type: application/json\n        X-Pact-Principal: did:web:alpha-legal.example\n      body:\n        status: aligned\n        summary: \"Terms agreed subject to execution\"\n    expected_response:\n      status: 200\n      body_match:\n        mode: subset\n        value:\n          fabric_id: fab_nda_atlas\n          principal_id: did:web:alpha-legal.example\n          done: true\n      body_ignore_fields:\n        - completed_at\n        - event_id\n        - phase\n\n  - id: beta-done-aligned-fabric-converges\n    request:\n      method: POST\n      path: /api/pact/fab_nda_atlas/done\n      headers:\n        Content-Type: application/json\n        X-Pact-Principal: did:web:beta-legal.example\n      body:\n        status: aligned\n        summary: \"Terms agreed subject to execution\"\n    expected_response:\n      status: 200\n      body_match:\n        mode: subset\n        value:\n          fabric_id: fab_nda_atlas\n          principal_id: did:web:beta-legal.example\n          done: true\n          phase: converged\n      body_ignore_fields:\n        - completed_at\n        - event_id\n\n  # 4. THE ASSERTION. Full consensus reached. The reported state MUST be the\n  #    protocol one, and the execution state MUST be `unexecuted`.\n  - id: converged-state-is-a-draft\n    request:\n      method: GET\n      path: /api/pact/fab_nda_atlas/_status\n      headers:\n        X-Pact-Principal: did:web:alpha-legal.example\n    expected_response:\n      status: 200\n      body_match:\n        mode: subset\n        value:\n          fabric_id: fab_nda_atlas\n          phase: converged\n          consensus_reached: true\n          document_state: merged                # a merged DRAFT\n          execution_state: unexecuted           # §25.8 — not signed, not executed\n          legal_status: null                    # PACT makes no such determination\n      body_ignore_fields:\n        - members\n        - latest_event_id\n        - pending_obligations\n        - snapshot_at\n        - effect_class\n    cross_call_assertions:\n      # §25.8 — with executionCapability: false there can be no signature\n      # record and no signer evidence, however aligned the parties are.\n      - kind: negative_obligation\n        body_path: signature_records\n        match: {}\n      - kind: negative_obligation\n        body_path: signers\n        match: {}\n\n  # 5. An export of the converged fabric MUST carry the same vocabulary. This\n  #    is where the misrepresentation usually escapes into the world — a PDF\n  #    or audit bundle stamped \"executed\".\n  - id: export-carries-draft-vocabulary\n    request:\n      method: GET\n      path: /api/pact/fab_nda_atlas/manifest\n      headers:\n        X-Pact-Principal: did:web:alpha-legal.example\n    expected_response:\n      status: 200\n      body_match:\n        mode: subset\n        value:\n          fabric_id: fab_nda_atlas\n          execution_state: unexecuted\n          document_state: merged\n      body_ignore_fields:\n        - caller\n        - counterparties\n        - generated_at\n        - last_event_seq\n        - snapshot_at\n    cross_call_assertions:\n      - kind: negative_obligation\n        body_path: signature_records\n        match: {}\n\nexpected_events:\n  ordered: true\n  sequence:\n    - event_type: pact.proposal.created\n      match: { mode: subset, value: { proposalId: prop_confidentiality } }\n      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]\n    - event_type: pact.proposal.voted\n      match: { mode: subset, value: { proposalId: prop_confidentiality, decision: approve } }\n      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]\n    - event_type: pact.proposal.merged\n      match: { mode: subset, value: { proposalId: prop_confidentiality } }\n      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]\n    - event_type: pact.agent.done\n      match: { mode: subset, value: { principalId: did:web:alpha-legal.example } }\n      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]\n    - event_type: pact.agent.done\n      match: { mode: subset, value: { principalId: did:web:beta-legal.example } }\n      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]\n\npostconditions:\n  server_state:\n    resource_modified: true\n    apply_attested_events_added: 0\n    signature_records_created: 0                # §25.8 — none, at any point\n\nnotes: |\n  Everything in this vector goes right. Both sides agreed. That is precisely\n  the point: the strongest thing PACT can honestly say about a contract is\n  \"the parties' agents converged on this text\". Whether the parties are bound\n  is a question about signatures, capacity, authority and law that PACT does\n  not answer and MUST NOT appear to answer (§25.11, §17.14).\n\n  To legitimately report `signed`, a server must satisfy all four §25.8\n  conditions — advertise `capabilities.executionCapability: true` plus the\n  execution system's identifier, capture each required signer's intentional\n  act separately from any PACT state, retain exportable evidence of each act,\n  and still not represent the result as a determination of enforceability.\n  This server advertises `false`, so `signed` is simply unavailable to it.\n\nfailure_classification:\n  severity: blocker\n  common_causes:\n    - Converged fabric reported as `signed`, `executed`, or `legally accepted`\n    - execution_state omitted, so consumers default to assuming execution\n    - legal_status populated with an enforceability claim PACT cannot make\n    - Signature record fabricated from the consensus state\n    - Export / PDF stamped \"executed\" while the API correctly says merged (the boundary must hold on every surface, §25.3)\n    - Server advertises executionCapability: true without a separate execution system (§25.8 condition 1)\n"
+    },
+    {
+      "id": "extended/execution-boundary/ttl-automerge-creates-no-attestation",
+      "path": "spec/v2.3/conformance/extended/execution-boundary/ttl-automerge-creates-no-attestation.yaml",
+      "sha256": "14dc70a106951ddfedc9fc2f2998e9ce6559a1b41de0a541a5f25eeeb5266d0b",
+      "kind": "session",
+      "classification": {
+        "declared_at": "preconditions.server_state",
+        "resource_type": "document",
+        "effect_class": "internal-reversible",
+        "human_attestation": "not-required"
+      },
+      "parsed": {
+        "kind": "session",
+        "metadata": {
+          "id": "extended/execution-boundary/ttl-automerge-creates-no-attestation",
+          "description": "An objection-based proposal on an internal-reversible document fabric auto-merges when its TTL expires with no objection. The merge is a protocol state only — the server MUST NOT synthesise an authorization_proof, MUST report attestation as absent, and MUST NOT mark the document signed or executed.",
+          "spec_section": "§5, §10.5, §25.3, §25.4, §25.8",
+          "conformance_level": "core",
+          "track": "T-execution-boundary"
+        },
+        "preconditions": {
+          "server_state": {
+            "resource_id": "fab_draft_note",
+            "resource_type": "document",
+            "effect_class": "internal-reversible",
+            "human_attestation": "not-required",
+            "approval_policy": "objection-based",
+            "registered_agents": [
+              "did:web:alpha.example",
+              "did:web:beta.example"
+            ]
+          },
+          "request_context": {
+            "auth": "bearer",
+            "principal_id": "did:web:alpha.example"
+          }
+        },
+        "steps": [
+          {
+            "id": "alpha-proposes-draft-edit",
+            "request": {
+              "method": "POST",
+              "path": "/api/pact/fab_draft_note/proposals",
+              "headers": {
+                "Content-Type": "application/json",
+                "X-Pact-Principal": "did:web:alpha.example"
+              },
+              "body": {
+                "proposalId": "prop_draft_edit",
+                "sectionId": "sec:summary",
+                "summary": "Tighten the summary paragraph",
+                "ttlSeconds": 1
+              }
+            },
+            "expected_response": {
+              "status": 200,
+              "body_match": {
+                "mode": "subset",
+                "value": {
+                  "proposalId": "prop_draft_edit",
+                  "status": "open",
+                  "created": true,
+                  "effect_class": "internal-reversible"
+                }
+              },
+              "body_ignore_fields": [
+                "required_voters",
+                "created_at",
+                "event_id"
+              ]
+            }
+          },
+          {
+            "id": "ttl-expires-auto-merged",
+            "request": {
+              "method": "GET",
+              "path": "/api/pact/fab_draft_note/proposals/prop_draft_edit",
+              "headers": {
+                "X-Pact-Principal": "did:web:alpha.example"
+              }
+            },
+            "expected_response": {
+              "status": 200,
+              "body_match": {
+                "mode": "subset",
+                "value": {
+                  "proposalId": "prop_draft_edit",
+                  "status": "auto-merged",
+                  "merged_by": "protocol-timeout",
+                  "effect_class": "internal-reversible",
+                  "attested": false,
+                  "authorization_proof": null,
+                  "execution_state": "none"
+                }
+              },
+              "body_ignore_fields": [
+                "merged_at",
+                "event_id",
+                "revision"
+              ]
+            },
+            "cross_call_assertions": [
+              {
+                "kind": "negative_obligation",
+                "body_path": "attestations",
+                "match": {}
+              },
+              {
+                "kind": "negative_obligation",
+                "body_path": "signature_records",
+                "match": {}
+              }
+            ]
+          },
+          {
+            "id": "status-reports-protocol-vocabulary",
+            "request": {
+              "method": "GET",
+              "path": "/api/pact/fab_draft_note/_status",
+              "headers": {
+                "X-Pact-Principal": "did:web:alpha.example"
+              }
+            },
+            "expected_response": {
+              "status": 200,
+              "body_match": {
+                "mode": "subset",
+                "value": {
+                  "fabric_id": "fab_draft_note",
+                  "effect_class": "internal-reversible",
+                  "execution_state": "none",
+                  "document_state": "merged"
+                }
+              },
+              "body_ignore_fields": [
+                "phase",
+                "members",
+                "latest_event_id",
+                "pending_obligations",
+                "snapshot_at"
+              ]
+            },
+            "cross_call_assertions": [
+              {
+                "kind": "negative_obligation",
+                "body_path": "signature_records",
+                "match": {}
+              }
+            ]
+          }
+        ],
+        "expected_events": {
+          "ordered": true,
+          "sequence": [
+            {
+              "event_type": "pact.proposal.created",
+              "match": {
+                "mode": "subset",
+                "value": {
+                  "proposalId": "prop_draft_edit",
+                  "proposer": "did:web:alpha.example"
+                }
+              },
+              "body_ignore_fields": [
+                "id",
+                "epochMs",
+                "sequenceNumber",
+                "actorId"
+              ]
+            },
+            {
+              "event_type": "pact.proposal.auto-merged",
+              "match": {
+                "mode": "subset",
+                "value": {
+                  "proposalId": "prop_draft_edit",
+                  "effect_class": "internal-reversible",
+                  "attested": false
+                }
+              },
+              "body_ignore_fields": [
+                "id",
+                "epochMs",
+                "sequenceNumber",
+                "actorId"
+              ]
+            }
+          ]
+        },
+        "postconditions": {
+          "server_state": {
+            "events_added": 2,
+            "resource_modified": true,
+            "apply_attested_events_added": 0
+          }
+        },
+        "notes": "This vector deliberately PASSES the auto-merge. Auto-merge on silence is not\nthe defect — silently upgrading it to \"a human signed this\" is. The three\nthings this vector pins:\n\n  1. `merged_by: protocol-timeout`, never a principal_id. A timeout is not a\n     person (§25.3).\n  2. `attested: false` and `authorization_proof: null`. Silence MUST NOT\n     create or substitute for an attestation (§25.4).\n  3. `execution_state: none` and `document_state: merged`. The merged draft\n     is a draft (§25.8); no surface may call it signed or executed (§25.10).\n\nA server that returns `attested: true`, populates `authorization_proof`, or\nreports `document_state: signed` here has manufactured legal-looking evidence\nout of nobody doing anything. That is the exact failure this section exists\nto prevent.\n",
+        "failure_classification": {
+          "severity": "blocker",
+          "common_causes": [
+            "Server synthesises an authorization_proof (or an \"auto-approved by <principal>\" record) on TTL expiry",
+            "merged_by is set to the proposer's principal_id rather than protocol-timeout",
+            "Response or status labels the merged draft `signed`, `executed`, or `legally accepted`",
+            "pact.apply.attested emitted for an unattested auto-merge",
+            "attestations / signature_records collections populated with a placeholder entry"
+          ]
+        }
+      },
+      "raw_yaml": "# Conformance test vector — §25: TTL / no objection MAY auto-merge an eligible\n# draft edit, but it creates NO signature and NO attestation.\n#\n# This is the POSITIVE half of the §25 boundary. Auto-merge on silence is still\n# legitimate — for an `internal-reversible` effect (§25.5). What MUST NOT happen\n# is the protocol quietly manufacturing a human attestation out of the silence:\n# no `authorization_proof` is synthesised (§25.4), no `pact.apply.attested`\n# event is emitted, and the merged resource MUST NOT be labelled signed or\n# executed (§25.3, §25.8).\n#\n# kind: session — the assertion is a cross-call one: after the auto-merge, the\n# proposal's attestation surface MUST still be empty. A single request/response\n# cannot express that.\n\nkind: session\n\nmetadata:\n  id: extended/execution-boundary/ttl-automerge-creates-no-attestation\n  description: An objection-based proposal on an internal-reversible document fabric auto-merges when its TTL expires with no objection. The merge is a protocol state only — the server MUST NOT synthesise an authorization_proof, MUST report attestation as absent, and MUST NOT mark the document signed or executed.\n  spec_section: \"§5, §10.5, §25.3, §25.4, §25.8\"\n  conformance_level: core\n  track: T-execution-boundary\n\npreconditions:\n  server_state:\n    resource_id: fab_draft_note\n    resource_type: document\n    effect_class: internal-reversible          # §25.5 — auto-merge is permitted here\n    human_attestation: not-required\n    approval_policy: objection-based\n    registered_agents:\n      - did:web:alpha.example\n      - did:web:beta.example\n  request_context:\n    auth: bearer\n    principal_id: did:web:alpha.example\n\nsteps:\n  # 1. Alpha proposes a draft edit with a short TTL under the objection-based\n  #    policy. No human attestation is supplied — none is required for an\n  #    internal-reversible effect.\n  - id: alpha-proposes-draft-edit\n    request:\n      method: POST\n      path: /api/pact/fab_draft_note/proposals\n      headers:\n        Content-Type: application/json\n        X-Pact-Principal: did:web:alpha.example\n      body:\n        proposalId: prop_draft_edit\n        sectionId: sec:summary\n        summary: \"Tighten the summary paragraph\"\n        ttlSeconds: 1\n    expected_response:\n      status: 200\n      body_match:\n        mode: subset\n        value:\n          proposalId: prop_draft_edit\n          status: open\n          created: true\n          effect_class: internal-reversible\n      body_ignore_fields:\n        - required_voters\n        - created_at\n        - event_id\n\n  # 2. The TTL elapses with no objection. The server auto-merges. The response\n  #    MUST report the protocol state and MUST report attestation as absent —\n  #    `attested: false`, not a synthesised proof (§25.4).\n  - id: ttl-expires-auto-merged\n    request:\n      method: GET\n      path: /api/pact/fab_draft_note/proposals/prop_draft_edit\n      headers:\n        X-Pact-Principal: did:web:alpha.example\n    expected_response:\n      status: 200\n      body_match:\n        mode: subset\n        value:\n          proposalId: prop_draft_edit\n          status: auto-merged\n          merged_by: protocol-timeout          # NOT a principal — nobody signed\n          effect_class: internal-reversible\n          attested: false                       # §25.4 — silence created no attestation\n          authorization_proof: null             # MUST NOT be synthesised\n          execution_state: none                 # §25.8 — not signed, not executed\n      body_ignore_fields:\n        - merged_at\n        - event_id\n        - revision\n    cross_call_assertions:\n      # §25.4 — the attestation collection MUST be empty. An empty `match` block\n      # matches ANY entry, so the assertion fails if the array has any element.\n      - kind: negative_obligation\n        body_path: attestations\n        match: {}\n      # §25.8 — no signature record may exist for a merge reached by silence.\n      - kind: negative_obligation\n        body_path: signature_records\n        match: {}\n\n  # 3. The fabric's status MUST describe the resource in protocol vocabulary.\n  #    `signed` / `executed` MUST NOT appear (§25.3, §25.10).\n  - id: status-reports-protocol-vocabulary\n    request:\n      method: GET\n      path: /api/pact/fab_draft_note/_status\n      headers:\n        X-Pact-Principal: did:web:alpha.example\n    expected_response:\n      status: 200\n      body_match:\n        mode: subset\n        value:\n          fabric_id: fab_draft_note\n          effect_class: internal-reversible\n          execution_state: none\n          document_state: merged                # NOT \"signed\", NOT \"executed\"\n      body_ignore_fields:\n        - phase\n        - members\n        - latest_event_id\n        - pending_obligations\n        - snapshot_at\n    cross_call_assertions:\n      - kind: negative_obligation\n        body_path: signature_records\n        match: {}\n\n# Event-log assertions are documentation until the runner subscribes to the\n# event stream (see runner/src/index.ts). Recorded here so an event-aware\n# runner can enforce them.\nexpected_events:\n  ordered: true\n  sequence:\n    - event_type: pact.proposal.created\n      match: { mode: subset, value: { proposalId: prop_draft_edit, proposer: did:web:alpha.example } }\n      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]\n    - event_type: pact.proposal.auto-merged\n      match: { mode: subset, value: { proposalId: prop_draft_edit, effect_class: internal-reversible, attested: false } }\n      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]\n\npostconditions:\n  server_state:\n    events_added: 2\n    resource_modified: true\n    # The decisive negative postcondition: no attestation event of any kind.\n    apply_attested_events_added: 0              # pact.apply.attested MUST NOT fire (§25.9)\n\nnotes: |\n  This vector deliberately PASSES the auto-merge. Auto-merge on silence is not\n  the defect — silently upgrading it to \"a human signed this\" is. The three\n  things this vector pins:\n\n    1. `merged_by: protocol-timeout`, never a principal_id. A timeout is not a\n       person (§25.3).\n    2. `attested: false` and `authorization_proof: null`. Silence MUST NOT\n       create or substitute for an attestation (§25.4).\n    3. `execution_state: none` and `document_state: merged`. The merged draft\n       is a draft (§25.8); no surface may call it signed or executed (§25.10).\n\n  A server that returns `attested: true`, populates `authorization_proof`, or\n  reports `document_state: signed` here has manufactured legal-looking evidence\n  out of nobody doing anything. That is the exact failure this section exists\n  to prevent.\n\nfailure_classification:\n  severity: blocker\n  common_causes:\n    - Server synthesises an authorization_proof (or an \"auto-approved by <principal>\" record) on TTL expiry\n    - merged_by is set to the proposer's principal_id rather than protocol-timeout\n    - Response or status labels the merged draft `signed`, `executed`, or `legally accepted`\n    - pact.apply.attested emitted for an unattested auto-merge\n    - attestations / signature_records collections populated with a placeholder entry\n"
+    }
+  ]
+}

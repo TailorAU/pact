@@ -1,0 +1,810 @@
+name: "CD — PACT Knowledge Graph"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy to"
+        required: true
+        default: "prod"
+        type: choice
+        options:
+          - prod
+  push:
+    # Promotion makes main deploy through the existing normal CD path.
+    # Keep rehome-review during the transition for the current owner.
+    branches: [rehome-review, main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      # The maintenance schedule is not part of the image (tailor-group#9).
+      - ".github/workflows/cron.yml"
+
+# One prod deploy at a time. At promotion both main and rehome-review push
+# here; two unserialised runs would race the container update, the seeds and
+# the conformance run-id check (tailor-group#7, PR 83 review).
+concurrency:
+  group: cd-kg-prod
+  cancel-in-progress: false
+
+permissions:
+  id-token: write           # Azure OIDC + Cosign keyless signing
+  contents: read
+  packages: write           # Cosign signature push to OCI registry
+  attestations: write       # SBOM attestation upload
+
+env:
+  AZURE_RESOURCE_GROUP: rg-tailor-app-prod
+  ACR_NAME: tailorprodacr
+  IMAGE_NAME: pact-web
+  CONTAINER_APP_NAME: pact-web
+  CONTAINER_APP_ENV: tailor-prod-fileconverter-env
+  PG_HOST: pact-pg-prod.postgres.database.azure.com
+
+jobs:
+  # #5567 — the KG's PACT v2.3 conformance results document is produced
+  # HERE, on the deploy path, from the vendored vectors executed against the
+  # real route handlers on a real Postgres: a clone of source-pr-check.yml's
+  # kg-integration job narrowed to the ONE vector file. The harness writes
+  # the document from its own afterAll (src/lib/
+  # pact-conformance-report.ts, a pure builder over the recorded outcomes +
+  # the committed manifests + this run's GITHUB_SHA / GITHUB_RUN_ID);
+  # build-and-deploy below validates it against THIS run and bakes it into
+  # the image. The upload is `if: always()` with `if-no-files-found: error`:
+  # a red vector run keeps its evidence and publishes the red verdict rather
+  # than hiding it, while a run that produced no document is red here AND
+  # refused by build-and-deploy's validator.
+  #
+  # Networking note: this job runs directly on the runner host (not in a
+  # container), so the service is reached via localhost through the mapped
+  # port — the `postgres` hostname form applies only to container jobs.
+  kg-conformance:
+    name: KG v2.3 conformance (real Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kgtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kgtest"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Source dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Execute the v2.3 execution-boundary vectors and emit the results document
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kgtest
+          PACT_CONFORMANCE_RESULTS_PATH: ${{ runner.temp }}/kg-conformance/kg-v23-conformance-report.json
+        run: npm run test:integration -- src/lib/execution-boundary-vectors.itest.ts
+
+      - name: Results summary
+        if: always()
+        shell: bash
+        env:
+          REPORT: ${{ runner.temp }}/kg-conformance/kg-v23-conformance-report.json
+        run: |
+          set -euo pipefail
+          {
+            echo "## KG v2.3 conformance results (#5567)"
+            if [ -s "$REPORT" ]; then
+              echo "- counts: \`$(jq -c '.counts' "$REPORT")\`"
+              echo "- dispositions: \`$(jq -c '.dispositions' "$REPORT")\`"
+              echo "- http_coverage: \`$(jq -c '.http_coverage' "$REPORT")\`"
+              echo "- vector_set_ref: \`$(jq -r '.vector_set_ref' "$REPORT")\`"
+              echo "- stamped: \`$(jq -r '.provenance.stamped' "$REPORT")\` — commit \`$(jq -r '.implementation.commit' "$REPORT")\`, run \`$(jq -r '.implementation.run_id' "$REPORT")\`"
+              RED="$(jq -r '[.results[] | select(.outcome.status == "fail") | .id] | join(", ")' "$REPORT")"
+              if [ -n "$RED" ]; then
+                echo ""
+                echo "> ⚠️ **Red vectors:** $RED — the document publishes the red verdict; build-and-deploy still ships it (soft gate, #5567)."
+              fi
+            else
+              echo "- **No results document was written** — the harness did not reach its afterAll (see the step above). build-and-deploy will refuse to build an image."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the results document (this run's immutable copy)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kg-v23-conformance-report
+          path: ${{ runner.temp }}/kg-conformance/kg-v23-conformance-report.json
+          if-no-files-found: error
+          # v4 artifacts are immutable per RUN: without this a "Re-run failed
+          # jobs" attempt (this job red → re-run) fails at the upload itself.
+          overwrite: true
+          retention-days: 7
+
+  build-and-deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    environment: prod
+    # #5567 — waits for the conformance run, but SOFTLY: `!cancelled()` runs
+    # this job even when kg-conformance is red, and the validator below
+    # refuses only an ABSENT or INVALID document. A red vector run therefore
+    # still deploys and publishes its red document. The soft gate is the
+    # orchestrator's DEFAULT pending Knox's ruling — default 2 of the
+    # 2026-09-02 "Design adjudicated" comment on #5567 (a hard gate would be
+    # a cd-source behaviour change beyond the issue's letter — today nothing
+    # gates this workflow on tests at all) — not a ruling Knox has made.
+    needs: [kg-conformance]
+    if: ${{ !cancelled() }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # ─── #5567: this run's conformance results document ──────────────
+      # Three seams before anything is built: (1) a committed document can
+      # never deploy; (2) the document comes ONLY from this run's artifact;
+      # (3) it is validated against this run before it is staged for the
+      # image (public/.well-known/, which the Dockerfile's
+      # `COPY . .` + `COPY --from=builder /app/public ./public` carry).
+      - name: Refuse a committed conformance results document (#5567)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files --error-unmatch public/.well-known/pact-conformance-v23.json >/dev/null 2>&1; then
+            echo "::error::public/.well-known/pact-conformance-v23.json is tracked in git — the results document must be CI-produced per run, never committed (#5567)"
+            exit 1
+          fi
+
+      - name: Download this run's conformance results document (#5567)
+        uses: actions/download-artifact@v4
+        with:
+          name: kg-v23-conformance-report
+          path: ${{ runner.temp }}/kg-conformance
+
+      - name: Validate the results document against THIS run, then stage it for the image (#5567)
+        shell: bash
+        env:
+          REPORT: ${{ runner.temp }}/kg-conformance/kg-v23-conformance-report.json
+          FIXTURE: src/lib/fixtures/pact-v23/execution-boundary-vectors.json
+          VECTOR_RUN: ${{ needs.kg-conformance.result }}
+        run: |
+          set -euo pipefail
+          if [ ! -s "$REPORT" ]; then
+            echo "::error::No conformance results document in the kg-conformance artifact (job result: $VECTOR_RUN) — refusing to build an image without one (#5567)"
+            exit 1
+          fi
+          # The run stamp and the fixture pin reach jq through its `env`
+          # builtin rather than --arg, so the program carries no shell-like
+          # `$name` inside single quotes.
+          PIN="$(jq -r '.source.commit' "$FIXTURE")"
+          EXPECTED_IDS="$(jq -c '.expected_vector_ids' "$FIXTURE")"
+          export PIN EXPECTED_IDS
+          FAILURES="$(jq -r '
+            def check(cond; msg): if cond then empty else msg end;
+            [
+              check(.provenance.stamped == true; "provenance.stamped is not true (an unstamped local document can never ship)"),
+              check(.implementation.commit == env.GITHUB_SHA; "implementation.commit \(.implementation.commit) != GITHUB_SHA \(env.GITHUB_SHA)"),
+              check(.implementation.run_id == env.GITHUB_RUN_ID; "implementation.run_id \(.implementation.run_id) != GITHUB_RUN_ID \(env.GITHUB_RUN_ID)"),
+              check(.spec_version == "2.3"; "spec_version \(.spec_version) != 2.3"),
+              check(.vector_set_ref == env.PIN; "vector_set_ref \(.vector_set_ref) != the fixture pin \(env.PIN)"),
+              check((.results | map(.id)) == (env.EXPECTED_IDS | fromjson); "results ids are not exactly the fixture expected_vector_ids in order"),
+              check((.results | map(.id) | unique | length) == (.results | length); "duplicate result ids"),
+              check(.results | all(.outcome.status | IN("pass", "fail", "skip", "excluded")); "an outcome.status is outside pass/fail/skip/excluded"),
+              check(.results | all(.outcome.status == "pass" or ((.outcome.reason // "") | length) > 0); "a non-pass result carries no reason"),
+              check(.counts.pass == ([.results[] | select(.outcome.status == "pass")] | length); "counts.pass does not recompute"),
+              check(.counts.fail == ([.results[] | select(.outcome.status == "fail")] | length); "counts.fail does not recompute"),
+              check(.counts.skip == ([.results[] | select(.outcome.status == "skip")] | length); "counts.skip does not recompute"),
+              check(.counts.excluded == ([.results[] | select(.outcome.status == "excluded")] | length); "counts.excluded does not recompute")
+            ] | .[]' "$REPORT")"
+          if [ -n "$FAILURES" ]; then
+            while IFS= read -r line; do
+              echo "::error::conformance results document rejected: $line"
+            done <<< "$FAILURES"
+            exit 1
+          fi
+          mkdir -p public/.well-known
+          cp "$REPORT" public/.well-known/pact-conformance-v23.json
+          {
+            echo "## Conformance results document staged for the image (#5567)"
+            echo "- counts: \`$(jq -c '.counts' "$REPORT")\` · http_coverage: \`$(jq -c '.http_coverage' "$REPORT")\`"
+            echo "- commit \`$GITHUB_SHA\` · run \`$GITHUB_RUN_ID\` · vector_set_ref \`$PIN\`"
+            echo "- kg-conformance job result: \`$VECTOR_RUN\` (soft gate — a red vector run still publishes its red document)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ─── Supply-chain gate (WS6) ────────────────────────────────────
+      # See docs/SUPPLY_CHAIN.md for the full policy.
+      # Order: npm audit (HIGH+ blocks)  →  Docker build  →  push  →
+      #        Syft SBOM  →  Cosign keyless sign  →  Trivy scan.
+
+      - name: Setup Node.js (for npm audit)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: npm install (for audit graph)
+        # Mirrors the Dockerfile pattern: `npm ci` if lockfile in sync,
+        # else fall back to `npm install`. The audit gate below cares
+        # about the resolved dependency tree, not which command produced
+        # it. Lockfile drift is a separate concern tracked by the
+        # `.npmrc` `engine-strict=true` policy and the eventual lockfile
+        # cleanup PR; see SUPPLY_CHAIN.md § 6.
+        run: |
+          npm ci --no-audit --no-fund --ignore-scripts \
+            || npm install --no-audit --no-fund --ignore-scripts --no-save
+
+      - name: npm audit gate (HIGH+ blocks)
+        # Policy: HIGH/CRITICAL vulnerabilities fail the build unless
+        # listed in `.npmaudit-allowlist.json` with a non-expired entry.
+        # See docs/SUPPLY_CHAIN.md § 3.
+        run: |
+          set -euo pipefail
+          echo "::group::Running npm audit (--audit-level=high)"
+          # Capture JSON regardless of npm's exit code (it returns
+          # non-zero when findings are at-or-above --audit-level).
+          AUDIT_JSON="$(npm audit --audit-level=high --json || true)"
+          echo "$AUDIT_JSON" > /tmp/npm-audit.json
+          echo "::endgroup::"
+
+          # Inline allowlist evaluator: fails on (1) any HIGH/CRITICAL
+          # advisory not in the allowlist, (2) any allowlist entry
+          # past its expiry. See docs/SUPPLY_CHAIN.md § 3.
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import datetime as dt
+          import json
+          import os
+          import sys
+
+          BLOCKING = {"high", "critical"}
+
+          def load(path):
+              try:
+                  with open(path, encoding="utf-8") as fh:
+                      return json.load(fh)
+              except FileNotFoundError:
+                  print(f"::error::File not found: {path}", file=sys.stderr)
+                  sys.exit(2)
+              except json.JSONDecodeError as exc:
+                  print(f"::error::Invalid JSON in {path}: {exc}", file=sys.stderr)
+                  sys.exit(2)
+
+          audit = load("/tmp/npm-audit.json") or {}
+          allow = load(".npmaudit-allowlist.json") or {}
+          today = dt.date.today()
+
+          # Flatten advisories.
+          seen = set()
+          advisories = []
+          for pkg, vuln in (audit.get("vulnerabilities") or {}).items():
+              for via in (vuln.get("via") or []):
+                  if not isinstance(via, dict):
+                      continue
+                  sev = (via.get("severity") or "").lower()
+                  if sev not in BLOCKING:
+                      continue
+                  url = via.get("url", "")
+                  ghsa = url.rsplit("/", 1)[-1] if "/advisories/" in url else ""
+                  key = (ghsa or via.get("title", ""), via.get("name") or pkg)
+                  if key in seen:
+                      continue
+                  seen.add(key)
+                  advisories.append({
+                      "ghsa": ghsa,
+                      "title": via.get("title", ""),
+                      "severity": sev,
+                      "package": via.get("name") or pkg,
+                      "cvss": (via.get("cvss") or {}).get("score"),
+                  })
+
+          # Build allowlist index.
+          by_ghsa = {}
+          for entry in (allow.get("exceptions") or []):
+              if entry.get("advisory"):
+                  by_ghsa[entry["advisory"]] = entry
+              for g in (entry.get("advisories") or []):
+                  by_ghsa[g] = entry
+
+          def is_expired(entry):
+              expires = entry.get("expires", "")
+              if not expires:
+                  return True
+              try:
+                  return dt.date.fromisoformat(expires) < today
+              except ValueError:
+                  return True
+
+          errors = []
+          active = []
+          for adv in advisories:
+              entry = by_ghsa.get(adv["ghsa"])
+              if entry is None:
+                  errors.append(
+                      f"UNALLOWED {adv['severity'].upper()} advisory: "
+                      f"{adv['ghsa'] or adv['title']} (pkg={adv['package']}, "
+                      f"cvss={adv.get('cvss', 'n/a')})"
+                  )
+                  continue
+              if is_expired(entry):
+                  errors.append(
+                      f"EXPIRED allowlist entry: {adv['ghsa']} "
+                      f"(pkg={adv['package']}, expired={entry.get('expires')}, "
+                      f"owner={entry.get('owner', '?')})"
+                  )
+                  continue
+              active.append((adv, entry))
+
+          # Stale-entry check: any allowlist entry that has expired but
+          # whose advisory is no longer in the audit output is also a
+          # forcing-function failure.
+          flagged = {a[0]["ghsa"] for a in active} | {
+              e.split(":")[1].strip().split(" ")[0] for e in errors
+              if "EXPIRED" in e
+          }
+          for entry in (allow.get("exceptions") or []):
+              if is_expired(entry) and entry.get("advisory", "?") not in flagged:
+                  errors.append(
+                      f"EXPIRED allowlist entry (stale, no longer in audit): "
+                      f"{entry.get('advisory', '?')} "
+                      f"(pkg={entry.get('package', '?')}, "
+                      f"expired={entry.get('expires', '?')})"
+                  )
+
+          # Emit summary (markdown).
+          print("## npm audit gate")
+          print()
+          print(f"- HIGH/CRITICAL advisories: **{len(advisories)}**")
+          print(f"- Allowlist entries active: **{len(active)}**")
+          print(f"- Result: {'PASS' if not errors else 'FAIL'}")
+          print()
+          if errors:
+              print("### Errors")
+              for err in errors:
+                  print(f"- {err}")
+              print()
+          if active:
+              print("### Active allowlist entries")
+              print()
+              print("| Advisory | Package | Severity | Expires | Days remaining | Owner |")
+              print("|---|---|---|---|---|---|")
+              for adv, entry in active:
+                  expires = entry.get("expires", "?")
+                  try:
+                      days = str((dt.date.fromisoformat(expires) - today).days)
+                  except ValueError:
+                      days = "?"
+                  print(
+                      f"| `{adv['ghsa']}` | `{adv['package']}` | "
+                      f"{adv['severity']} | {expires} | {days} | "
+                      f"{entry.get('owner', '?')} |"
+                  )
+              print()
+              print("_See [SUPPLY_CHAIN.md § 3](docs/SUPPLY_CHAIN.md)._")
+
+          if errors:
+              for err in errors:
+                  print(f"::error::{err}", file=sys.stderr)
+              sys.exit(1)
+          PY
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR Login
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build & Push Docker Image
+        id: docker-push
+        run: |
+          set -euo pipefail
+          IMAGE_TAG="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          IMAGE_LATEST="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest"
+
+          docker build \
+            --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${{ secrets.GOOGLE_MAPS_API_KEY }} \
+            -t "$IMAGE_TAG" \
+            -t "$IMAGE_LATEST" \
+            .
+
+          docker push "$IMAGE_TAG"
+          docker push "$IMAGE_LATEST"
+
+          # Capture the immutable digest for downstream signing & scanning.
+          # `docker inspect` returns repoDigests like
+          # "tailorprodacr.azurecr.io/source-web@sha256:abc..."; pick the
+          # one matching this push.
+          DIGEST=$(docker inspect "$IMAGE_TAG" \
+            --format='{{range .RepoDigests}}{{println .}}{{end}}' \
+            | grep "${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}@" \
+            | head -n1 \
+            | cut -d'@' -f2)
+
+          if [ -z "$DIGEST" ]; then
+            echo "::error::Failed to resolve image digest after push" >&2
+            exit 1
+          fi
+
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "image_latest=$IMAGE_LATEST" >> "$GITHUB_OUTPUT"
+          echo "image_digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "image_ref=${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}@$DIGEST" >> "$GITHUB_OUTPUT"
+
+          echo "## Image pushed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: \`$IMAGE_TAG\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Digest: \`$DIGEST\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Pinned ref: \`${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}@$DIGEST\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # ─── SBOM (Syft) ────────────────────────────────────────────────
+      - name: Generate SBOM (Syft, SPDX + Syft-native)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.docker-push.outputs.image_ref }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false   # we upload both formats explicitly below
+
+      - name: Generate SBOM (Syft native JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.docker-push.outputs.image_ref }}
+          format: syft-json
+          output-file: sbom.syft.json
+          upload-artifact: false
+
+      - name: Upload SBOM artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-spdx
+          path: |
+            sbom.spdx.json
+            sbom.syft.json
+          retention-days: 90
+
+      - name: SBOM summary
+        run: |
+          set -euo pipefail
+          PKG_COUNT=$(jq '.packages | length' sbom.spdx.json)
+          echo "## SBOM (SPDX 2.3)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Component count: **$PKG_COUNT**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Format: SPDX 2.3 JSON + Syft native JSON" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Retention: 90 days as workflow run artefact" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Download: \`gh run download ${{ github.run_id }} --repo ${{ github.repository }} --name sbom-spdx\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # ─── Image signing (Cosign keyless OIDC) ────────────────────────
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: "v2.4.0"
+
+      - name: Cosign sign image (keyless OIDC)
+        env:
+          IMAGE_REF: ${{ steps.docker-push.outputs.image_ref }}
+        run: |
+          set -euo pipefail
+          # Keyless: no key flag. Cosign uses the GitHub OIDC token via
+          # SIGSTORE_ID_TOKEN env var (auto-injected on `id-token: write`)
+          # and writes the signature to the registry next to the image.
+          # See docs/SUPPLY_CHAIN.md § 1.
+          cosign sign --yes "$IMAGE_REF"
+
+          echo "## Image signed (Cosign keyless)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: \`$IMAGE_REF\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Trust chain: GitHub OIDC -> Sigstore Fulcio -> ephemeral cert" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Verify with:" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`bash" >> "$GITHUB_STEP_SUMMARY"
+          echo "cosign verify $IMAGE_REF \\" >> "$GITHUB_STEP_SUMMARY"
+          echo "  --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.github/workflows/cd-source.yml@.*' \\" >> "$GITHUB_STEP_SUMMARY"
+          echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cosign attest SBOM (predicate)
+        env:
+          IMAGE_REF: ${{ steps.docker-push.outputs.image_ref }}
+        run: |
+          set -euo pipefail
+          # Bind the SBOM to the image as a Cosign attestation. Lets
+          # `cosign verify-attestation` retrieve the SBOM from the
+          # registry without trusting external workflow artefacts.
+          cosign attest --yes \
+            --predicate sbom.spdx.json \
+            --type spdxjson \
+            "$IMAGE_REF"
+
+      # ─── Trivy image scan ───────────────────────────────────────────
+      - name: Trivy image scan (CRITICAL fails build, HIGH surfaced)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.docker-push.outputs.image_ref }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          # Only fail on CRITICAL — HIGH is reported but does not block.
+          # npm audit at the dependency layer (above) is the HIGH gate.
+          vuln-type: os,library
+          # Persist the scanner result file for the summary step.
+          output: trivy-report.txt
+        continue-on-error: true   # do not fail the deploy on HIGH; we re-evaluate below
+
+      - name: Trivy CRITICAL gate
+        run: |
+          set -euo pipefail
+          echo "## Trivy image scan" >> "$GITHUB_STEP_SUMMARY"
+          if [ -s trivy-report.txt ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "<details><summary>HIGH/CRITICAL findings (click to expand)</summary>" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+            head -c 65000 trivy-report.txt >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "</details>" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- No HIGH/CRITICAL findings reported by Trivy." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Re-run Trivy hard-fail-only on CRITICAL — this is the deploy gate.
+          # Use a separate trivy CLI invocation so the previous step's
+          # continue-on-error: true cannot mask a real CRITICAL.
+          set +e
+          trivy image \
+            --severity CRITICAL \
+            --exit-code 1 \
+            --ignore-unfixed \
+            --quiet \
+            "${{ steps.docker-push.outputs.image_ref }}"
+          CRIT_EXIT=$?
+          set -e
+          if [ "$CRIT_EXIT" -ne 0 ]; then
+            echo "::error::Trivy reported CRITICAL CVEs in the pushed image. Failing build." >&2
+            exit 1
+          fi
+
+      - name: Ensure Container App has ACR pull access
+        continue-on-error: true
+        run: |
+          if az containerapp show --name ${{ env.CONTAINER_APP_NAME }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "id" -o tsv 2>/dev/null; then
+            az containerapp registry set \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --server "${{ env.ACR_NAME }}.azurecr.io" \
+              --identity system || true
+
+            PRINCIPAL_ID=$(az containerapp show \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --query "identity.principalId" -o tsv)
+
+            ACR_ID=$(az acr show --name ${{ env.ACR_NAME }} --query "id" -o tsv)
+
+            az role assignment create \
+              --assignee-object-id "$PRINCIPAL_ID" \
+              --assignee-principal-type ServicePrincipal \
+              --role AcrPull \
+              --scope "$ACR_ID" 2>/dev/null || true
+          else
+            echo "Container App does not exist yet — will be created in the deploy step"
+          fi
+
+      - name: Deploy Container App
+        run: |
+          IMAGE_TAG="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+
+          az containerapp update \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --image "$IMAGE_TAG" \
+            --set-env-vars \
+              "DATABASE_URL=${{ secrets.DATABASE_URL }}" \
+              "CRON_SECRET=${{ secrets.CRON_SECRET }}" \
+              "ADMIN_SECRET=${{ secrets.ADMIN_SECRET }}" \
+              "QLD_LEGISLATION_USERNAME=${{ secrets.QLD_LEGISLATION_USERNAME }}" \
+              "QLD_LEGISLATION_PASSWORD=${{ secrets.QLD_LEGISLATION_PASSWORD }}" \
+              "SOURCE_VERSION=${{ github.sha }}" \
+              "AZURE_REGION=australiaeast" \
+            || \
+          az containerapp create \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --environment ${{ env.CONTAINER_APP_ENV }} \
+            --image "$IMAGE_TAG" \
+            --registry-server "${{ env.ACR_NAME }}.azurecr.io" \
+            --registry-identity system \
+            --target-port 3000 \
+            --ingress external \
+            --min-replicas 1 \
+            --max-replicas 3 \
+            --cpu 0.5 \
+            --memory 1Gi \
+            --env-vars \
+              "DATABASE_URL=${{ secrets.DATABASE_URL }}" \
+              "CRON_SECRET=${{ secrets.CRON_SECRET }}" \
+              "ADMIN_SECRET=${{ secrets.ADMIN_SECRET }}" \
+              "QLD_LEGISLATION_USERNAME=${{ secrets.QLD_LEGISLATION_USERNAME }}" \
+              "QLD_LEGISLATION_PASSWORD=${{ secrets.QLD_LEGISLATION_PASSWORD }}" \
+              "SOURCE_VERSION=${{ github.sha }}" \
+              "AZURE_REGION=australiaeast" \
+
+      - name: Get App URL
+        run: |
+          URL=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "## Deployed to: https://$URL" >> $GITHUB_STEP_SUMMARY
+          echo "APP_FQDN=$URL" >> "$GITHUB_ENV"
+
+      # #2611 — Post-deploy data seeds are NON-FATAL. The container deploy
+      # above is the deliverable; a seed that can't fetch upstream documents
+      # (e.g. the SEQ phase-1 "ingested zero documents" failure that redded
+      # every cd-source run from ~2026-05-09) must not make a successful
+      # deploy read as failed — otherwise a genuinely-broken deploy is
+      # indistinguishable from chronic seed noise. `continue-on-error: true`
+      # keeps the run green; the "Seed outcome summary" step below surfaces
+      # any seed failure loudly (step summary + warning annotations) so it
+      # stays legible rather than silently swallowed. Green = deployed
+      # (check the summary for seed warnings); red = the deploy itself is
+      # genuinely broken.
+      - name: Seed SA/TAS structured legislation
+        id: seed-sa-tas
+        continue-on-error: true
+        working-directory: .
+        env:
+          ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+          SOURCE_BASE_URL: https://pact.tailor.au
+        run: |
+          python -m pip install --disable-pip-version-check requests
+          python scripts/seed_sa_tas_legislation.py
+
+      - name: Seed SEQ planning regime (#873)
+        id: seed-seq
+        continue-on-error: true
+        working-directory: .
+        env:
+          # Phase 1 (legislation via QLD Legislation API + admin ingest):
+          ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+          SOURCE_BASE_URL: https://pact.tailor.au
+          QLD_LEGISLATION_USERNAME: ${{ secrets.QLD_LEGISLATION_USERNAME }}
+          QLD_LEGISLATION_PASSWORD: ${{ secrets.QLD_LEGISLATION_PASSWORD }}
+          # Phases 2 + 3 (topics + scenarios via direct DB):
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -m pip install --disable-pip-version-check requests psycopg2-binary
+          python scripts/seed_seq_planning_regime.py
+
+      # #5091 — Liquor Act 1992 (Qld) + Liquor Regulation 2002 (Qld).
+      # Curated seed (same pattern as SA/TAS above) — does NOT touch the
+      # broken QLD Legislation API live-fetch (#2901). Idempotent: the
+      # ingest endpoint upserts docs and delete-reinserts sections.
+      - name: Seed QLD liquor legislation (#5091)
+        id: seed-qld-liquor
+        continue-on-error: true
+        working-directory: .
+        env:
+          ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+          SOURCE_BASE_URL: https://pact.tailor.au
+        run: |
+          python -m pip install --disable-pip-version-check requests
+          python scripts/seed_qld_liquor_legislation.py
+
+      # #5117 — Local Government Act 2009 (Qld). Curated seed (same pattern
+      # as the #5091 liquor step above) — does NOT touch the broken QLD
+      # Legislation API live-fetch (#2901). Idempotent: the ingest endpoint
+      # upserts docs and delete-reinserts sections. Council-made instruments
+      # (City Plan 2014, BCC local laws) are consensus-tier and deliberately
+      # NOT seeded here — see README.md § Council-instrument
+      # class.
+      - name: Seed QLD local-government legislation (#5117)
+        id: seed-qld-lga
+        continue-on-error: true
+        working-directory: .
+        env:
+          ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+          SOURCE_BASE_URL: https://pact.tailor.au
+        run: |
+          python -m pip install --disable-pip-version-check requests
+          python scripts/seed_qld_lga_legislation.py
+
+      # #2611 — Surface seed outcomes in the run summary so the non-fatal
+      # seeds above stay legible. The underlying SEQ phase-1 zero-documents
+      # ingest defect is tracked separately (see the follow-up issue linked
+      # from #2611's evidence comment).
+      - name: Seed outcome summary
+        env:
+          SA_TAS_OUTCOME: ${{ steps.seed-sa-tas.outcome }}
+          SEQ_OUTCOME: ${{ steps.seed-seq.outcome }}
+          QLD_LIQUOR_OUTCOME: ${{ steps.seed-qld-liquor.outcome }}
+          QLD_LGA_OUTCOME: ${{ steps.seed-qld-lga.outcome }}
+        run: |
+          {
+            echo "## Post-deploy seed outcomes"
+            echo "| Seed | Outcome |"
+            echo "|---|---|"
+            echo "| SA/TAS structured legislation | $SA_TAS_OUTCOME |"
+            echo "| SEQ planning regime (#873) | $SEQ_OUTCOME |"
+            echo "| QLD liquor legislation (#5091) | $QLD_LIQUOR_OUTCOME |"
+            echo "| QLD local-government legislation (#5117) | $QLD_LGA_OUTCOME |"
+            if [ "$SA_TAS_OUTCOME" = "failure" ] || [ "$SEQ_OUTCOME" = "failure" ] || [ "$QLD_LIQUOR_OUTCOME" = "failure" ] || [ "$QLD_LGA_OUTCOME" = "failure" ]; then
+              echo ""
+              echo "> ⚠️ **A post-deploy data seed FAILED.** The container deploy itself succeeded (green run = deployed); the seed failure is non-fatal by design (#2611) but needs attention — check the failed step's log above."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$SA_TAS_OUTCOME" = "failure" ]; then
+            echo "::warning title=Seed SA/TAS failed (non-fatal)::Post-deploy SA/TAS legislation seed failed; the deploy itself succeeded. See #2611."
+          fi
+          if [ "$SEQ_OUTCOME" = "failure" ]; then
+            echo "::warning title=Seed SEQ failed (non-fatal)::Post-deploy SEQ planning-regime seed failed; the deploy itself succeeded. See #2611."
+          fi
+          if [ "$QLD_LIQUOR_OUTCOME" = "failure" ]; then
+            echo "::warning title=Seed QLD liquor failed (non-fatal)::Post-deploy QLD liquor legislation seed failed; the deploy itself succeeded. See #5091."
+          fi
+          if [ "$QLD_LGA_OUTCOME" = "failure" ]; then
+            echo "::warning title=Seed QLD LGA failed (non-fatal)::Post-deploy QLD local-government legislation seed failed; the deploy itself succeeded. See #5117."
+          fi
+
+
+
+      - name: Verify the served conformance results are this run's (#5567)
+        shell: bash
+        env:
+          BUILT: public/.well-known/pact-conformance-v23.json
+          PUBLIC_ORIGIN: https://pact.tailor.au
+          ORIGIN_SHARED_SECRET: ${{ secrets.ORIGIN_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APP_FQDN:-}" ]; then
+            echo "::error::APP_FQDN was not exported by the Get App URL step (#5567)"
+            exit 1
+          fi
+          HDR=()
+          if [ -n "${ORIGIN_SHARED_SECRET:-}" ]; then
+            HDR=(-H "x-origin-secret: ${ORIGIN_SHARED_SECRET}")
+          fi
+          SERVED="$RUNNER_TEMP/served-conformance.json"
+          RESULTS_URL="https://${APP_FQDN}/.well-known/pact-conformance-v23.json"
+          ok=""
+          for attempt in $(seq 1 60); do
+            if curl -fsS --max-time 15 -H "Cache-Control: no-cache" "${HDR[@]}" "$RESULTS_URL" -o "$SERVED" \
+               && jq -e '.implementation.commit == env.GITHUB_SHA and .implementation.run_id == env.GITHUB_RUN_ID' "$SERVED" >/dev/null 2>&1; then
+              ok="yes"
+              echo "served document is this run's (attempt $attempt)"
+              break
+            fi
+            sleep 5
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::$RESULTS_URL never served this run's conformance results (commit $GITHUB_SHA, run $GITHUB_RUN_ID) within the poll window (#5567)"
+            exit 1
+          fi
+          if ! diff <(jq -S . "$SERVED") <(jq -S . "$BUILT"); then
+            echo "::error::the served conformance results differ from the document validated and baked into the image (#5567)"
+            exit 1
+          fi
+          curl -fsS --max-time 15 -H "Cache-Control: no-cache" "${HDR[@]}" "https://${APP_FQDN}/.well-known/pact.json" -o "$RUNNER_TEMP/served-profile.json"
+          ADVERTISED="$(jq -r '.endpoints.conformanceResults // ""' "$RUNNER_TEMP/served-profile.json")"
+          EXPECTED="${PUBLIC_ORIGIN}/.well-known/pact-conformance-v23.json"
+          if [ "$ADVERTISED" != "$EXPECTED" ]; then
+            echo "::error::the served /.well-known/pact.json advertises endpoints.conformanceResults='$ADVERTISED', expected '$EXPECTED' (#5567)"
+            exit 1
+          fi
+          {
+            echo "## Conformance results verified on the new revision (#5567)"
+            echo "- served \`$RESULTS_URL\` carries commit \`$GITHUB_SHA\` / run \`$GITHUB_RUN_ID\` and equals the built document"
+            echo "- \`/.well-known/pact.json\` advertises \`$EXPECTED\`"
+          } >> "$GITHUB_STEP_SUMMARY"

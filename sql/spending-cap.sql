@@ -1,0 +1,37 @@
+-- WS12: spending-cap column on agents (NULL = no cap). See header below.
+ALTER TABLE agents
+  ADD COLUMN IF NOT EXISTS spending_cap_daily INTEGER;
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Spending cap — WS12 (per-key daily debit cap + burn alert).
+-- Idempotent: ALTER TABLE ... ADD COLUMN IF NOT EXISTS so the file is safe to
+-- re-run on every cold start. Applied at startup by initSchema() in
+-- sites/source/src/lib/db.ts after the base agents table loads.
+--
+-- Background: ledger_txs already records every debit (from_wallet = agent_id,
+-- to_wallet = "source-protocol") via lib/wallet-debit.ts. Today the only floor
+-- on spend is the wallet balance: a misconfigured agent can drain its starter
+-- credits in one runaway loop. WS12 adds a per-agent daily cap that runs BEFORE
+-- the balance check so an operator can bound exposure independent of balance.
+--
+-- Column shape:
+--   spending_cap_daily — INTEGER, NULL = no cap (unlimited within wallet
+--                        balance). When non-NULL, the day's accumulated
+--                        ledger_txs.amount where from_wallet = agent_id and
+--                        created_at >= UTC midnight must remain <= this value
+--                        AFTER the next debit. Cap exceeded → 402 with
+--                        { error: "cap_exceeded", capDaily, debitedToday }.
+--
+-- A burn-alert (warn-level structured log) fires when the day's burn
+-- crosses 80% of cap_daily; routes to App Insights once the WS1
+-- connection-string secret lands in prod.
+--
+-- No backfill: existing agents keep spending_cap_daily = NULL (unlimited).
+-- Operators set the cap per-agent via direct SQL or a future admin endpoint.
+--
+-- NOTE on file structure: the ALTER statement appears FIRST in this file
+-- (followed by the explanatory header). The shared `_loadSqlStatements`
+-- helper in db.ts splits on `;\n` and drops segments that begin with `--`,
+-- so a multi-line comment block before the first `;\n`-terminator would
+-- swallow the statement. WS9's legislation-sync-log-augment.sql has this
+-- same bug latent (first ALTER dropped); see WS12 PR for follow-up.

@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "builders": {
+    "customer-identity-authentication-determination-2022": {
+      "relativePath": "build_customer_identity_authentication_determination_2022_payload.py",
+      "builderSha256": "2db4db4b2b5c3a1a6363580c88024d9db6a6f1f07cd577c8592bbbe52963eb5e",
+      "rawPayloadSha256": "9e919ff61eba8bed3f73485d68476e9b8f603e339e8ea49de871e378207ccc33",
+      "rawPayloadBytes": 39928,
+      "normalizedPayloadSha256": "0f5bcc0590f2b19bb6ee7ee57f8278f068b377c8940c6995d5c7a1ae1dd5ce52",
+      "requiredFiles": {
+        "build_planning_act_2016_payload.py": "922301d1d3f20ac0cd2636321e8e80ca59689b70ea6604c06fa781c8fc6d9cb9",
+        "customer-identity-authentication-determination-2022.batch-a.json": "41dcf50a7b0e525abd384fb80bd6887f50e1a643e6a8a9962d8ff463a1cfb652",
+        "customer-identity-authentication-determination-2022.batch-b.json": "4cdad89e8b69a41d71cf87e146af47386476f5a8387ed77a039095df20ec4a7b",
+        "customer-identity-authentication-determination-2022.batch-c.json": "7268345b5ca20c469a62f587ab63a51c1f8e3c744bd21b3f4c83bf89d7e32813",
+        "validate_cth_sections.py": "c7583a732f352e4fdc76ce7833b300be5a841eea3b4f5c22aed51960ab3b978c",
+        "validate_customer_identity_authentication_determination_2022_sections.py": "9688731c7936fe9971a4779ab1dda167290c97d2367396bbb4171db90ede0597"
+      },
+      "documentId": "cth/determination-2022-548",
+      "expectedSections": 16,
+      "lastAmendedDate": "2022-04-06",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "high-risk customer interaction",
+        "unlisted authorised representative"
+      ]
+    },
+    "customer-service-guarantee-standard-2023": {
+      "relativePath": "build_customer_service_guarantee_standard_2023_payload.py",
+      "builderSha256": "72a89b95f4d53596520b1668ecbb0caac2859183a2abf156b963ddd95bc84e2b",
+      "rawPayloadSha256": "0954f84c6a192d3eb6f213187013f00893f43ef071af813f5377ba95caabe9ef",
+      "rawPayloadBytes": 41623,
+      "normalizedPayloadSha256": "283587c24f0ae1efec0159953d2ba5415f3d1cfbde0ebe050322b43b824d1779",
+      "requiredFiles": {
+        "build_planning_act_2016_payload.py": "922301d1d3f20ac0cd2636321e8e80ca59689b70ea6604c06fa781c8fc6d9cb9",
+        "customer-service-guarantee-standard-2023.batch-a.json": "4240798d535a43e56f9c2bc0f641708fa988aca53d6bdd467abf86f160cb4906",
+        "customer-service-guarantee-standard-2023.batch-b.json": "05bb90d3265bb7ef29c49c79da33a7d3c1216f59e8e62179dfe0743c2df3bac9",
+        "customer-service-guarantee-standard-2023.batch-c.json": "12cdf0afdde119808872edaf2a6a1513e12bb5083135e1bc4df15e76bd8566b6",
+        "validate_cth_sections.py": "c7583a732f352e4fdc76ce7833b300be5a841eea3b4f5c22aed51960ab3b978c",
+        "validate_customer_service_guarantee_standard_2023_sections.py": "a435c387afd624b6525842f2e86d0fc9395389ab4a1e3eeff98faf2dc92242dd"
+      },
+      "documentId": "cth/standard-2023-1140",
+      "expectedSections": 36,
+      "lastAmendedDate": "2026-08-19",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "guaranteed maximum connection period",
+        "damages payable"
+      ]
+    },
+    "financial-hardship-standard-2024": {
+      "relativePath": "build_financial_hardship_industry_standard_2024_payload.py",
+      "builderSha256": "f928c7bee0a4b4110e815ee137ffa0244410c89116903fe59a58ad2645084cb5",
+      "rawPayloadSha256": "1925e17437a8716b6264d1ffeb2f36e3e5d77253237eb0e2db272c2b690254d1",
+      "rawPayloadBytes": 34073,
+      "normalizedPayloadSha256": "cdfc3668364d759a2981a17800af42fc81cb16d8aa8fbfd1eaa932cdf579785f",
+      "requiredFiles": {
+        "build_planning_act_2016_payload.py": "922301d1d3f20ac0cd2636321e8e80ca59689b70ea6604c06fa781c8fc6d9cb9",
+        "financial-hardship-industry-standard-2024.batch-a.json": "b9eae48515de6674b125358dfb170fc8a42a2388ee33fc6803586fed13eb5dbf",
+        "financial-hardship-industry-standard-2024.batch-b.json": "ef241005587394fa7d66b41956290c7a1e56dba0c1d0534ab8ca505c3d90b1af",
+        "financial-hardship-industry-standard-2024.batch-c.json": "83d1eb877ddd478aa2fc26a41779bda34fa2f21294ba3d27d9ec2af4df293a39",
+        "validate_cth_sections.py": "c7583a732f352e4fdc76ce7833b300be5a841eea3b4f5c22aed51960ab3b978c",
+        "validate_financial_hardship_industry_standard_2024_sections.py": "5277dd7cfad82092e0ec5729f65b1bfefe949169a35d4676ccedc251445e92e7"
+      },
+      "documentId": "cth/standard-2024-133",
+      "expectedSections": 31,
+      "lastAmendedDate": "2024-02-06",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "financial hardship",
+        "payment assistance"
+      ]
+    },
+    "international-mobile-roaming-determination-2019": {
+      "relativePath": "build_international_mobile_roaming_determination_2019_payload.py",
+      "builderSha256": "331dd1973e55fd864cf44521980a60e3c2a9b2be71669ce5c52ce9b42b150c47",
+      "rawPayloadSha256": "28459ea00359fa2cb59278bdde6b1c6844385f1e04397bf75c30b171f1acfd47",
+      "rawPayloadBytes": 23349,
+      "normalizedPayloadSha256": "8232b1baa4e65065546aeed0a9fd9bd7afeaf98629c557a70c51a5b45309db77",
+      "requiredFiles": {
+        "international-mobile-roaming-determination-2019.batch-a.json": "4cb0f5ab6c6b1a750aafd05a8ebdce84ddf7fe7db9308c013911da0d829d18ed",
+        "international-mobile-roaming-determination-2019.batch-b.json": "2be5776e32ba57786127a1bbf0c51c8441c67b5acc1429f5cb720d5e9bcd688b",
+        "international-mobile-roaming-determination-2019.batch-c.json": "0d741e9b2d4b9ed1c4edd248efe20fb454daf9b574209b5e7f32852e9f563975",
+        "validate_international_mobile_roaming_determination_2019_sections.py": "0b3c4fc4ae0e6aacf7441b78cfc2d38bb8f3384f0135c70f439d25b219a35589"
+      },
+      "documentId": "cth/determination-2019-1655",
+      "expectedSections": 11,
+      "lastAmendedDate": "2019-12-18",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "maximum charge information",
+        "spend management tools"
+      ]
+    },
+    "mobile-network-coverage-maps-standard-2026": {
+      "relativePath": "build_mobile_network_coverage_maps_industry_standard_2026_payload.py",
+      "builderSha256": "26edd203d005dd743333ec0581b8372de7ae17c85f5447bd6730e26ac301ae7b",
+      "rawPayloadSha256": "bf58b97cb7d0d423dbc15b6431c8e718d6a48e7235fbcef5188f4f967bc795f0",
+      "rawPayloadBytes": 22304,
+      "normalizedPayloadSha256": "618a3a8d89e16ec988a2007ec1292611a87c596bf6f2a96b1cc323c7e6d2fcd0",
+      "requiredFiles": {
+        "build_planning_act_2016_payload.py": "922301d1d3f20ac0cd2636321e8e80ca59689b70ea6604c06fa781c8fc6d9cb9",
+        "mobile-network-coverage-maps-industry-standard-2026.batch-a.json": "cb6bd199184f3e0aaf9d54ff18a7aee5509e8ace1f981ce527c2a17abf9ac02a",
+        "mobile-network-coverage-maps-industry-standard-2026.batch-b.json": "11182fc2f835b062ce3949aa5b5064b9a4f4dc5c016751a80ca16c628f8daccd",
+        "mobile-network-coverage-maps-industry-standard-2026.batch-c.json": "cdbf9981a4308206dbf5c4d85d70866f451a190e1c5f69b99d0dc13b353a001d",
+        "validate_cth_sections.py": "c7583a732f352e4fdc76ce7833b300be5a841eea3b4f5c22aed51960ab3b978c",
+        "validate_mobile_network_coverage_maps_standard_2026_sections.py": "0ba72383f4c4dde7f92ed5da35abccb59d669ea256af7ccdce69244cc3397fb3"
+      },
+      "documentId": "cth/standard-2026-381",
+      "expectedSections": 13,
+      "lastAmendedDate": "2026-03-31",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "predictive coverage modelling",
+        "underlying geospatial map data"
+      ]
+    },
+    "mobile-number-pre-porting-standard-2020": {
+      "relativePath": "build_mobile_number_pre_porting_standard_2020_payload.py",
+      "builderSha256": "bf139eef99f0223dfb004f9fb310604f191090e64944eaf44e4ce56605f95a05",
+      "rawPayloadSha256": "3fc65567afe06953b26b37f18c31b0ab60006ac67b0cbe843ba02e1c4c968f91",
+      "rawPayloadBytes": 22603,
+      "normalizedPayloadSha256": "8ca1163865ab0c05ed0d3134785bc1871ac91c6ddff53ab96c640e0f22ab7ea4",
+      "requiredFiles": {
+        "mobile-number-pre-porting-standard-2020.batch-a.json": "579f7119b1c1849fdcab74674884875c840c99410f62b5dcbd43b1d0ae4319b5",
+        "mobile-number-pre-porting-standard-2020.batch-b.json": "d28c30ea8d1f68551b7431f8078531ac32c416ba96945b1787eadad3e8ca9e76",
+        "mobile-number-pre-porting-standard-2020.batch-c.json": "1b95370ed4184c5d4098980b66395c1d2d24822c33a246d6d2b707706d773016",
+        "validate_mobile_number_pre_porting_standard_2020_sections.py": "c01c04486285a48a0d0e31010f6e3b38ceca21b34a703f4c61e3c2106af9167f"
+      },
+      "documentId": "cth/standard-2020-179",
+      "expectedSections": 10,
+      "lastAmendedDate": "2020-02-28",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "additional identity verification process",
+        "government online verification service"
+      ]
+    },
+    "nbn-consumer-information-standard-2018": {
+      "relativePath": "build_nbn_consumer_information_standard_2018_payload.py",
+      "builderSha256": "3a61bfb48f68be9a2d0963240c1b0ffd07ccb5fb42ea4cf27d3db4532c811498",
+      "rawPayloadSha256": "edb7d78683d7251cc1c7ade67e7f3574172686801a75d2ba1ea8f25bd4fa6cfb",
+      "rawPayloadBytes": 20810,
+      "normalizedPayloadSha256": "36d79101f18cdcc4a6b2a68209e170d400399f311e7af46db1c6cfcb2379f3d1",
+      "requiredFiles": {
+        "nbn-consumer-information-standard-2018.batch-a.json": "cb07d5270b73067e82557060ab7a9af04401ea72ebb666cc9cb5412c37cb41af",
+        "nbn-consumer-information-standard-2018.batch-b.json": "aea4ccc2650c6b3026012f0785ed12654f3bf7b5d89d8906e52c4d39b20a83ce",
+        "nbn-consumer-information-standard-2018.batch-c.json": "051de68e2eb2adf033d9659c3c361ea9fb124143f64cf1c75b7d06d0f3742bf0",
+        "validate_nbn_consumer_information_standard_2018_sections.py": "8b713d8bfda37042cfd895d49826c1dd2e1043a547db64bf98011b8f3559f276"
+      },
+      "documentId": "cth/standard-2018-814",
+      "expectedSections": 12,
+      "lastAmendedDate": "2021-04-01",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "typical busy period download speed",
+        "NBN Medical Alarm Register"
+      ]
+    },
+    "payphones-determination-2022": {
+      "relativePath": "build_payphones_determination_2022_payload.py",
+      "builderSha256": "4af7e79dc2f01d1e8380160b62f33851fd7cd1320ffb68a03fce88ec7ba6a9cb",
+      "rawPayloadSha256": "75b1af64496282836a3cd26d91e95c0c9cf9e636a1d0804030dd008ada98bed2",
+      "rawPayloadBytes": 59742,
+      "normalizedPayloadSha256": "1e87ff100e637827e27b38a5fd31eaa6a419760069eeba4af6655de4c3ae6a68",
+      "requiredFiles": {
+        "payphones-determination-2022.batch-a.json": "72449f81d2387f905acc9acd212318e50de89abdb57b6981ad3c757e1a9f2406",
+        "payphones-determination-2022.batch-b.json": "02d9e7bf95522f3712b68fa580a086d394a5590aeb3661d8904f7e49315fcf6f",
+        "payphones-determination-2022.batch-c.json": "6c601c741b062473aa2fcf34bec636e5eaef125306221b41bd6f9f6a2e737fd1",
+        "validate_payphones_determination_2022_sections.py": "8d047affa5484844a84d2f2bc31abe55f4cb63606a2d686c7a497bc6d4caaeb1"
+      },
+      "documentId": "cth/determination-2022-440",
+      "expectedSections": 43,
+      "lastAmendedDate": "2022-03-31",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "payphone performance standard",
+        "payphone removal consultation document"
+      ]
+    },
+    "planning-act-2016": {
+      "relativePath": "build_planning_act_2016_payload.py",
+      "builderSha256": "922301d1d3f20ac0cd2636321e8e80ca59689b70ea6604c06fa781c8fc6d9cb9",
+      "rawPayloadSha256": "a37de7103098576234c381d06006124b3a0d922cf076bb3f2e96dc6f72a277b3",
+      "rawPayloadBytes": 101987,
+      "normalizedPayloadSha256": "37ee437e9001bb16d12fe615a1b9b7cbafa26e815985bc5191bb13487d32e2f5",
+      "requiredFiles": {
+        "planning-act-2016.batch-a.json": "320a391263e3ec8c96873a9048292ed1ed5fe3a762265458d5c3dd48ff85aaa9",
+        "planning-act-2016.batch-b.json": "8ad35030200214e6b9dc5a70e9bebc04fcd3115b131809b33f406e063ae166b5",
+        "planning-act-2016.batch-c.json": "a5d68a35df6da4106e0c5e7418d6f60be83556e401f4b11ba9e527c9c1bdb305"
+      },
+      "documentId": "qld/act-2016-025",
+      "expectedSections": 80,
+      "lastAmendedDate": "2026-04-27",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "planning instruments",
+        "development assessment"
+      ]
+    },
+    "telecommunications-cabling-provider-rules-2025": {
+      "relativePath": "build_telecommunications_cabling_provider_rules_2025_payload.py",
+      "builderSha256": "18e6777b1109251c9e71a2fb4b7105e2ec3ef001c382e645d03f920229641835",
+      "rawPayloadSha256": "90f1b6d33cb0aa1cd9d22d5acea85df633c6e9121dd1efc07dc7ced0f8cb156e",
+      "rawPayloadBytes": 42457,
+      "normalizedPayloadSha256": "d1406d2269173ef5cf4ab0843438540f838584b4f81a96a489a1ca4142a69e57",
+      "requiredFiles": {
+        "telecommunications-cabling-provider-rules-2025.batch-a.json": "e326ff3063d9dfb3125ee0a3e5ce25e0c367670b973769b3273a26c4d4b6e4d3",
+        "telecommunications-cabling-provider-rules-2025.batch-b.json": "d18226ccbe3c44aa460973739680f840a067437582dc4b995976bb31f6215848",
+        "telecommunications-cabling-provider-rules-2025.batch-c.json": "99a6a8c48b78344e9ce517c6da49d5c45623bb8513113a669f20a7f35045cf29",
+        "validate_telecommunications_cabling_provider_rules_2025_sections.py": "2874a4d75b5a2caf48fd3e888aba0e3878a5a96e466f33d33383fd9431d6c624"
+      },
+      "documentId": "cth/rules-2025-386",
+      "expectedSections": 46,
+      "lastAmendedDate": "2025-03-21",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "cabling regulations test",
+        "jumperable distributor"
+      ]
+    },
+    "telecommunications-consumer-protection-act-1999": {
+      "relativePath": "build_telecommunications_consumer_protection_service_standards_act_1999_payload.py",
+      "builderSha256": "8c8b755a1f5dd2b32012abf40698e29fb0953e56522260089610028d5fa14dba",
+      "rawPayloadSha256": "a112defb55eca317c3b08032086dd58727446b43f922b2b3e0298ed7c5ea9aae",
+      "rawPayloadBytes": 187559,
+      "normalizedPayloadSha256": "634f22b43a5038318d5993f63b5d88213279e8f10d9323d5332630674962d76a",
+      "requiredFiles": {
+        "telecommunications-consumer-protection-service-standards-act-1999.batch-a.json": "689d7020ac548b8e5bc26d0e1ba96afe540672b8e26be64222701a5682072ab9",
+        "telecommunications-consumer-protection-service-standards-act-1999.batch-b.json": "5183da6f3ad42fc637cc92f0022191daa6d4ac473ffb98dd7301187429e3316e",
+        "telecommunications-consumer-protection-service-standards-act-1999.batch-c.json": "ae2e8b22d9da88cb24556d9000e780c31b7df8acc5a758a3bf2d1cdd9720a69a",
+        "validate_telecommunications_consumer_protection_service_standards_act_1999_sections.py": "904282ad48f2fa3220e3c0ddd752cd7a32c9d31af412fd6df97a3f9ef5bcb448"
+      },
+      "documentId": "cth/act-1999-050",
+      "expectedSections": 248,
+      "lastAmendedDate": "2025-10-31",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "customer service guarantee",
+        "universal service obligation"
+      ]
+    },
+    "telecommunications-numbering-plan-2025": {
+      "relativePath": "build_telecommunications_numbering_plan_2025_payload.py",
+      "builderSha256": "b5df5ca310cf73313272cce3db057354ae131a150f2c541e4a044559e065af55",
+      "rawPayloadSha256": "c1b325eb525081b02194e4434674d6f7cb16923a7aa94c22f693473ea2d30208",
+      "rawPayloadBytes": 154462,
+      "normalizedPayloadSha256": "653f88330cafcafbf45ba1dcaed1b53e9417b0b4745976cf079e4f56eb37a390",
+      "requiredFiles": {
+        "telecommunications-numbering-plan-2025.batch-a.json": "fa1abbe2775775e2650af44eba28fd4bc570228bac420d0f9d771c4ca1c9112b",
+        "telecommunications-numbering-plan-2025.batch-b.json": "3006d17e9ec25527add514c494c8d9f39c414256b9e8da9d787e82263db44587",
+        "telecommunications-numbering-plan-2025.batch-c.json": "54a164f4eec9ef307686277f77df5a0d6406c4a54f0b154431c346b3c256cf61",
+        "validate_telecommunications_numbering_plan_2025_sections.py": "3be324a94a15c021a97783fb9cd2bd4726a1eda1917731876bf4198e31bce4ea"
+      },
+      "documentId": "cth/plan-2025-409",
+      "expectedSections": 132,
+      "lastAmendedDate": "2025-03-24",
+      "relatedDocsPolicy": "preserve",
+      "diagnosticTerms": [
+        "enhanced rights of use",
+        "geographic numbers for central east region"
+      ]
+    }
+  }
+}

@@ -1,446 +1,441 @@
 # Changelog
 
-## Unreleased — `spec/v2.3/` (DRAFT, not tagged)
-
-### §19–§21 — Mandate + Parley (normative; issue #35, RFC #14)
-
-Delivers the RFC [#14](https://github.com/TailorAU/pact/issues/14) primitive
-(ACCEPT-WITH-MODIFICATIONS, 2026-05-16 — Parley noun, SOQ1/2/4/5 resolved)
-into the v2.3 draft, per issue
-[#35](https://github.com/TailorAU/pact/issues/35). **Retarget note:** #35
-originally aimed at a new `spec/v2.1/` carry-forward; v2.2 shipped without
-§19–22, `spec/v2.1/` was never opened, and v2.3 is the live draft whose §25.12
-depends on these sections — so the normative text lands here instead, and the
-"open v2.1, then absorb" plan in `spec/v2.2/README.md` is superseded. Awaiting
-maintainer sign-off.
-
-- **§19 Mandate** — the handler-signed capability grant, shape lifted verbatim
-  from RFC #14 / the merged MCP-extension RFC (PR #40, revised #42): lifecycle
-  (minting only by an identified HumanPrincipal; server-authoritative expiry
-  with the §17.7 ±5-minute skew window per ratified SOQ2; **immediate**
-  revocation per ratified Q1), single-use `max_binding_decisions` semantics
-  with **durable-counter** rules (in-process counters are non-conformant for
-  enforcement claims), and the three-envelope evaluation order — constraint
-  envelope denies, exceeded commitment authority **escalates, never rejects**,
-  disclosure ceiling redacts-and-flags.
-- **§20 Mandate carriage and verification** — MCP `_meta` carriage via
-  `au.tailor.pact/mandate` (verbatim body; other transports MAY define
-  equivalents); the signature suite (**new normative content**: Ed25519 over
-  the RFC 8785 canonical body, base64url, key resolution via §17.8 registry /
-  DID Document, unenrolled keys fail closed); per-request verification with
-  verdicts never cached (what makes revocation immediate); mandatory
-  `structural` / `cryptographic` verification labelling that propagates to
-  every downstream audit record; MRTR escalation with a single-use
-  per-escalation `challenge_nonce` and success-conditional consumption; the
-  `-32010`…`-32019` error registry.
-- **§21 Parley (minimal)** — terminology (collision-free with §4.4 fabric
-  session-awareness and §13 negotiation rounds), composition with §4.4 / §6.5
-  / §10.3 / §17.13, the ratified Q2/Q4/Q5/Q6 baseline, advisory-by-default
-  outcomes (binding only via per-handler §17 proof — or, for
-  `internal-reversible` effects only, unexhausted mandate commitment
-  authority), and immediate hang-up with `outcome: mandate_revoked`. The
-  transport surface is deferred; **§22 stays reserved** (push delivery +
-  service-account auth).
-- **`schemas/mandate.json` (NEW)** — JSON Schema 2020-12 for the Mandate body.
-- **Conformance:** 12 vectors promoted from `docs/v2-prep/mandate-mcp-vectors/`
-  into `spec/v2.3/conformance/extended/mandate/`; `kind: mandate` added to
-  `test-vector-format.yaml`. The runner does not execute the new kind yet;
-  every vector is mirrored by the `mcp/` test suite.
-- Title backronym refreshed to "Contexture and Trust" (normative from v2.1 per
-  `AGENTS.md`); §5 / §15.1 cross-references re-pointed from "Sessions (v2.1)"
-  to Parleys / Mandates.
-
-**Not yet done:** the reference `@pact-protocol/mcp` guard still verifies
-structurally (labelled as such per §20.5); no runner/CI execution of
-`kind: mandate`; §21 transport surface and §22 push delivery + service-account
-auth remain open.
-
-### §25 — Consensus, Authorization, and Legal Execution (normative; issue #41)
-
-**Security-sensitive / normative.** Adds §25 — *Consensus, Authorization, and
-Legal Execution* — the safety boundary between a PACT protocol state, a human
-attestation, and legal execution. Raised as
-[#41](https://github.com/TailorAU/pact/issues/41); awaiting maintainer sign-off.
-
-- **New `spec/v2.3/`** — carries `spec/v2.2/` forward and adds §25 plus §17.14
-  (`authorization_proof` scope limit). Full delta in
-  [`spec/v2.3/README.md`](spec/v2.3/README.md).
-- **`spec/v2.2/ERRATA.md` (NEW)** — additive disclosure for the stable v2.2
-  line. v2.2's normative text and schemas are unchanged.
-- **Boundary:** protocol states (`accepted`, `auto-merged`, `aligned`,
-  `consensus_reached`, `commitment`, TTL expiry, absence of objection) are
-  never, by themselves, an electronic signature, legal assent, proof of
-  identity or capacity, or authority to bind. Silence never creates an
-  `authorization_proof`.
-- **Fail-closed apply guard:** resource types declare `effect_class` and
-  `human_attestation`; an `external-irreversible` apply MUST NOT proceed from
-  silence, and `auto` / `objection-based` policies MUST NOT bypass the guard.
-  The v2.2 §14.5 mapping "silence = consent → *Auto-authorize after TTL*" for
-  transactions is **withdrawn**.
-- **`authorization_proof`** gains `payload_hash`, `scope` and `effect_class`
-  for guarded applies; `$id` bumped to `/v2.3/`.
-- **Conformance:** 11 new vectors in
-  `spec/v2.3/conformance/extended/execution-boundary/`. Five execute in the
-  runner today (two with real Ed25519 crypto); six need a server and no
-  implementation of §25 exists yet.
-- **Docs / clients:** README, integration guide, `site/index.html`, the
-  negotiation example, and the CLI / MCP surfaces qualify "silence =
-  acceptance/consent" as *absence of protocol objection* and report protocol
-  states only.
-
-**Not yet done:** no reference-server implementation of §25, and no CI job runs
-the v2.3 vectors (`conformance.yml` targets `spec/v2.0/conformance`).
-
-**2026-08-26 — registry + epistemics + §6.4 precision
-([#59](https://github.com/TailorAU/pact/issues/59)).** Registers the
-knowledge-graph resource types running in production at `pact.tailor.au`,
-documents their epistemic machinery as an extension, and tightens the §6.4
-provenance layer:
-
-- **`spec/v2.3/resource-types.yaml`** — first two registered custom types:
-  `au.tailor.pact.topic` (knowledge claim under epistemic consensus;
-  `internal-reversible` / `not-required`) and
-  `au.tailor.pact.legislation-instrument` (structured legislation ingested
-  into a public knowledge graph; `internal-reversible` / `not-required`
-  **for graph ingest only** — the entry states explicitly that third-party
-  publication or a non-retractable downstream citation surface is a
-  different effect that MUST be classified `external-irreversible` per
-  §25.5).
-- **`docs/extensions/epistemics.md` (NEW)** — extension
-  `au.tailor.pact/epistemics`, and the new `docs/extensions/` home for
-  graduated extension docs: tier vocabulary with per-tier quorums, 0.90
-  promote / 0.80 stable-break ratios, credence as a deterministic
-  projection that MUST NOT gate transitions (0.99 asymptote — no live
-  claim reaches certainty), typed challenges with a
-  `base + floor(sqrt(dependents))` blast-radius reopen quorum,
-  `builds_on` / `assumes` dependency links with a zero-unmet-dependency
-  promotion gate, independence-of-principals counting rules, and the §15.1
-  `extensions` profile advertisement shape.
-- **§6.4** — signature-algorithm registry (`ed25519` REQUIRED default,
-  registry-extensible) replaces hard-coded Ed25519; per-resource
-  `sequenceNumber` monotonic-gapless rules are normative (a store that
-  never assigns it is non-conformant at Extended); the daily signed-root
-  payload is a normative field list (window, covered resource set, chain
-  heads, `root_hash`, `alg`, key id, signature); the external
-  transparency anchor gets a concrete `pact-log-anchor/1` object with a
-  public-Git-signed-tag example (named as an example, not a normative
-  dependency).
-
-## v2.0.3 — 2026-05-15
-
-Third patch on v2.0. Introduces **Fabric Onboarding & Session Awareness** — five additive operations and six new events that close the "cognitive layer" gap between *being registered in a fabric* and an agent *knowing it is in a fabric, with these obligations, with these counterparties*. **Additive — no breaking changes to v2.0 / v2.0.1 / v2.0.2 clients.**
-
-### Why this patch
-
-The user framing: PACT v2.0.2 had the network and registration layers right (TLS join/leave, registry membership) but agents were still being told "you are in fabric X" by callers — there was no canonical way for an agent to ask the server *what fabrics am I currently in, what's the phase of each, what do I owe, what have I missed?* This release fills that gap with manifest, status, transcript, mark-read, heartbeat, and an atomic onboard operation that bundles join+constrain so there is never a half-joined window.
-
-### Spec text changes
-
-`spec/v2.0/SPECIFICATION.md`:
-
-- §4.1 (expanded) — heartbeat is now bidirectional and feeds the manifest's per-member `last_seen`; back-compat note for v2.0.2 clients
-- §4.4 (NEW) — **Active Session Manifest Operations** — five subsections covering `_status`, `manifest`, `_heartbeat`, `mark-read`, `_onboard`; each specifies method/path, request schema, response schema, errors, idempotency, emitted events, verifier_id binding, and §15.5 tier
-- §4.5 (renumbered) — existing Merge Operations moved from §4.4 → §4.5
-- §6.2 — events catalog adds `pact.fabric.onboarded`, `pact.agent.heartbeat-received`, `pact.agent.attention-required`, `pact.agent.mark-read`, `pact.obligation.created`, `pact.obligation.discharged`
-- §6.5 (NEW) — **Pending Obligations** — first-class definition: shape, four `kind`s (vote / respond / sign / ack), creation/discharge semantics, surfacing rules
-- §7.1 — REST endpoints listing extended with all five new paths
-- §7.2 — Real-time event channel extended with six new `On*` events (mirrors §6.2 additions)
-- §7.3 — MCP tools list extended with seven new tools (mirrors `mcp/` v2.0.3)
-- §15.1 — capability flags list extended: `atomicOnboard`, `manifest`, `sessionAwareness` (all v2.0.3)
-- §15.6 (NEW) — **Fabric Onboarding Pattern** — sequence diagram, half-joined-window analysis, cross-org guidance
-- §17.13 — added "Manifest visibility" subsection: cross-org / clearance disclosure rules enforced on manifest endpoints; coarse-grained timestamps to avoid timing side channels; non-member 403/404 behaviour
-- Appendix A.2 — schema table extended with nine new schemas
-
-### Schemas
-
-Nine new files under `spec/v2.0/schemas/`, all JSON Schema 2020-12, all with `examples`:
-
-- `fabric-status.json`, `fabric-manifest.json`
-- `heartbeat-request.json`, `heartbeat-response.json`
-- `mark-read-request.json`, `mark-read-response.json`
-- `onboard-request.json`, `onboard-response.json`
-- `pending-obligation.json` (shared shape used by both status and manifest)
-
-### Conformance suite
-
-Five new test vectors under `spec/v2.0/conformance/extended/sessions/`:
-
-- `onboard-success.yaml` — atomic happy path; asserts `pact.fabric.onboarded` and `pact.agent.joined`
-- `onboard-partial-failure.yaml` — constraint rejected; follow-up status assertion proves non-membership (atomicity)
-- `manifest-cross-org-disclosure.yaml` — §17.13 reduction pinned; caller sees own record fully, cross-org peer reduced to `display_name` + summary counts
-- `heartbeat-timeout.yaml` — stale member flagged (`liveness: stale`), not auto-evicted
-- `obligation-surfacing.yaml` — pre-vote manifest shows pending obligation; post-vote shows it discharged
-
-Runner extensions (`@pact-protocol/conformance-runner@0.3.0-dev`):
-
-- New `kind: session` for multi-step vectors with `cross_call_assertions` (e.g. "after rejected onboard, status MUST show non-membership")
-- New assertion kinds: `negative_membership`, `negative_obligation`
-- `resolveBodyPath` dot-path body accessor
-- Existing v2.0.2 baseline (7 pass · 0 fail · 1 skip) preserved; new total: 7 pass · 0 fail · 6 skip (5 new server-bound vectors require `--server`)
-
-### CLI changes (`@pact-protocol/cli@2.0.3`)
-
-- New `pact onboard <fabricId> [--constraints <file>] [--verifier <did>]` — atomic onboard via `_onboard`
-- New `pact status [<fabricId>] [--all]` — remote `_status` snapshot or local-state cross-fabric summary
-- New `pact where` — offline cross-fabric "what am I in" view with 60s cache freshness, `--refresh` for live data
-- New `pact manifest <fabricId>` — caller-scoped manifest fetch + local cache
-- New `pact transcript <fabricId> [--since <id>] [--mark-read]` — event log + optional ack
-- `pact join` and `pact negotiate position` gain `--heartbeat` (one-shot, best-effort)
-- New `cli/src/sessions.ts` — local state under `~/.pact/` with atomic O_EXCL lockfile (5s timeout)
-
-### MCP changes (`@pact-protocol/mcp@2.0.3`)
-
-Seven new tools added:
-
-- `pact_onboard`, `pact_status`, `pact_manifest`, `pact_transcript`, `pact_heartbeat`, `pact_mark_read`
-- `pact_session_announce` — **cognitive-layer hook**: returns a structured "you are in N fabrics with M obligations" payload for the calling LLM to prepend to its working context. Offline by default; `refresh_manifests: true` for live data.
-
-### Capability flags (advertised in `/.well-known/pact.json` `capabilities`)
-
-Servers SHOULD set:
-
-- `capabilities.atomicOnboard: true` when `_onboard` is implemented
-- `capabilities.manifest: true` when `GET /manifest` is implemented
-- `capabilities.sessionAwareness: true` when the full §4.4 operation set is implemented
-
-Clients SHOULD prefer `_onboard` over `join` + N `POST /constraints` when the server advertises support.
-
-### Path conventions
-
-All v2.0.3 operations live under `/api/pact/{fabricId}/...` (consistent with v2.0.2 routes). `{fabricId}` and `{documentId}` are synonyms — servers MUST accept both forms in the URL.
-
-### Files touched
-
-- 1 spec file (`spec/v2.0/SPECIFICATION.md`)
-- 9 new schemas
-- 5 new test vectors + runner extensions
-- 5 new CLI commands + 1 new local-state module
-- 7 new MCP tools + 1 mirrored local-state module
-- `cli/package.json` and `mcp/package.json` → `2.0.3`
-- `spec/v2.0/conformance/runner/package.json` → `0.3.0-dev`
-
-### Mirror
-
-This release mirrors to `tailor-app` via PR [#1701](https://github.com/TailorAU/tailor-app/pull/1701) (squash-merged 2026-05-15) following the v2.0.x coordinated-PR pattern (see [TailorAU/tailor-app#1616](https://github.com/TailorAU/tailor-app/pull/1616), [#1673](https://github.com/TailorAU/tailor-app/pull/1673), [#1679](https://github.com/TailorAU/tailor-app/pull/1679)).
-
----
-
-## v2.0.2 — 2026-05-15
-
-Second patch on v2.0. Response to the **adversarial / red-team cold-eye review**. Closes 10 named attacks (A1–A10) and three structural concerns (S1–S3) from that review. **Additive — no breaking changes to v2.0 / v2.0.1 clients.**
-
-### What the audit named, and how v2.0.2 addresses each
-
-| # | Attack | How v2.0.2 closes it |
-|---|---|---|
-| **A1** | Forged-signature pass via the reference runner | The conformance runner now performs **real cryptographic signature verification** for `fido2-assertion` proofs (`signature_check: real`; uses `@simplewebauthn/server`). PASS verdict now distinguishes `verified-cryptographic` from `verified-structural`. Mutation-tested: a flipped signature byte produces `rejected (failing_step=3)`. |
-| **A2** | Self-asserted conformance laundering | New §15.5 **`pact_introspect_tier`** behavioural probe: `POST /api/pact/_probe/tier` with a known set of checks; server returns a signed `tier_probe_report` describing which checks it actually enforces. New `pact tier-introspect` CLI + `pact_tier_introspect` MCP tool. MUST at `Authorization-Required` conformance. |
-| **A3** | `verifier_id` presence-vs-equality | §17.6 + §17.7 step 5 now require *equality*, not just presence. New `verifier_signed_nonce: boolean` annotation lets producers assert the (b) branch of the rule. New `--verifier <did>` enforcement in `pact verify-proof`. New runner field `verification.receiving_verifier_id` + new test vector `verify-cross-verifier-replay.yaml`. |
-| **A4** | Tombstone-then-resurrect (registry mutable) | §17.8 introduces an **append-only mutation log** at `log_uri`, hash-chained from a GENESIS entry. Snapshot at `/.well-known/pact-credentials.json` carries `snapshot_root` + `snapshot_signature` committing the server to the current state. Resurrection is itself a logged event, visible to every cache-respecting verifier. |
-| **A5** | Event-log tampering (no tamper-evidence) | New **§6.4 Event-log integrity**: every event MUST carry `prev_hash` (SHA-256 of RFC 8785 canonical encoding of prior event). Daily `pact.log.root` event commits the chain via signature. REQUIRED at Extended and Authorization-Required. Schema: `event.json` adds `prev_hash`. |
-| **A6** | `did:web` historical-authority rewrite via domain takeover | **§17.4 DID Document pinning** (REQUIRED at v2.0.2): verifiers MUST snapshot the resolved DID Document on first observation of a `principal_id` and reject any subsequent resolution that doesn't either match the pinned state or chain to it via a signed rotation event in the registry mutation log. Capability flag: `capabilities.didDocumentPinning`. |
-| **A7** | Multi-hop trust decay (delegation deferral) | Unchanged — delegation is correctly deferred to v2.1 per §17.11. The audit confirmed deferral is the right call; v2.0 verifiers MUST reject non-empty `attestation_chain` they cannot verify. |
-| **A8** | M-of-N dispute-window starvation | New **§23.5b**: implementations supporting recovery MUST emit `pact.agent.recovery-initiated` to ≥2 notification channels (heterogeneous transports). New `pact.agent.recovery-disputed` event lets the operator-of-record or non-co-signing quorum members suspend an in-flight recovery. External anchor URI for cross-checking. New `recoveryDispute` shape in `agent-identity.json`. |
-| **A9** | Unconstrained `alg` accepting HMAC | §17.6 introduces a normative **alg whitelist**: `webauthn-es256` / `webauthn-es384` / `webauthn-eddsa` for `fido2-assertion`; `resemblyzer-v1` for `voice-biometric`; reverse-domain for custom. Anything else (notably HMAC algs) MUST be rejected at §17.7 step 3. Schema enforces via `anyOf`. New test vector `verify-alg-disallowed.yaml` exercises HS256 rejection. |
-| **A10** | "Cryptographic erasure" that isn't | §17.10 rewritten to acknowledge cryptographic erasure is an **operational claim, not a cryptographic guarantee**. Implementations claiming `Authorization-Required` SHOULD document hardware-bound storage, backup policy, and the legal regime under which keys could be compelled. |
-
-| # | Structural concern | Resolution |
-|---|---|---|
-| **S1** | Cross-organisation boundary undefined | New §15.4 defines cross-org deterministically: different DID methods, or `did:web` differing at eTLD+1 (Public Suffix List), or unresolvable from the receiver's federated registry, or explicit `cross_org_assertion`. Determinations SHOULD be logged. |
-| **S2** | Salience as authority signal vs constraint | New §10.7: agents declaring salience ≥ 7 MUST respond within `abstention_ttl` (default 4× proposal TTL) or are auto-demoted to salience=5 for that proposal. Closes the "set salience=10 and abstain to block forever" abuse. New event: `pact.salience.auto-demoted`. |
-| **S3** | Trust model implicit | New §17.13 explicit non-normative trust-model section: what the protocol guarantees, what only the implementer can guarantee, and what a verifier should therefore assume. Trust floor = weakest implementation in the graph. |
-
-### Spec text changes
-
-`spec/v2.0/SPECIFICATION.md`:
-- §6.4 (NEW) — Event-log integrity (hash-chained + signed root)
-- §10.7 (NEW) — Salience abstention timeout
-- §15.1 — expanded `capabilities` set; added `endpoints.credentialsRegistry` + `registrySigningKey` + `logSigningKey` mentions
-- §15.4 (NEW) — Cross-organisation boundary definition
-- §15.5 (NEW) — `pact_introspect_tier` behavioural probe
-- §17.4 — DID Document pinning rule added
-- §17.6 — `alg` whitelist (normative), `verifier_signed_nonce` annotation, `verifier_id` equality wording
-- §17.7 — step 5 wording sharpened (equality, not presence)
-- §17.8 — append-only mutation log + snapshot_root + snapshot_signature + log_uri
-- §17.9 — Authorization-Required tier inherits the four-check rule from v2.0.1; clarified `pact_introspect_tier` is REQUIRED at this tier
-- §17.10 — cryptographic erasure honestly reframed as operational
-- §17.13 (NEW) — Trust model (non-normative framing)
-- §23.5b (NEW) — Multi-channel notification + `pact.agent.recovery-disputed` event
-
-### Schemas
-
-- `authorization-proof.json`: `alg` is now an `anyOf` whitelist; description tightened.
-- `event.json`: adds `prev_hash` for the §6.4 chain.
-- `principal-registry.json`: `version` accepts `"2.0"`; adds `snapshot_root` / `snapshot_signature` / `log_uri` (REQUIRED when `version == 2.0`).
-- `agent-identity.json`: adds `recoveryDispute` shape to the `oneOf`.
-
-### Runner
-
-- `@simplewebauthn/server@^13.3.0` added as a dependency.
-- `src/webauthn.ts` (NEW) — real signature verifier (ES256/ES384/Ed25519 via Node `crypto.verify` + SPKI-DER); alg whitelist enforced.
-- `src/index.ts` — wires the verifier in; `kind: verification` PASS now reports `verified-cryptographic` vs `verified-structural`; new `receiving_verifier_id` field for cross-verifier equality testing.
-- `package-lock.json` regenerated.
-- README "Honesty disclosure" expanded.
-
-### CLI / MCP
-
-- `pact verify-proof` — when `--verifier <did>` is supplied, EQUALITY against the proof's `verifier_id` is enforced (was: presence-only).
-- `pact tier-introspect <server-url>` (NEW) — behavioural probe of the server's advertised tier; outputs the signed report; `--require-pass` exits non-zero on any non-pass check.
-- `pact_tier_introspect` (NEW MCP tool) — same surface.
-
-### Test vectors
-
-- `extended/attestation/verify-fido2-real-signature.yaml` (NEW, from agent) — real Ed25519 signature, `signature_check: real`, expected `verified`.
-- `extended/attestation/verify-fido2-forged-signature.yaml` (NEW, from agent) — flipped-byte signature, expected `rejected (failing_step=3)`.
-- `extended/attestation/verify-cross-verifier-replay.yaml` (NEW) — `verifier_id: did:web:a.example` arriving at `did:web:b.example` → `rejected (failing_step=5)`.
-- `extended/attestation/verify-alg-disallowed.yaml` (NEW) — `alg: HS256` → `rejected (failing_step=3)`.
-- The three v2.0/v2.0.1 vectors are now flagged `signature_check: structural` to preserve their original intent.
-
-Final suite: **7 verification vectors pass · 0 fail · 1 HTTP skip** (no `--server`).
-
-### Migration from v2.0.1
-
-Fully additive. v2.0.1 clients work against v2.0.2 servers unchanged. New normative requirements (§6.4 hash chain, §17.8 append-only log, §17.4 pinning, alg whitelist) all gate at Extended or higher; Core impls continue with the v2.0.1 surface they already had. Implementations claiming `Authorization-Required` SHOULD audit their compliance against the new §17.9 checks + §15.5 probe.
-
----
-
-## v2.0.1 — 2026-05-15
-
-Patch release in response to the cold-eye audit (no breaking changes; additive clarifications, schema tightening, runner-honesty disclosures).
-
-### Spec
-
-- **§17.4** — added a security note on `did:web`: DNS hijack / cert compromise / domain takeover compromises every authorization signed under the domain. Implementations SHOULD treat `did:key` as the default for high-stakes principals; `Authorization-Required`-tier deployments accepting `did:web` SHOULD also require Certificate Transparency monitoring.
-- **§17.9 Authorization-Required tier** — replaced the unenforceable "principal spans more than one human" rule with four concrete, deterministic registry checks: tombstoned principals, revoked credentials, revoked credentials anywhere in `attestation_chain`, and CT-visible certificates for `did:web` principals. The 1:1 invariant from §17.4 already does the prior rule's work.
-- **§17.10 GDPR / right-to-be-forgotten** — softened to make explicit that PACT cannot answer per-jurisdiction legal questions. Implementations MUST evaluate compatibility with applicable law and document any exemption claimed; EU-jurisdiction `Authorization-Required` deployments SHOULD obtain external legal review of event-log retention.
-- **§17.11 Delegation** — explicitly DEFERRED TO v2.1: the canonical `attestation_chain` item shape, the chained-verification algorithm, and trust-decay rules. v2.0 verifiers that cannot verify a non-empty chain MUST reject the proof as `unverifiable`; implementations that don't support delegation MUST reject any non-empty chain.
-- **§23.4 Hostile recovery** — added quorum-enrollment-is-implementation-defined note (v2.1 will normalize an `agent.enroll-quorum` operation) and clarified the abandoned-agent-reset administrator must itself carry a valid `authorization_proof`.
-- **§15.1 Implementation Profile** — example bumped to specVersion 2.0; added `retentionPolicy` (now Required at v2.0+), `authorizationProof` and `agentIdentityTransfer` capability flags, the `credentialsRegistry` endpoint, and a Required/SHOULD field table.
-- **§6.3 Event-log retention** — softened the "not erased" wording to defer to §17.10's legal-evaluation requirement.
-- **Footer** — replaced "auto-synced from this file" (which was never automated) with the actual mechanism: synced manually via coordinated PRs.
-
-### Schemas
-
-- **`authorization-proof.json`** — added `verifier_signed_nonce: boolean` annotation; `verifier_id` now REQUIRED via an `allOf` `if/then` block whenever `verifier_signed_nonce` is not `true`. The §17.6 verifier-binding rule is now machine-checkable. `attestation_chain` description updated to reflect the §17.11 deferral.
-
-### Runner
-
-- **Verdict honesty (cold-eye #1)** — `kind: verification` PASS results now print as `✓ verified-structural` (not `✓ verified`) plus a one-line footer reminder. JSON output adds a `runner_disclaimer` field. Makes it impossible to mistake a structural PASS for a real cryptographic check.
-- **HTTP coverage warning (cold-eye #10)** — when every `kind: http` vector is skipped (typically because no `--server`), the runner prints a stderr WARNING. Run still exits 0 but the gap is visible.
-- **README honesty disclosure** — runner README now prominently flags the structural-only scope and documents the external-implementer access pattern (source checkout while npm publish is gated on #5).
-
-### Tooling / hygiene
-
-- `package-lock.json` now committed for the conformance runner — CI reproducibility.
-- `test-vector-format.yaml` — `failing_step` corrected from `1..6` to `1..5` (step 6 is the outcome step, not a failure mode).
-- `AGENTS.md` rules 3, 4, 5 refreshed: rule 3 documents v2.0 as already promoted; rule 4 adds v2.0 to the frozen list; rule 5's "stub" wording dropped (sections are full now); coordinated-PR pattern made the explicit norm.
-- `README.md` — implementations table now distinguishes "spec version served" (Tailor + Source serve v1.1; v2.0 server-side rollout in progress); v1.0 row re-tiered Legacy → Previous.
-
-### Migration
-
-Fully additive at every conformance level. v2.0 clients work against v2.0.1 servers unchanged. The new `verifier_signed_nonce` annotation is OPTIONAL; existing proofs with `verifier_id` set continue to validate. The new `Authorization-Required` checks are stricter on what counts as `verified`; implementations claiming that tier may need to add the four concrete checks (which they should already be doing under the prior rule's spirit).
-
----
-
-## v2.0 — 2026-05-14
-
-**Stable.** Supersedes v1.1. All v1.1 behavior is preserved; v2.0 is additive at Core conformance.
-
-### New: Human Authorization Layer (§17)
-
-- **`HumanPrincipal`** abstraction — strictly **1:1** with a single human (issue [#4](https://github.com/TailorAU/pact/issues/4)). Multi-persona / multi-entity handling sits **above** the PACT layer as an advisory `persona` claim. PACT verifiers see exactly one principal per human.
-- **W3C DID identity** for principals (decision D6). Implementations MUST support `did:web` and `did:key`; MAY support additional methods.
-- **`authorization_proof` envelope** — proof-of-human-intent that MAY accompany any PACT message: `type` / `principal_id` / `credential_id` / `challenge_nonce` (with verifier-binding) / `asserted_at` / `signature` / `alg` / `alg_version` / `attestation_chain`.
-- **Verification flow** (six steps) and a **credential registry** at `/.well-known/pact-credentials.json` (or DID-document resolution).
-- **GDPR / right-to-be-forgotten** position (§17.10): event-log entries are protocol-integrity records (not erased); credential-registry entries support cryptographic erasure + tombstone.
-- **Delegation** with a 3-hop cap (§17.11).
-
-### New: Attestation Format Reference (§18)
-
-Two first-class types:
-- **`fido2-assertion`** — WebAuthn / FIDO2 (issue [#3](https://github.com/TailorAU/pact/issues/3) accepted alongside `voice-biometric`).
-- **`voice-biometric`** — structural contract: speaker-verification embedding + utterance-hash binding; audio never leaves the device; full crypto detail + test vectors land via HMAN's [#3](https://github.com/TailorAU/pact/issues/3) PR.
-
-`vc-jwt`, `biometric-hash`, `passphrase-signed` (from the v1.2-draft list) are NOT v2.0 first-class — they may be implemented as custom types under §18.5.
-
-### New: `Authorization-Required` conformance tier (§17.9)
-
-Defined per decision D4. Implementations claiming this tier MUST require a valid `authorization_proof` on every cross-organisation message and MUST reject proofs whose `principal_id` resolution implies the principal spans more than one human. No implementation is required to claim this tier at launch.
-
-### New: Agent Identity Lifecycle (§23)
-
-Resolves issue [#13](https://github.com/TailorAU/pact/issues/13) Q7. Server-side persistent `agentId` (URN form, federation-portable), distinct from the HumanPrincipal that operates the agent. Cooperative operator transfer (outgoing signs → incoming countersigns → binding rotates, `agentId` unchanged). Non-cooperative recovery via **M-of-N quorum** or **abandoned-agent reset**, both gated by a configurable time-locked dispute window (default 72h).
-
-### New: Event-log retention policy (§6.3)
-
-Implementations MUST declare a `retentionPolicy` in their `/.well-known/pact.json` profile. Spec RECOMMENDS ≥ 365 days for resources that carry authorization proofs; regulated domains honour the longer of the spec recommendation and applicable regulation.
-
-### New: Resource-type registry (§14.3)
-
-Machine-readable registry at [`spec/v2.0/resource-types.yaml`](spec/v2.0/resource-types.yaml). Built-in types (`document`, `transaction`, `fact`, `record`) inventoried; custom types register via PR using reverse-domain notation.
-
-### New: §5 self-approval rule
-
-By default an agent's approval of its own proposal does NOT count toward `single` / `majority` / `unanimous`. Per-resource `allowSelfApproval` flag (default `false`). For the multi-agent-under-one-operator case (issue [#13](https://github.com/TailorAU/pact/issues/13) Q1), recommended pattern: `objection-based` policy.
-
-### New: Conformance suite & runner
-
-- [`spec/v2.0/conformance/`](spec/v2.0/conformance/) — directory, test-vector format (two kinds: `http`, `verification`), four initial vectors (one Core join, three §17.7 attestation-verification cases).
-- [`spec/v2.0/conformance/runner/`](spec/v2.0/conformance/runner/) — `@pact-protocol/conformance-runner` v0.1.0-dev. Runs verification vectors locally and (with `--server`) HTTP vectors against a target server.
-- `.github/workflows/conformance.yml` — gates every `spec/**` PR on the runner.
-
-### New: Schemas
-
-- `spec/v2.0/schemas/authorization-proof.json` (§17.6 envelope + §18.1 common fields + voice-biometric additions).
-- `spec/v2.0/schemas/principal-registry.json` (§17.8 registry, with tombstone).
-- `spec/v2.0/schemas/agent-identity.json` (§23 transfer / recovery attestations + quorum / abandonment).
-- All 29 v2.0 schemas bumped to **JSON Schema 2020-12** (older spec versions stay on draft-07 for citation stability).
-
-### New: Reference CLI / MCP capabilities
-
-- `@pact-protocol/cli` — `--authorization-proof <file>` flag on every write command (`intent` / `constrain` / `salience` / `object` / `done` / `escalate` / `ask`); new `pact verify-proof` (local §17.7 verification) and `pact profile` (read `/.well-known/pact.json`, optionally assert minimum conformance level).
-- `@pact-protocol/mcp` — parity with the CLI: `pact_ask`, `pact_negotiate_list` / `_position` / `_synthesis`, `pact_profile`. Optional `authorizationProof` arg on every write tool.
-
-### Reserved for v2.1
-
-§19–20 (Sessions + Mandate), §21 (push delivery / webhooks), §22 (service-account auth). v2.0 ships without these; they will land in `spec/v2.1/` once RFC [#14](https://github.com/TailorAU/pact/issues/14) converges and T4 / T5 are designed.
-
-### Migration from v1.1
-
-Fully additive at Core conformance. A v1.1 client works against a v2.0 server unchanged. The `authorization_proof` envelope is OPTIONAL at Core; verifiers MAY ignore it.
-
-### Coordination notes
-
-- v1.2-draft was collapsed into v2.0 (decision D1; commit `d129cae` in pact-repo).
-- The `tailor-app` mirror (`docs/architecture/PACT_SPECIFICATION.md` + companions) was synced via [`TailorAU/tailor-app#1616`](https://github.com/TailorAU/tailor-app/pull/1616), merged 2026-05-14.
-- v1.1 carries an [errata note](spec/v1.1/ERRATA.md) for two known issues (phantom §15/§16 preamble refs, stale schema `$id` paths).
-
----
-
-## v1.1 — 2026-04
-
-Resource-agnostic protocol — generalised v1.0 from document-only to **any resource type** (documents, transactions, knowledge claims, clinical records). Documents remain the default resource type and v1.0 endpoints continue to work.
-
-Key additions:
-
-- **Resource Types** (§14) — implementations declare what kind of resource agents negotiate over (`document` / `transaction` / `fact` / `record`).
-- **Implementation Profiles** (§15.1) — each PACT server publishes `/.well-known/pact.json` advertising its supported resource types and capabilities.
-- **Conformance Levels** (§15.2) — Core vs Extended compliance tiers.
-- **Backward compatibility** — proposals without an explicit `type` default to `document`; all v1.0 endpoints continue to work.
-
-[`spec/v1.1/SPECIFICATION.md`](spec/v1.1/SPECIFICATION.md). Errata: [`spec/v1.1/ERRATA.md`](spec/v1.1/ERRATA.md) — phantom §15/§16 preamble references and stale schema `$id` paths (corrected forward in v2.0; v1.1 itself stays frozen for citation stability).
-
-## v1.0 — March 2026
-
-Promotion of v0.4 to a stable v1.0. The protocol surface stabilised at this point:
-
-- Core primitives (`join`, `leave`, `intent`, `constrain`, `propose`, `object`, `escalate`, `done`, `poll`).
-- Event-sourced operation log; objection-based merge (silence = consent).
-- Information barriers, classification, graduated disclosure, mediated communication, structured negotiation.
-- BYOK invite-token flow for cross-organisation joins (no shared account required).
-
-[`spec/v1.0/SPECIFICATION.md`](spec/v1.0/SPECIFICATION.md).
-
-## v0.x — early 2026
-
-Initial protocol drafts (`v0.3`, `v0.4`). Documents-only consensus, the original `propose → vote → merge` flow, the first cuts of intent / constraint / salience. Retained for citation stability; not for production use.
+All notable changes to Source (`source.tailor.au`) are documented in this file.
+
+The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
+where versions apply (Source runs as a single rolling production deployment;
+versions correspond to dated release entries below rather than tagged
+releases).
+
+## [Unreleased]
+
+### Added
+
+- **In-process consensus heartbeat** (tailor-group#9). `instrumentation.ts`
+  now starts `src/lib/consensus-heartbeat.ts` on every server boot, which
+  calls `runConsensusSweep` every `CONSENSUS_SWEEP_INTERVAL_MINUTES` (default
+  30, `0` disables, requires `DATABASE_URL`) after a 60-second boot delay.
+  tailor-app#5954 retired the `cron-source.yml` workflow that had been the
+  engine's only heartbeat since #5425, and a GitHub `schedule` fires from the
+  default branch only, which the KG does not deploy from yet — so the engine
+  had no clock at all from 2026-09-18. Same single entry point, same Postgres
+  advisory lock; a tick that overlaps a running sweep is skipped and counted,
+  a sweep that throws is logged (`consensus.heartbeat.failed`) and the next
+  tick still fires. Fake-timer unit suite in `consensus-heartbeat.test.ts`.
+- **`.github/workflows/cron.yml`** (tailor-group#9). tailor-app's
+  `cron-source.yml` re-homed here job for job — cleanup, yield, staleness,
+  legislation-sync, spatial-snapshot, gtfs-sync, fiscal-sync, auto-merge and
+  the manual read-only `auth-check` — against `https://pact.tailor.au` with
+  the `prod` environment's `CRON_SECRET` (the same secret `cd-kg.yml`
+  deploys; every job declares `environment: prod` to read it).
+  Inert as a schedule until the default branch carries it; every job is
+  dispatchable on `rehome-review` today (a `push` trigger on the file's own
+  path gives GitHub the first run it needs to list the workflow — `gh workflow
+  run` answered 404 before it). `docs/CRON_INVENTORY.md` rewritten to match.
+- **PACT v2.3 §6.4 provenance chain over the PACT operation log** (#5566).
+  Every event written through `emitEvent` now carries a per-resource gapless
+  `sequence_number`, a `prev_hash` linking it to the previous event's hash,
+  its own `event_hash` (`base64url(SHA-256(RFC 8785 canonical event))`) and an
+  explicit `hash_alg` (`sha256-jcs@1`). Assignment runs inside one database
+  transaction with a per-resource advisory lock and a UNIQUE index on
+  `(topic_id, sequence_number)`; a failure to chain fails the operation rather
+  than writing an unchained row. Pre-#5566 rows are **not** backfilled — the
+  chain starts at a declared genesis (`GENESIS`, or `GENESIS-UNCHAINED` where
+  unchained history exists) and the verifier reports the uncovered rows.
+  New `verifyResourceChain` / `verifyOrderedChain` walk a resource's chain and
+  report the first break (gap, duplicate, tamper, broken link, missing hash,
+  unknown algorithm) as a structured record rather than a boolean. The five
+  columns are already published by `GET /api/pact/{topicId}/events`. Design +
+  genesis record: `docs/PROVENANCE_CHAIN.md`.
+- **`resource_chain_meta` — a durable presence latch for pre-chain history**
+  (#5598). One row per resource, created by the retention purge in the same
+  statement that deletes the rows it attests to, by a daily pre-pass ahead of
+  the retention boundary, and by a one-shot backfill over the existing estate.
+  A row means "this resource DID have unchained (pre-#5566) history"; **no row
+  means UNKNOWN, never "had none"**. Presence-only and monotonic — nothing may
+  ever delete from it, which is the only reason the writer may consult it when
+  choosing a genesis sentinel it will stamp permanently. No foreign key to
+  `topics`: evidence about a resource's pre-history has to outlive the
+  resource.
+- **`src/lib/retention.ts`** (#5598) — a pure module (zero database imports)
+  that owns the 30-day unchained-event retention bound and builds the SQL that
+  enforces it. It is the seam that lets `pact-profile.ts` derive its
+  advertisement without acquiring a database dependency.
+- The chain verification report gains `hadUnchainedHistory`,
+  `purgedUnchainedPriorEvents` and `historyEvidence` (#5598), so a zero
+  `unchainedPriorEvents` can be read as "unknown" rather than "no prior
+  history". The served profile gains a `provenance` block (hash algorithm,
+  first sequence number, genesis sentinels, and explicit `false` for signed
+  root and transparency anchor), derived from `provenance-chain.ts`.
+- (placeholder — additions landing on `main` between dated releases will be listed here)
+
+### Changed
+
+- **Open registration behind a proof-of-work cost; design rate limits with
+  or without Redis** (tailor-group#7). The no-Redis limiter used to clamp
+  every window to 10% of design, which on the single-replica knowledge graph
+  (no Redis provisioned) meant 12 reads/min and one registration an hour.
+  The in-memory limiter now enforces the design limits per replica
+  (`RATE_LIMIT_REPLICA_HINT` divides them for scale-out). The 3/hour-per-IP
+  registration quota is gone: `POST /api/pact/register` answers `428` with a
+  signed SHA-256 challenge (`REGISTRATION_POW_BITS`, default 20 ≈ 1 s CPU),
+  accepts the solved nonce once, and keeps a 60/hour-per-address flood
+  backstop plus an env-tunable daily circuit breaker
+  (`MAX_DAILY_REGISTRATIONS`, default 500). Every authenticated PACT
+  mutation now draws from the same 30/min per-key write window (`join`,
+  `done`, `dependencies`, `verify`, `approve`/`reject`/`object`, `escalate`,
+  `bounty`, `salience`, `constraints`, `intents` were unmetered). Python
+  clients: `scripts/pact_pow.py`; the seed helpers use it and default to
+  `https://pact.tailor.au`.
+- **`retentionPolicy` is now DERIVED from the module that enforces it**
+  (#5598). `/.well-known/pact.json` serves
+  `{ minimumDays: 30, indefinite: false, tombstoneAfter: null }`, computed from
+  `retention.ts`'s constants rather than typed beside them. The §6.3 declared
+  gap was rewritten to state the real split — unchained rows hard-deleted (not
+  tombstoned) after 30 days, chained rows retained indefinitely — with the day
+  count interpolated from the enforcing constant.
+- **The §6.4 declared gap was retired and replaced, not deleted** (#5598). It
+  used to say the event log "assigns no gapless sequence number and no
+  prev_hash", which #5566/#5587 made false. It now names the five shortfalls
+  that remain: the permanently uncorrectable pre-marker `GENESIS`, and the fact
+  that judging a `GENESIS` sentinel is no longer fully re-derivable from the
+  public feed — the latch that refutes it is server-side and unpublished, so an
+  external verifier evaluates a strictly weaker test and can miss a break this
+  server would report, never invent one. The
+  `CONFORMANCE_LEVEL` rationale dropped the same stale reason; the level itself
+  does not move, held at `core` by the §15.2 shortfalls.
+- (placeholder)
+
+### Deprecated
+
+- (placeholder)
+
+### Removed
+
+- (placeholder)
+
+### Fixed
+
+- **A scheduled legislation sync can no longer overwrite a human-reviewed
+  document** (tailor-group#35). `replaceLegislationDocuments` upserts
+  `legislation_docs`, deletes the document's sections and re-inserts the
+  caller's, and nothing recorded which documents a person had reviewed — so
+  a scheduled QLD run whose `KEY_ACTS` overlapped a reviewed document (the
+  "Planning Act 2016 destroyed by a re-run" regression) replaced the reviewed
+  sections with parser output. `legislation_docs` gains `reviewed_at
+  TIMESTAMPTZ` and `review_hash TEXT` (SHA-256 hex of the normalized
+  document, computed server-side; equal to the canonical read's
+  `legislation-payload-v1` digest when `relatedDocs` is explicit), in
+  `sql/legislation-schema.sql` and as an idempotent boot-time augment
+  (`sql/legislation-reviewed-augment.sql`) so existing databases get the
+  columns. `replaceLegislationDocuments` and `ingestDocuments` now take an
+  explicit source with no default: the admin `X-Admin-Key` ingest route is
+  `reviewed` and stamps both columns on every document it writes; the CTH/QLD
+  parsers are `scheduled` and the PACT proposal finalizer is `proposal`, and
+  both exclude every marked document from every statement and return it as
+  `skipped`, which the syncs record as `Skipped <id>: reviewed document
+  (reviewed_at <iso>)` and count as parser anomalies (`docsUpdated` counts
+  only written documents). The whole write is one transaction on one
+  connection (`withTransaction`) that first locks the batch's existing rows
+  (`SELECT … FOR UPDATE`, one fixed order) and reads the marker from the
+  locked rows, so a concurrent reviewed write on the same documents
+  serialises behind it or ahead of it and is never overwritten (Cursor
+  Bugbot on pact#78: the earlier unlocked pre-select on a pooled connection
+  let a marker stamped between it and the batch be replaced). Their upsert
+  never assigns the marker columns and updates only while `reviewed_at IS
+  NULL`, their section and relation statements are conditional the same way,
+  and a marker read after the batch reports a document inserted and marked by
+  a concurrent reviewed write (nothing existed to lock) as `skipped` rather
+  than written. Real-Postgres canaries in
+  `src/lib/legislation-reviewed-guard.itest.ts` pin both races and the
+  mirrored one. A proposal whose one document was skipped still fails
+  closed: the topic opens for debate, never `consensus`. `reviewed` is an
+  assertion the caller makes, not a property of the route: the admin route
+  writes as `reviewed` only when the request carries
+  `X-Ingest-Source: reviewed`, which `scripts/run_reviewed_legislation_ingest.py`
+  sends after binding the payload to an exact entry of
+  `scripts/reviewed_legislation_builders.json`; an admin POST without it is
+  `admin`, guarded like `scheduled` (never stamps, skips marked ids, reports
+  them as `skipped` in its response), and any other header value is a 400.
+  That matters because the deploy-time seeds in `cd-kg.yml` hit the admin
+  route on every deploy, and `scripts/seed_seq_planning_regime.py` among them
+  live-scrapes `qld/act-2016-025` — the Planning Act 2016 the issue names,
+  which `KEY_ACTS` never touched: the actual re-run that destroyed it was the
+  deploy, and it now skips the document once a reviewed ingest has marked it.
+  The reviewed manifest is present at
+  `scripts/reviewed_legislation_builders.json` (12 reviewed ids: one QLD,
+  `qld/act-2016-025`, and 11 `cth/*`; the builder and batch files it pins
+  are not in this repository), with the dispatcher, runner and contract
+  beside it and tested by `pr-check.yml`. `KEY_ACTS` was compared against it
+  and overlaps nothing (its nine acts map to `qld/act-1999-039`, `-1999-040`,
+  `-2011-018`, `-1971-047`, `-1994-062`, `-2016-010`, `-1999-019`,
+  `-2003-013`, `-2007-016`); of the CTH entries only `cth/act-1999-050` has
+  an id the CTH sync can mint. Neither list overlaps a deploy-time seed, so
+  no weekly skip anomaly is expected today. `review_hash` uses the manifest's
+  recipe (compact JSON, sorted keys, UTF-8) and is intended to equal its
+  `normalizedPayloadSha256`, which the contract already calls `review_hash`;
+  equality could not be executed here because the pinned builders are
+  absent. `docs/REVIEWED_LEGISLATION_INGEST.md` carries a dated note on what
+  of the runbook is here and what was retired by tailor-app#5954. Unit
+  suites pin the skip (no DELETE/INSERT for the marked id, the other
+  documents written), the reviewed re-stamp, the untouched marker on a
+  scheduled or admin upsert, the unasserted admin POST that skips a marked
+  id, the exact reviewed envelope, the 400 on an unknown header and the
+  fail-closed proposal; the runner's tests pin that it sends the assertion.
+- **`GET /api/cron/legislation-sync` no longer dies in the proxy**
+  (tailor-group#38). `pact.tailor.au` is served by the tailor-app frontend,
+  which proxies every path to `pact-web` through a Next.js rewrite with a
+  30 s `proxyTimeout`; the synchronous sync took 31 s at `CTH_SYNC_MAX_ACTS=3`
+  and minutes at the default, so every scheduled run ended as a bare
+  `500 Internal Server Error` with no application headers while the work
+  ran on unobserved. The route now starts the sync detached under a Postgres
+  advisory lock (`LEGISLATION_SYNC_LOCK_KEY = 542502`, held on one dedicated
+  pooled connection for the whole run — single flight across replicas, no
+  Redis needed) and answers `202 { started, jobId, startedAt, jurisdictions }`
+  at once, or `202 { started: false, running: true, jurisdictions }` when a
+  run already holds the lock; `?wait=1` keeps the synchronous 200 under the
+  same lock, so it answers that 202 too while a run holds it. A sync that
+  throws is logged as `cron.legislation-sync.failed` and releases the lock.
+  New `GET /api/cron/legislation-sync/status` reports `running` (the lock,
+  read from `pg_locks`) and the latest `legislation_sync_log` row per
+  jurisdiction; `cron.yml` polls it every 30 s, to a 27-minute wall-clock
+  deadline, until every targeted jurisdiction's row is at least as new as
+  the trigger and completed, printing one summary line each, and fails at
+  the first poll that finds the lock released without such a row. The
+  helper (`src/lib/detached-jobs.ts`) is generic so the other long jobs can
+  follow. Unit suites for the helper and both routes.
+- **`gtfs-sync`, `fiscal-sync` and `spatial-snapshot` run detached too, and
+  every detached job's outcome is readable** (tailor-group#38). The same
+  30 s proxy timeout that killed the legislation sync killed these — the
+  GTFS feed download, the fiscal reconstruction and the Logan ArcGIS layer
+  fetches all run for minutes inside the request. Each route now starts its
+  work detached under its own advisory lock (`GTFS_SYNC_LOCK_KEY = 542503`,
+  `FISCAL_SYNC_LOCK_KEY = 542504`, `SPATIAL_SNAPSHOT_LOCK_KEY = 542505`, in
+  the `src/lib/db.ts` registry) and answers 202; `?wait=1` keeps each
+  route's synchronous response — including fiscal's 500 on `status: "error"`
+  and spatial's 500 when nothing synced — under the same lock. New
+  `cron_job_runs` (`sql/cron-job-runs.sql`, one row per job name, applied by
+  `initSchema`): `startDetachedJob` / `runJobInline` upsert the row on the
+  locked connection when a run starts, taking `startedAt` from the same
+  statement, and stamp `completed_at`, `ok` and a small JSON `summary` before
+  they unlock, so a lock seen free guarantees the stamp is visible; a job
+  that throws records `ok: false, summary: { error }`. Each job maps its
+  result to that verdict: legislation `ok` = no jurisdiction erred, with
+  every jurisdiction's counts and **first error string** in the summary
+  (the production run printed `QLD: docsChecked=0 … errors=1` and nothing
+  else — the error text was invisible); GTFS `ok` = no error recorded;
+  fiscal `ok` = `status !== "error"`; spatial `ok` false only when every
+  layer errored, plus `summary.warning` whenever any did, with each layer's
+  `errorDetail`. New `GET /api/cron/{gtfs-sync,fiscal-sync,spatial-snapshot}/status`
+  answer the one shape `{ running, lastRun: { jobId, startedAt, completedAt,
+  ok, summary }, runs? }` (`runs` = the job's own latest log rows where it
+  has a table; the snapshot has none); the legislation status route adds
+  `lastRun` to its per-jurisdiction `runs`. `cron.yml`'s four long jobs now
+  share one composite action, `.github/actions/poll-cron-job`: trigger, poll
+  `/status` every 30 s to a 27-minute deadline inside `timeout-minutes: 30`,
+  fail at the first poll that proves the run died, print the job's summary
+  line(s), and apply a per-job `not-ok` policy — `warn` for spatial (upstream
+  ArcGIS errors were always a warning) and legislation (one source erroring
+  never failed it; the first error string is now in the log), `fail` for
+  fiscal (its old 500) and GTFS (a feed that did not download used to pass
+  as a 200 with the error in the body; it fails now). Unit suites for the
+  helper's recording and status reads and for all eight routes;
+  `docs/CRON_INVENTORY.md` rows updated.
+- **The locked connection of a detached job can no longer be dropped
+  silently mid-run** (tailor-group#38). Every pooled connection now sets TCP
+  keepalive (`PG_POOL_OPTIONS` in `src/lib/db.ts`: `keepAlive: true`,
+  30 s initial delay — pg's default is off). The connection that holds a
+  detached job's advisory lock carries no traffic between the start row and
+  the completion stamp — the job's queries go through the pool — so for a
+  multi-minute GTFS, fiscal or spatial run it sat idle long enough for a
+  NAT or load balancer to drop it: Postgres kept the lock granted until its
+  own keepalive reaped the session, `/status` said `running: true` for a run
+  that had finished, the final UPDATE and unlock blocked on a dead socket,
+  and the workflow poller failed at its deadline. Now the socket is probed
+  every 30 s, and a peer that is really gone fails the socket so pg rejects
+  the pending statements and the unlock's throw destroys the connection
+  (its lock dies with it) instead of hanging. Pinned at pg's own seam by
+  `src/lib/db-pool-keepalive.test.ts`.
+- **A fresh database could not run the spatial-snapshot cron**
+  (tailor-group#38 verification). `sql/874-spatial-snapshot-schema.sql`
+  was written to be run once against production and was never loaded by
+  `initSchema`, so every other database (the kg-integration service
+  container, a local dev database) failed each layer with `relation
+  "spatial_snapshot_layer" does not exist`. The file is now bootstrapped
+  like the other schema files (idempotent DDL: `CREATE TABLE IF NOT EXISTS`,
+  `COMMENT ON`, `CREATE INDEX IF NOT EXISTS`); a real-Postgres canary
+  (`src/lib/spatial-schema-bootstrap.itest.ts`) pins the three tables and a
+  second bootstrap being a no-op.
+- **The SEQ GTFS feed URL returned 404** (tailor-group#38 closing dispatch:
+  `gtfs-sync` completed with `GTFS fetch failed: 404 …/download/SEQ_GTFS.zip`).
+  The data.qld.gov.au dataset the default pointed at was retired; the live
+  dataset (`general-transit-feed-specification-gtfs-translink`) serves every
+  region from Translink's host, so the default is now
+  `https://gtfsrt.api.translink.com.au/GTFS/SEQ_GTFS.zip` (verified: 200,
+  `application/x-zip-compressed`, last modified 21 Sep 2026). `GTFS_FEED_URL`
+  still overrides it.
+- **The GTFS ingest killed the pact replica on the real SEQ feed**
+  (tailor-group#38 closing dispatch, twice: `gtfs-sync` answered 202, then
+  the status poll found the app gone). The feed is ~37 MB compressed but its
+  `stop_times.txt` is ~220 MB uncompressed and millions of rows; the ingest
+  decoded it to one string and materialised every row before filtering,
+  which needs several gigabytes in a 1 GiB replica. `stop_times.txt` is now
+  decompressed as a chunk stream and parsed line by line
+  (`zipEntryChunks`, `csvRowsFromChunks`), keeping only the key stations'
+  rail rows; ZIP entry sizes come from the central directory. The small
+  entries (stops, routes, trips) are read as before. Unit tests build a real
+  deflated ZIP in memory and pin the chunk-boundary parse, the filtered
+  ingest and the fetch-failure path.
+- **A poll that got no answer failed the cron job on the spot.** The
+  composite `poll-cron-job` action now tolerates `max-transient-polls`
+  (default 4, two minutes) consecutive transport failures or proxy 5xx
+  before failing, because a replica that dies mid-run looks exactly like
+  that while Container Apps restarts it; once the app answers, the lock and
+  run row decide (a died run still fails fast).
+- **The weekly CTH legislation sync never wrote a document** (tailor-group#37).
+  After tailor-group#7 the parser reached the Acts (10 checked, 0 anomalies)
+  and then every ingest batch failed with "Legislation payload validation
+  failed": an amending Act's schedule amends one section of the principal Act
+  several times (s 308 five times in `cth/act-2026-082`), `parseActHtml`
+  emits one section per heading, and `normalizeLegislationDocuments` rejects
+  repeated section ids — for the whole five-document batch, in one
+  transaction. Newest-first paging makes amending Acts the majority of every
+  batch, so the live graph had CTH = 0. Two changes: both parsers now pass
+  their sections through one shared `uniqueSectionIds` rule (first
+  occurrence unchanged, later ones `s 308 [2]`, `s 308 [3]`, …; nothing
+  dropped, order kept), and `ingestDocuments` validates each document on
+  its own, writes the valid ones together and returns the rejected ones,
+  which the sync records as `Rejected <id>: <path> <message>` and counts as
+  parser anomalies; `docsUpdated` now counts only documents actually
+  written. Stamps `cth-parser@2.2.0` / `qld-parser@1.6.0`. Verified live on
+  21 Sep 2026 with `CTH_SYNC_MAX_ACTS=3` (the ceiling rounds up to one page
+  of 10): docsChecked 10, docsUpdated 10, 147 sections, no errors. The
+  single-document PACT proposal path (`finalizeApprovedTopic`) stays
+  fail-closed: because `ingestDocuments` now returns a rejection instead of
+  throwing, the finalizer throws itself when its one document was not
+  written, so the savepoint catch opens the topic for debate as before and
+  a rejected proposal is never promoted to 'consensus' or reported as
+  `pact.legislation.ingested`. A suffixed id is a storage key, not a
+  pinpoint: `isCitableSectionId` now rejects a trailing ` [n]`, so
+  `GET /api/axiom/legislation/search` serves `s 308 [2]` as
+  `sectionKind: "extract"` with the document-level `sourceRef` instead of
+  `"<Act> s 308 [2]"`; the bare `s 308` stays a pinpoint. `syncQld` is
+  pinned by a new test in the same shape as the `syncCth` one.
+- **`GET /api/cron/auto-merge` names its failure** (tailor-group#9). The
+  scheduled caller saw bare HTTP 500s every 30 minutes on 17–18 Sep with no
+  log line saying which phase threw. The route now catches the sweep's error,
+  logs it as a structured `cron.auto-merge.failed` entry (stderr → Log
+  Analytics) and returns a generic `{ error: "Consensus sweep failed" }` 500 —
+  no driver text on the wire (#2881).
+- **The weekly CTH legislation sync fetched zero titles on every run**
+  (tailor-group#7). `status` and `collection` are OData enums on
+  `api.prod.legislation.gov.au`; the parser's
+  `collection eq 'Act' and status eq 'InForce'` filter answered 400
+  ("Could not find a property named 'InForce'"), which the loop recorded as
+  a single error string with `docs_checked = 0` — below the silent-zero
+  alarm's threshold — so the corpus never refilled. The filter now uses
+  `status in ('InForce')` (verified live: 4,768 in-force Acts), paging is
+  stable (`year desc,number desc`), a Titles-fetch failure counts as a
+  parser crash, the ceiling is env-tunable (`CTH_SYNC_MAX_ACTS`, default
+  50), and `cth-parser@2.1.0` is stamped on the sync log.
+- **Retention no longer flips an honest §6.4 chain to "tampered"** (#5598).
+  The verifier re-derived the expected genesis sentinel from a LIVE count of
+  unchained rows, and the daily purge deletes exactly those rows — so a
+  resource that honestly wrote `GENESIS-UNCHAINED` failed with
+  `missing-genesis` once its unchained rows aged out, on a chain that was
+  byte-identical and untampered. `GENESIS` and `GENESIS-UNCHAINED` are
+  asymmetric claims and are now tested asymmetrically: `GENESIS` ("nothing
+  preceded this chain") is refuted by any surviving row **or** the latch;
+  `GENESIS-UNCHAINED` ("something preceded this chain") is unfalsifiable by
+  absence and never breaks on history grounds. Third-party impact: the
+  verifier has no production caller, so the only consumer of the old rule was
+  an external verifier re-deriving it from `GET /api/pact/{topicId}/events` —
+  see `docs/PROVENANCE_CHAIN.md`.
+- **A purge before a resource's first chained append no longer writes a false
+  full-history claim** (#5598). With every unchained row already deleted, the
+  writer counted 0 and stamped plain `GENESIS` — "the chain covers this
+  resource's entire history" — about a resource whose pre-history had just
+  been destroyed, and it then verified intact, silently and permanently. The
+  writer now reads the durable latch instead of a live count. Resources
+  already in that state before the latch existed cannot be corrected:
+  `prev_hash` is bound into `event_hash`, so rewriting the sentinel would be
+  fabrication. That residue is declared as item (iv) of the §6.4 gap.
+- **The served `retentionPolicy` was false in production** (#5598). It
+  advertised `{ minimumDays: 0, indefinite: true }` over a daily
+  `DELETE FROM events`. The guard meant to catch it read `src/lib/db.ts`
+  looking for `DELETE FROM events` — a string that has never been in that file
+  — so it passed green over a live purge for as long as both existed. Replaced
+  with a derivation check against the enforcing constants, plus a new
+  document/wire interlock asserting `PACT_CONFORMANCE.md` states no retention
+  number that differs from the served policy.
+- **Writer and verifier now ask the same question** (#5598). The writer's
+  unchained-history count omitted the `sequence_number IS NULL` predicate the
+  verifier applied. Latent and never yet wrong — the branch was guarded by an
+  empty-chain-head check that made the two counts provably equal at that
+  instant — but both paths now share one statement rather than two that could
+  drift apart again.
+- (placeholder)
+
+### Security
+
+- (placeholder)
+
+## [2026-05-09] — Production-readiness sprint kickoff
+
+This entry kicks off the changelog and captures the production-readiness
+sprint that is in flight as of this date. It establishes the format for
+future entries; substantive work landing in this sprint will be backfilled
+into subsequent dated entries as it ships.
+
+### Added
+
+- `docs/SECURITY.md` — vulnerability disclosure policy, fix SLAs, threat
+  model, in-scope and out-of-scope endpoints (WS5).
+- `docs/INCIDENT_RESPONSE.md` — severity definitions, response SLAs,
+  paging path, retrospective + customer-comms templates (WS5).
+- `docs/COMPLIANCE.md` — Privacy Act mapping, IRAP-equivalent control
+  mapping, explicit "not certified to" list, QGov procurement summary
+  (WS5).
+- `docs/SLA.md` — uptime targets, latency targets per surface,
+  maintenance window (Sunday 04:00–05:00 AEST), service-credit posture
+  (WS5).
+- `docs/SOVEREIGNTY.md` — substrate residency table, no-cross-region-
+  replication statement, Cloudflare edge sovereignty footnote, Azure
+  OpenAI region disclosure, cross-border egress audit (WS5).
+- `CHANGELOG.md` — this file (WS5).
+
+### Changed
+
+- `README.md` — Documentation section added linking to the new ops docs.
+
+### Security
+
+- No security changes in this entry. The new docs codify existing
+  controls (TLS-only ingress, CSP/HSTS, rate limiting, audit logging,
+  hashed actor keys, encryption at rest via Azure-managed keys); they do
+  not introduce or change controls.
+
+## [2026-04-26] — Tier-1 baseline (historical)
+
+Captured for context; pre-dates this changelog. See
+[`TIER1.md`](docs/TIER1.md) for the authoritative Tier-1 milestone record.
+
+### Added
+
+- Sovereign substrate migration: Redis Upstash → Azure Cache for Redis
+  in `australiaeast` (#1310 / WS0b, commit `88d013a4e`). All three
+  substrates (compute, DB, cache) now Azure-managed AU.
+- Audit log baseline: `audit_log` table, `recordAudit()` helper,
+  `GET /api/admin/audit` endpoint, Privacy Act mapping (#1308 / WS5).
+- Observability baseline: structured JSON logger, `/api/health` endpoint
+  with DB + Redis probes (#1307 / WS3).
+- Performance baseline: read-through Redis cache (`cache.getOrSet`),
+  cached `/api/hub/stats` (30s TTL), k6 baseline scripts (#1309 / WS8).
+
+### Changed
+
+- `/api/health` Redis probe latency: ~633 ms (Upstash cross-region) →
+  ~3 ms (Azure Cache for Redis in-region) post-WS0b cutover.
+
+[Unreleased]: https://github.com/tailorau/tailor-app/compare/main...HEAD

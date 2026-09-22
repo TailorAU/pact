@@ -168,9 +168,33 @@ let _pool: pg.Pool | null = null;
 let _client: DbClient | null = null;
 let _initialized = false;
 
+/**
+ * tailor-group#38 — TCP keepalive on every pooled connection. pg defaults
+ * to `keepAlive: false`, and a detached cron job (src/lib/detached-jobs.ts)
+ * holds its advisory lock on ONE dedicated connection that is otherwise
+ * IDLE for the whole run — the job's own queries go through the pool, so
+ * nothing crosses the locked socket between the start row and the
+ * completion stamp, for minutes on the GTFS, fiscal and spatial runs. An
+ * idle socket that a NAT or load balancer between the Container App and
+ * Postgres silently drops (Azure's outbound idle timeout is four minutes)
+ * leaves the server still granting the lock until ITS keepalive reaps the
+ * session, so `/status` reports `running: true` for a run that has
+ * finished, the final UPDATE and unlock block on a dead socket, and the
+ * workflow poller fails at its deadline. Probing every 30 s keeps the
+ * mapping alive, and when a peer is really gone the OS fails the socket, so
+ * pg rejects the pending statements (the unlock's throw destroys the
+ * connection, see `releaseLockAndConnection`) instead of hanging. pg maps
+ * these to libpq's `keepalives=1` / `keepalives_idle=30`; exported so a test
+ * can pin them.
+ */
+export const PG_POOL_OPTIONS = {
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 30_000,
+} as const satisfies pg.PoolConfig;
+
 function getPool(): pg.Pool {
   if (!_pool) {
-    _pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    _pool = new Pool({ connectionString: process.env.DATABASE_URL, ...PG_POOL_OPTIONS });
   }
   return _pool;
 }
@@ -1484,7 +1508,9 @@ export async function autoMergeExpired(db: DbClient, sweepOptions: ConsensusSwee
 // cron job takes its own key through `startDetachedJob` in
 // src/lib/detached-jobs.ts, on a dedicated connection from
 // `getDedicatedConnection`. Pick the next unused number here; never reuse
-// one, and never collide with the §6.4 chain's two-int4 space.
+// one, and never collide with the §6.4 chain's two-int4 space. The locked
+// connection idles for the whole run, so the pool's TCP keepalive
+// (`PG_POOL_OPTIONS`, above) is what keeps it, and the lock, honest.
 //
 //   542501  consensus sweep (`runConsensusSweep`, below)
 //   542502  legislation sync (`GET /api/cron/legislation-sync`)

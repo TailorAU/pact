@@ -19,7 +19,12 @@
  * dies. The lock is acquired and released on the SAME dedicated pooled
  * connection for the whole run — `pool.query` round-robins connections and
  * would strand it — mirroring `runConsensusSweep` (`CONSENSUS_SWEEP_LOCK_KEY`,
- * src/lib/db.ts, where the key registry lives).
+ * src/lib/db.ts, where the key registry lives). That connection carries no
+ * traffic between `recordStart` and `recordCompletion` — the job's own
+ * queries go through the pool — so the pool's TCP keepalive
+ * (`PG_POOL_OPTIONS` in src/lib/db.ts) is what stops a NAT or load balancer
+ * dropping it mid-run, which would leave the server granting a lock nobody
+ * can release until its own keepalive reaps the session.
  *
  * `runJobInline` is the same lock around a run that completes INSIDE the
  * caller's turn (the routes' `?wait=1`), so an inline run can never overlap

@@ -176,6 +176,21 @@ releases).
   as a 200 with the error in the body; it fails now). Unit suites for the
   helper's recording and status reads and for all eight routes;
   `docs/CRON_INVENTORY.md` rows updated.
+- **The locked connection of a detached job can no longer be dropped
+  silently mid-run** (tailor-group#38). Every pooled connection now sets TCP
+  keepalive (`PG_POOL_OPTIONS` in `src/lib/db.ts`: `keepAlive: true`,
+  30 s initial delay — pg's default is off). The connection that holds a
+  detached job's advisory lock carries no traffic between the start row and
+  the completion stamp — the job's queries go through the pool — so for a
+  multi-minute GTFS, fiscal or spatial run it sat idle long enough for a
+  NAT or load balancer to drop it: Postgres kept the lock granted until its
+  own keepalive reaped the session, `/status` said `running: true` for a run
+  that had finished, the final UPDATE and unlock blocked on a dead socket,
+  and the workflow poller failed at its deadline. Now the socket is probed
+  every 30 s, and a peer that is really gone fails the socket so pg rejects
+  the pending statements and the unlock's throw destroys the connection
+  (its lock dies with it) instead of hanging. Pinned at pg's own seam by
+  `src/lib/db-pool-keepalive.test.ts`.
 - **The weekly CTH legislation sync never wrote a document** (tailor-group#37).
   After tailor-group#7 the parser reached the Acts (10 checked, 0 anomalies)
   and then every ingest batch failed with "Legislation payload validation

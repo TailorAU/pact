@@ -83,6 +83,11 @@ print the job's summary line(s); fail at the first poll that proves the run
 died (lock free, row never completed); and apply the job's `not-ok` policy
 (`fail` or `warn`) to a completed run whose `ok` is false. A run that throws
 records `ok: false, summary: { error }` and a `cron.<job>.failed` log line.
+The locked connection is idle for the whole run (the job's own queries go
+through the pool), so the pool sets TCP keepalive (`PG_POOL_OPTIONS` in
+`src/lib/db.ts`, 30 s) to stop a NAT or load balancer dropping it mid-run,
+which would leave `running: true` and the poller at its deadline for a run
+that finished.
 
 ---
 

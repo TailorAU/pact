@@ -1,10 +1,15 @@
 import { v4 as uuid } from "uuid";
 import type { DbClient } from "./db";
 
-// Translink SEQ GTFS static feed (CC BY 4.0 — Queensland Government Open Data)
+// Translink SEQ GTFS static feed (CC BY 4.0 — Queensland Government Open Data).
+// The data.qld.gov.au dataset "general-transit-feed-specification-gtfs-seq"
+// and its download resource were retired (404 from 2026-09-22, tailor-group#38
+// closing dispatch); the live dataset
+// "general-transit-feed-specification-gtfs-translink" points every region's
+// resource at Translink's own host, so the feed is fetched from there.
+// GTFS_FEED_URL still overrides.
 const GTFS_FEED_URL =
-  process.env.GTFS_FEED_URL ||
-  "https://www.data.qld.gov.au/dataset/general-transit-feed-specification-gtfs-seq/resource/e43b6b9f-fc2a-4c08-8b25-97a3f92de5e3/download/SEQ_GTFS.zip";
+  process.env.GTFS_FEED_URL || "https://gtfsrt.api.translink.com.au/GTFS/SEQ_GTFS.zip";
 
 // Rail route type (GTFS spec: 2 = Rail)
 const RAIL_ROUTE_TYPE = 2;

@@ -120,6 +120,15 @@ const _fiscalMeterStatements: string[] = _loadSqlStatements("fiscal-compute-mete
 // Written by src/lib/detached-jobs.ts; DDL in sql/cron-job-runs.sql.
 const _cronJobRunsStatements: string[] = _loadSqlStatements("cron-job-runs.sql");
 
+// #874 spatial snapshot tables (spatial_snapshot_layer, spatial_feature,
+// spatial_derived_fact). The file was written to be "run once against the
+// Source Neon Postgres database" and production carries the tables, but a
+// fresh database (the kg-integration service container, a local dev
+// database) never got them, so the spatial-snapshot cron failed every layer
+// with `relation "spatial_snapshot_layer" does not exist` (tailor-group#38
+// verification). Idempotent DDL, loaded like the other schema files.
+const _spatialSnapshotStatements: string[] = _loadSqlStatements("874-spatial-snapshot-schema.sql");
+
 // Return TIMESTAMP / TIMESTAMPTZ as ISO strings (not JS Date objects)
 // so existing code that casts date columns to string keeps working.
 pg.types.setTypeParser(1114, (val: string) => val);
@@ -681,6 +690,7 @@ async function initSchema(db: DbClient) {
     // cron_job_runs: one row per job name, upserted by the detached-job
     // helper at start and stamped at completion. DDL in sql/cron-job-runs.sql.
     ..._cronJobRunsStatements,
+    ..._spatialSnapshotStatements,
 
     // ── Indexes ─────────────────────────────────────────────────────
     `CREATE INDEX IF NOT EXISTS idx_proposals_topic_status ON proposals(topic_id, status)`,

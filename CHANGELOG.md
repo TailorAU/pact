@@ -257,6 +257,16 @@ releases).
   the pending statements and the unlock's throw destroys the connection
   (its lock dies with it) instead of hanging. Pinned at pg's own seam by
   `src/lib/db-pool-keepalive.test.ts`.
+- **A fresh database could not run the spatial-snapshot cron**
+  (tailor-group#38 verification). `sql/874-spatial-snapshot-schema.sql`
+  was written to be run once against production and was never loaded by
+  `initSchema`, so every other database (the kg-integration service
+  container, a local dev database) failed each layer with `relation
+  "spatial_snapshot_layer" does not exist`. The file is now bootstrapped
+  like the other schema files (idempotent DDL: `CREATE TABLE IF NOT EXISTS`,
+  `COMMENT ON`, `CREATE INDEX IF NOT EXISTS`); a real-Postgres canary
+  (`src/lib/spatial-schema-bootstrap.itest.ts`) pins the three tables and a
+  second bootstrap being a no-op.
 - **The SEQ GTFS feed URL returned 404** (tailor-group#38 closing dispatch:
   `gtfs-sync` completed with `GTFS fetch failed: 404 …/download/SEQ_GTFS.zip`).
   The data.qld.gov.au dataset the default pointed at was retired; the live

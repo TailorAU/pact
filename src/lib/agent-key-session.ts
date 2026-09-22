@@ -93,18 +93,35 @@ export function forgetSessionKey(): void {
 export type RevealedKey = { apiKey: string; reason: "registered" | "migrated" } | null;
 
 /**
+ * The copy panel: the key on screen, and a migrated key waiting behind a
+ * registered one. One state, so every transition sees both halves.
+ */
+export type KeyPanel = { shown: RevealedKey; waiting: RevealedKey };
+
+export const EMPTY_KEY_PANEL: KeyPanel = { shown: null, waiting: null };
+
+/**
+ * A key an earlier version left in localStorage, found on mount or on moving
+ * to another topic. A just-registered key has no reissue path, so it stays on
+ * screen and the migrated key waits behind it; otherwise the migrated key is
+ * shown until the user confirms saving it.
+ */
+export function revealMigrated(panel: KeyPanel, legacyApiKey: string): KeyPanel {
+  const migrated: RevealedKey = { apiKey: legacyApiKey, reason: "migrated" };
+  if (panel.shown?.reason === "registered") return { shown: panel.shown, waiting: migrated };
+  return { shown: migrated, waiting: null };
+}
+
+/**
  * Registering while a migrated legacy key is still on screen must not drop
  * it: the stored legacy copy is deleted only when the user confirms saving it
  * (dismissRevealed). The new key is shown first; the migrated one waits and
  * comes back when the new one is dismissed.
  */
-export function revealOnRegister(
-  shown: RevealedKey,
-  registeredKey: string
-): { shown: RevealedKey; waiting: RevealedKey } {
+export function revealOnRegister(panel: KeyPanel, registeredKey: string): KeyPanel {
   return {
     shown: { apiKey: registeredKey, reason: "registered" },
-    waiting: shown?.reason === "migrated" ? shown : null,
+    waiting: panel.shown?.reason === "migrated" ? panel.shown : panel.waiting,
   };
 }
 
@@ -113,12 +130,17 @@ export function revealOnRegister(
  * legacy stored copy; dismissing a registered key brings back a migrated key
  * that was waiting, so it is still confirmed (and cleared) in turn.
  */
-export function dismissRevealed(
-  shown: RevealedKey,
-  waiting: RevealedKey
-): { shown: RevealedKey; waiting: RevealedKey; clearLegacy: boolean } {
-  if (shown?.reason === "migrated") return { shown: null, waiting: null, clearLegacy: true };
-  return { shown: waiting ?? null, waiting: null, clearLegacy: false };
+export function dismissRevealed(panel: KeyPanel): KeyPanel & { clearLegacy: boolean } {
+  if (panel.shown?.reason === "migrated") return { ...EMPTY_KEY_PANEL, clearLegacy: true };
+  return { shown: panel.waiting, waiting: null, clearLegacy: false };
+}
+
+/**
+ * Disconnecting. A migrated key stays on screen (or comes back, if a
+ * registration had superseded it) until the user confirms they saved it.
+ */
+export function panelAfterDisconnect(panel: KeyPanel): KeyPanel {
+  return { shown: panel.shown?.reason === "migrated" ? panel.shown : panel.waiting, waiting: null };
 }
 
 /**

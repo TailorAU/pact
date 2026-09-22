@@ -5,12 +5,15 @@ import {
   browserLocalStorage,
   clearLegacyStoredKey,
   dismissRevealed,
+  EMPTY_KEY_PANEL,
   forgetSessionKey,
   isNotJoinedError,
+  type KeyPanel,
+  panelAfterDisconnect,
   readLegacyStoredKey,
   rememberSessionKey,
   restoreJoined,
-  type RevealedKey,
+  revealMigrated,
   revealOnRegister,
   sessionKey,
 } from "@/lib/agent-key-session";
@@ -68,10 +71,11 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   const [keyInput, setKeyInput] = useState("");
   const [hasJoined, setHasJoined] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
-  const [revealedKey, setRevealedKey] = useState<RevealedKey>(null);
-  // A migrated key superseded by a registration, shown again once the new key
-  // is dismissed (its stored copy is cleared only on confirmation).
-  const [waitingKey, setWaitingKey] = useState<RevealedKey>(null);
+  // The key on screen, and a migrated key superseded by a registration that
+  // comes back once the new key is dismissed (its stored copy is cleared only
+  // on confirmation).
+  const [keyPanel, setKeyPanel] = useState<KeyPanel>(EMPTY_KEY_PANEL);
+  const revealedKey = keyPanel.shown;
   const [copied, setCopied] = useState(false);
 
   // Register form
@@ -120,7 +124,7 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
     const legacy = readLegacyStoredKey(storage);
     if (legacy) {
       if (!sessionKey()) rememberSessionKey(legacy.apiKey, legacy.agentName || "Agent");
-      setRevealedKey({ apiKey: legacy.apiKey, reason: "migrated" });
+      setKeyPanel((prev) => revealMigrated(prev, legacy.apiKey));
     } else {
       clearLegacyStoredKey(storage); // an orphaned name only; no key to lose
     }
@@ -129,7 +133,8 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
       setApiKey(current.apiKey);
       setAgentName(current.agentName);
     }
-    if (restoreJoined(!!current, readJoined(topicId))) setHasJoined(true);
+    // Per topic: moving to another topic must not keep the last one's Join.
+    setHasJoined(restoreJoined(!!current, readJoined(topicId)));
   }, [topicId]);
 
   // Auto-clear result
@@ -242,9 +247,7 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
       setShowRegister(false);
       writeJoined(topicId, false);
       setHasJoined(false);
-      const next = revealOnRegister(revealedKey, data.apiKey);
-      setRevealedKey(next.shown);
-      setWaitingKey(next.waiting);
+      setKeyPanel((prev) => revealOnRegister(prev, data.apiKey));
       setResult({ type: "success", message: `Registered as ${data.agentName}.` });
     }
   };
@@ -252,10 +255,7 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   const handleDisconnect = () => {
     forgetSessionKey();
     writeJoined(topicId, false);
-    // A migrated key stays on screen (or comes back, if a registration had
-    // superseded it) until the user confirms they saved it.
-    setRevealedKey((prev) => (prev?.reason === "migrated" ? prev : waitingKey));
-    setWaitingKey(null);
+    setKeyPanel(panelAfterDisconnect);
     setApiKey("");
     setAgentName("");
     setHasJoined(false);
@@ -364,10 +364,9 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   const dismissRevealedKey = () => {
     // Only now, on the user's confirmation, delete the copy an earlier version
     // stored (tailor-group#7). Nothing is ever written back.
-    const next = dismissRevealed(revealedKey, waitingKey);
+    const next = dismissRevealed(keyPanel);
     if (next.clearLegacy) clearLegacyStoredKey(browserLocalStorage());
-    setRevealedKey(next.shown);
-    setWaitingKey(next.waiting);
+    setKeyPanel({ shown: next.shown, waiting: next.waiting });
     setCopied(false);
   };
 

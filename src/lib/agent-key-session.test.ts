@@ -8,13 +8,16 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearLegacyStoredKey,
   dismissRevealed,
+  EMPTY_KEY_PANEL,
   forgetSessionKey,
   isNotJoinedError,
   LEGACY_AGENT_NAME_STORAGE_KEY,
   LEGACY_API_KEY_STORAGE_KEY,
+  panelAfterDisconnect,
   rememberSessionKey,
   readLegacyStoredKey,
   restoreJoined,
+  revealMigrated,
   revealOnRegister,
   sessionKey,
 } from "./agent-key-session";
@@ -122,21 +125,69 @@ describe("revealed keys: a registration never drops a migrated key (Bugbot, pact
   const registered = { apiKey: "pact_sk_new", reason: "registered" as const };
 
   it("registering while a migrated key is shown keeps it waiting", () => {
-    expect(revealOnRegister(migrated, "pact_sk_new")).toEqual({ shown: registered, waiting: migrated });
+    expect(revealOnRegister({ shown: migrated, waiting: null }, "pact_sk_new")).toEqual({
+      shown: registered,
+      waiting: migrated,
+    });
+  });
+
+  it("registering again keeps the migrated key that was already waiting", () => {
+    expect(revealOnRegister({ shown: registered, waiting: migrated }, "pact_sk_newer")).toEqual({
+      shown: { apiKey: "pact_sk_newer", reason: "registered" },
+      waiting: migrated,
+    });
   });
 
   it("dismissing the registered key brings the migrated one back without clearing storage", () => {
-    expect(dismissRevealed(registered, migrated)).toEqual({ shown: migrated, waiting: null, clearLegacy: false });
+    expect(dismissRevealed({ shown: registered, waiting: migrated })).toEqual({
+      shown: migrated,
+      waiting: null,
+      clearLegacy: false,
+    });
   });
 
   it("only dismissing the migrated key clears the legacy copy", () => {
-    expect(dismissRevealed(migrated, null)).toEqual({ shown: null, waiting: null, clearLegacy: true });
-    expect(dismissRevealed(registered, null)).toEqual({ shown: null, waiting: null, clearLegacy: false });
+    expect(dismissRevealed({ shown: migrated, waiting: null })).toEqual({ shown: null, waiting: null, clearLegacy: true });
+    expect(dismissRevealed({ shown: registered, waiting: null })).toEqual({ shown: null, waiting: null, clearLegacy: false });
   });
 
   it("nothing waits when no migrated key was on screen", () => {
-    expect(revealOnRegister(null, "pact_sk_new").waiting).toBeNull();
-    expect(revealOnRegister(registered, "pact_sk_newer").waiting).toBeNull();
+    expect(revealOnRegister(EMPTY_KEY_PANEL, "pact_sk_new").waiting).toBeNull();
+    expect(revealOnRegister({ shown: registered, waiting: null }, "pact_sk_newer").waiting).toBeNull();
+  });
+
+  it("disconnecting keeps or brings back the migrated key and nothing else", () => {
+    expect(panelAfterDisconnect({ shown: migrated, waiting: null })).toEqual({ shown: migrated, waiting: null });
+    expect(panelAfterDisconnect({ shown: registered, waiting: migrated })).toEqual({ shown: migrated, waiting: null });
+    expect(panelAfterDisconnect({ shown: registered, waiting: null })).toEqual(EMPTY_KEY_PANEL);
+  });
+});
+
+describe("moving between topics never drops a just-registered key (Bugbot, pact#84)", () => {
+  const migrated = { apiKey: "pact_sk_old", reason: "migrated" as const };
+  const registered = { apiKey: "pact_sk_new", reason: "registered" as const };
+  const src = readFileSync(new URL("../components/TopicActions.tsx", import.meta.url), "utf8");
+
+  it("a leftover stored key waits behind a registered key on screen", () => {
+    expect(revealMigrated({ shown: registered, waiting: null }, "pact_sk_old")).toEqual({
+      shown: registered,
+      waiting: migrated,
+    });
+    expect(revealMigrated({ shown: registered, waiting: migrated }, "pact_sk_old")).toEqual({
+      shown: registered,
+      waiting: migrated,
+    });
+  });
+
+  it("with no registered key on screen the leftover stored key is shown", () => {
+    expect(revealMigrated(EMPTY_KEY_PANEL, "pact_sk_old")).toEqual({ shown: migrated, waiting: null });
+    expect(revealMigrated({ shown: migrated, waiting: null }, "pact_sk_old")).toEqual({ shown: migrated, waiting: null });
+  });
+
+  it("TopicActions updates the panel as one state from the previous value", () => {
+    expect(src).toMatch(/setKeyPanel\(\(prev\) => revealMigrated\(prev, legacy\.apiKey\)\)/);
+    expect(src).toMatch(/setKeyPanel\(\(prev\) => revealOnRegister\(prev, data\.apiKey\)\)/);
+    expect(src).not.toMatch(/setRevealedKey|setWaitingKey/);
   });
 });
 
@@ -158,6 +209,8 @@ describe("joined marker belongs to no agent (Bugbot, pact#84)", () => {
 
   it("TopicActions clears the marker on disconnect, connect, register, 401 and the not-a-member 403", () => {
     expect([...src.matchAll(/writeJoined\(topicId, false\)/g)]).toHaveLength(5);
-    expect(src).toMatch(/restoreJoined\(!!current, readJoined\(topicId\)\)/);
+    // Set on every topic change, false included, so the last topic's Join
+    // does not carry over.
+    expect(src).toMatch(/setHasJoined\(restoreJoined\(!!current, readJoined\(topicId\)\)\)/);
   });
 });

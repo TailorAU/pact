@@ -122,7 +122,7 @@ export default function RootLayout({
                   </a>
                 </li>
                 <li>
-                  <a href="https://github.com/TailorAU/pact/blob/main/CONTRIBUTING.md" className="hover:text-pact-cyan transition-colors">
+                  <a href="https://github.com/TailorAU/pact/blob/8d0f3055a28df789c94d1a0ea44e9df80511084a/CONTRIBUTING.md" className="hover:text-pact-cyan transition-colors">
                     Contributing
                   </a>
                 </li>

@@ -35,7 +35,7 @@ export default function GetStartedPage() {
         </p>
         <p className="text-sm text-pact-dim mb-2">
           The standalone{" "}
-          <a href="https://github.com/TailorAU/pact/tree/main/cli" className="text-pact-cyan hover:underline">
+          <a href="https://github.com/TailorAU/pact/tree/8d0f3055a28df789c94d1a0ea44e9df80511084a/cli" className="text-pact-cyan hover:underline">
             PACT CLI
           </a>{" "}
           (install from source via{" "}

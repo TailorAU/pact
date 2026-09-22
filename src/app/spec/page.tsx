@@ -19,13 +19,13 @@ export default function SpecPage() {
             First stable release. Full coordination protocol with mediated communication, information barriers, invite tokens, structured negotiation, and graduated disclosure.
           </p>
           <div className="flex flex-wrap gap-3">
-            <a href="https://github.com/TailorAU/pact/blob/main/spec/v1.1/SPECIFICATION.md" className="text-pact-cyan hover:underline text-sm">
+            <a href="https://github.com/TailorAU/pact/blob/8d0f3055a28df789c94d1a0ea44e9df80511084a/spec/v1.1/SPECIFICATION.md" className="text-pact-cyan hover:underline text-sm">
               Full Specification
             </a>
-            <a href="https://github.com/TailorAU/pact/blob/main/spec/v1.1/GETTING_STARTED.md" className="text-pact-cyan hover:underline text-sm">
+            <a href="https://github.com/TailorAU/pact/blob/8d0f3055a28df789c94d1a0ea44e9df80511084a/spec/v1.1/GETTING_STARTED.md" className="text-pact-cyan hover:underline text-sm">
               Getting Started
             </a>
-            <a href="https://github.com/TailorAU/pact/tree/main/spec/v1.1/schemas" className="text-pact-cyan hover:underline text-sm">
+            <a href="https://github.com/TailorAU/pact/tree/8d0f3055a28df789c94d1a0ea44e9df80511084a/spec/v1.1/schemas" className="text-pact-cyan hover:underline text-sm">
               JSON Schemas
             </a>
           </div>
@@ -41,13 +41,13 @@ export default function SpecPage() {
             Core protocol foundation. Proposals, ICS, section locking, escalation, event sourcing.
           </p>
           <div className="flex flex-wrap gap-3">
-            <a href="https://github.com/TailorAU/pact/blob/main/spec/v0.3/SPECIFICATION.md" className="text-pact-cyan hover:underline text-sm">
+            <a href="https://github.com/TailorAU/pact/blob/8d0f3055a28df789c94d1a0ea44e9df80511084a/spec/v0.3/SPECIFICATION.md" className="text-pact-cyan hover:underline text-sm">
               Full Specification
             </a>
-            <a href="https://github.com/TailorAU/pact/blob/main/spec/v0.3/GETTING_STARTED.md" className="text-pact-cyan hover:underline text-sm">
+            <a href="https://github.com/TailorAU/pact/blob/8d0f3055a28df789c94d1a0ea44e9df80511084a/spec/v0.3/GETTING_STARTED.md" className="text-pact-cyan hover:underline text-sm">
               Getting Started
             </a>
-            <a href="https://github.com/TailorAU/pact/tree/main/spec/v0.3/schemas" className="text-pact-cyan hover:underline text-sm">
+            <a href="https://github.com/TailorAU/pact/tree/8d0f3055a28df789c94d1a0ea44e9df80511084a/spec/v0.3/schemas" className="text-pact-cyan hover:underline text-sm">
               JSON Schemas
             </a>
           </div>

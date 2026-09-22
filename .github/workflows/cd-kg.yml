@@ -20,6 +20,13 @@ on:
       # The maintenance schedule is not part of the image (tailor-group#9).
       - ".github/workflows/cron.yml"
 
+# One prod deploy at a time. At promotion both main and rehome-review push
+# here; two unserialised runs would race the container update, the seeds and
+# the conformance run-id check (tailor-group#7, PR 83 review).
+concurrency:
+  group: cd-kg-prod
+  cancel-in-progress: false
+
 permissions:
   id-token: write           # Azure OIDC + Cosign keyless signing
   contents: read

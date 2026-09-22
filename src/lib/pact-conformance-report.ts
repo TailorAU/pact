@@ -22,7 +22,8 @@
  *
  * ## Vocabulary — the pact runner's, not our own
  *
- * The shape is `spec/v2.3/conformance/runner/README.md` "Report schema" +
+ * The shape is `spec/v2.3/conformance/runner/README.md` (TailorAU/pact@8d0f305, the
+ * last old-main commit that carries the v2.3 spec) "Report schema" +
  * "Consuming implementations": `counts`, `results[{path,id,kind,outcome}]`,
  * `runner_disclaimer`, `http_coverage`, stamped `spec_version` +
  * `vector_set_ref`; `outcome.status` stays inside `pass` / `fail` / `skip`

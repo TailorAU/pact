@@ -79,6 +79,24 @@ describe("GET /api/axiom/resolve — request validation", () => {
     const res = await callGet(null);
     expect(res.status).toBe(400);
   });
+
+  // tailor-group#7 — the citation length cap bounds the tokeniser's work
+  // (CodeQL js/polynomial-redos in lib/legislation-ranking.ts).
+  it("400 when citation exceeds 512 characters", async () => {
+    const res = await callGet("a".repeat(513));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("Query parameter citation exceeds 512 characters");
+    expect(mockDb.execute).not.toHaveBeenCalled();
+  });
+
+  it("accepts a citation of exactly 512 characters (a miss, not a 400)", async () => {
+    mockDb.execute.mockResolvedValue(rows([]));
+    const res = await callGet("a".repeat(512));
+    expect(res.status).not.toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error ?? "").not.toMatch(/exceeds/);
+  });
 });
 
 describe("GET /api/axiom/resolve — legislation resolution", () => {

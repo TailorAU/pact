@@ -79,6 +79,22 @@ describe("parseActHtml on current EPUB markup", () => {
   });
 });
 
+describe("parseActHtml decodes entities in one pass (tailor-group#7, js/double-escaping)", () => {
+  // Same EPUB shape as the real fixture. `&amp;lt;` is the source's literal
+  // text "&lt;"; a chained decoder turned it into "<".
+  const html =
+    '<p class="ActHead5"><a id="_Toc1"><span class="CharSectno">1</span><span>&#xa0; </span><span>Definitions</span></a></p>' +
+    '<p class="subsection"><span>&#xa0;</span><span>In this Act, write &amp;lt;tag&amp;gt; for a tag, &amp;amp; for an ampersand, and &lt;b&gt; means b.</span></p>';
+
+  it("keeps an escaped entity as literal text and decodes the rest once", () => {
+    const [s1] = parseActHtml(html);
+    expect(s1?.sectionId).toBe("s 1");
+    expect(s1.content).toBe(
+      "In this Act, write &lt;tag&gt; for a tag, &amp; for an ampersand, and <b> means b."
+    );
+  });
+});
+
 describe("parseActHtml on an amending Act that repeats a section (tailor-group#37)", () => {
   // Synthetic excerpt in the same EPUB shape: the schedule amends s 308 of
   // the principal Act five times, so the ActHead5 "308" heading recurs. The

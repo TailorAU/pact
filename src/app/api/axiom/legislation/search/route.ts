@@ -8,6 +8,7 @@ import {
   designationMatchBoost,
   escapeLike,
   extractDesignations,
+  MAX_QUERY_LENGTH,
   titleMatchBoost,
   tokenizeQuery,
 } from "@/lib/legislation-ranking";
@@ -104,6 +105,12 @@ export async function GET(req: NextRequest) {
     return withCors(NextResponse.json({
       error: "Missing required query parameter: q",
       example: "/api/axiom/legislation/search?q=assault&jurisdiction=QLD",
+    }, { status: 400 }));
+  }
+  // tailor-group#7 — bound the tokeniser's work per request (js/polynomial-redos).
+  if (query.length > MAX_QUERY_LENGTH) {
+    return withCors(NextResponse.json({
+      error: `Query parameter q exceeds ${MAX_QUERY_LENGTH} characters`,
     }, { status: 400 }));
   }
 

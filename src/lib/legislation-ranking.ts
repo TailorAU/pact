@@ -33,12 +33,28 @@ export interface DesignationToken {
   year: string | null;
 }
 
+/**
+ * Longest search query / citation the ranking surfaces accept (characters).
+ * Legislation titles and citations are far shorter; the cap bounds the work
+ * any single request can ask of the tokeniser. Routes reject longer input
+ * with 400 before it reaches this module (tailor-group#7, CodeQL
+ * js/polynomial-redos).
+ */
+export const MAX_QUERY_LENGTH = 512;
+
 // Multi-letter bodies match case-insensitively (unambiguous). Two-letter
 // bodies ("AS", "EN", "BS") must be uppercase in the query — lowercase "as"
 // is an English word and would false-positive ("known as 4308").
+//
+// The body/number separator is `\s*(?:-\s*)?`: optional whitespace, then an
+// optional hyphen with its trailing whitespace. It accepts exactly the
+// strings the former `\s*[- ]?\s*` did (the optional space was already
+// covered by `\s*`), but has only one way to match each whitespace run, so a
+// failed match backtracks linearly instead of quadratically ("ISO" followed by
+// thousands of spaces and no number) — tailor-group#7, js/polynomial-redos.
 const DESIGNATION_RE_CI =
-  /\b(AS\/NZS|ISO\/IEC|NZS|ISO|IEC|ASTM)\s*[- ]?\s*(\d{2,6})(?::(\d{4}))?\b/gi;
-const DESIGNATION_RE_UPPER = /\b(AS|EN|BS)\s*[- ]?\s*(\d{2,6})(?::(\d{4}))?\b/g;
+  /\b(AS\/NZS|ISO\/IEC|NZS|ISO|IEC|ASTM)\s*(?:-\s*)?(\d{2,6})(?::(\d{4}))?\b/gi;
+const DESIGNATION_RE_UPPER = /\b(AS|EN|BS)\s*(?:-\s*)?(\d{2,6})(?::(\d{4}))?\b/g;
 
 /** Extract standards designations (AS/NZS 4308, ISO 45001:2018, …) from a query. */
 export function extractDesignations(query: string): DesignationToken[] {
@@ -124,7 +140,29 @@ const normalize = (s: string): string =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 
-const stripParentheticals = (s: string): string => s.replace(/\([^)]*\)/g, " ");
+/**
+ * Replace each parenthetical — "(" up to the next ")" — with a space.
+ *
+ * A linear scan with the same result as `s.replace(/\([^)]*\)/g, " ")`
+ * (inner "(" belong to the enclosing match; an unclosed "(" is left as is).
+ * The regex form rescanned to the end of the string from every unclosed "(",
+ * which is quadratic on input like "((((…" (tailor-group#7,
+ * js/polynomial-redos). Once no ")" follows an "(", none follows any later
+ * "(" either, so the scan stops there.
+ */
+export function stripParentheticals(s: string): string {
+  let out = "";
+  let from = 0;
+  for (;;) {
+    const open = s.indexOf("(", from);
+    if (open === -1) break;
+    const close = s.indexOf(")", open + 1);
+    if (close === -1) break;
+    out += s.slice(from, open) + " ";
+    from = close + 1;
+  }
+  return out + s.slice(from);
+}
 
 /**
  * Classify how a query matches a title.

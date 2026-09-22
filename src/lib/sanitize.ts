@@ -5,9 +5,55 @@ const MAX_SUMMARY_LENGTH = 2000;
 const MAX_CONTENT_LENGTH = 50000;
 const MAX_REASON_LENGTH = 1000;
 
-// Strip HTML tags to prevent XSS
-function stripHtml(input: string): string {
-  return input.replace(/<[^>]*>/g, "");
+const isTagStart = (c: number): boolean =>
+  (c >= 0x41 && c <= 0x5a) || // A-Z
+  (c >= 0x61 && c <= 0x7a) || // a-z
+  c === 0x21 || // !  (comment, doctype)
+  c === 0x2f || // /  (end tag)
+  c === 0x3f; //   ?  (processing instruction)
+
+/**
+ * Strip HTML tags (XSS defence in depth; every in-repo render path is
+ * React-escaped text, but API consumers may not be).
+ *
+ * tailor-group#7 (CodeQL js/incomplete-multi-character-sanitization):
+ *   1. Remove every "<…>" span — the same result as the former
+ *      `input.replace(/<[^>]*>/g, "")`, but as a linear scan. The regex
+ *      rescanned to the end of the input from every unclosed "<", which was
+ *      quadratic: ~26 s for a 256 KB body of "<" (DEFAULT_MAX_BODY_BYTES), and
+ *      it runs before the length check.
+ *   2. After (1) a "<" survives only when no ">" follows it anywhere, e.g. the
+ *      "<script" in "a <script". Drop any run of "<" directly followed by a
+ *      letter, "!", "/" or "?", so nothing that could open a tag, comment or
+ *      declaration remains. Other "<" (e.g. "n < 5", "x <= y") are kept.
+ * Both passes are single-pass and neither can create a new "<": the output is
+ * a fixed point (stripHtml(stripHtml(x)) === stripHtml(x)).
+ */
+export function stripHtml(input: string): string {
+  let text = "";
+  let from = 0;
+  for (;;) {
+    const open = input.indexOf("<", from);
+    if (open === -1) break;
+    const close = input.indexOf(">", open + 1);
+    if (close === -1) break; // no ">" after this "<", so none after any later "<"
+    text += input.slice(from, open);
+    from = close + 1;
+  }
+  text += input.slice(from);
+
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const lt = text.indexOf("<", i);
+    if (lt === -1) break;
+    let runEnd = lt;
+    while (runEnd < text.length && text.charCodeAt(runEnd) === 0x3c) runEnd++;
+    const opensTag = runEnd < text.length && isTagStart(text.charCodeAt(runEnd));
+    out += text.slice(i, opensTag ? lt : runEnd);
+    i = runEnd;
+  }
+  return out + text.slice(i);
 }
 
 // Remove null bytes and other control characters (except newlines/tabs in content)

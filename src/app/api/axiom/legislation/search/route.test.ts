@@ -150,6 +150,22 @@ describe("GET /api/axiom/legislation/search — #1250 ranking regression", () =>
     expect(res.status).toBe(400);
   });
 
+  // tailor-group#7 — the q length cap bounds the tokeniser's work
+  // (CodeQL js/polynomial-redos in lib/legislation-ranking.ts).
+  it("returns 400 when q exceeds 512 characters", async () => {
+    const res = await callGet(`q=${"a".repeat(513)}`);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("Query parameter q exceeds 512 characters");
+    expect(mockDb.execute).not.toHaveBeenCalled();
+  });
+
+  it("accepts q of exactly 512 characters", async () => {
+    prime(0, [], []);
+    const res = await callGet(`q=${"a".repeat(512)}`);
+    expect(res.status).toBe(200);
+  });
+
   it("issue #745 repro: `q=construction` does NOT rank a `non-construction` topic #1", async () => {
     // Simulate the Run 10 dataset: a QLD Act with 'construction' in title,
     // a NSW Act that mentions construction in content, and the CPR topic

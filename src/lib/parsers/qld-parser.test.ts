@@ -106,7 +106,7 @@ describe("syncQld isolates ingest failures per document (tailor-group#37)", () =
     const r = await pending;
 
     expect(r.jurisdiction).toBe("QLD");
-    expect(r.parserVersion).toBe("qld-parser@1.6.0");
+    expect(r.parserVersion).toBe("qld-parser@1.6.1");
     expect(r.docsChecked).toBe(9); // every KEY_ACTS id, repealed ones included
     expect(r.docsUpdated).toBe(1); // the rejected document is not counted
     expect(r.sectionsTotal).toBe(6);
@@ -134,6 +134,53 @@ describe("syncQld isolates ingest failures per document (tailor-group#37)", () =
       "qld/act-1999-039/s 309",
     ]);
     expect(sectionIds.some((id) => String(id).startsWith("qld/act-0-005/"))).toBe(false);
+  });
+});
+
+describe("syncQld strips script/style robustly and decodes entities once (tailor-group#7)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  // `</script >` (space before ">") escaped the old `<\/script>` filter
+  // (js/bad-tag-filter), and the chained decoder turned `&amp;lt;` into "<"
+  // (js/double-escaping).
+  const HOSTILE_HTML = `<html><head><style type="text/css">p { color: STYLE_BODY_MARKER; }</STYLE></head><body>
+<h5 class="ActHead5">1 Definitions</h5>
+<script type="text/javascript">var leaked = "SCRIPT_BODY_MARKER";</script >
+<p class="body">In this Act, write &amp;lt;tag&amp;gt; for a tag, and &lt;b&gt; means b.</p>
+<h5 class="ActHead5">2 Commencement</h5>
+<p class="body">This Act commences on the date of assent.</p>
+</body></html>`;
+
+  it("drops the script and style bodies and keeps escaped entities literal", async () => {
+    vi.stubEnv("QLD_LEGISLATION_USERNAME", "svc");
+    vi.stubEnv("QLD_LEGISLATION_PASSWORD", "secret");
+    vi.spyOn(globalThis, "fetch").mockImplementation((url, init) =>
+      String(url).includes("/v1/renditions/html/")
+        ? Promise.resolve(new Response(HOSTILE_HTML, { status: 200 }))
+        : fakeFetch(url, init)
+    );
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    const batch = vi.fn<(statements: { sql: string; args: unknown[] }[]) => Promise<void>>(async () => undefined);
+    const db = { execute: vi.fn(async () => ({ rows: [] })), batch };
+
+    const pending = syncQld(db as never);
+    await vi.runAllTimersAsync();
+    await pending;
+
+    const sections = batch.mock.calls[0][0].filter((st) => st.sql.includes("INSERT INTO legislation_sections"));
+    // args: id, doc_id, section_id, title, content, …
+    const contentOf = (id: string) => sections.find((st) => st.args[0] === id)?.args[4];
+    expect(contentOf("qld/act-1999-039/s 1")).toBe(
+      "In this Act, write &lt;tag&gt; for a tag, and <b> means b."
+    );
+    expect(contentOf("qld/act-1999-039/s 2")).toBe("This Act commences on the date of assent.");
+    for (const st of sections) {
+      expect(String(st.args[4])).not.toMatch(/SCRIPT_BODY_MARKER|STYLE_BODY_MARKER/);
+    }
   });
 });
 

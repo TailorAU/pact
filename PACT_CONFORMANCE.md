@@ -22,7 +22,7 @@
 > the wire cannot move without this file moving, and this file cannot claim
 > what the wire does not serve. Naming v2.3 says WHICH spec text this
 > profile answers to — the version whose vector set is under audit
-> (`TailorAU/pact` `spec/v2.3/conformance/`) — never that all of it is met:
+> (`TailorAU/pact@8d0f305` `spec/v2.3/conformance/`) — never that all of it is met:
 > what is NOT met is declared explicitly, in the seven `declaredGaps` the
 > served document carries in full (§15.2 Extended is not claimed, §17
 > authorization is not claimed, and the §6.4 shortfalls are enumerated on
@@ -368,7 +368,7 @@ Stated so a reader is not misled by what the block above *does* say:
 
 The machine-readable companion to this profile. On every `main` deploy the
 KG publishes its PACT v2.3 conformance results, in the pact runner's own
-report schema (`TailorAU/pact` `spec/v2.3/conformance/runner/README.md`
+report schema (`TailorAU/pact@8d0f305` `spec/v2.3/conformance/runner/README.md`
 § *Report schema* + § *Consuming implementations*), at
 
 ```
@@ -525,7 +525,7 @@ the point.
 
 `fact` is classified **`internal-reversible` / `humanAttestation: not-required`**,
 which is the FLOOR the upstream registry records for the built-in type
-(`TailorAU/pact` `spec/v2.3/resource-types.yaml`, whose `fact` entry names
+(`TailorAU/pact@8d0f305` `spec/v2.3/resource-types.yaml`, whose `fact` entry names
 Source as its reference implementation). The registry is a floor, not a
 ceiling — an implementation that publishes verified facts to a third party or
 a public register MUST classify upward. The KG does not, on two pieces of

@@ -2,6 +2,7 @@ import type { DbClient } from "../db";
 import type { LegislationDoc, LegislationSection, SyncResult } from "../legislation-sync";
 import { ingestDocuments, recordIngestOutcome } from "../legislation-sync";
 import { uniqueSectionIds } from "../legislation-section-ids";
+import { decodeQldEntities, stripRawTextElements } from "./html-text";
 
 const QLD_API = "https://api.legislation.qld.gov.au";
 const MAX_ACTS = 100;
@@ -11,9 +12,11 @@ const MAX_ACTS = 100;
  * Bump when parsing semantics change (regex shape, anomaly detection rules,
  * fallback paths) so downstream regressions can be tied back to a specific
  * parser revision. WS9 introduces 1.5.0 alongside the silent-zero alarm;
- * 1.6.0 suffixes repeated section ids (tailor-group#37).
+ * 1.6.0 suffixes repeated section ids (tailor-group#37); 1.6.1 decodes
+ * entities in one pass and strips script/style with a linear scanner
+ * (tailor-group#7).
  */
-const QLD_PARSER_VERSION = "qld-parser@1.6.0";
+const QLD_PARSER_VERSION = "qld-parser@1.6.1";
 
 interface QldAuthResponse {
   auth_type: string;
@@ -159,9 +162,11 @@ function parseQldHtml(html: string): QldParseOutput {
   let currentPart = "";
   let order = 0;
 
-  const text = html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "");
+  // tailor-group#7 — one linear pass that also removes `</script >`,
+  // attribute-bearing and unterminated elements, and can never splice a new
+  // `<script` out of its neighbours (js/bad-tag-filter,
+  // js/incomplete-multi-character-sanitization). See html-text.ts.
+  const text = stripRawTextElements(html, ["style", "script"]);
 
   const partPattern = /<h[1-4][^>]*>(?:<[^>]+>)*\s*(Part|Division|Chapter|Schedule)\s+([\dIVXLCDM]+[A-Z]?)\s*[-–—]?\s*([^<]+)/gi;
   let partMatch;
@@ -178,14 +183,9 @@ function parseQldHtml(html: string): QldParseOutput {
     const nextSecIdx = text.indexOf("<h", afterIdx + 10);
     const contentSlice = text.slice(afterIdx, nextSecIdx > 0 ? Math.min(nextSecIdx, afterIdx + 8000) : afterIdx + 8000);
 
-    const content = contentSlice
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;|&#xa0;|&#160;/g, " ")
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&#\d+;/g, " ")
+    // Single-pass entity decode: `&amp;lt;` stays "&lt;" (tailor-group#7,
+    // js/double-escaping). See html-text.ts.
+    const content = decodeQldEntities(contentSlice.replace(/<[^>]+>/g, " "))
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 4000);

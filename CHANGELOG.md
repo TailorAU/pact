@@ -257,6 +257,14 @@ releases).
   the pending statements and the unlock's throw destroys the connection
   (its lock dies with it) instead of hanging. Pinned at pg's own seam by
   `src/lib/db-pool-keepalive.test.ts`.
+- **The SEQ GTFS feed URL returned 404** (tailor-group#38 closing dispatch:
+  `gtfs-sync` completed with `GTFS fetch failed: 404 …/download/SEQ_GTFS.zip`).
+  The data.qld.gov.au dataset the default pointed at was retired; the live
+  dataset (`general-transit-feed-specification-gtfs-translink`) serves every
+  region from Translink's host, so the default is now
+  `https://gtfsrt.api.translink.com.au/GTFS/SEQ_GTFS.zip` (verified: 200,
+  `application/x-zip-compressed`, last modified 21 Sep 2026). `GTFS_FEED_URL`
+  still overrides it.
 - **The weekly CTH legislation sync never wrote a document** (tailor-group#37).
   After tailor-group#7 the parser reached the Acts (10 checked, 0 anomalies)
   and then every ingest batch failed with "Legislation payload validation

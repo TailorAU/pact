@@ -2,6 +2,7 @@ import type { DbClient } from "../db";
 import type { LegislationDoc, LegislationSection, SyncResult } from "../legislation-sync";
 import { ingestDocuments, recordIngestOutcome } from "../legislation-sync";
 import { uniqueSectionIds } from "../legislation-section-ids";
+import { decodeCthEntities } from "./html-text";
 
 const CTH_API = "https://api.prod.legislation.gov.au/v1";
 const CTH_WEB = "https://www.legislation.gov.au";
@@ -22,9 +23,10 @@ function maxActs(): number {
  * Bump when parsing semantics change (regex shape, anomaly detection rules,
  * fallback paths) so downstream regressions can be tied back to a specific
  * parser revision. WS9 introduces 2.0.0 alongside the silent-zero alarm;
- * 2.2.0 suffixes repeated section ids (tailor-group#37).
+ * 2.2.0 suffixes repeated section ids (tailor-group#37); 2.2.1 decodes
+ * entities in one pass (tailor-group#7).
  */
-const CTH_PARSER_VERSION = "cth-parser@2.2.0";
+const CTH_PARSER_VERSION = "cth-parser@2.2.1";
 
 interface CthTitle {
   id: string;
@@ -111,20 +113,6 @@ async function fetchLegislationHtml(titleId: string, version: CthVersion): Promi
   }
 }
 
-/** Named + numeric HTML entities → text. The EPUB uses `&#xa0;` heavily. */
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/ /g, " ");
-}
-
 export function parseActHtml(html: string): LegislationSection[] {
   const sections: LegislationSection[] = [];
   let currentPart = "";
@@ -174,7 +162,7 @@ export function parseActHtml(html: string): LegislationSection[] {
     const textPattern = /<p[^>]*class="(?:subsection2?|paragraph(?:sub)?|subparagraph|note(?:text|para|ToPara)?|[Dd]efinition|DefnSectn|Penalty|SubsectionHead)"[^>]*>([\s\S]*?)<\/p>/g;
     let textMatch;
     while ((textMatch = textPattern.exec(contentSlice)) !== null) {
-      const text = decodeEntities(textMatch[1].replace(/<[^>]+>/g, " "))
+      const text = decodeCthEntities(textMatch[1].replace(/<[^>]+>/g, " "))
         .replace(/\s+/g, " ")
         .replace(/\s+([.,;:)\]])/g, "$1") // "Act 2026 ." → "Act 2026." after span joins
         .trim();

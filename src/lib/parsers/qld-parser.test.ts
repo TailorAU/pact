@@ -106,7 +106,7 @@ describe("syncQld isolates ingest failures per document (tailor-group#37)", () =
     const r = await pending;
 
     expect(r.jurisdiction).toBe("QLD");
-    expect(r.parserVersion).toBe("qld-parser@1.6.0");
+    expect(r.parserVersion).toBe("qld-parser@1.6.1");
     expect(r.docsChecked).toBe(9); // every KEY_ACTS id, repealed ones included
     expect(r.docsUpdated).toBe(1); // the rejected document is not counted
     expect(r.sectionsTotal).toBe(6);

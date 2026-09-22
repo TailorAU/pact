@@ -5,8 +5,24 @@
 import { describe, expect, it } from "vitest";
 import { sanitizeAgentName, sanitizeContent, stripHtml } from "./sanitize";
 
-// The pre-fix implementation, as an oracle for pass 1.
-const oldStripHtml = (s: string) => s.replace(/<[^>]*>/g, "");
+// The pre-fix behaviour (`s.replace(/<[^>]*>/g, "")`), written as a plain
+// loop so the oracle is not itself a regex sanitiser (CodeQL flagged the
+// regex form here too): each "<" that has a ">" after it is dropped with
+// everything up to that ">"; a "<" with no later ">" stays.
+function oldStripHtml(s: string): string {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "<") {
+      const close = s.indexOf(">", i + 1);
+      if (close !== -1) {
+        i = close;
+        continue;
+      }
+    }
+    out += s[i];
+  }
+  return out;
+}
 
 describe("stripHtml", () => {
   it("removes complete tags exactly as before", () => {

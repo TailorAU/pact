@@ -4,9 +4,14 @@ import { useState, useEffect, useCallback } from "react";
 import {
   browserLocalStorage,
   clearLegacyStoredKey,
+  dismissRevealed,
   forgetSessionKey,
+  isNotJoinedError,
   readLegacyStoredKey,
   rememberSessionKey,
+  restoreJoined,
+  type RevealedKey,
+  revealOnRegister,
   sessionKey,
 } from "@/lib/agent-key-session";
 
@@ -56,8 +61,6 @@ function writeJoined(topicId: string, joined: boolean): void {
   }
 }
 
-/** A key shown once for the user to copy, with why it is being shown. */
-type RevealedKey = { apiKey: string; reason: "registered" | "migrated" } | null;
 
 export function TopicActions({ topicId, topicStatus, sections, proposals, bountyEscrow }: TopicActionsProps) {
   const [apiKey, setApiKey] = useState("");
@@ -66,6 +69,9 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   const [hasJoined, setHasJoined] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [revealedKey, setRevealedKey] = useState<RevealedKey>(null);
+  // A migrated key superseded by a registration, shown again once the new key
+  // is dismissed (its stored copy is cleared only on confirmation).
+  const [waitingKey, setWaitingKey] = useState<RevealedKey>(null);
   const [copied, setCopied] = useState(false);
 
   // Register form
@@ -123,7 +129,7 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
       setApiKey(current.apiKey);
       setAgentName(current.agentName);
     }
-    if (readJoined(topicId)) setHasJoined(true);
+    if (restoreJoined(!!current, readJoined(topicId))) setHasJoined(true);
   }, [topicId]);
 
   // Auto-clear result
@@ -150,8 +156,12 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
         if (!res.ok) {
           if (res.status === 401) {
             forgetSessionKey();
+            writeJoined(topicId, false);
             setApiKey("");
             setAgentName("");
+            setHasJoined(false);
+          } else if (isNotJoinedError(res.status, data.error)) {
+            writeJoined(topicId, false);
             setHasJoined(false);
           }
           setResult({ type: "error", message: data.error || `HTTP ${res.status}` });
@@ -165,7 +175,7 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
         setLoading(false);
       }
     },
-    [apiKey]
+    [apiKey, topicId]
   );
 
   // Fetch wallet balance when API key is available
@@ -203,6 +213,9 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   const handleConnect = () => {
     if (!keyInput.trim()) return;
     rememberSessionKey(keyInput.trim(), "Agent");
+    // A newly connected key must Join; the marker belongs to no agent.
+    writeJoined(topicId, false);
+    setHasJoined(false);
     setApiKey(keyInput.trim());
     setAgentName("Agent");
     setKeyInput("");
@@ -227,7 +240,11 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
       setApiKey(data.apiKey);
       setAgentName(data.agentName);
       setShowRegister(false);
-      setRevealedKey({ apiKey: data.apiKey, reason: "registered" });
+      writeJoined(topicId, false);
+      setHasJoined(false);
+      const next = revealOnRegister(revealedKey, data.apiKey);
+      setRevealedKey(next.shown);
+      setWaitingKey(next.waiting);
       setResult({ type: "success", message: `Registered as ${data.agentName}.` });
     }
   };
@@ -235,8 +252,10 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   const handleDisconnect = () => {
     forgetSessionKey();
     writeJoined(topicId, false);
-    // A migrated key stays on screen until the user confirms they saved it.
-    setRevealedKey((prev) => (prev?.reason === "migrated" ? prev : null));
+    // A migrated key stays on screen (or comes back, if a registration had
+    // superseded it) until the user confirms they saved it.
+    setRevealedKey((prev) => (prev?.reason === "migrated" ? prev : waitingKey));
+    setWaitingKey(null);
     setApiKey("");
     setAgentName("");
     setHasJoined(false);
@@ -345,8 +364,10 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   const dismissRevealedKey = () => {
     // Only now, on the user's confirmation, delete the copy an earlier version
     // stored (tailor-group#7). Nothing is ever written back.
-    if (revealedKey?.reason === "migrated") clearLegacyStoredKey(browserLocalStorage());
-    setRevealedKey(null);
+    const next = dismissRevealed(revealedKey, waitingKey);
+    if (next.clearLegacy) clearLegacyStoredKey(browserLocalStorage());
+    setRevealedKey(next.shown);
+    setWaitingKey(next.waiting);
     setCopied(false);
   };
 

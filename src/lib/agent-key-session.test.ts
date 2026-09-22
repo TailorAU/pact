@@ -7,11 +7,15 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearLegacyStoredKey,
+  dismissRevealed,
   forgetSessionKey,
+  isNotJoinedError,
   LEGACY_AGENT_NAME_STORAGE_KEY,
   LEGACY_API_KEY_STORAGE_KEY,
   rememberSessionKey,
   readLegacyStoredKey,
+  restoreJoined,
+  revealOnRegister,
   sessionKey,
 } from "./agent-key-session";
 
@@ -105,12 +109,55 @@ describe("TopicActions never persists the API key", () => {
     const clears = [...src.matchAll(/clearLegacyStoredKey\(browserLocalStorage\(\)\)/g)];
     expect(clears).toHaveLength(1);
     const dismiss = src.slice(src.indexOf("const dismissRevealedKey"));
-    expect(dismiss.slice(0, 400)).toMatch(
-      /if \(revealedKey\?\.reason === "migrated"\) clearLegacyStoredKey\(browserLocalStorage\(\)\)/
-    );
+    expect(dismiss.slice(0, 400)).toMatch(/if \(next\.clearLegacy\) clearLegacyStoredKey\(browserLocalStorage\(\)\)/);
   });
 
   it("does not echo the key in the auto-clearing result banner", () => {
     expect(src).not.toMatch(/message:[^\n]*\$\{data\.apiKey\}/);
+  });
+});
+
+describe("revealed keys: a registration never drops a migrated key (Bugbot, pact#84)", () => {
+  const migrated = { apiKey: "pact_sk_old", reason: "migrated" as const };
+  const registered = { apiKey: "pact_sk_new", reason: "registered" as const };
+
+  it("registering while a migrated key is shown keeps it waiting", () => {
+    expect(revealOnRegister(migrated, "pact_sk_new")).toEqual({ shown: registered, waiting: migrated });
+  });
+
+  it("dismissing the registered key brings the migrated one back without clearing storage", () => {
+    expect(dismissRevealed(registered, migrated)).toEqual({ shown: migrated, waiting: null, clearLegacy: false });
+  });
+
+  it("only dismissing the migrated key clears the legacy copy", () => {
+    expect(dismissRevealed(migrated, null)).toEqual({ shown: null, waiting: null, clearLegacy: true });
+    expect(dismissRevealed(registered, null)).toEqual({ shown: null, waiting: null, clearLegacy: false });
+  });
+
+  it("nothing waits when no migrated key was on screen", () => {
+    expect(revealOnRegister(null, "pact_sk_new").waiting).toBeNull();
+    expect(revealOnRegister(registered, "pact_sk_newer").waiting).toBeNull();
+  });
+});
+
+describe("joined marker belongs to no agent (Bugbot, pact#84)", () => {
+  const src = readFileSync(new URL("../components/TopicActions.tsx", import.meta.url), "utf8");
+
+  it("restores the joined console only while this tab still holds a key", () => {
+    expect(restoreJoined(true, true)).toBe(true);
+    expect(restoreJoined(false, true)).toBe(false);
+    expect(restoreJoined(true, false)).toBe(false);
+  });
+
+  it("recognises only the not-a-member 403", () => {
+    expect(isNotJoinedError(403, "Not registered for this topic")).toBe(true);
+    expect(isNotJoinedError(403, "Forbidden")).toBe(false);
+    expect(isNotJoinedError(401, "Not registered for this topic")).toBe(false);
+    expect(isNotJoinedError(403, undefined)).toBe(false);
+  });
+
+  it("TopicActions clears the marker on disconnect, connect, register, 401 and the not-a-member 403", () => {
+    expect([...src.matchAll(/writeJoined\(topicId, false\)/g)]).toHaveLength(5);
+    expect(src).toMatch(/restoreJoined\(!!current, readJoined\(topicId\)\)/);
   });
 });

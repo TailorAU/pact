@@ -88,3 +88,49 @@ export function sessionKey(): { apiKey: string; agentName: string } | null {
 export function forgetSessionKey(): void {
   current = null;
 }
+
+/** A key shown once for the user to copy, with why it is being shown. */
+export type RevealedKey = { apiKey: string; reason: "registered" | "migrated" } | null;
+
+/**
+ * Registering while a migrated legacy key is still on screen must not drop
+ * it: the stored legacy copy is deleted only when the user confirms saving it
+ * (dismissRevealed). The new key is shown first; the migrated one waits and
+ * comes back when the new one is dismissed.
+ */
+export function revealOnRegister(
+  shown: RevealedKey,
+  registeredKey: string
+): { shown: RevealedKey; waiting: RevealedKey } {
+  return {
+    shown: { apiKey: registeredKey, reason: "registered" },
+    waiting: shown?.reason === "migrated" ? shown : null,
+  };
+}
+
+/**
+ * Dismissing the shown key. Only dismissing the migrated key deletes the
+ * legacy stored copy; dismissing a registered key brings back a migrated key
+ * that was waiting, so it is still confirmed (and cleared) in turn.
+ */
+export function dismissRevealed(
+  shown: RevealedKey,
+  waiting: RevealedKey
+): { shown: RevealedKey; waiting: RevealedKey; clearLegacy: boolean } {
+  if (shown?.reason === "migrated") return { shown: null, waiting: null, clearLegacy: true };
+  return { shown: waiting ?? null, waiting: null, clearLegacy: false };
+}
+
+/**
+ * The per-topic joined marker is not tied to an agent, so it may restore the
+ * joined console only while this tab still holds a key. After a reload the
+ * key is gone; whoever connects next must Join (joining is idempotent).
+ */
+export function restoreJoined(hasSessionKey: boolean, markerSet: boolean): boolean {
+  return hasSessionKey && markerSet;
+}
+
+/** A 403 meaning the agent is not a member of the topic: Join must come back. */
+export function isNotJoinedError(status: number, message: string | undefined): boolean {
+  return status === 403 && /not registered for this topic/i.test(message ?? "");
+}

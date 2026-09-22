@@ -5,6 +5,7 @@ import { corsPreflight, withCors } from "@/lib/cors";
 import {
   escapeLike,
   extractDesignations,
+  MAX_QUERY_LENGTH,
   titleMatchTier,
   type TitleMatchTier,
 } from "@/lib/legislation-ranking";
@@ -63,6 +64,15 @@ export async function GET(req: NextRequest) {
           error: "Missing required query parameter: citation",
           example: "/api/axiom/resolve?citation=Privacy%20Act%201988%20(Cth)%20s%206",
         },
+        { status: 400 }
+      )
+    );
+  }
+  // tailor-group#7 — bound the tokeniser's work per request (js/polynomial-redos).
+  if (citation.length > MAX_QUERY_LENGTH) {
+    return withCors(
+      NextResponse.json(
+        { error: `Query parameter citation exceeds ${MAX_QUERY_LENGTH} characters` },
         { status: 400 }
       )
     );

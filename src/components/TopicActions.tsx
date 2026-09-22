@@ -1,6 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import {
+  browserLocalStorage,
+  forgetSessionKey,
+  rememberSessionKey,
+  sessionKey,
+  takeLegacyStoredKey,
+} from "@/lib/agent-key-session";
 
 type Section = { sectionId: string; heading: string; content: string };
 type Proposal = {
@@ -24,10 +31,32 @@ type TopicActionsProps = {
 
 type Result = { type: "success" | "error"; message: string } | null;
 
-function loadStored(key: string): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem(key) || "";
+// Non-secret per-topic "joined" marker. The API key itself is never stored
+// (tailor-group#7 — see lib/agent-key-session.ts).
+function joinedMarker(topicId: string): string {
+  return `pact-joined-${topicId}`;
 }
+
+function readJoined(topicId: string): boolean {
+  try {
+    return browserLocalStorage()?.getItem(joinedMarker(topicId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeJoined(topicId: string, joined: boolean): void {
+  try {
+    const storage = browserLocalStorage();
+    if (joined) storage?.setItem(joinedMarker(topicId), "1");
+    else storage?.removeItem(joinedMarker(topicId));
+  } catch {
+    // Storage blocked: the marker is a convenience only.
+  }
+}
+
+/** A key shown once for the user to copy, with why it is being shown. */
+type RevealedKey = { apiKey: string; reason: "registered" | "migrated" } | null;
 
 export function TopicActions({ topicId, topicStatus, sections, proposals, bountyEscrow }: TopicActionsProps) {
   const [apiKey, setApiKey] = useState("");
@@ -35,6 +64,8 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   const [keyInput, setKeyInput] = useState("");
   const [hasJoined, setHasJoined] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
+  const [revealedKey, setRevealedKey] = useState<RevealedKey>(null);
+  const [copied, setCopied] = useState(false);
 
   // Register form
   const [regName, setRegName] = useState("");
@@ -73,16 +104,21 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result>(null);
 
-  // Load from localStorage on mount
+  // On mount: move any key an earlier version left in localStorage into
+  // memory (deleting it from storage and showing it once so the user can save
+  // it); otherwise pick up the key already connected in this tab.
   useEffect(() => {
-    const key = loadStored("pact-api-key");
-    const name = loadStored("pact-agent-name");
-    if (key) {
-      setApiKey(key);
-      setAgentName(name);
+    const legacy = takeLegacyStoredKey(browserLocalStorage());
+    if (legacy) {
+      rememberSessionKey(legacy.apiKey, legacy.agentName || "Agent");
+      setRevealedKey({ apiKey: legacy.apiKey, reason: "migrated" });
     }
-    const joined = loadStored(`pact-joined-${topicId}`);
-    if (joined) setHasJoined(true);
+    const current = sessionKey();
+    if (current) {
+      setApiKey(current.apiKey);
+      setAgentName(current.agentName);
+    }
+    if (readJoined(topicId)) setHasJoined(true);
   }, [topicId]);
 
   // Auto-clear result
@@ -108,8 +144,7 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
         const data = await res.json();
         if (!res.ok) {
           if (res.status === 401) {
-            localStorage.removeItem("pact-api-key");
-            localStorage.removeItem("pact-agent-name");
+            forgetSessionKey();
             setApiKey("");
             setAgentName("");
             setHasJoined(false);
@@ -162,10 +197,14 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
 
   const handleConnect = () => {
     if (!keyInput.trim()) return;
-    localStorage.setItem("pact-api-key", keyInput.trim());
+    rememberSessionKey(keyInput.trim(), "Agent");
     setApiKey(keyInput.trim());
     setAgentName("Agent");
-    setResult({ type: "success", message: "API key saved. Click Join to participate." });
+    setKeyInput("");
+    setResult({
+      type: "success",
+      message: "Connected for this tab only. The key is not saved in this browser; paste it again after a reload. Click Join to participate.",
+    });
   };
 
   const handleRegister = async () => {
@@ -179,19 +218,19 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
       }),
     });
     if (data) {
-      localStorage.setItem("pact-api-key", data.apiKey);
-      localStorage.setItem("pact-agent-name", data.agentName);
+      rememberSessionKey(data.apiKey, data.agentName);
       setApiKey(data.apiKey);
       setAgentName(data.agentName);
       setShowRegister(false);
-      setResult({ type: "success", message: `Registered as ${data.agentName}. Your API key: ${data.apiKey}` });
+      setRevealedKey({ apiKey: data.apiKey, reason: "registered" });
+      setResult({ type: "success", message: `Registered as ${data.agentName}.` });
     }
   };
 
   const handleDisconnect = () => {
-    localStorage.removeItem("pact-api-key");
-    localStorage.removeItem("pact-agent-name");
-    localStorage.removeItem(`pact-joined-${topicId}`);
+    forgetSessionKey();
+    writeJoined(topicId, false);
+    setRevealedKey(null);
     setApiKey("");
     setAgentName("");
     setHasJoined(false);
@@ -202,8 +241,8 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   const handleJoin = async () => {
     const data = await apiCall(`/api/pact/${topicId}/join`, { method: "POST" });
     if (data) {
-      localStorage.setItem(`pact-joined-${topicId}`, "1");
-      localStorage.setItem("pact-agent-name", data.agentName || agentName);
+      writeJoined(topicId, true);
+      rememberSessionKey(apiKey, data.agentName || agentName);
       setAgentName(data.agentName || agentName);
       setHasJoined(true);
       setResult({ type: "success", message: `Joined as ${data.role}. You can now vote and propose.` });
@@ -287,6 +326,21 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
     }
   };
 
+  const handleCopyKey = async () => {
+    if (!revealedKey) return;
+    try {
+      await navigator.clipboard.writeText(revealedKey.apiKey);
+      setCopied(true);
+    } catch {
+      setResult({ type: "error", message: "Copy failed. Select the key and copy it manually." });
+    }
+  };
+
+  const dismissRevealedKey = () => {
+    setRevealedKey(null);
+    setCopied(false);
+  };
+
   // --- Render ---
 
   const pendingProposals = proposals.filter((p) => p.status === "pending");
@@ -308,6 +362,39 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
         </div>
       )}
 
+      {/* One-time key display (tailor-group#7): stays until dismissed; the key
+          is never written to browser storage. */}
+      {revealedKey && (
+        <div className="mb-4 p-4 rounded border border-pact-cyan/40 bg-pact-cyan/10 space-y-3" role="alert">
+          <p className="text-sm font-medium text-foreground">Copy your API key now</p>
+          <p className="text-xs text-pact-dim">
+            {revealedKey.reason === "registered"
+              ? "This is the only time it is shown. PACT stores only a hash and cannot show it again."
+              : "Earlier versions saved this key in your browser. It has now been removed from browser storage and may be your only copy."}{" "}
+            It stays connected in this tab only; after a reload, paste it into Connect. Keep it in a password manager.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              readOnly
+              value={revealedKey.apiKey}
+              onFocus={(e) => e.currentTarget.select()}
+              aria-label="Your API key"
+              className="flex-1 bg-background border border-card-border rounded px-3 py-2 text-sm font-mono text-foreground"
+            />
+            <button
+              onClick={handleCopyKey}
+              className="px-4 py-2 text-sm rounded border border-pact-cyan text-pact-cyan bg-pact-cyan/10 hover:bg-pact-cyan/20 transition-colors"
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <button onClick={dismissRevealedKey} className="text-xs text-pact-dim hover:text-foreground transition-colors">
+            I have saved it — hide the key
+          </button>
+        </div>
+      )}
+
       {/* Gate 1: No API key */}
       {!apiKey && (
         <div className="space-y-4">
@@ -316,7 +403,8 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
           {/* Paste key */}
           <div className="flex gap-2">
             <input
-              type="text"
+              type="password"
+              autoComplete="off"
               value={keyInput}
               onChange={(e) => setKeyInput(e.target.value)}
               placeholder="pact_sk_..."

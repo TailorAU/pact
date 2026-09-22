@@ -9,8 +9,10 @@ import {
   normalizeLegislationDocuments,
   replaceLegislationDocuments,
   type LegislationDocumentInput,
+  type LegislationIngestSource,
   type LegislationSectionInput,
   type NormalizedLegislationDocument,
+  type SkippedReviewedDocument,
 } from "./legislation-ingest";
 
 // Preserve the public parser / #5277 type names while sharing the write DTO.
@@ -55,6 +57,11 @@ export interface IngestOutcome {
   ingested: number;
   sectionsTotal: number;
   rejected: RejectedDocument[];
+  /**
+   * Documents a reviewed ingest marked (`legislation_docs.reviewed_at`), left
+   * untouched by this write (tailor-group#35).
+   */
+  skipped: SkippedReviewedDocument[];
 }
 
 /**
@@ -64,8 +71,16 @@ export interface IngestOutcome {
  * newest-first paging amending Acts are the majority of every CTH batch, so
  * no CTH document was ever written. The cross-document checks the batch
  * normalizer made (unique ids, total section cap) are kept here.
+ *
+ * `source` is mandatory (tailor-group#35): the parsers pass `scheduled`, the
+ * proposal finalizer `proposal`. Neither may overwrite a reviewed document;
+ * the ones the write skipped come back in `skipped`.
  */
-export async function ingestDocuments(db: DbClient, documents: LegislationDoc[]): Promise<IngestOutcome> {
+export async function ingestDocuments(
+  db: DbClient,
+  documents: LegislationDoc[],
+  source: LegislationIngestSource,
+): Promise<IngestOutcome> {
   const valid: NormalizedLegislationDocument[] = [];
   const rejected: RejectedDocument[] = [];
   const seenIds = new Set<string>();
@@ -98,21 +113,32 @@ export async function ingestDocuments(db: DbClient, documents: LegislationDoc[])
     valid.push(normalized);
   }
 
-  if (valid.length === 0) return { ingested: 0, sectionsTotal: 0, rejected };
-  const result = await replaceLegislationDocuments(db, valid);
-  return { ingested: result.ingested, sectionsTotal: result.sectionsTotal, rejected };
+  if (valid.length === 0) return { ingested: 0, sectionsTotal: 0, rejected, skipped: [] };
+  const result = await replaceLegislationDocuments(db, valid, source);
+  return {
+    ingested: result.ingested,
+    sectionsTotal: result.sectionsTotal,
+    rejected,
+    skipped: result.skipped,
+  };
 }
 
 /**
  * Fold an ingest outcome into a jurisdiction's SyncResult: `docsUpdated`
  * counts only documents actually written; each rejected document is one
- * error line and one parser anomaly (its output was unusable, nothing threw).
+ * error line and one parser anomaly (its output was unusable, nothing threw),
+ * and so is each document skipped because a reviewed ingest marked it
+ * (tailor-group#35) — the parser produced output the graph refused.
  */
 export function recordIngestOutcome(result: SyncResult, outcome: IngestOutcome): void {
   result.docsUpdated += outcome.ingested;
   result.sectionsTotal += outcome.sectionsTotal;
   for (const doc of outcome.rejected) {
     result.errors.push(`Rejected ${doc.id}: ${doc.path} ${doc.message}`);
+    result.parserAnomalyCount++;
+  }
+  for (const doc of outcome.skipped) {
+    result.errors.push(`Skipped ${doc.id}: reviewed document (reviewed_at ${doc.reviewedAt})`);
     result.parserAnomalyCount++;
   }
 }

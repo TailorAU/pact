@@ -397,6 +397,10 @@ class ReviewedIngestRunner:
             headers={
                 "Content-Type": "application/json; charset=utf-8",
                 "X-Admin-Key": self.admin_key,
+                # tailor-group#35: only this assertion makes Source stamp
+                # legislation_docs.reviewed_at / review_hash. Every other
+                # admin POST (deploy seeds) is guarded like a scheduled sync.
+                "X-Ingest-Source": "reviewed",
             },
             body=self.reviewed.payload_bytes,
             timeout=45.0,

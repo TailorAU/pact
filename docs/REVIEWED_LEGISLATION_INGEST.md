@@ -1,5 +1,40 @@
 # Reviewed one-document legislation ingest
 
+> **Note (2026-09-22, tailor-group#35).** What this runbook calls
+> `sites/source/scripts/` is `scripts/` here: the dispatcher
+> (`dispatch_reviewed_legislation_ingest.py`), the runner
+> (`run_reviewed_legislation_ingest.py`), the contract
+> (`legislation_ingest_contract.py`) and the manifest
+> (`reviewed_legislation_builders.json`, 12 reviewed ids: `qld/act-2016-025`
+> and 11 `cth/*`) are in this repository and tested by `pr-check.yml`; the
+> builder and batch files the manifest pins are not. What is **absent** is
+> the tailor-app side the dispatcher still names — the
+> `Source — Reviewed Legislation Ingest` workflow
+> (`source-legislation-ingest.yml`) and `cron-source.yml` — retired by
+> tailor-app#5954 and not re-rooted here, so a reviewed ingest is currently
+> run by `scripts/run_reviewed_legislation_ingest.py` directly against the
+> admin route `POST /api/axiom/legislation/ingest` (`X-Admin-Key`). That
+> runner also sends `X-Ingest-Source: reviewed`, and only a request that
+> asserts it writes as reviewed: every document it writes is stamped
+> `legislation_docs.reviewed_at = NOW()` and `review_hash` (SHA-256 hex of the
+> normalized document, the manifest's `normalizedPayloadSha256` recipe;
+> equals the canonical read's `legislation-payload-v1` digest when
+> `relatedDocs` is explicit). An admin POST without the assertion — the
+> deploy-time seeds in `cd-kg.yml`, including the live-scraped Planning Act
+> 2016 from `seed_seq_planning_regime.py` — never stamps and never overwrites
+> a marked document, and neither do the scheduled CTH/QLD syncs
+> (`{ source: "scheduled" }`) nor the PACT proposal finalizer
+> (`{ source: "proposal" }`): a marked document is excluded from every
+> statement and reported as `skipped`. Every write is one transaction that
+> locks the batch's existing rows (`FOR UPDATE`) before reading the marker,
+> so a reviewed ingest and an unasserted write on the same document
+> serialise rather than interleave (the syncs log
+> `Skipped <id>: reviewed document (reviewed_at <iso>)` and count a parser
+> anomaly; a proposal whose one document was skipped opens the topic for
+> debate instead of promoting it). Only a later reviewed ingest replaces and
+> re-stamps. The rest of this document is kept as history of the workflow
+> flow.
+
 This is the production runbook for repository-allowlisted legislation builds.
 It covers the dedicated `Source — Reviewed Legislation Ingest` workflow and
 the local dispatcher in `sites/source/scripts/`.

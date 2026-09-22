@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import type { DbClient } from "./db";
+import { createHash, randomUUID } from "node:crypto";
+import { withTransaction, type DbClient } from "./db";
 
 export const LEGISLATION_DOCUMENT_TYPES = [
   "act",
@@ -150,10 +150,46 @@ export class LegislationValidationError extends Error {
   }
 }
 
+/**
+ * Who is writing (tailor-group#35). Every caller declares itself; there is no
+ * default. Only `reviewed` stamps `legislation_docs.reviewed_at` /
+ * `review_hash`: the admin `X-Admin-Key` ingest route maps to it only when the
+ * request asserts `X-Ingest-Source: reviewed`, which
+ * scripts/run_reviewed_legislation_ingest.py sends after binding the payload
+ * to scripts/reviewed_legislation_builders.json. An admin POST without that
+ * assertion — the deploy-time seeds in .github/workflows/cd-kg.yml, one of
+ * which live-scrapes the Planning Act 2016 — is `admin`; `scheduled` is the
+ * CTH/QLD parsers and `proposal` the PACT proposal finalizer. Those three
+ * never touch the marker columns and never overwrite a document that carries
+ * the marker.
+ */
+export type LegislationIngestSource =
+  | { source: "reviewed" }
+  | { source: "admin" }
+  | { source: "scheduled" }
+  | { source: "proposal" };
+
+const LEGISLATION_INGEST_SOURCES: ReadonlySet<string> = new Set([
+  "reviewed",
+  "admin",
+  "scheduled",
+  "proposal",
+]);
+
+/** A document left untouched because a reviewed ingest marked it. */
+export interface SkippedReviewedDocument {
+  id: string;
+  /** ISO-8601 UTC timestamp of the reviewed ingest that stamped the row. */
+  reviewedAt: string;
+}
+
 export interface LegislationIngestResult {
+  /** Documents actually written; skipped documents are not counted. */
   ingested: number;
   sectionsTotal: number;
   documents: { id: string; title: string; sectionsInserted: number }[];
+  /** Reviewed documents excluded from every statement. Always `[]` for source `reviewed`. */
+  skipped: SkippedReviewedDocument[];
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -661,6 +697,38 @@ function normalizeDocumentsWithCollector(
   return documents;
 }
 
+function deepSortObjectKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(deepSortObjectKeys);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => compareCodePoints(left, right))
+      .map(([key, child]) => [key, deepSortObjectKeys(child)]),
+  );
+}
+
+/**
+ * `legislation_docs.review_hash` (tailor-group#35): lowercase SHA-256 hex of
+ * the normalized document as compact JSON with recursively code-point-sorted
+ * keys. It is computed from the normalized document, never the raw request,
+ * so the same reviewed content always stamps the same hash. When `relatedDocs`
+ * is explicit this is byte-for-byte the `legislation-payload-v1` digest the
+ * canonical read publishes (`hashCanonicalLegislation`); an omitted
+ * `relatedDocs` (preserve stored relations) hashes without that key.
+ */
+export function reviewHashForDocument(document: NormalizedLegislationDocument): string {
+  return createHash("sha256")
+    .update(JSON.stringify(deepSortObjectKeys(document)), "utf8")
+    .digest("hex");
+}
+
+function isoTimestamp(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value);
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? text : parsed.toISOString();
+}
+
 /** Validate and normalize the HTTP request envelope without acquiring a DB client. */
 export function normalizeLegislationRequest(input: unknown): NormalizedLegislationDocument[] {
   const collector = new ValidationCollector();
@@ -686,115 +754,273 @@ export function normalizeLegislationDocuments(input: unknown): NormalizedLegisla
 /**
  * Atomically replace a complete normalized request.
  *
- * All document upserts run first in code-point ID order. PostgreSQL's
- * ON CONFLICT update locks an existing row, so overlapping writers acquire
- * the same document locks in the same order. Sections and explicitly-owned
- * relations are then replaced inside the same `DbClient.batch` transaction.
+ * Everything runs inside ONE transaction on ONE connection (`withTransaction`;
+ * a two-method test mock runs the same statement stream directly). The
+ * transaction first locks every existing row of the batch — `SELECT … FOR
+ * UPDATE` in one fixed order (`ORDER BY id COLLATE "C"`, the code-point order
+ * the upserts also use) — so overlapping writers serialise on the same
+ * document rows in the same order: whichever transaction locks first finishes
+ * first, and the other then reads the committed marker. Document upserts
+ * follow in code-point ID order (PostgreSQL's ON CONFLICT update locks the
+ * row, and an INSERT of a new id waits for a concurrent insert of the same
+ * id), then sections and explicitly-owned relations are replaced.
+ *
+ * Reviewed-document guard (tailor-group#35): a `reviewed` write stamps
+ * `reviewed_at = NOW()` and `review_hash` on every document it writes. An
+ * `admin`, `scheduled` or `proposal` write reads `reviewed_at` from the rows
+ * it has just locked, excludes every marked id from every statement (no
+ * upsert, no section delete/insert, no relation change) and reports them in
+ * `skipped`. Its upsert never assigns the two marker columns and its
+ * ON CONFLICT update is conditional on `reviewed_at IS NULL`, so a marker
+ * always survives it. A document that did not exist when the batch locked
+ * (nothing to lock) can still be inserted — and marked — by a concurrent
+ * reviewed write that commits first: the guarded INSERT then waits on that
+ * row, its conditional update leaves it untouched, its section and relation
+ * statements are each conditional on `reviewed_at IS NULL` too (re-read per
+ * statement, so they see that commit), and a marker read after the batch,
+ * while this transaction holds every remaining row, reports the document as
+ * `skipped` rather than written. Without the guard any
+ * re-run — the deploy-time SEQ seed that POSTs a live-scraped Planning Act
+ * 2016 through the admin route, or a scheduled QLD run whose KEY_ACTS
+ * overlapped a reviewed document — replaced the human-reviewed sections with
+ * parser output; and without the locks a reviewed write landing between an
+ * unlocked pre-select on a pooled connection and the batch's own transaction
+ * was overwritten the same way (Cursor Bugbot on pact#78).
  */
 export async function replaceLegislationDocuments(
   db: DbClient,
   documents: readonly NormalizedLegislationDocument[],
+  options: LegislationIngestSource,
 ): Promise<LegislationIngestResult> {
   if (documents.length === 0) {
     throw new TypeError("replaceLegislationDocuments requires at least one normalized document");
   }
-
+  if (!options || !LEGISLATION_INGEST_SOURCES.has(options.source)) {
+    throw new TypeError(
+      "replaceLegislationDocuments requires an explicit source: reviewed, admin, scheduled or proposal",
+    );
+  }
+  const reviewed = options.source === "reviewed";
   const orderedDocuments = [...documents].sort((a, b) => compareCodePoints(a.id, b.id));
-  const statements: SqlStatement[] = [];
+  return withTransaction(db, (tx) => replaceLockedDocuments(tx, documents, orderedDocuments, reviewed));
+}
 
-  for (const document of orderedDocuments) {
-    statements.push({
-      sql: `INSERT INTO legislation_docs
-        (id, jurisdiction, doc_type, title, short_title, year, number, in_force_date,
-         last_amended_date, repealed_date, administered_by, legislation_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (id) DO UPDATE SET
-          jurisdiction = excluded.jurisdiction,
-          doc_type = excluded.doc_type,
-          title = excluded.title,
-          short_title = excluded.short_title,
-          year = excluded.year,
-          number = excluded.number,
-          in_force_date = excluded.in_force_date,
-          last_amended_date = excluded.last_amended_date,
-          repealed_date = excluded.repealed_date,
-          administered_by = excluded.administered_by,
-          legislation_url = excluded.legislation_url`,
-      args: [
-        document.id,
-        document.jurisdiction,
-        document.type,
-        document.title,
-        document.shortTitle,
-        document.year,
-        document.number,
-        document.inForceDate,
-        document.lastAmendedDate,
-        document.repealedDate,
-        document.administeredBy,
-        document.legislationUrl,
-      ],
-    });
+/** The statement stream of `replaceLegislationDocuments`, run on one transaction-scoped client. */
+async function replaceLockedDocuments(
+  tx: DbClient,
+  documents: readonly NormalizedLegislationDocument[],
+  orderedDocuments: readonly NormalizedLegislationDocument[],
+  reviewed: boolean,
+): Promise<LegislationIngestResult> {
+  const skipped: SkippedReviewedDocument[] = [];
+  const skippedIds = new Set<string>();
+  const skipMarked = (rows: Record<string, unknown>[]): void => {
+    for (const row of rows) {
+      if (row.reviewed_at === null || row.reviewed_at === undefined) continue;
+      const id = String(row.id);
+      if (skippedIds.has(id)) continue;
+      skippedIds.add(id);
+      skipped.push({ id, reviewedAt: isoTimestamp(row.reviewed_at) });
+    }
+  };
+
+  // 1. Lock every existing row of the batch, in one fixed order, and read the
+  //    marker from the locked rows: no other writer can change them before COMMIT.
+  const locked = await tx.execute({
+    sql: `SELECT id, reviewed_at FROM legislation_docs
+      WHERE id IN (${orderedDocuments.map(() => "?").join(", ")})
+      ORDER BY id COLLATE "C" ASC
+      FOR UPDATE`,
+    args: orderedDocuments.map((document) => document.id),
+  });
+  if (!reviewed) skipMarked(locked.rows);
+  let remaining = orderedDocuments.filter((document) => !skippedIds.has(document.id));
+  if (remaining.length === 0) {
+    return { ingested: 0, sectionsTotal: 0, documents: [], skipped };
   }
 
-  for (const document of orderedDocuments) {
-    statements.push({
-      sql: "DELETE FROM legislation_sections WHERE doc_id = ?",
-      args: [document.id],
-    });
+  // 2. One batch: document upserts in code-point order, then sections and
+  //    explicitly-owned relations. A guarded write's statements are each
+  //    conditional on `reviewed_at IS NULL`, re-read per statement, so a
+  //    document absent at step 1 (nothing to lock) that a concurrent reviewed
+  //    write inserted and marked before this INSERT reached the row — the
+  //    INSERT waits on that row — is left untouched all the way down.
+  const statements: SqlStatement[] = remaining.map((document) =>
+    reviewed ? reviewedUpsert(document) : guardedUpsert(document),
+  );
+
+  for (const document of remaining) {
+    statements.push(reviewed
+      ? { sql: "DELETE FROM legislation_sections WHERE doc_id = ?", args: [document.id] }
+      : {
+        sql: `DELETE FROM legislation_sections WHERE doc_id = ?
+          AND EXISTS (SELECT 1 FROM legislation_docs WHERE id = ? AND reviewed_at IS NULL)`,
+        args: [document.id, document.id],
+      });
     if (document.relatedDocs !== undefined) {
-      statements.push({
-        sql: "DELETE FROM legislation_relations WHERE from_doc_id = ? AND relation_type = 'subordinate'",
-        args: [document.id],
-      });
+      statements.push(reviewed
+        ? {
+          sql: "DELETE FROM legislation_relations WHERE from_doc_id = ? AND relation_type = 'subordinate'",
+          args: [document.id],
+        }
+        : {
+          sql: `DELETE FROM legislation_relations WHERE from_doc_id = ? AND relation_type = 'subordinate'
+            AND EXISTS (SELECT 1 FROM legislation_docs WHERE id = ? AND reviewed_at IS NULL)`,
+          args: [document.id, document.id],
+        });
     }
   }
 
-  for (const document of orderedDocuments) {
+  for (const document of remaining) {
     for (const section of document.sections) {
-      statements.push({
-        sql: `INSERT INTO legislation_sections
-          (id, doc_id, section_id, title, content, depth, parent_section, sort_order,
-           status, amended_by, cross_references, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          `${document.id}/${section.sectionId}`,
-          document.id,
-          section.sectionId,
-          section.title,
-          section.content,
-          section.depth,
-          section.parentSection,
-          section.order,
-          section.status,
-          section.amendedBy,
-          JSON.stringify(section.crossReferences),
-          section.notes,
-        ],
-      });
+      const values: unknown[] = [
+        `${document.id}/${section.sectionId}`,
+        document.id,
+        section.sectionId,
+        section.title,
+        section.content,
+        section.depth,
+        section.parentSection,
+        section.order,
+        section.status,
+        section.amendedBy,
+        JSON.stringify(section.crossReferences),
+        section.notes,
+      ];
+      statements.push(reviewed
+        ? {
+          sql: `INSERT INTO legislation_sections
+            (id, doc_id, section_id, title, content, depth, parent_section, sort_order,
+             status, amended_by, cross_references, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: values,
+        }
+        : {
+          sql: `INSERT INTO legislation_sections
+            (id, doc_id, section_id, title, content, depth, parent_section, sort_order,
+             status, amended_by, cross_references, notes)
+            SELECT ?::text, ?::text, ?::text, ?::text, ?::text, ?::integer, ?::text, ?::integer,
+                   ?::text, ?::text, ?::text, ?::text
+            FROM legislation_docs WHERE id = ? AND reviewed_at IS NULL`,
+          args: [...values, document.id],
+        });
     }
   }
 
-  for (const document of orderedDocuments) {
+  for (const document of remaining) {
     if (document.relatedDocs === undefined) continue;
     for (const relatedId of document.relatedDocs) {
-      statements.push({
-        sql: `INSERT INTO legislation_relations (id, from_doc_id, to_doc_id, relation_type)
-          VALUES (?, ?, ?, 'subordinate')`,
-        args: [randomUUID(), document.id, relatedId],
-      });
+      statements.push(reviewed
+        ? {
+          sql: `INSERT INTO legislation_relations (id, from_doc_id, to_doc_id, relation_type)
+            VALUES (?, ?, ?, 'subordinate')`,
+          args: [randomUUID(), document.id, relatedId],
+        }
+        : {
+          sql: `INSERT INTO legislation_relations (id, from_doc_id, to_doc_id, relation_type)
+            SELECT ?::text, ?::text, ?::text, 'subordinate'
+            FROM legislation_docs WHERE id = ? AND reviewed_at IS NULL`,
+          args: [randomUUID(), document.id, relatedId, document.id],
+        });
     }
   }
 
-  await db.batch(statements);
+  await tx.batch(statements);
 
+  // 3. Guarded writes only: report the documents step 2 left untouched. Every
+  //    remaining row is locked by this transaction now, so this read is final.
+  if (!reviewed) {
+    const late = await tx.execute({
+      sql: `SELECT id, reviewed_at FROM legislation_docs
+        WHERE id IN (${remaining.map(() => "?").join(", ")})
+          AND reviewed_at IS NOT NULL
+        ORDER BY id COLLATE "C" ASC`,
+      args: remaining.map((document) => document.id),
+    });
+    skipMarked(late.rows);
+    remaining = remaining.filter((document) => !skippedIds.has(document.id));
+  }
+
+  const written = documents.filter((document) => remaining.includes(document));
   return {
-    ingested: documents.length,
-    sectionsTotal: documents.reduce((total, document) => total + document.sections.length, 0),
-    documents: documents.map((document) => ({
+    ingested: written.length,
+    sectionsTotal: written.reduce((total, document) => total + document.sections.length, 0),
+    documents: written.map((document) => ({
       id: document.id,
       title: document.title,
       sectionsInserted: document.sections.length,
     })),
+    skipped,
   };
+}
+
+/** A `reviewed` write: replaces the metadata and (re-)stamps the marker. */
+function reviewedUpsert(document: NormalizedLegislationDocument): SqlStatement {
+  return {
+    sql: `INSERT INTO legislation_docs
+      (id, jurisdiction, doc_type, title, short_title, year, number, in_force_date,
+       last_amended_date, repealed_date, administered_by, legislation_url,
+       reviewed_at, review_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
+      ON CONFLICT (id) DO UPDATE SET
+        jurisdiction = excluded.jurisdiction,
+        doc_type = excluded.doc_type,
+        title = excluded.title,
+        short_title = excluded.short_title,
+        year = excluded.year,
+        number = excluded.number,
+        in_force_date = excluded.in_force_date,
+        last_amended_date = excluded.last_amended_date,
+        repealed_date = excluded.repealed_date,
+        administered_by = excluded.administered_by,
+        legislation_url = excluded.legislation_url,
+        reviewed_at = NOW(),
+        review_hash = excluded.review_hash`,
+    args: [...documentUpsertArgs(document), reviewHashForDocument(document)],
+  };
+}
+
+/**
+ * An `admin` / `scheduled` / `proposal` write: never assigns `reviewed_at` or
+ * `review_hash`, and leaves a row alone once a marker is on it — even one that
+ * landed after step 1 (a concurrent reviewed insert this INSERT waited on).
+ */
+function guardedUpsert(document: NormalizedLegislationDocument): SqlStatement {
+  return {
+    sql: `INSERT INTO legislation_docs
+      (id, jurisdiction, doc_type, title, short_title, year, number, in_force_date,
+       last_amended_date, repealed_date, administered_by, legislation_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (id) DO UPDATE SET
+        jurisdiction = excluded.jurisdiction,
+        doc_type = excluded.doc_type,
+        title = excluded.title,
+        short_title = excluded.short_title,
+        year = excluded.year,
+        number = excluded.number,
+        in_force_date = excluded.in_force_date,
+        last_amended_date = excluded.last_amended_date,
+        repealed_date = excluded.repealed_date,
+        administered_by = excluded.administered_by,
+        legislation_url = excluded.legislation_url
+      WHERE legislation_docs.reviewed_at IS NULL`,
+    args: documentUpsertArgs(document),
+  };
+}
+
+function documentUpsertArgs(document: NormalizedLegislationDocument): unknown[] {
+  return [
+    document.id,
+    document.jurisdiction,
+    document.type,
+    document.title,
+    document.shortTitle,
+    document.year,
+    document.number,
+    document.inForceDate,
+    document.lastAmendedDate,
+    document.repealedDate,
+    document.administeredBy,
+    document.legislationUrl,
+  ];
 }

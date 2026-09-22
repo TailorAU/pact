@@ -135,10 +135,13 @@ class RunnerTests(unittest.TestCase):
             post["headers"]["X-Admin-Key"],
             "super-secret-admin-key-0123456789abcdef",
         )
+        # tailor-group#35: the reviewed assertion rides only the POST.
+        self.assertEqual(post["headers"]["X-Ingest-Source"], "reviewed")
         self.assertEqual(post["response_cap"], MAX_POST_RESPONSE_BYTES)
         self.assertTrue(
             all(
                 "X-Admin-Key" not in call["headers"]
+                and "X-Ingest-Source" not in call["headers"]
                 for call in transport.calls
                 if call["method"] == "GET"
             )

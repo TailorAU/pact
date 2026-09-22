@@ -117,6 +117,72 @@ releases).
 
 ### Fixed
 
+- **A scheduled legislation sync can no longer overwrite a human-reviewed
+  document** (tailor-group#35). `replaceLegislationDocuments` upserts
+  `legislation_docs`, deletes the document's sections and re-inserts the
+  caller's, and nothing recorded which documents a person had reviewed — so
+  a scheduled QLD run whose `KEY_ACTS` overlapped a reviewed document (the
+  "Planning Act 2016 destroyed by a re-run" regression) replaced the reviewed
+  sections with parser output. `legislation_docs` gains `reviewed_at
+  TIMESTAMPTZ` and `review_hash TEXT` (SHA-256 hex of the normalized
+  document, computed server-side; equal to the canonical read's
+  `legislation-payload-v1` digest when `relatedDocs` is explicit), in
+  `sql/legislation-schema.sql` and as an idempotent boot-time augment
+  (`sql/legislation-reviewed-augment.sql`) so existing databases get the
+  columns. `replaceLegislationDocuments` and `ingestDocuments` now take an
+  explicit source with no default: the admin `X-Admin-Key` ingest route is
+  `reviewed` and stamps both columns on every document it writes; the CTH/QLD
+  parsers are `scheduled` and the PACT proposal finalizer is `proposal`, and
+  both exclude every marked document from every statement and return it as
+  `skipped`, which the syncs record as `Skipped <id>: reviewed document
+  (reviewed_at <iso>)` and count as parser anomalies (`docsUpdated` counts
+  only written documents). The whole write is one transaction on one
+  connection (`withTransaction`) that first locks the batch's existing rows
+  (`SELECT … FOR UPDATE`, one fixed order) and reads the marker from the
+  locked rows, so a concurrent reviewed write on the same documents
+  serialises behind it or ahead of it and is never overwritten (Cursor
+  Bugbot on pact#78: the earlier unlocked pre-select on a pooled connection
+  let a marker stamped between it and the batch be replaced). Their upsert
+  never assigns the marker columns and updates only while `reviewed_at IS
+  NULL`, their section and relation statements are conditional the same way,
+  and a marker read after the batch reports a document inserted and marked by
+  a concurrent reviewed write (nothing existed to lock) as `skipped` rather
+  than written. Real-Postgres canaries in
+  `src/lib/legislation-reviewed-guard.itest.ts` pin both races and the
+  mirrored one. A proposal whose one document was skipped still fails
+  closed: the topic opens for debate, never `consensus`. `reviewed` is an
+  assertion the caller makes, not a property of the route: the admin route
+  writes as `reviewed` only when the request carries
+  `X-Ingest-Source: reviewed`, which `scripts/run_reviewed_legislation_ingest.py`
+  sends after binding the payload to an exact entry of
+  `scripts/reviewed_legislation_builders.json`; an admin POST without it is
+  `admin`, guarded like `scheduled` (never stamps, skips marked ids, reports
+  them as `skipped` in its response), and any other header value is a 400.
+  That matters because the deploy-time seeds in `cd-kg.yml` hit the admin
+  route on every deploy, and `scripts/seed_seq_planning_regime.py` among them
+  live-scrapes `qld/act-2016-025` — the Planning Act 2016 the issue names,
+  which `KEY_ACTS` never touched: the actual re-run that destroyed it was the
+  deploy, and it now skips the document once a reviewed ingest has marked it.
+  The reviewed manifest is present at
+  `scripts/reviewed_legislation_builders.json` (12 reviewed ids: one QLD,
+  `qld/act-2016-025`, and 11 `cth/*`; the builder and batch files it pins
+  are not in this repository), with the dispatcher, runner and contract
+  beside it and tested by `pr-check.yml`. `KEY_ACTS` was compared against it
+  and overlaps nothing (its nine acts map to `qld/act-1999-039`, `-1999-040`,
+  `-2011-018`, `-1971-047`, `-1994-062`, `-2016-010`, `-1999-019`,
+  `-2003-013`, `-2007-016`); of the CTH entries only `cth/act-1999-050` has
+  an id the CTH sync can mint. Neither list overlaps a deploy-time seed, so
+  no weekly skip anomaly is expected today. `review_hash` uses the manifest's
+  recipe (compact JSON, sorted keys, UTF-8) and is intended to equal its
+  `normalizedPayloadSha256`, which the contract already calls `review_hash`;
+  equality could not be executed here because the pinned builders are
+  absent. `docs/REVIEWED_LEGISLATION_INGEST.md` carries a dated note on what
+  of the runbook is here and what was retired by tailor-app#5954. Unit
+  suites pin the skip (no DELETE/INSERT for the marked id, the other
+  documents written), the reviewed re-stamp, the untouched marker on a
+  scheduled or admin upsert, the unasserted admin POST that skips a marked
+  id, the exact reviewed envelope, the 400 on an unknown header and the
+  fail-closed proposal; the runner's tests pin that it sends the assertion.
 - **`GET /api/cron/legislation-sync` no longer dies in the proxy**
   (tailor-group#38). `pact.tailor.au` is served by the tailor-app frontend,
   which proxies every path to `pact-web` through a Next.js rewrite with a

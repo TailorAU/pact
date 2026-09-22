@@ -11,8 +11,13 @@
  * error and anomaly assertions see only the rejected document.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { DbClient } from "../db";
 
-vi.mock("../db", () => ({ getDb: async () => ({}) }));
+vi.mock("../db", () => ({
+  getDb: async () => ({}),
+  // A two-method mock has no transaction(): the real helper runs fn on it directly.
+  withTransaction: async <T,>(db: DbClient, fn: (tx: DbClient) => Promise<T>) => fn(db),
+}));
 
 import { syncQld } from "./qld-parser";
 

@@ -265,6 +265,7 @@ describe("finalizeApprovedTopic guard (#5425)", () => {
       ingested: 0,
       sectionsTotal: 0,
       rejected: [{ id: "doc-1", path: "documents[0].sections", message: "must be a non-empty array" }],
+      skipped: [],
     } as never);
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const { db, statements, statusById } = makeDb({ statusById: { t1: "proposed" } });
@@ -286,6 +287,42 @@ describe("finalizeApprovedTopic guard (#5425)", () => {
       expect.stringContaining("Legislation auto-ingest failed for topic t1"),
       expect.objectContaining({
         message: "Legislation proposal doc-1 rejected: documents[0].sections must be a non-empty array",
+      })
+    );
+    consoleError.mockRestore();
+  });
+
+  it("tailor-group#35: a legislation document the ingest SKIPS as reviewed opens the topic, never 'consensus', no ingested event", async () => {
+    // The proposal path declares itself and the ingest refuses to overwrite
+    // a document a reviewed ingest marked. Nothing was written, so the topic
+    // is not promoted — it opens for debate, exactly like a rejection.
+    ingestDocuments.mockResolvedValueOnce({
+      ingested: 0,
+      sectionsTotal: 0,
+      rejected: [],
+      skipped: [{ id: "doc-1", reviewedAt: "2026-09-20T01:02:03.000Z" }],
+    } as never);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { db, statements, statusById } = makeDb({ statusById: { t1: "proposed" } });
+
+    const outcome = await finalizeApprovedTopic(
+      db,
+      "t1",
+      "[Legislation Proposal] Planning Act 2016",
+      3,
+      3
+    );
+
+    expect(outcome).toBe("opened");
+    expect(statusById.t1).toBe("open");
+    expect(ingestDocuments).toHaveBeenCalledTimes(1);
+    expect((ingestDocuments.mock.calls[0] as unknown[])[2]).toEqual({ source: "proposal" });
+    expect(eventTypes(statements)).not.toContain("pact.legislation.ingested");
+    expect(eventTypes(statements)).toContain("pact.topic.approved");
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Legislation auto-ingest failed for topic t1"),
+      expect.objectContaining({
+        message: "Legislation proposal doc-1 skipped: reviewed document (reviewed_at 2026-09-20T01:02:03.000Z)",
       })
     );
     consoleError.mockRestore();

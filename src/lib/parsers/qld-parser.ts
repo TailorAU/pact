@@ -110,6 +110,21 @@ async function getLatestVersion(actId: string, token: string): Promise<QldDocume
   });
 }
 
+// tailor-group#35: reviewed against scripts/reviewed_legislation_builders.json
+// (12 reviewed ids: qld/act-2016-025, the Planning Act 2016, plus 11 cth/*).
+// None of the nine acts here is in it — they map to qld/act-1999-039,
+// -1999-040, -2011-018, -1971-047, -1994-062, -2016-010, -1999-019, -2003-013
+// and -2007-016 via the id scheme in syncQld — and none is written by a
+// deploy-time seed (.github/workflows/cd-kg.yml), so this sync raises no
+// "Skipped ... reviewed document" anomaly today. The document the issue names
+// is written by scripts/seed_seq_planning_regime.py on every deploy, not by
+// this list. What protects a reviewed document from any re-run is the guard in
+// `replaceLegislationDocuments` (src/lib/legislation-ingest.ts): a document
+// whose `legislation_docs` row carries `reviewed_at` is skipped by every writer
+// that has not asserted `X-Ingest-Source: reviewed`, reported here as
+// "Skipped <id>: reviewed document (reviewed_at <iso>)" and counted as a
+// parser anomaly, never overwritten. An act added here that is in the manifest
+// is skipped, not replaced.
 const KEY_ACTS = [
   "Act-1999-039",  // Coal Mining Safety and Health Act 1999
   "Act-1999-040",  // Mining and Quarrying Safety and Health Act 1999
@@ -317,7 +332,7 @@ export async function syncQld(db: DbClient): Promise<SyncResult> {
 
   if (docsToIngest.length > 0) {
     try {
-      recordIngestOutcome(result, await ingestDocuments(db, docsToIngest));
+      recordIngestOutcome(result, await ingestDocuments(db, docsToIngest, { source: "scheduled" }));
     } catch (e) {
       // Ingest batch failure — counts as a crash because the parser had
       // already produced output that's now lost.

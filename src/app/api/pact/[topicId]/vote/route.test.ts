@@ -209,7 +209,8 @@ describe("POST /api/pact/{topicId}/vote — quorum transition (#5277)", () => {
     // proposed document, the topic went to 'consensus' (never 'open'),
     // and pact.legislation.ingested was emitted.
     expect(ingestDocuments).toHaveBeenCalledTimes(1);
-    expect(ingestDocuments).toHaveBeenCalledWith(mockDb, [legislationPayload.document]);
+    // tailor-group#35 — the finalizer declares itself as the proposal source.
+    expect(ingestDocuments).toHaveBeenCalledWith(mockDb, [legislationPayload.document], { source: "proposal" });
 
     const updates = statusUpdates();
     expect(updates).toHaveLength(1);
@@ -228,6 +229,7 @@ describe("POST /api/pact/{topicId}/vote — quorum transition (#5277)", () => {
       ingested: 0,
       sectionsTotal: 0,
       rejected: [{ id: "qld/report-2026-moonside", path: "documents[0].sections[1].id", message: "must be unique within the document" }],
+      skipped: [],
     } as never);
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     armDb({

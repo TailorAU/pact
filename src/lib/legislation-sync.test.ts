@@ -32,6 +32,8 @@ const mockDb: MockDb = {
 
 vi.mock("./db", () => ({
   getDb: async () => mockDb as unknown as DbClient,
+  // A two-method mock has no transaction(): the real helper runs fn on it directly.
+  withTransaction: async <T,>(db: DbClient, fn: (tx: DbClient) => Promise<T>) => fn(db),
 }));
 
 const cthSpy = vi.fn<() => Promise<SyncResult>>();
@@ -234,7 +236,7 @@ describe("ingestDocuments — per-document isolation (tailor-group#37)", () => {
         { sectionId: "s 1", content: "Short title text", order: 0 },
         { sectionId: "s 2", content: "Commencement text", order: 1 },
       ]),
-    ]);
+    ], { source: "scheduled" });
 
     expect(outcome.ingested).toBe(2);
     expect(outcome.sectionsTotal).toBe(3);
@@ -257,12 +259,13 @@ describe("ingestDocuments — per-document isolation (tailor-group#37)", () => {
     const db = { execute: vi.fn(async () => ({ rows: [] })), batch } as unknown as DbClient;
     const { ingestDocuments } = await import("./legislation-sync");
 
-    const outcome = await ingestDocuments(db, [doc("cth/act-2026-082", [])]);
+    const outcome = await ingestDocuments(db, [doc("cth/act-2026-082", [])], { source: "scheduled" });
 
     expect(outcome).toEqual({
       ingested: 0,
       sectionsTotal: 0,
       rejected: [{ id: "cth/act-2026-082", path: "documents[0].sections", message: "must be a non-empty array" }],
+      skipped: [],
     });
     expect(batch).not.toHaveBeenCalled();
   });
@@ -275,7 +278,7 @@ describe("ingestDocuments — per-document isolation (tailor-group#37)", () => {
     const outcome = await ingestDocuments(db, [
       doc("cth/act-2026-081", [{ sectionId: "s 1", content: "Short title text" }]),
       doc(" cth/act-2026-081 ", [{ sectionId: "s 1", content: "Short title text" }]),
-    ]);
+    ], { source: "scheduled" });
 
     expect(outcome.ingested).toBe(1);
     expect(outcome.rejected).toEqual([{ id: "cth/act-2026-081", path: "id", message: "must be unique within the request" }]);
@@ -291,6 +294,7 @@ describe("ingestDocuments — per-document isolation (tailor-group#37)", () => {
       ingested: 2,
       sectionsTotal: 30,
       rejected: [{ id: "cth/act-2026-082", path: "documents[0].sections[5].sectionId", message: "must be unique within the document" }],
+      skipped: [],
     });
     expect(result).toMatchObject({
       docsUpdated: 3,
@@ -298,6 +302,64 @@ describe("ingestDocuments — per-document isolation (tailor-group#37)", () => {
       parserAnomalyCount: 2,
       parserCrashCount: 0,
       errors: ["earlier", "Rejected cth/act-2026-082: documents[0].sections[5].sectionId must be unique within the document"],
+    });
+  });
+});
+
+describe("ingestDocuments — reviewed-document guard (tailor-group#35)", () => {
+  const REVIEWED_AT = "2026-09-20T01:02:03.000Z";
+
+  function doc(id: string, content: string): LegislationDoc {
+    return { id, jurisdiction: "QLD", type: "act", title: `${id} (Qld)`, sections: [{ sectionId: "s 1", content }] };
+  }
+
+  it("a scheduled batch skips the marked document, writes the rest and surfaces the skip", async () => {
+    const batch = vi.fn<(statements: { sql: string; args: unknown[] }[]) => Promise<void>>(async () => undefined);
+    const execute = vi.fn(async (statement: string | { sql: string; args: unknown[] }) => {
+      const sql = typeof statement === "string" ? statement : statement.sql;
+      // The row-lock read that opens the write returns the marked row.
+      return sql.includes("FOR UPDATE")
+        ? { rows: [{ id: "qld/act-2016-025", reviewed_at: REVIEWED_AT }] }
+        : { rows: [] };
+    });
+    const db = { execute, batch } as unknown as DbClient;
+    const { ingestDocuments } = await import("./legislation-sync");
+
+    const outcome = await ingestDocuments(db, [
+      doc("qld/act-2016-025", "parser output for the reviewed Planning Act"),
+      doc("qld/act-1994-062", "Environmental Protection Act text"),
+    ], { source: "scheduled" });
+
+    expect(outcome).toEqual({
+      ingested: 1,
+      sectionsTotal: 1,
+      rejected: [],
+      skipped: [{ id: "qld/act-2016-025", reviewedAt: REVIEWED_AT }],
+    });
+    expect(batch).toHaveBeenCalledTimes(1);
+    const statements = batch.mock.calls[0][0];
+    expect(statements.some((s) => s.args.includes("qld/act-2016-025"))).toBe(false);
+    expect(statements.some((s) => s.sql.includes("DELETE FROM legislation_sections") && s.args[0] === "qld/act-1994-062")).toBe(true);
+  });
+
+  it("folds skips into the SyncResult: one error line and one anomaly each, docsUpdated unchanged", async () => {
+    const { recordIngestOutcome } = await import("./legislation-sync");
+    const result: SyncResult = {
+      jurisdiction: "QLD", docsChecked: 9, docsUpdated: 0, sectionsTotal: 0, errors: [],
+      parserVersion: "qld-parser@1.6.0", parserAnomalyCount: 0, parserCrashCount: 0,
+    };
+    recordIngestOutcome(result, {
+      ingested: 8,
+      sectionsTotal: 400,
+      rejected: [],
+      skipped: [{ id: "qld/act-2016-025", reviewedAt: REVIEWED_AT }],
+    });
+    expect(result).toMatchObject({
+      docsUpdated: 8,
+      sectionsTotal: 400,
+      parserAnomalyCount: 1,
+      parserCrashCount: 0,
+      errors: [`Skipped qld/act-2016-025: reviewed document (reviewed_at ${REVIEWED_AT})`],
     });
   });
 });

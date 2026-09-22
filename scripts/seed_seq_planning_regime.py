@@ -28,6 +28,11 @@ What this script does
    - Building Act 1975
    - Land Valuation Act 2010
 
+   The POST does not assert `X-Ingest-Source: reviewed`, so a statute that a
+   reviewed ingest has marked (`legislation_docs.reviewed_at`; the Planning
+   Act 2016 is in `scripts/reviewed_legislation_builders.json`) is skipped
+   and reported under `skipped`, never overwritten (tailor-group#35).
+
 2. **Institutional topics (12 documents as PACT topics)**
 
    Direct DB writes via `$DATABASE_URL` (same pattern as the
@@ -999,6 +1004,11 @@ def seed_legislation(base_url: str, admin_key: str) -> dict[str, Any]:
     for doc in data.get("documents", []):
         print(
             f"  ingested {doc['id']:30s}  {doc['sectionsInserted']:4d} sections"
+        )
+    for doc in data.get("skipped", []):
+        print(
+            f"  skipped  {doc['id']:30s}  reviewed document "
+            f"(reviewed_at {doc.get('reviewedAt')}), left untouched"
         )
     return {
         "ingested": data.get("ingested", 0),

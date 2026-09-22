@@ -28,6 +28,18 @@ name: "Cron — PACT Knowledge Graph Maintenance"
 # The consensus sweep does not wait for promotion: the server runs its own
 # in-process heartbeat (src/lib/consensus-heartbeat.ts) on the same engine
 # entry point, under the same Postgres advisory lock.
+#
+# The four long jobs — legislation-sync, spatial-snapshot, gtfs-sync,
+# fiscal-sync — take minutes, and pact.tailor.au sits behind a Next.js
+# rewrite proxy with a 30 s timeout, so their routes no longer run the work
+# inside the request (tailor-group#38): each starts it detached under its
+# own Postgres advisory lock, answers 202 at once, and records the outcome
+# in cron_job_runs; GET /api/cron/<job>/status reports it. The shared
+# trigger-then-poll loop lives in .github/actions/poll-cron-job (every job
+# below checks out only that directory to use it): it polls every 30 s to a
+# wall-clock deadline inside the job's timeout-minutes, fails at the first
+# poll that proves the run died, prints each job's own summary line(s), and
+# applies the job's `not-ok` policy to a completed run whose ok is false.
 
 on:
   push:
@@ -198,132 +210,27 @@ jobs:
       github.event.schedule == '0 6 * * 0' ||
       github.event_name == 'workflow_dispatch' && (inputs.job == 'legislation-sync' || inputs.job == 'all')
     steps:
-      # tailor-group#38 — the sync takes minutes and pact.tailor.au sits
-      # behind a Next.js rewrite proxy with a 30 s timeout, so the route no
-      # longer runs it inside the request: it starts the sync detached under
-      # a Postgres advisory lock and answers 202 at once. This step triggers,
-      # then polls /status every 30 s until the lock is free and every
-      # targeted jurisdiction's latest legislation_sync_log row is at least
-      # as new as the trigger and has a completedAt. The poll loop is a
-      # wall-clock deadline (bash $SECONDS, counted from the step's start),
-      # not an iteration count, so however long each poll takes it ends —
-      # with the header+body dump — inside timeout-minutes: 30. A run of ours
-      # that ends without completing fails at the first poll that sees it:
-      # the lock is free but our row never got a completedAt (the replica
-      # died mid-run), or there is no row of ours at all (the sync threw
-      # before writing one — cron.legislation-sync.failed in the app logs).
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
+      # tailor-group#38 — ok is false when any jurisdiction reported an
+      # error; that is a warning here, not a failure (one source erroring
+      # never failed this job), and the summary line prints each
+      # jurisdiction's FIRST error string so a credentials failure that
+      # leaves docsChecked=0 errors=1 is readable in the log, not just a
+      # count. Full per-jurisdiction rows: GET /api/cron/legislation-sync/status.
       - name: Run legislation sync cron and poll until it completes
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: |
-          BASE="${{ env.PACT_URL }}/api/cron/legislation-sync"
-          HEADERS="$RUNNER_TEMP/cron-response-headers.txt"
-          BODY="$RUNNER_TEMP/cron-response.json"
-          # Polling stops once $SECONDS (since the step started) passes this:
-          # 27 min. The last poll can begin up to one interval past it and take
-          # its own --max-time, still inside timeout-minutes: 30.
-          DEADLINE=1620
-          POLL_INTERVAL=30
-          dump() {
-            echo "Response headers:"
-            cat "$HEADERS" || true
-            echo "Response body (first 2000 bytes):"
-            head -c 2000 "$BODY" || true
-            echo
-          }
-          fail() {
-            dump
-            echo "::error::$1"
-            exit 1
-          }
-
-          # `|| STATUS=000`: on a transport failure (DNS, TLS, connect, timeout)
-          # curl exits non-zero and writes no status, and under the step's
-          # `bash -e` that would abort before the dump. 000 takes the
-          # ordinary non-2xx branch instead.
-          STATUS=$(curl -s -D "$HEADERS" -o "$BODY" -w '%{http_code}' --max-time 60 \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            "$BASE") || STATUS=000
-          echo "HTTP Status: $STATUS"
-          if [ "$STATUS" != "200" ] && [ "$STATUS" != "202" ]; then
-            fail "Legislation sync trigger failed with status $STATUS"
-          fi
-          if ! jq -e 'type == "object"' "$BODY" > /dev/null 2>&1; then
-            fail "Legislation sync trigger returned a body that is not a JSON object"
-          fi
-
-          if [ "$STATUS" = "200" ]; then
-            # The route ran synchronously (?wait=1 semantics): results are in the body.
-            if ! jq -e '.results | type == "array"' "$BODY" > /dev/null; then
-              fail "Legislation sync answered 200 without a results array"
-            fi
-            jq -r '.results[] | "\(.jurisdiction): docsChecked=\(.docsChecked) docsUpdated=\(.docsUpdated) sectionsTotal=\(.sectionsTotal) errors=\(.errors | length) crashes=\(.parserCrashCount) anomalies=\(.parserAnomalyCount)"' "$BODY"
-            exit 0
-          fi
-
-          if ! jq -e '(.started | type == "boolean") and (.jurisdictions | type == "array" and length > 0)' "$BODY" > /dev/null; then
-            fail "Legislation sync answered 202 without started/jurisdictions"
-          fi
-          TARGETS=$(jq -c '.jurisdictions' "$BODY")
-          if [ "$(jq -r '.started' "$BODY")" = "true" ]; then
-            SINCE=$(jq -r '.startedAt' "$BODY")
-            echo "Started job $(jq -r '.jobId' "$BODY") at $SINCE for $TARGETS"
-          else
-            SINCE=""
-            echo "::warning::A legislation sync was already running; waiting for it instead (its rows may predate this trigger)"
-          fi
-
-          POLL=0
-          while [ "$SECONDS" -lt "$DEADLINE" ]; do
-            sleep "$POLL_INTERVAL"
-            POLL=$((POLL + 1))
-            STATUS=$(curl -s -D "$HEADERS" -o "$BODY" -w '%{http_code}' --max-time 30 \
-              -H "Authorization: Bearer $CRON_SECRET" \
-              "$BASE/status") || STATUS=000
-            if [ "$STATUS" != "200" ]; then
-              fail "Legislation sync status poll $POLL failed with status $STATUS"
-            fi
-            if ! jq -e '(.running | type == "boolean") and (.runs | type == "array")' "$BODY" > /dev/null 2>&1; then
-              fail "Legislation sync status poll $POLL returned an invalid response"
-            fi
-            if jq -e --arg since "$SINCE" --argjson targets "$TARGETS" '
-              def ts: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
-              . as $doc
-              | ($doc.running == false)
-                and all($targets[]; . as $j
-                  | ([$doc.runs[] | select(.jurisdiction == $j)] | first // null) as $r
-                  | $r != null
-                    and ($r.startedAt != null)
-                    and $r.completedAt != null
-                    and ($since == "" or (($r.startedAt | ts) >= ($since | ts))))
-            ' "$BODY" > /dev/null; then
-              jq -r --argjson targets "$TARGETS" '
-                .runs[] | select(.jurisdiction as $j | $targets | index($j))
-                | "\(.jurisdiction): docsChecked=\(.docsChecked) docsUpdated=\(.docsUpdated) sectionsTotal=\(.sectionsTotal) errors=\(.errors | length) crashes=\(.parserCrashCount) anomalies=\(.parserAnomalyCount) silentZero=\(.silentZeroFlag) startedAt=\(.startedAt) completedAt=\(.completedAt)"
-              ' "$BODY"
-              exit 0
-            fi
-            if [ -n "$SINCE" ] && [ "$(jq -r '.running' "$BODY")" = "false" ]; then
-              # Our run no longer holds the lock yet did not complete. That is
-              # terminal — no later poll can change it — so fail now rather
-              # than at the deadline. A row of ours with no completedAt means
-              # the replica died mid-run; no row of ours at all means the sync
-              # threw before writing one.
-              DIED=$(jq -r --arg since "$SINCE" --argjson targets "$TARGETS" '
-                def ts: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
-                [ .runs[]
-                  | select(.jurisdiction as $j | $targets | index($j))
-                  | select(.startedAt != null and (.startedAt | ts) >= ($since | ts) and .completedAt == null)
-                  | .jurisdiction ] | first // empty
-              ' "$BODY")
-              if [ -n "$DIED" ]; then
-                fail "Legislation sync run died (lock released, $DIED row never completed)"
-              fi
-              fail "Legislation sync ended without a completed row newer than $SINCE for $TARGETS (see cron.legislation-sync.failed in the app logs)"
-            fi
-            echo "poll $POLL at ${SECONDS}s of ${DEADLINE}s: running=$(jq -r '.running' "$BODY"); waiting"
-          done
-          fail "Legislation sync did not complete within the polling deadline (${DEADLINE}s from the start of the step)"
+        uses: ./.github/actions/poll-cron-job
+        with:
+          job: legislation-sync
+          base-url: ${{ env.PACT_URL }}
+          cron-secret: ${{ secrets.CRON_SECRET }}
+          deadline-seconds: "1620"
+          not-ok: warn
+          summary-jq: |
+            (.lastRun.summary.jurisdictions // [])[]
+            | "\(.jurisdiction): docsChecked=\(.docsChecked) docsUpdated=\(.docsUpdated) sectionsTotal=\(.sectionsTotal) errors=\(.errorCount) crashes=\(.parserCrashCount) anomalies=\(.parserAnomalyCount) firstError=\((.firstError // "") | .[:160] | tojson)"
 
   spatial-snapshot:
     name: Logan ArcGIS Spatial Snapshot (daily 2am UTC) — Refs #874
@@ -334,34 +241,28 @@ jobs:
       github.event.schedule == '0 2 * * *' ||
       github.event_name == 'workflow_dispatch' && (inputs.job == 'spatial-snapshot' || inputs.job == 'all')
     steps:
-      - name: Run spatial snapshot cron
-        run: |
-          STATUS=$(curl -s -D "$RUNNER_TEMP/cron-response-headers.txt" -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 900 \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ env.PACT_URL }}/api/cron/spatial-snapshot")
-          echo "HTTP Status: $STATUS"
-          if [ "$STATUS" != "200" ]; then
-            echo "Response headers:"
-            cat "$RUNNER_TEMP/cron-response-headers.txt" || true
-            echo "Response body (first 2000 bytes):"
-            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
-            echo
-          fi
-          # Distinguish "we are unreachable" from "ArcGIS throttled a layer".
-          # A transport failure, a redirect, or a 4xx is OUR endpoint being
-          # wrong (tailor-app#5582). Upstream 5xx stays non-fatal, which is
-          # what the tolerance was always for.
-          if [ "$STATUS" = "000" ]; then
-            echo "::error::Spatial snapshot could not connect to our own endpoint."
-            exit 1
-          fi
-          if [ "$STATUS" -ge 300 ] && [ "$STATUS" -lt 500 ]; then
-            echo "::error::Spatial snapshot got $STATUS from our own endpoint — a redirect or client error, not an ArcGIS throttle."
-            exit 1
-          fi
-          if [ "$STATUS" != "200" ]; then
-            echo "::warning::Spatial snapshot returned $STATUS — layer errors are non-fatal (ArcGIS may throttle). Check logs."
-          fi
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
+      # Distinguish "we are unreachable" from "ArcGIS throttled a layer". A
+      # transport failure, a redirect, or a 4xx on the trigger is OUR
+      # endpoint being wrong (tailor-app#5582) and fails. Upstream trouble
+      # arrives through the summary: `warning` whenever any layer errored,
+      # ok:false only when every layer did — both stay non-fatal, which is
+      # what the tolerance was always for.
+      - name: Run spatial snapshot cron and poll until it completes
+        uses: ./.github/actions/poll-cron-job
+        with:
+          job: spatial-snapshot
+          base-url: ${{ env.PACT_URL }}
+          cron-secret: ${{ secrets.CRON_SECRET }}
+          deadline-seconds: "1620"
+          not-ok: warn
+          summary-jq: |
+            .lastRun.summary as $s
+            | "layers synced=\($s.layersSynced) errored=\($s.layersErrored) warning=\($s.warning // false)",
+              (($s.results // [])[] | "\(.layerName): \(.status) features=\(.featuresIngested) error=\((.errorDetail // "") | .[:160] | tojson)")
 
   gtfs-sync:
     name: Translink SEQ GTFS Sync (Monday 17:00 UTC = 3am AEST Tuesday) — Refs #875
@@ -372,23 +273,23 @@ jobs:
       github.event.schedule == '0 17 * * 1' ||
       github.event_name == 'workflow_dispatch' && (inputs.job == 'gtfs-sync' || inputs.job == 'all')
     steps:
-      - name: Run GTFS sync cron
-        run: |
-          STATUS=$(curl -s -D "$RUNNER_TEMP/cron-response-headers.txt" -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 1200 \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ env.PACT_URL }}/api/cron/gtfs-sync")
-          echo "HTTP Status: $STATUS"
-          if [ "$STATUS" != "200" ]; then
-            echo "Response headers:"
-            cat "$RUNNER_TEMP/cron-response-headers.txt" || true
-            echo "Response body (first 2000 bytes):"
-            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
-            echo
-          fi
-          if [ "$STATUS" != "200" ]; then
-            echo "::error::GTFS sync failed with status $STATUS"
-            exit 1
-          fi
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
+      # ok is false when the sync recorded an error (runGtfsSync catches a
+      # failed feed download into `errors` and still answers), which fails
+      # this job: a feed that did not load is not a successful sync.
+      - name: Run GTFS sync cron and poll until it completes
+        uses: ./.github/actions/poll-cron-job
+        with:
+          job: gtfs-sync
+          base-url: ${{ env.PACT_URL }}
+          cron-secret: ${{ secrets.CRON_SECRET }}
+          deadline-seconds: "1620"
+          summary-jq: |
+            .lastRun.summary
+            | "stops=\(.stopsIngested) routes=\(.routesIngested) trips=\(.tripsIngested) stopTimes=\(.stopTimesIngested) keyStations=\(.keyStations) errors=\(.errors // [] | length) firstError=\(((.errors // [])[0] // .error // "") | .[:160] | tojson)"
 
   auto-merge:
     name: Consensus Sweep (every 30 min) — Refs #5425
@@ -425,20 +326,20 @@ jobs:
       github.event.schedule == '0 18 * * *' ||
       github.event_name == 'workflow_dispatch' && (inputs.job == 'fiscal-sync' || inputs.job == 'all')
     steps:
-      - name: Run fiscal sync cron
-        run: |
-          STATUS=$(curl -s -D "$RUNNER_TEMP/cron-response-headers.txt" -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 900 \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ env.PACT_URL }}/api/cron/fiscal-sync")
-          echo "HTTP Status: $STATUS"
-          if [ "$STATUS" != "200" ]; then
-            echo "Response headers:"
-            cat "$RUNNER_TEMP/cron-response-headers.txt" || true
-            echo "Response body (first 2000 bytes):"
-            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
-            echo
-          fi
-          if [ "$STATUS" != "200" ]; then
-            echo "::error::Fiscal sync failed with status $STATUS"
-            exit 1
-          fi
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
+      # ok is `status !== "error"` — the same verdict the synchronous route
+      # used for its 500 (nothing written AND errors) — so this job fails on
+      # exactly what failed it before.
+      - name: Run fiscal sync cron and poll until it completes
+        uses: ./.github/actions/poll-cron-job
+        with:
+          job: fiscal-sync
+          base-url: ${{ env.PACT_URL }}
+          cron-secret: ${{ secrets.CRON_SECRET }}
+          deadline-seconds: "1620"
+          summary-jq: |
+            .lastRun.summary
+            | "\(.jurisdiction): status=\(.status) linesWritten=\(.linesWritten) forecastLinesWritten=\(.forecastLinesWritten) errorDetail=\((.errorDetail // .error // "") | .[:160] | tojson)"

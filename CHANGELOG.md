@@ -205,6 +205,58 @@ releases).
   the first poll that finds the lock released without such a row. The
   helper (`src/lib/detached-jobs.ts`) is generic so the other long jobs can
   follow. Unit suites for the helper and both routes.
+- **`gtfs-sync`, `fiscal-sync` and `spatial-snapshot` run detached too, and
+  every detached job's outcome is readable** (tailor-group#38). The same
+  30 s proxy timeout that killed the legislation sync killed these — the
+  GTFS feed download, the fiscal reconstruction and the Logan ArcGIS layer
+  fetches all run for minutes inside the request. Each route now starts its
+  work detached under its own advisory lock (`GTFS_SYNC_LOCK_KEY = 542503`,
+  `FISCAL_SYNC_LOCK_KEY = 542504`, `SPATIAL_SNAPSHOT_LOCK_KEY = 542505`, in
+  the `src/lib/db.ts` registry) and answers 202; `?wait=1` keeps each
+  route's synchronous response — including fiscal's 500 on `status: "error"`
+  and spatial's 500 when nothing synced — under the same lock. New
+  `cron_job_runs` (`sql/cron-job-runs.sql`, one row per job name, applied by
+  `initSchema`): `startDetachedJob` / `runJobInline` upsert the row on the
+  locked connection when a run starts, taking `startedAt` from the same
+  statement, and stamp `completed_at`, `ok` and a small JSON `summary` before
+  they unlock, so a lock seen free guarantees the stamp is visible; a job
+  that throws records `ok: false, summary: { error }`. Each job maps its
+  result to that verdict: legislation `ok` = no jurisdiction erred, with
+  every jurisdiction's counts and **first error string** in the summary
+  (the production run printed `QLD: docsChecked=0 … errors=1` and nothing
+  else — the error text was invisible); GTFS `ok` = no error recorded;
+  fiscal `ok` = `status !== "error"`; spatial `ok` false only when every
+  layer errored, plus `summary.warning` whenever any did, with each layer's
+  `errorDetail`. New `GET /api/cron/{gtfs-sync,fiscal-sync,spatial-snapshot}/status`
+  answer the one shape `{ running, lastRun: { jobId, startedAt, completedAt,
+  ok, summary }, runs? }` (`runs` = the job's own latest log rows where it
+  has a table; the snapshot has none); the legislation status route adds
+  `lastRun` to its per-jurisdiction `runs`. `cron.yml`'s four long jobs now
+  share one composite action, `.github/actions/poll-cron-job`: trigger, poll
+  `/status` every 30 s to a 27-minute deadline inside `timeout-minutes: 30`,
+  fail at the first poll that proves the run died, print the job's summary
+  line(s), and apply a per-job `not-ok` policy — `warn` for spatial (upstream
+  ArcGIS errors were always a warning) and legislation (one source erroring
+  never failed it; the first error string is now in the log), `fail` for
+  fiscal (its old 500) and GTFS (a feed that did not download used to pass
+  as a 200 with the error in the body; it fails now). Unit suites for the
+  helper's recording and status reads and for all eight routes;
+  `docs/CRON_INVENTORY.md` rows updated.
+- **The locked connection of a detached job can no longer be dropped
+  silently mid-run** (tailor-group#38). Every pooled connection now sets TCP
+  keepalive (`PG_POOL_OPTIONS` in `src/lib/db.ts`: `keepAlive: true`,
+  30 s initial delay — pg's default is off). The connection that holds a
+  detached job's advisory lock carries no traffic between the start row and
+  the completion stamp — the job's queries go through the pool — so for a
+  multi-minute GTFS, fiscal or spatial run it sat idle long enough for a
+  NAT or load balancer to drop it: Postgres kept the lock granted until its
+  own keepalive reaped the session, `/status` said `running: true` for a run
+  that had finished, the final UPDATE and unlock blocked on a dead socket,
+  and the workflow poller failed at its deadline. Now the socket is probed
+  every 30 s, and a peer that is really gone fails the socket so pg rejects
+  the pending statements and the unlock's throw destroys the connection
+  (its lock dies with it) instead of hanging. Pinned at pg's own seam by
+  `src/lib/db-pool-keepalive.test.ts`.
 - **The weekly CTH legislation sync never wrote a document** (tailor-group#37).
   After tailor-group#7 the parser reached the Acts (10 checked, 0 anomalies)
   and then every ingest batch failed with "Legislation payload validation

@@ -51,19 +51,28 @@ function request(query = "", authorization: string | null = "Bearer cron-test-se
 function armClient(acquired: boolean) {
   mockClient.query.mockImplementation(async (text: string) => {
     if (text.includes("pg_try_advisory_lock")) return { rows: [{ acquired }] };
-    if (text.includes("now()")) return { rows: [{ started_at: STARTED }] };
+    if (text.includes("INSERT INTO cron_job_runs")) return { rows: [{ started_at: STARTED }] };
+    if (text.includes("UPDATE cron_job_runs")) return { rows: [] };
     if (text.includes("pg_advisory_unlock")) return { rows: [] };
     throw new Error(`unexpected query: ${text}`);
   });
 }
 
-function syncResult(jurisdiction: string, docsUpdated = 0): SyncResult {
+/** The cron_job_runs completion stamp: `[job_id, ok, summary json]`. */
+function recordedCompletion(): { jobId: string; ok: boolean; summary: unknown } | null {
+  const call = mockClient.query.mock.calls.find(([text]) => text.includes("UPDATE cron_job_runs"));
+  if (!call) return null;
+  const [, values] = call;
+  return { jobId: String(values?.[0]), ok: values?.[1] as boolean, summary: JSON.parse(String(values?.[2])) };
+}
+
+function syncResult(jurisdiction: string, docsUpdated = 0, errors: string[] = []): SyncResult {
   return {
     jurisdiction,
     docsChecked: 3,
     docsUpdated,
     sectionsTotal: 12,
-    errors: [],
+    errors,
     parserVersion: "test",
     parserAnomalyCount: 0,
     parserCrashCount: 0,
@@ -161,10 +170,52 @@ describe("GET /api/cron/legislation-sync", () => {
     expect(runLegislationSync).toHaveBeenCalledTimes(1);
     expect(runLegislationSync).toHaveBeenCalledWith(["QLD", "CTH"]);
     expectLockedThenReleased();
+    expect(recordedCompletion()).toEqual({ jobId: expect.any(String), ok: true, summary: { jurisdictions: expect.any(Array) } });
     expect(logInfo).toHaveBeenCalledWith(
       expect.objectContaining({ op: "cron.legislation-sync.completed" }),
       expect.any(String)
     );
+  });
+
+  it("records ok:false with each jurisdiction's counts and FIRST error string when a jurisdiction reports errors", async () => {
+    armClient(true);
+    runLegislationSync.mockResolvedValue([
+      syncResult("CTH", 49, ["Rejected cth/act-2026-082: sections[3].id duplicate"]),
+      syncResult("QLD", 0, ["QLD credentials rejected: 401 Unauthorized", "second error"]),
+    ]);
+
+    await GET(request());
+    await flushImmediates();
+    await flushImmediates();
+
+    expect(recordedCompletion()).toEqual({
+      jobId: expect.any(String),
+      ok: false,
+      summary: {
+        jurisdictions: [
+          {
+            jurisdiction: "CTH",
+            docsChecked: 3,
+            docsUpdated: 49,
+            sectionsTotal: 12,
+            errorCount: 1,
+            firstError: "Rejected cth/act-2026-082: sections[3].id duplicate",
+            parserCrashCount: 0,
+            parserAnomalyCount: 0,
+          },
+          {
+            jurisdiction: "QLD",
+            docsChecked: 3,
+            docsUpdated: 0,
+            sectionsTotal: 12,
+            errorCount: 2,
+            firstError: "QLD credentials rejected: 401 Unauthorized",
+            parserCrashCount: 0,
+            parserAnomalyCount: 0,
+          },
+        ],
+      },
+    });
   });
 
   it("logs cron.legislation-sync.failed and releases the lock when the sync throws", async () => {
@@ -195,12 +246,15 @@ describe("GET /api/cron/legislation-sync", () => {
     expect(runLegislationSync).toHaveBeenCalledTimes(1);
     expect(runLegislationSync).toHaveBeenCalledWith(["CTH"]);
     // The sync ran INSIDE the lock: the lock query precedes the run, the unlock follows it.
-    const lockAt = mockClient.query.mock.invocationCallOrder[0];
+    const orderOf = (fragment: string) => {
+      const index = mockClient.query.mock.calls.findIndex(([text]) => text.includes(fragment));
+      return mockClient.query.mock.invocationCallOrder[index];
+    };
     const runAt = runLegislationSync.mock.invocationCallOrder[0];
-    const unlockAt = mockClient.query.mock.invocationCallOrder[1];
-    expect(lockAt).toBeLessThan(runAt);
-    expect(runAt).toBeLessThan(unlockAt);
+    expect(orderOf("pg_try_advisory_lock")).toBeLessThan(runAt);
+    expect(runAt).toBeLessThan(orderOf("pg_advisory_unlock"));
     expectLockedThenReleased();
+    expect(recordedCompletion()).toMatchObject({ ok: true });
   });
 
   it("?wait=1 answers 202 started:false and runs nothing while a sync holds the lock", async () => {
@@ -230,5 +284,6 @@ describe("GET /api/cron/legislation-sync", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({ error: "Legislation sync failed: boom" });
     expectLockedThenReleased();
+    expect(recordedCompletion()).toEqual({ jobId: expect.any(String), ok: false, summary: { error: "boom" } });
   });
 });

@@ -267,7 +267,12 @@ describe("atomic legislation persistence", () => {
     const result = await replaceLegislationDocuments(db, documents, REVIEWED);
 
     expect(batch).toHaveBeenCalledTimes(1);
-    expect(db.execute).not.toHaveBeenCalled();
+    // One row-lock read over the batch's ids before the batch; a reviewed write reads no marker after it.
+    expect(db.execute).toHaveBeenCalledTimes(1);
+    const lock = (db.execute as ReturnType<typeof vi.fn>).mock.calls[0][0] as Statement;
+    expect(lock.sql).toContain("FOR UPDATE");
+    expect(lock.sql).toContain('ORDER BY id COLLATE "C" ASC');
+    expect(lock.args).toEqual(["a/doc", "z/doc"]);
     const statements = batch.mock.calls[0][0];
     const upserts = statements.filter((statement) => statement.sql.includes("INSERT INTO legislation_docs"));
     expect(upserts.map((statement) => statement.args[0])).toEqual(["a/doc", "z/doc"]);
@@ -410,18 +415,50 @@ describe("atomic legislation persistence", () => {
 describe("reviewed-document guard (tailor-group#35)", () => {
   const REVIEWED_AT = "2026-09-20T01:02:03.000Z";
 
+  /**
+   * `marked` answers the row-lock read (`FOR UPDATE`) that opens every write;
+   * `late` answers the marker read a guarded write makes after its batch — a
+   * document that was inserted and marked by a concurrent reviewed write
+   * between the two (nothing existed to lock).
+   */
   function markedDb(
     marked: { id: string; reviewed_at: unknown }[],
     batch: DbClient["batch"] = async () => undefined,
+    late: { id: string; reviewed_at: unknown }[] = [],
   ): DbClient & { execute: ReturnType<typeof vi.fn> } {
     return {
       execute: vi.fn(async (statement: string | Statement) => {
         const sql = typeof statement === "string" ? statement : statement.sql;
-        if (sql.includes("reviewed_at IS NOT NULL")) return { rows: marked };
+        if (sql.includes("FOR UPDATE")) return { rows: marked };
+        if (sql.includes("reviewed_at IS NOT NULL")) return { rows: late };
         return { rows: [] };
       }),
       batch,
     };
+  }
+
+  /** Every statement of a guarded write is conditional on the row still being unmarked. */
+  function expectGuardedShapes(statements: Statement[]): void {
+    for (const s of statements) {
+      if (s.sql.includes("INSERT INTO legislation_docs")) {
+        expect(s.sql).toContain("WHERE legislation_docs.reviewed_at IS NULL");
+        expect(s.args).toHaveLength(12);
+      } else if (s.sql.includes("INSERT INTO legislation_sections")) {
+        expect(s.sql).toContain("FROM legislation_docs WHERE id = ? AND reviewed_at IS NULL");
+        expect(s.sql).not.toContain("VALUES");
+        expect(s.args).toHaveLength(13);
+        expect(s.args[12]).toBe(s.args[1]);
+      } else if (s.sql.includes("INSERT INTO legislation_relations")) {
+        expect(s.sql).toContain("FROM legislation_docs WHERE id = ? AND reviewed_at IS NULL");
+        expect(s.args).toHaveLength(4);
+        expect(s.args[3]).toBe(s.args[1]);
+      } else if (s.sql.includes("DELETE FROM legislation_sections") || s.sql.includes("DELETE FROM legislation_relations")) {
+        expect(s.sql).toContain("EXISTS (SELECT 1 FROM legislation_docs WHERE id = ? AND reviewed_at IS NULL)");
+        expect(s.args).toEqual([s.args[0], s.args[0]]);
+      } else {
+        throw new Error(`unexpected statement: ${s.sql}`);
+      }
+    }
   }
 
   /** The document id each statement acts on (section and relation inserts carry it second). */
@@ -442,16 +479,24 @@ describe("reviewed-document guard (tailor-group#35)", () => {
 
     const result = await replaceLegislationDocuments(db, documents, SCHEDULED);
 
-    // One pre-select over the batch's ids, before the batch.
-    expect(db.execute).toHaveBeenCalledTimes(1);
-    const select = db.execute.mock.calls[0][0] as Statement;
-    expect(select.sql).toContain("FROM legislation_docs");
-    expect(select.sql).toContain("reviewed_at IS NOT NULL");
-    expect(select.args).toEqual(["a/doc", "b/doc", "z/doc"]);
+    // One row-lock read over the batch's ids before the batch, one marker read
+    // over the written ids after it, both inside the same transaction.
+    expect(db.execute).toHaveBeenCalledTimes(2);
+    const lock = db.execute.mock.calls[0][0] as Statement;
+    expect(lock.sql).toContain("SELECT id, reviewed_at FROM legislation_docs");
+    expect(lock.sql).toContain('ORDER BY id COLLATE "C" ASC');
+    expect(lock.sql).toContain("FOR UPDATE");
+    expect(lock.args).toEqual(["a/doc", "b/doc", "z/doc"]);
+    const recheck = db.execute.mock.calls[1][0] as Statement;
+    expect(recheck.sql).toContain("reviewed_at IS NOT NULL");
+    expect(recheck.sql).not.toContain("FOR UPDATE");
+    expect(recheck.args).toEqual(["b/doc", "z/doc"]);
     expect(db.execute.mock.invocationCallOrder[0]).toBeLessThan(batch.mock.invocationCallOrder[0]);
+    expect(batch.mock.invocationCallOrder[0]).toBeLessThan(db.execute.mock.invocationCallOrder[1]);
 
     expect(batch).toHaveBeenCalledTimes(1);
     const statements = batch.mock.calls[0][0];
+    expectGuardedShapes(statements);
     // No upsert, no section DELETE/INSERT, no relation statement for the marked id.
     expect(idsTouched(statements)).toEqual(new Set(["b/doc", "z/doc"]));
     expect(statements.some((s) => s.args.includes("a/doc"))).toBe(false);
@@ -471,15 +516,68 @@ describe("reviewed-document guard (tailor-group#35)", () => {
     });
   });
 
-  it("the scheduled upsert never names reviewed_at / review_hash, so an existing marker survives", async () => {
+  it("the scheduled upsert never assigns reviewed_at / review_hash and only updates an unmarked row", async () => {
     const batch = vi.fn<(statements: Statement[]) => Promise<void>>(async () => undefined);
     await replaceLegislationDocuments(markedDb([], batch), [normalizeOne()], SCHEDULED);
 
     const upserts = batch.mock.calls[0][0].filter((s) => s.sql.includes("INSERT INTO legislation_docs"));
     expect(upserts).toHaveLength(1);
-    expect(upserts[0].sql).not.toContain("reviewed_at");
+    expect(upserts[0].sql).not.toMatch(/reviewed_at\s*=/);
+    expect(upserts[0].sql).not.toMatch(/reviewed_at,/);
     expect(upserts[0].sql).not.toContain("review_hash");
+    // A marker that lands after the lock read (a concurrent reviewed INSERT this
+    // upsert waited on) is honoured by the update itself, not just by the read.
+    expect(upserts[0].sql).toContain("WHERE legislation_docs.reviewed_at IS NULL");
     expect(upserts[0].args).toHaveLength(12);
+  });
+
+  it("a document marked between the lock read and the batch (a concurrent reviewed insert) is reported skipped, never written", async () => {
+    // Nothing existed to lock for a/doc; the reviewed write that inserted and
+    // marked it committed before this batch's INSERT reached the row. Every
+    // guarded statement is a no-op on a marked row, so the post-batch marker
+    // read is what turns the outcome into `skipped` instead of `ingested`.
+    const batch = vi.fn<(statements: Statement[]) => Promise<void>>(async () => undefined);
+    const db = markedDb([], batch, [{ id: "a/doc", reviewed_at: REVIEWED_AT }]);
+    const documents = normalizeLegislationDocuments([
+      document({ id: "a/doc", title: "Planning Act 2016", sections: [{ sectionId: "s 1", content: "parser output" }] }),
+      document({ id: "b/doc", title: "B document", relatedDocs: ["a/doc"] }),
+    ]);
+
+    const result = await replaceLegislationDocuments(db, documents, SCHEDULED);
+
+    expect(db.execute).toHaveBeenCalledTimes(2);
+    expect(batch).toHaveBeenCalledTimes(1);
+    const statements = batch.mock.calls[0][0];
+    expectGuardedShapes(statements);
+    // The statements for a/doc were issued (nothing was known at lock time) and
+    // are each conditional on `reviewed_at IS NULL`; the result does not count it.
+    expect(idsTouched(statements)).toEqual(new Set(["a/doc", "b/doc"]));
+    expect(result).toEqual({
+      ingested: 1,
+      sectionsTotal: 1,
+      documents: [{ id: "b/doc", title: "B document", sectionsInserted: 1 }],
+      skipped: [{ id: "a/doc", reviewedAt: REVIEWED_AT }],
+    });
+  });
+
+  it("runs the lock read, the batch and the marker read on one transaction when the client offers one", async () => {
+    const tx = markedDb([{ id: "a/doc", reviewed_at: REVIEWED_AT }]);
+    (tx as DbClient).inTransaction = true;
+    const outer = markedDb([]);
+    const transaction = vi.fn(async (fn: (client: DbClient) => Promise<unknown>) => fn(tx));
+    outer.transaction = transaction as unknown as DbClient["transaction"];
+    const documents = normalizeLegislationDocuments([
+      document({ id: "a/doc", title: "Planning Act 2016" }),
+      document({ id: "b/doc", title: "B document" }),
+    ]);
+
+    const result = await replaceLegislationDocuments(outer, documents, SCHEDULED);
+
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(outer.execute).not.toHaveBeenCalled();
+    expect(tx.execute).toHaveBeenCalledTimes(2);
+    expect(result.skipped).toEqual([{ id: "a/doc", reviewedAt: REVIEWED_AT }]);
+    expect(result.documents.map((d) => d.id)).toEqual(["b/doc"]);
   });
 
   it("the proposal source is guarded the same way", async () => {
@@ -510,13 +608,14 @@ describe("reviewed-document guard (tailor-group#35)", () => {
 
     const result = await replaceLegislationDocuments(db, documents, { source: "admin" });
 
-    expect(db.execute).toHaveBeenCalledTimes(1);
+    expect(db.execute).toHaveBeenCalledTimes(2);
     expect(batch).toHaveBeenCalledTimes(1);
     const statements = batch.mock.calls[0][0];
+    expectGuardedShapes(statements);
     expect(idsTouched(statements)).toEqual(new Set(["qld/reg-2017-078"]));
     const upserts = statements.filter((s) => s.sql.includes("INSERT INTO legislation_docs"));
     expect(upserts).toHaveLength(1);
-    expect(upserts[0].sql).not.toContain("reviewed_at");
+    expect(upserts[0].sql).not.toMatch(/reviewed_at\s*=/);
     expect(upserts[0].sql).not.toContain("review_hash");
     expect(result).toEqual({
       ingested: 1,
@@ -534,7 +633,7 @@ describe("reviewed-document guard (tailor-group#35)", () => {
     expect(result.skipped).toEqual([{ id: "qld/act-1999-039", reviewedAt: "2026-09-20T01:02:03.123Z" }]);
   });
 
-  it("a reviewed payload for the same id replaces the sections and re-stamps the marker without a pre-select", async () => {
+  it("a reviewed payload for the same id replaces the sections and re-stamps the marker without a marker read", async () => {
     const batch = vi.fn<(statements: Statement[]) => Promise<void>>(async () => undefined);
     const db = markedDb([{ id: "a/doc", reviewed_at: REVIEWED_AT }], batch);
     const [reviewedDocument] = normalizeLegislationDocuments([
@@ -543,7 +642,9 @@ describe("reviewed-document guard (tailor-group#35)", () => {
 
     const result = await replaceLegislationDocuments(db, [reviewedDocument], REVIEWED);
 
-    expect(db.execute).not.toHaveBeenCalled();
+    // The row-lock read only: the marker it returns is not a reason to skip a reviewed write.
+    expect(db.execute).toHaveBeenCalledTimes(1);
+    expect((db.execute.mock.calls[0][0] as Statement).sql).toContain("FOR UPDATE");
     expect(batch).toHaveBeenCalledTimes(1);
     const statements = batch.mock.calls[0][0];
     const upserts = statements.filter((s) => s.sql.includes("INSERT INTO legislation_docs"));

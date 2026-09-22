@@ -32,6 +32,8 @@ const mockDb: MockDb = {
 
 vi.mock("./db", () => ({
   getDb: async () => mockDb as unknown as DbClient,
+  // A two-method mock has no transaction(): the real helper runs fn on it directly.
+  withTransaction: async <T,>(db: DbClient, fn: (tx: DbClient) => Promise<T>) => fn(db),
 }));
 
 const cthSpy = vi.fn<() => Promise<SyncResult>>();
@@ -315,7 +317,8 @@ describe("ingestDocuments — reviewed-document guard (tailor-group#35)", () => 
     const batch = vi.fn<(statements: { sql: string; args: unknown[] }[]) => Promise<void>>(async () => undefined);
     const execute = vi.fn(async (statement: string | { sql: string; args: unknown[] }) => {
       const sql = typeof statement === "string" ? statement : statement.sql;
-      return sql.includes("reviewed_at IS NOT NULL")
+      // The row-lock read that opens the write returns the marked row.
+      return sql.includes("FOR UPDATE")
         ? { rows: [{ id: "qld/act-2016-025", reviewed_at: REVIEWED_AT }] }
         : { rows: [] };
     });

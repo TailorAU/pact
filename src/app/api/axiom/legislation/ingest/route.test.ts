@@ -14,6 +14,8 @@ const errorLogMock = vi.fn<(...args: unknown[]) => void>();
 
 vi.mock("@/lib/db", () => ({
   getDb: () => getDbMock(),
+  // A two-method mock has no transaction(): the real helper runs fn on it directly.
+  withTransaction: async <T,>(db: DbClient, fn: (tx: DbClient) => Promise<T>) => fn(db),
 }));
 
 vi.mock("@/lib/audit", () => ({
@@ -33,11 +35,11 @@ const REVIEWED_AT = "2026-09-20T01:02:03.000Z";
 /** Only scripts/run_reviewed_legislation_ingest.py sends this (tailor-group#35). */
 const REVIEWED_ASSERTION = { "x-ingest-source": "reviewed" };
 
-/** The pre-select an unasserted write makes; `marked` rows are skipped. */
+/** The row-lock read that opens every write; an unasserted write skips its `marked` rows. */
 function markedRows(marked: { id: string; reviewed_at: string }[]) {
   return async (statement: string | Statement): Promise<DbResult> => {
     const sql = typeof statement === "string" ? statement : statement.sql;
-    return { rows: sql.includes("reviewed_at IS NOT NULL") ? marked : [] };
+    return { rows: sql.includes("FOR UPDATE") ? marked : [] };
   };
 }
 
@@ -167,7 +169,8 @@ describe("POST /api/axiom/legislation/ingest", () => {
     expect(response.status).toBe(200);
     expect(mockDb.batch).toHaveBeenCalledTimes(1);
     // A reviewed write has no pre-select: it always replaces and re-stamps.
-    expect(mockDb.execute).not.toHaveBeenCalled();
+    // The row-lock read only: a reviewed write makes no marker read after its batch.
+    expect(mockDb.execute).toHaveBeenCalledTimes(1);
     const upserts = mockDb.batch.mock.calls[0][0]
       .filter((statement) => statement.sql.includes("INSERT INTO legislation_docs"));
     expect(upserts).toHaveLength(1);
@@ -203,15 +206,17 @@ describe("POST /api/axiom/legislation/ingest", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(mockDb.execute).toHaveBeenCalledTimes(1);
+    // The row-lock read before the batch and the marker read after it.
+    expect(mockDb.execute).toHaveBeenCalledTimes(2);
     expect(mockDb.batch).toHaveBeenCalledTimes(1);
     const statements = mockDb.batch.mock.calls[0][0];
     expect(statements.some((statement) => statement.args.includes("qld/act-2016-025"))).toBe(false);
     const upserts = statements.filter((statement) => statement.sql.includes("INSERT INTO legislation_docs"));
     expect(upserts).toHaveLength(1);
     expect(upserts[0].args[0]).toBe("qld/reg-2017-078");
-    expect(upserts[0].sql).not.toContain("reviewed_at");
+    expect(upserts[0].sql).not.toMatch(/reviewed_at\s*=/);
     expect(upserts[0].sql).not.toContain("review_hash");
+    expect(upserts[0].sql).toContain("WHERE legislation_docs.reviewed_at IS NULL");
     expect(recordAuditMock.mock.calls[0][0]).toMatchObject({
       after: {
         source: "admin",

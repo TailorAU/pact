@@ -25,7 +25,10 @@
 > a marked document, and neither do the scheduled CTH/QLD syncs
 > (`{ source: "scheduled" }`) nor the PACT proposal finalizer
 > (`{ source: "proposal" }`): a marked document is excluded from every
-> statement and reported as `skipped` (the syncs log
+> statement and reported as `skipped`. Every write is one transaction that
+> locks the batch's existing rows (`FOR UPDATE`) before reading the marker,
+> so a reviewed ingest and an unasserted write on the same document
+> serialise rather than interleave (the syncs log
 > `Skipped <id>: reviewed document (reviewed_at <iso>)` and count a parser
 > anomaly; a proposal whose one document was skipped opens the topic for
 > debate instead of promoting it). Only a later reviewed ingest replaces and

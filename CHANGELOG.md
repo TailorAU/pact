@@ -133,12 +133,23 @@ releases).
   explicit source with no default: the admin `X-Admin-Key` ingest route is
   `reviewed` and stamps both columns on every document it writes; the CTH/QLD
   parsers are `scheduled` and the PACT proposal finalizer is `proposal`, and
-  both select the batch's ids whose `reviewed_at IS NOT NULL` before writing,
-  exclude them from every statement and return them as `skipped`, which the
-  syncs record as `Skipped <id>: reviewed document (reviewed_at <iso>)` and
-  count as parser anomalies (`docsUpdated` counts only written documents).
-  Their upsert never names the marker columns, so an existing marker survives
-  a scheduled update. A proposal whose one document was skipped still fails
+  both exclude every marked document from every statement and return it as
+  `skipped`, which the syncs record as `Skipped <id>: reviewed document
+  (reviewed_at <iso>)` and count as parser anomalies (`docsUpdated` counts
+  only written documents). The whole write is one transaction on one
+  connection (`withTransaction`) that first locks the batch's existing rows
+  (`SELECT … FOR UPDATE`, one fixed order) and reads the marker from the
+  locked rows, so a concurrent reviewed write on the same documents
+  serialises behind it or ahead of it and is never overwritten (Cursor
+  Bugbot on pact#78: the earlier unlocked pre-select on a pooled connection
+  let a marker stamped between it and the batch be replaced). Their upsert
+  never assigns the marker columns and updates only while `reviewed_at IS
+  NULL`, their section and relation statements are conditional the same way,
+  and a marker read after the batch reports a document inserted and marked by
+  a concurrent reviewed write (nothing existed to lock) as `skipped` rather
+  than written. Real-Postgres canaries in
+  `src/lib/legislation-reviewed-guard.itest.ts` pin both races and the
+  mirrored one. A proposal whose one document was skipped still fails
   closed: the topic opens for debate, never `consensus`. `reviewed` is an
   assertion the caller makes, not a property of the route: the admin route
   writes as `reviewed` only when the request carries

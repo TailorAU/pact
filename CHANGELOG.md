@@ -257,6 +257,16 @@ releases).
   the pending statements and the unlock's throw destroys the connection
   (its lock dies with it) instead of hanging. Pinned at pg's own seam by
   `src/lib/db-pool-keepalive.test.ts`.
+- **A fresh database could not run the spatial-snapshot cron**
+  (tailor-group#38 verification). `sql/874-spatial-snapshot-schema.sql`
+  was written to be run once against production and was never loaded by
+  `initSchema`, so every other database (the kg-integration service
+  container, a local dev database) failed each layer with `relation
+  "spatial_snapshot_layer" does not exist`. The file is now bootstrapped
+  like the other schema files (idempotent DDL: `CREATE TABLE IF NOT EXISTS`,
+  `COMMENT ON`, `CREATE INDEX IF NOT EXISTS`); a real-Postgres canary
+  (`src/lib/spatial-schema-bootstrap.itest.ts`) pins the three tables and a
+  second bootstrap being a no-op.
 - **The weekly CTH legislation sync never wrote a document** (tailor-group#37).
   After tailor-group#7 the parser reached the Acts (10 checked, 0 anomalies)
   and then every ingest batch failed with "Legislation payload validation

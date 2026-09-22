@@ -48,14 +48,43 @@ import { log } from "@/lib/logger";
 //
 // Auth: Requires admin secret in X-Admin-Key header (env: ADMIN_SECRET)
 //
-// This is the reviewed path (tailor-group#35): every document it writes is
-// stamped `legislation_docs.reviewed_at = NOW()` and `review_hash` (SHA-256 of
-// the normalized document), and the scheduled CTH/QLD syncs and the PACT
-// proposal finalizer never overwrite a document that carries that marker.
+// Reviewed-document guard (tailor-group#35). A request that also asserts
+// `X-Ingest-Source: reviewed` — only scripts/run_reviewed_legislation_ingest.py
+// sends it, after binding the payload to an exact entry of
+// scripts/reviewed_legislation_builders.json — writes as `reviewed`: every
+// document it writes is stamped `legislation_docs.reviewed_at = NOW()` and
+// `review_hash` (SHA-256 of the normalized document). Any other admin POST —
+// the deploy-time seeds in .github/workflows/cd-kg.yml, including the
+// live-scraped Planning Act 2016 from scripts/seed_seq_planning_regime.py —
+// writes as `admin`: it never stamps, skips every document that carries the
+// marker and lists them as `skipped` in its response. The scheduled CTH/QLD
+// syncs and the PACT proposal finalizer are guarded the same way. A header
+// value other than "reviewed" is a 400 before any database work.
+const INGEST_SOURCE_HEADER = "x-ingest-source";
+
+function ingestSourceFromHeader(
+  value: string | null,
+): { source: "reviewed" } | { source: "admin" } | null {
+  if (value === null) return { source: "admin" };
+  if (value.trim() === "reviewed") return { source: "reviewed" };
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   // Admin auth — shared timing-safe middleware (#2881)
   const denied = requireAdmin(req);
   if (denied) return denied;
+
+  const source = ingestSourceFromHeader(req.headers.get(INGEST_SOURCE_HEADER));
+  if (source === null) {
+    return NextResponse.json(
+      {
+        error: "invalid_ingest_source",
+        message: 'X-Ingest-Source, when present, must be "reviewed".',
+      },
+      { status: 400 },
+    );
+  }
 
   const bounded = await readBodyBounded(req, ADMIN_INGEST_MAX_BODY_BYTES);
   if (!bounded.ok) return bounded.response;
@@ -94,7 +123,7 @@ export async function POST(req: NextRequest) {
   let result: Awaited<ReturnType<typeof replaceLegislationDocuments>>;
   try {
     db = await getDb();
-    result = await replaceLegislationDocuments(db, documents, { source: "reviewed" });
+    result = await replaceLegislationDocuments(db, documents, source);
   } catch (error) {
     const databaseCode = typeof error === "object" && error !== null && "code" in error
       ? String(error.code)
@@ -128,17 +157,26 @@ export async function POST(req: NextRequest) {
     entityId: result.documents[0]?.id ?? null,
     before: null,
     after: {
+      source: source.source,
       documentCount: result.ingested,
       totalSections: result.sectionsTotal,
       documentIds: result.documents.map((document) => document.id),
+      skippedDocumentIds: result.skipped.map((document) => document.id),
     },
     requestId: req.headers.get("x-request-id"),
     ipCountry: ipCountryFromHeaders(req.headers),
   }, db);
 
+  // The reviewed envelope stays exactly { ingested, documents, message }:
+  // scripts/run_reviewed_legislation_ingest.py rejects any other key set, and
+  // a reviewed write never skips. An admin write always reports `skipped`.
+  const skippedSuffix = result.skipped.length > 0
+    ? ` Skipped ${result.skipped.length} reviewed document(s).`
+    : "";
   return NextResponse.json({
     ingested: result.ingested,
     documents: result.documents,
-    message: `Successfully ingested ${result.ingested} legislation document(s) with ${result.sectionsTotal} total sections.`,
+    ...(source.source === "admin" ? { skipped: result.skipped } : {}),
+    message: `Successfully ingested ${result.ingested} legislation document(s) with ${result.sectionsTotal} total sections.${skippedSuffix}`,
   });
 }

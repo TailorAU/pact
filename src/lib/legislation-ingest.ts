@@ -152,17 +152,29 @@ export class LegislationValidationError extends Error {
 
 /**
  * Who is writing (tailor-group#35). Every caller declares itself; there is no
- * default. Only `reviewed` (the admin `X-Admin-Key` ingest route) stamps
- * `legislation_docs.reviewed_at` / `review_hash`; `scheduled` (the CTH/QLD
- * parsers) and `proposal` (the PACT proposal finalizer) never touch those
- * columns and never overwrite a document that carries the marker.
+ * default. Only `reviewed` stamps `legislation_docs.reviewed_at` /
+ * `review_hash`: the admin `X-Admin-Key` ingest route maps to it only when the
+ * request asserts `X-Ingest-Source: reviewed`, which
+ * scripts/run_reviewed_legislation_ingest.py sends after binding the payload
+ * to scripts/reviewed_legislation_builders.json. An admin POST without that
+ * assertion — the deploy-time seeds in .github/workflows/cd-kg.yml, one of
+ * which live-scrapes the Planning Act 2016 — is `admin`; `scheduled` is the
+ * CTH/QLD parsers and `proposal` the PACT proposal finalizer. Those three
+ * never touch the marker columns and never overwrite a document that carries
+ * the marker.
  */
 export type LegislationIngestSource =
   | { source: "reviewed" }
+  | { source: "admin" }
   | { source: "scheduled" }
   | { source: "proposal" };
 
-const LEGISLATION_INGEST_SOURCES: ReadonlySet<string> = new Set(["reviewed", "scheduled", "proposal"]);
+const LEGISLATION_INGEST_SOURCES: ReadonlySet<string> = new Set([
+  "reviewed",
+  "admin",
+  "scheduled",
+  "proposal",
+]);
 
 /** A document left untouched because a reviewed ingest marked it. */
 export interface SkippedReviewedDocument {
@@ -748,14 +760,15 @@ export function normalizeLegislationDocuments(input: unknown): NormalizedLegisla
  * relations are then replaced inside the same `DbClient.batch` transaction.
  *
  * Reviewed-document guard (tailor-group#35): a `reviewed` write stamps
- * `reviewed_at = NOW()` and `review_hash` on every document it writes. A
- * `scheduled` or `proposal` write first selects the batch's ids whose
+ * `reviewed_at = NOW()` and `review_hash` on every document it writes. An
+ * `admin`, `scheduled` or `proposal` write first selects the batch's ids whose
  * `reviewed_at IS NOT NULL`, excludes them from every statement (no upsert,
  * no section delete/insert, no relation change) and reports them in
  * `skipped`; its upsert never names the two marker columns, so the
- * ON CONFLICT update preserves an existing marker. Without this a scheduled
- * QLD run whose KEY_ACTS overlapped a reviewed document replaced the
- * human-reviewed sections with parser output.
+ * ON CONFLICT update preserves an existing marker. Without this any re-run —
+ * the deploy-time SEQ seed that POSTs a live-scraped Planning Act 2016 through
+ * the admin route, or a scheduled QLD run whose KEY_ACTS overlapped a reviewed
+ * document — replaced the human-reviewed sections with parser output.
  */
 export async function replaceLegislationDocuments(
   db: DbClient,
@@ -767,7 +780,7 @@ export async function replaceLegislationDocuments(
   }
   if (!options || !LEGISLATION_INGEST_SOURCES.has(options.source)) {
     throw new TypeError(
-      "replaceLegislationDocuments requires an explicit source: reviewed, scheduled or proposal",
+      "replaceLegislationDocuments requires an explicit source: reviewed, admin, scheduled or proposal",
     );
   }
   const reviewed = options.source === "reviewed";

@@ -498,6 +498,34 @@ describe("reviewed-document guard (tailor-group#35)", () => {
     });
   });
 
+  it("an admin write without the reviewed assertion is guarded the same way and never stamps", async () => {
+    // The deploy-time SEQ seed (scripts/seed_seq_planning_regime.py) POSTs a
+    // live-scraped Planning Act 2016 through the admin route on every deploy.
+    const batch = vi.fn<(statements: Statement[]) => Promise<void>>(async () => undefined);
+    const db = markedDb([{ id: "qld/act-2016-025", reviewed_at: REVIEWED_AT }], batch);
+    const documents = normalizeLegislationDocuments([
+      document({ id: "qld/act-2016-025", title: "Planning Act 2016 (Qld)", sections: [{ sectionId: "s 1", content: "scraped chunk" }] }),
+      document({ id: "qld/reg-2017-078", type: "regulation", title: "Planning Regulation 2017 (Qld)" }),
+    ]);
+
+    const result = await replaceLegislationDocuments(db, documents, { source: "admin" });
+
+    expect(db.execute).toHaveBeenCalledTimes(1);
+    expect(batch).toHaveBeenCalledTimes(1);
+    const statements = batch.mock.calls[0][0];
+    expect(idsTouched(statements)).toEqual(new Set(["qld/reg-2017-078"]));
+    const upserts = statements.filter((s) => s.sql.includes("INSERT INTO legislation_docs"));
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].sql).not.toContain("reviewed_at");
+    expect(upserts[0].sql).not.toContain("review_hash");
+    expect(result).toEqual({
+      ingested: 1,
+      sectionsTotal: 1,
+      documents: [{ id: "qld/reg-2017-078", title: "Planning Regulation 2017 (Qld)", sectionsInserted: 1 }],
+      skipped: [{ id: "qld/act-2016-025", reviewedAt: REVIEWED_AT }],
+    });
+  });
+
   it("normalizes the stored reviewed_at to ISO-8601 UTC for the skip report", async () => {
     const db = markedDb([
       { id: "qld/act-1999-039", reviewed_at: "2026-09-20 11:02:03.123456+10" },

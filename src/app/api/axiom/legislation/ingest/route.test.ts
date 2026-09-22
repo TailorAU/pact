@@ -28,6 +28,18 @@ vi.mock("@/lib/logger", () => ({
 import { POST } from "./route";
 
 const originalAdminSecret = process.env.ADMIN_SECRET;
+const REVIEWED_AT = "2026-09-20T01:02:03.000Z";
+
+/** Only scripts/run_reviewed_legislation_ingest.py sends this (tailor-group#35). */
+const REVIEWED_ASSERTION = { "x-ingest-source": "reviewed" };
+
+/** The pre-select an unasserted write makes; `marked` rows are skipped. */
+function markedRows(marked: { id: string; reviewed_at: string }[]) {
+  return async (statement: string | Statement): Promise<DbResult> => {
+    const sql = typeof statement === "string" ? statement : statement.sql;
+    return { rows: sql.includes("reviewed_at IS NOT NULL") ? marked : [] };
+  };
+}
 
 function validDocument(overrides: Record<string, unknown> = {}) {
   return {
@@ -62,7 +74,7 @@ async function postJson(body: unknown, options?: Parameters<typeof request>[1]) 
 
 beforeEach(() => {
   process.env.ADMIN_SECRET = "test-admin-secret";
-  mockDb.execute.mockReset();
+  mockDb.execute.mockReset().mockImplementation(markedRows([]));
   mockDb.batch.mockReset().mockResolvedValue(undefined);
   getDbMock.mockReset().mockResolvedValue(mockDb as unknown as DbClient);
   recordAuditMock.mockReset().mockResolvedValue(undefined);
@@ -140,7 +152,7 @@ describe("POST /api/axiom/legislation/ingest", () => {
     expect(mockDb.batch).not.toHaveBeenCalled();
   });
 
-  it("commits one batch, audits it, and preserves the existing response envelope", async () => {
+  it("commits one reviewed batch, audits it, and preserves the runner's exact response envelope", async () => {
     const response = await postJson({
       documents: [validDocument({
         title: "  Judicial Review Act 1991  ",
@@ -150,13 +162,23 @@ describe("POST /api/axiom/legislation/ingest", () => {
           { sectionId: "s 1", content: "First", order: 1 },
         ],
       })],
-    });
+    }, { headers: REVIEWED_ASSERTION });
 
     expect(response.status).toBe(200);
     expect(mockDb.batch).toHaveBeenCalledTimes(1);
+    // A reviewed write has no pre-select: it always replaces and re-stamps.
     expect(mockDb.execute).not.toHaveBeenCalled();
+    const upserts = mockDb.batch.mock.calls[0][0]
+      .filter((statement) => statement.sql.includes("INSERT INTO legislation_docs"));
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].sql).toContain("reviewed_at = NOW()");
+    expect(upserts[0].sql).toContain("review_hash = excluded.review_hash");
     expect(recordAuditMock).toHaveBeenCalledTimes(1);
     expect(recordAuditMock.mock.calls[0][1]).toBe(mockDb);
+    expect(recordAuditMock.mock.calls[0][0]).toMatchObject({
+      after: { source: "reviewed", skippedDocumentIds: [] },
+    });
+    // scripts/run_reviewed_legislation_ingest.py rejects any other key set.
     expect(await response.json()).toEqual({
       ingested: 1,
       documents: [{
@@ -166,6 +188,74 @@ describe("POST /api/axiom/legislation/ingest", () => {
       }],
       message: "Successfully ingested 1 legislation document(s) with 2 total sections.",
     });
+  });
+
+  it("an admin POST without the reviewed assertion never stamps and skips a marked document", async () => {
+    // What the deploy-time SEQ seed does on every deploy (cd-kg.yml): the
+    // Planning Act 2016 it scrapes is the manifest-reviewed qld/act-2016-025.
+    mockDb.execute.mockImplementation(markedRows([{ id: "qld/act-2016-025", reviewed_at: REVIEWED_AT }]));
+
+    const response = await postJson({
+      documents: [
+        validDocument({ id: "qld/act-2016-025", title: "Planning Act 2016 (Qld)", sections: [{ sectionId: "s 1", content: "scraped chunk" }] }),
+        validDocument({ id: "qld/reg-2017-078", type: "regulation", title: "Planning Regulation 2017 (Qld)" }),
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockDb.execute).toHaveBeenCalledTimes(1);
+    expect(mockDb.batch).toHaveBeenCalledTimes(1);
+    const statements = mockDb.batch.mock.calls[0][0];
+    expect(statements.some((statement) => statement.args.includes("qld/act-2016-025"))).toBe(false);
+    const upserts = statements.filter((statement) => statement.sql.includes("INSERT INTO legislation_docs"));
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].args[0]).toBe("qld/reg-2017-078");
+    expect(upserts[0].sql).not.toContain("reviewed_at");
+    expect(upserts[0].sql).not.toContain("review_hash");
+    expect(recordAuditMock.mock.calls[0][0]).toMatchObject({
+      after: {
+        source: "admin",
+        documentIds: ["qld/reg-2017-078"],
+        skippedDocumentIds: ["qld/act-2016-025"],
+      },
+    });
+    expect(await response.json()).toEqual({
+      ingested: 1,
+      documents: [{ id: "qld/reg-2017-078", title: "Planning Regulation 2017 (Qld)", sectionsInserted: 1 }],
+      skipped: [{ id: "qld/act-2016-025", reviewedAt: REVIEWED_AT }],
+      message: "Successfully ingested 1 legislation document(s) with 1 total sections. Skipped 1 reviewed document(s).",
+    });
+  });
+
+  it("an admin POST whose every document is marked writes nothing and says so", async () => {
+    mockDb.execute.mockImplementation(markedRows([{ id: "qld/act-2016-025", reviewed_at: REVIEWED_AT }]));
+
+    const response = await postJson({
+      documents: [validDocument({ id: "qld/act-2016-025", title: "Planning Act 2016 (Qld)" })],
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockDb.batch).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual({
+      ingested: 0,
+      documents: [],
+      skipped: [{ id: "qld/act-2016-025", reviewedAt: REVIEWED_AT }],
+      message: "Successfully ingested 0 legislation document(s) with 0 total sections. Skipped 1 reviewed document(s).",
+    });
+  });
+
+  it("rejects an unknown X-Ingest-Source before reading the body or acquiring the database", async () => {
+    const response = await postJson(
+      { documents: [validDocument()] },
+      { headers: { "x-ingest-source": "seed" } },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "invalid_ingest_source",
+      message: 'X-Ingest-Source, when present, must be "reviewed".',
+    });
+    expect(getDbMock).not.toHaveBeenCalled();
   });
 
   it("preserves request order in the response and audit while sorting transaction locks", async () => {

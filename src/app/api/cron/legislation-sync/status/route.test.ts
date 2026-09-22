@@ -1,7 +1,8 @@
 /**
  * tailor-group#38 — GET /api/cron/legislation-sync/status reports whether
- * the advisory lock is held and the latest legislation_sync_log row per
- * jurisdiction in camelCase, with `errors` parsed from its JSON text.
+ * the advisory lock is held, the job's cron_job_runs row as `lastRun`, and
+ * the latest legislation_sync_log row per jurisdiction in camelCase, with
+ * `errors` parsed from its JSON text.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DbClient, DbResult } from "@/lib/db";
@@ -28,11 +29,20 @@ function request(authorization: string | null = "Bearer cron-test-secret"): Next
   });
 }
 
-/** Dispatch by SQL shape: the pg_locks probe vs the sync-log read. */
-function armDb(held: boolean, rows: Record<string, unknown>[]) {
+const LAST_RUN_ROW = {
+  job_id: "job-7",
+  started_at: new Date("2026-09-21T06:00:00.000Z"),
+  completed_at: null,
+  ok: null,
+  summary: null,
+};
+
+/** Dispatch by SQL shape: the pg_locks probe, the cron_job_runs row, the sync-log read. */
+function armDb(held: boolean, rows: Record<string, unknown>[], lastRunRows: Record<string, unknown>[] = [LAST_RUN_ROW]) {
   mockDb.execute.mockImplementation(async (stmt) => {
     const sql = typeof stmt === "string" ? stmt : stmt.sql;
     if (sql.includes("pg_locks")) return { rows: [{ held }] };
+    if (sql.includes("cron_job_runs")) return { rows: lastRunRows };
     if (sql.includes("legislation_sync_log")) {
       expect(sql).toContain("DISTINCT ON (jurisdiction)");
       return { rows };
@@ -105,15 +115,17 @@ describe("GET /api/cron/legislation-sync/status", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store, max-age=0");
-    // The lock is probed BEFORE the rows are read, and the read waits for the
+    // The lock is probed BEFORE the rows are read, and the reads wait for the
     // probe: a lock seen free guarantees the rows read next carry the run's
     // completed_at (the job commits, then unlocks).
-    expect(mockDb.execute).toHaveBeenCalledTimes(2);
+    expect(mockDb.execute).toHaveBeenCalledTimes(3);
     const sqlOf = (stmt: string | { sql: string }) => (typeof stmt === "string" ? stmt : stmt.sql);
     expect(sqlOf(mockDb.execute.mock.calls[0][0])).toContain("pg_locks");
-    expect(sqlOf(mockDb.execute.mock.calls[1][0])).toContain("legislation_sync_log");
+    expect(sqlOf(mockDb.execute.mock.calls[1][0])).toContain("cron_job_runs");
+    expect(sqlOf(mockDb.execute.mock.calls[2][0])).toContain("legislation_sync_log");
     await expect(response.json()).resolves.toEqual({
       running: true,
+      lastRun: { jobId: "job-7", startedAt: "2026-09-21T06:00:00.000Z", completedAt: null, ok: null, summary: null },
       runs: [
         {
           id: "run-cth",
@@ -152,6 +164,7 @@ describe("GET /api/cron/legislation-sync/status", () => {
       if (sql.includes("pg_locks")) {
         return new Promise(resolve => { answerProbe = (held) => resolve({ rows: [{ held }] }); });
       }
+      if (sql.includes("cron_job_runs")) return { rows: [] };
       if (sql.includes("legislation_sync_log")) return { rows: [] };
       throw new Error(`unexpected sql: ${sql}`);
     });
@@ -162,17 +175,38 @@ describe("GET /api/cron/legislation-sync/status", () => {
 
     answerProbe(false);
     const response = await pending;
-    expect(mockDb.execute).toHaveBeenCalledTimes(2);
-    await expect(response.json()).resolves.toEqual({ running: false, runs: [] });
+    expect(mockDb.execute).toHaveBeenCalledTimes(3);
+    await expect(response.json()).resolves.toEqual({ running: false, lastRun: null, runs: [] });
   });
 
-  it("reports running:false and an empty runs list on a fresh database", async () => {
-    armDb(false, []);
+  it("reports running:false, no lastRun and an empty runs list on a fresh database", async () => {
+    armDb(false, [], []);
 
     const response = await GET(request());
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ running: false, runs: [] });
+    await expect(response.json()).resolves.toEqual({ running: false, lastRun: null, runs: [] });
+  });
+
+  it("hands back a completed lastRun with the per-jurisdiction summary the trigger recorded", async () => {
+    armDb(false, [], [
+      {
+        job_id: "job-8",
+        started_at: new Date("2026-09-21T06:00:00.000Z"),
+        completed_at: new Date("2026-09-21T06:09:30.000Z"),
+        ok: false,
+        summary: { jurisdictions: [{ jurisdiction: "QLD", docsChecked: 0, errorCount: 1, firstError: "401 Unauthorized" }] },
+      },
+    ]);
+
+    const body = await (await GET(request())).json();
+    expect(body.lastRun).toEqual({
+      jobId: "job-8",
+      startedAt: "2026-09-21T06:00:00.000Z",
+      completedAt: "2026-09-21T06:09:30.000Z",
+      ok: false,
+      summary: { jurisdictions: [{ jurisdiction: "QLD", docsChecked: 0, errorCount: 1, firstError: "401 Unauthorized" }] },
+    });
   });
 
   it("treats malformed errors text as no errors rather than failing the poll", async () => {

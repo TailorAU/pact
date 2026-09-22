@@ -1,0 +1,180 @@
+name: "Poll a detached cron job"
+description: >-
+  Trigger one of pact.tailor.au's detached cron routes and poll its /status
+  route until the run this step started has completed (tailor-group#38).
+  The route takes a Postgres advisory lock, answers 202 { started, jobId,
+  startedAt } at once and runs behind the response; its
+  GET /api/cron/<job>/status answers { running, lastRun: { jobId, startedAt,
+  completedAt, ok, summary } }. This step polls until `running` is false and
+  `lastRun` is our run with a completedAt, prints the summary through
+  `summary-jq`, and applies `not-ok` to a run whose ok is false. It fails at
+  the first poll that proves the run cannot complete (lock free, our row
+  never completed: the replica died mid-run) rather than at the deadline.
+
+inputs:
+  job:
+    description: "Route name under /api/cron/, e.g. gtfs-sync"
+    required: true
+  base-url:
+    description: >-
+      The ONLY base, e.g. https://pact.tailor.au. The curls here never follow
+      a redirect (that would forward the bearer to whatever host the redirect
+      names, tailor-app#5582); pin the correct host instead.
+    required: true
+  cron-secret:
+    description: "The CRON_SECRET bearer"
+    required: true
+  query:
+    description: "Query string appended to the trigger URL, e.g. ?jurisdiction=QLD"
+    required: false
+    default: ""
+  deadline-seconds:
+    description: >-
+      Polling stops once $SECONDS (since the step started) passes this. The
+      last poll can begin up to one interval past it and take its own
+      --max-time (30 s), so keep it at least 90 s inside the job's
+      timeout-minutes: 1620 = 27 min inside 30.
+    required: false
+    default: "1620"
+  poll-interval-seconds:
+    description: "Seconds between status polls"
+    required: false
+    default: "30"
+  not-ok:
+    description: >-
+      What a COMPLETED run with ok:false does to the job: `fail` (the
+      default) fails it, `warn` annotates a warning and passes — for a job
+      whose failures are upstream tolerances (ArcGIS throttling a layer,
+      one legislation source erroring) rather than ours.
+    required: false
+    default: "fail"
+  summary-jq:
+    description: >-
+      jq program run with -r over the final status body; every output line
+      is printed in the job log. Write it defensively (`// []`, `// ""`):
+      a run that threw has summary { error } only.
+    required: false
+    default: ".lastRun.summary | tojson"
+
+runs:
+  using: composite
+  steps:
+    - name: Trigger ${{ inputs.job }} and poll its status
+      shell: bash
+      env:
+        JOB: ${{ inputs.job }}
+        BASE_URL: ${{ inputs.base-url }}
+        CRON_SECRET: ${{ inputs.cron-secret }}
+        QUERY: ${{ inputs.query }}
+        DEADLINE: ${{ inputs.deadline-seconds }}
+        POLL_INTERVAL: ${{ inputs.poll-interval-seconds }}
+        NOT_OK: ${{ inputs.not-ok }}
+        SUMMARY_JQ: ${{ inputs.summary-jq }}
+      run: |
+        BASE="$BASE_URL/api/cron/$JOB"
+        HEADERS="$RUNNER_TEMP/cron-$JOB-response-headers.txt"
+        BODY="$RUNNER_TEMP/cron-$JOB-response.json"
+        dump() {
+          echo "Response headers:"
+          cat "$HEADERS" || true
+          echo "Response body (first 2000 bytes):"
+          head -c 2000 "$BODY" || true
+          echo
+        }
+        fail() {
+          dump
+          echo "::error::$1"
+          exit 1
+        }
+        # curl never follows a redirect here (no -L): see the base-url input.
+        # `|| STATUS=000`: on a transport failure (DNS, TLS, connect, timeout)
+        # curl exits non-zero and writes no status, and under `bash -e` that
+        # would abort before the dump. 000 takes the failure branch instead.
+        fetch() {
+          STATUS=$(curl -s -D "$HEADERS" -o "$BODY" -w '%{http_code}' --max-time "$1" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$2") || STATUS=000
+        }
+
+        fetch 60 "$BASE$QUERY"
+        echo "HTTP Status: $STATUS"
+        # Distinguish "we are unreachable" from "the job is unhappy". The
+        # trigger only takes the lock and writes the start row, so any
+        # non-2xx here is OUR endpoint being wrong (tailor-app#5582); what the
+        # job itself made of its upstreams arrives through lastRun.ok below.
+        case "$STATUS" in
+          000) fail "$JOB: could not connect to our own endpoint" ;;
+          200|202) ;;
+          3??|4??) fail "$JOB trigger got $STATUS from our own endpoint — a redirect or client error" ;;
+          *) fail "$JOB trigger failed with status $STATUS" ;;
+        esac
+        if ! jq -e 'type == "object"' "$BODY" > /dev/null 2>&1; then
+          fail "$JOB trigger returned a body that is not a JSON object"
+        fi
+
+        if [ "$STATUS" = "200" ]; then
+          # The route ran synchronously (?wait=1 semantics): the result is the body.
+          jq -r '.message // "completed synchronously"' "$BODY"
+          exit 0
+        fi
+
+        if ! jq -e '.started | type == "boolean"' "$BODY" > /dev/null; then
+          fail "$JOB answered 202 without a started flag"
+        fi
+        if [ "$(jq -r '.started' "$BODY")" = "true" ]; then
+          JOB_ID=$(jq -r '.jobId' "$BODY")
+          echo "Started $JOB run $JOB_ID at $(jq -r '.startedAt' "$BODY")"
+        else
+          JOB_ID=""
+          echo "::warning::A $JOB run was already running; waiting for it instead (its outcome may predate this trigger)"
+        fi
+
+        POLL=0
+        while [ "$SECONDS" -lt "$DEADLINE" ]; do
+          sleep "$POLL_INTERVAL"
+          POLL=$((POLL + 1))
+          fetch 30 "$BASE/status"
+          if [ "$STATUS" != "200" ]; then
+            fail "$JOB status poll $POLL failed with status $STATUS"
+          fi
+          if ! jq -e '(.running | type == "boolean") and ((.lastRun | type) == "object" or .lastRun == null)' "$BODY" > /dev/null 2>&1; then
+            fail "$JOB status poll $POLL returned an invalid response"
+          fi
+          RUNNING=$(jq -r '.running' "$BODY")
+          LAST_ID=$(jq -r '.lastRun.jobId // ""' "$BODY")
+          COMPLETED=$(jq -r '.lastRun.completedAt // ""' "$BODY")
+
+          # Done: the lock is free and the row is our run (or, when we joined
+          # a run already in flight, whichever run holds the row) with a
+          # completedAt. The job stamps the row and only then unlocks, so a
+          # free lock guarantees the stamp is visible.
+          if [ "$RUNNING" = "false" ] && [ -n "$COMPLETED" ] && { [ -z "$JOB_ID" ] || [ "$LAST_ID" = "$JOB_ID" ]; }; then
+            OK=$(jq -r '.lastRun.ok' "$BODY")
+            echo "$JOB run $LAST_ID completed at $COMPLETED ok=$OK"
+            jq -r "$SUMMARY_JQ" "$BODY" || echo "::warning::summary-jq failed over the status body"
+            if [ "$(jq -r '.lastRun.summary.warning // false' "$BODY")" = "true" ]; then
+              echo "::warning::$JOB completed with warnings (see the summary above)"
+            fi
+            if [ "$OK" != "true" ]; then
+              DETAIL=$(jq -r '.lastRun.summary.error // "see the summary above"' "$BODY")
+              if [ "$NOT_OK" = "warn" ]; then
+                echo "::warning::$JOB completed with ok=false — $DETAIL"
+              else
+                fail "$JOB completed with ok=false — $DETAIL"
+              fi
+            fi
+            exit 0
+          fi
+
+          if [ -n "$JOB_ID" ] && [ "$RUNNING" = "false" ]; then
+            # Our run no longer holds the lock yet did not complete. That is
+            # terminal — no later poll can change it — so fail now rather
+            # than at the deadline.
+            if [ "$LAST_ID" = "$JOB_ID" ]; then
+              fail "$JOB run $JOB_ID died (lock released, its row never completed — the replica died mid-run)"
+            fi
+            fail "$JOB run $JOB_ID cannot be verified: the lock is free and the last recorded run is '$LAST_ID' (see cron.$JOB.* in the app logs)"
+          fi
+          echo "poll $POLL at ${SECONDS}s of ${DEADLINE}s: running=$RUNNING lastRun=$LAST_ID completedAt=${COMPLETED:-null}; waiting"
+        done
+        fail "$JOB did not complete within the polling deadline (${DEADLINE}s from the start of the step)"

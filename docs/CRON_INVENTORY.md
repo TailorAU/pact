@@ -49,10 +49,10 @@ Single workflow, multiple jobs dispatched by schedule. Every job calls
 | **cleanup** | `0 3 * * *` | 1:00 pm daily | Latch + purge unchained pre-#5566 events past retention (#5598), prune resolved proposals and stale registrations older than 90 days, drop spent invite tokens, run the consensus sweep, classify claim atomicity (#3691 W6) | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml` |
 | **yield** | `0 4 * * 0` | 2:00 pm Sunday | Distribute Axiom Yield revenue pro-rata to contributing agent wallets | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml` |
 | **staleness** | `0 5 * * *` | 3:00 pm daily | Mark legislation documents as stale when `last_synced` > threshold; sets `is_stale` consumed by `/api/admin/freshness` (#1401 Round B) | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml` |
-| **legislation-sync** | `0 6 * * 0` | 4:00 pm Sunday | Full legislation re-sync from AU government sources (CTH, QLD) into `legislation_sections`. CTH filter + extractor fixed by #69. The route answers **202** at once and runs the sync detached under a Postgres advisory lock (`LEGISLATION_SYNC_LOCK_KEY`, single flight across replicas; `?wait=1` keeps the synchronous 200 for local use); the job then polls `GET /api/cron/legislation-sync/status` every 30 s until `running` is false and every targeted jurisdiction's latest `legislation_sync_log` row is at least as new as the trigger and completed, printing one summary line per jurisdiction, and fails at the first poll that finds the lock released without such a row (tailor-group#38). Runs with `timeout-minutes: 30`; polling stops at a 27-min wall-clock deadline | KG platform | GitHub Actions job failure → workflow summary email; a sync that throws is a `cron.legislation-sync.failed` log line | `gh run list --repo TailorAU/pact --workflow cron.yml`; `GET /api/cron/legislation-sync/status` with the bearer |
-| **spatial-snapshot** | `0 2 * * *` | 12:00 pm daily | Logan City ArcGIS REST API snapshot — fetches planning layers into `spatial_features` (#874). Our own transport/3xx/4xx failures are fatal; an upstream ArcGIS 5xx is a warning | KG platform | `::warning::` annotation in Actions for upstream 5xx; job failure otherwise | `gh run list --repo TailorAU/pact --workflow cron.yml` |
-| **gtfs-sync** | `0 17 * * 1` | 3:00 am Tuesday | Translink SEQ GTFS static feed into `transit_stops`, `transit_routes`, `transit_trips`, `transit_stop_times` (#875). Weekly cadence matches GTFS feed publication | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml` |
-| **fiscal-sync** | `0 18 * * *` | 4:00 am daily | Reconstruct QLD fiscal source data. Runs with `timeout-minutes: 30` (#3053) | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml` |
+| **legislation-sync** | `0 6 * * 0` | 4:00 pm Sunday | Full legislation re-sync from AU government sources (CTH, QLD) into `legislation_sections`. CTH filter + extractor fixed by #69. **Detached** (tailor-group#38, see below): lock `LEGISLATION_SYNC_LOCK_KEY = 542502`; `ok` = no jurisdiction reported an error, applied as a **warning** (one source erroring never failed this job); the summary line per jurisdiction carries its counts and **first error string** (160 chars, JSON-escaped) so a credentials failure is readable, not just countable. `GET /api/cron/legislation-sync/status` adds `runs`, the latest `legislation_sync_log` row per jurisdiction | KG platform | GitHub Actions job failure → workflow summary email; `::warning::` for a completed run with errors; a sync that throws is a `cron.legislation-sync.failed` log line | `gh run list --repo TailorAU/pact --workflow cron.yml`; `GET /api/cron/legislation-sync/status` with the bearer |
+| **spatial-snapshot** | `0 2 * * *` | 12:00 pm daily | Logan City ArcGIS REST API snapshot — fetches planning layers into `spatial_features` (#874). **Detached** (tailor-group#38): lock `SPATIAL_SNAPSHOT_LOCK_KEY = 542505`. Our own transport/3xx/4xx failures on the trigger are fatal; upstream ArcGIS trouble arrives through the summary — `warning` whenever any layer errored, `ok: false` only when every layer did — and both stay non-fatal (`not-ok: warn`), as the tolerance always was. No log table of its own: `GET /api/cron/spatial-snapshot/status` is `lastRun` alone, with every layer's status and `errorDetail` in `summary.results` | KG platform | `::warning::` annotation in Actions for upstream errors; job failure otherwise | `gh run list --repo TailorAU/pact --workflow cron.yml`; `GET /api/cron/spatial-snapshot/status` with the bearer |
+| **gtfs-sync** | `0 17 * * 1` | 3:00 am Tuesday | Translink SEQ GTFS static feed into `transit_stops`, `transit_routes`, `transit_trips`, `transit_stop_times` (#875). Weekly cadence matches GTFS feed publication. **Detached** (tailor-group#38): lock `GTFS_SYNC_LOCK_KEY = 542503`; `ok` = the sync recorded no error, which now **fails** the job (a feed that did not download used to answer 200 with the error in the body). `GET /api/cron/gtfs-sync/status` adds `runs`, the latest `gtfs_sync_log` row | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml`; `GET /api/cron/gtfs-sync/status` with the bearer |
+| **fiscal-sync** | `0 18 * * *` | 4:00 am daily | Reconstruct QLD fiscal source data (#3053). **Detached** (tailor-group#38): lock `FISCAL_SYNC_LOCK_KEY = 542504`; `ok` = `status !== "error"`, the verdict the synchronous route used for its 500, so the job fails on exactly what failed it before. `GET /api/cron/fiscal-sync/status` adds `runs`, the latest `fiscal_sync_log` row per jurisdiction | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml`; `GET /api/cron/fiscal-sync/status` with the bearer |
 | **auto-merge** | `*/30 * * * *` | every 30 min | Consensus sweep: Silence=Consent auto-merge, topic-proposal approve/reject evaluation, promotion/demotion, challenges. #5425 removed the engine from GET read paths; the route takes a Postgres advisory lock and reports `sweepRan: false` when a concurrent sweep (another replica, or the in-process heartbeat) holds it. A sweep that throws is a structured `cron.auto-merge.failed` log line and a generic 500 | KG platform | GitHub Actions job failure → workflow summary email | `gh run list --repo TailorAU/pact --workflow cron.yml` |
 
 **Endpoint base:** `https://pact.tailor.au/api/cron/<name>` for every job — one
@@ -63,6 +63,26 @@ here; a redirect would forward the bearer to whatever host it names.
 (each job declares `environment: prod`). `auth-check` is the credential proof:
 it hits a route with no database dependency, so a 200 says only that the
 deployed secret matches.
+
+**Detached jobs** (tailor-group#38): `pact.tailor.au` is proxied through a
+Next.js rewrite with a 30 s timeout, so the four long jobs above no longer run
+inside the request. Each route takes its own Postgres advisory lock (registry
+in `src/lib/db.ts`; single flight across replicas, held on one dedicated
+connection for the whole run), upserts the job's row in `cron_job_runs`
+(`sql/cron-job-runs.sql`: one row per job name — `job_id`, `started_at`,
+`completed_at`, `ok`, `summary`), answers `202 { started, jobId, startedAt }`
+at once, and stamps `completed_at` / `ok` / `summary` before it unlocks;
+`?wait=1` keeps the synchronous response under the same lock for local use.
+Every `GET /api/cron/<job>/status` answers `{ running, lastRun, runs? }`:
+`running` is the lock read from `pg_locks`, `lastRun` that row, `runs` the
+job's own log rows where it has a table. The workflow jobs share the
+composite action `.github/actions/poll-cron-job`: trigger, then poll `/status`
+every 30 s to a 27-minute wall-clock deadline (`timeout-minutes: 30`) until
+`running` is false and `lastRun` is the triggered run with a `completedAt`;
+print the job's summary line(s); fail at the first poll that proves the run
+died (lock free, row never completed); and apply the job's `not-ok` policy
+(`fail` or `warn`) to a completed run whose `ok` is false. A run that throws
+records `ok: false, summary: { error }` and a `cron.<job>.failed` log line.
 
 ---
 
@@ -131,10 +151,12 @@ No centralised dashboard exists yet. Current monitoring surface:
    (`ContainerAppConsoleLogs_CL`), `op` starting `consensus.heartbeat.`; a
    route-level sweep failure is `cron.auto-merge.failed`.
 4. **Detached jobs** (tailor-group#38) — `op` = `cron.<job>.started` /
-   `.completed` / `.failed` / `.skipped` with a `jobId`;
-   `GET /api/cron/<job>/status` (bearer) reports whether the job's advisory
-   lock is held anywhere in the cluster plus its latest log rows. Today:
-   `legislation-sync`.
+   `.completed` (with `ok`) / `.failed` / `.skipped` / `.record-failed` with
+   a `jobId`; `GET /api/cron/<job>/status` (bearer) reports whether the
+   job's advisory lock is held anywhere in the cluster, the job's
+   `cron_job_runs` row as `lastRun`, and its latest log rows where it has a
+   table. Jobs: `legislation-sync`, `gtfs-sync`, `fiscal-sync`,
+   `spatial-snapshot`.
 5. **Future** — once App Insights is wired, cron and heartbeat success/failure
    become custom metrics with alert rules for consecutive failures.
 

@@ -1,8 +1,8 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { LEGISLATION_SYNC_LOCK_KEY } from "@/lib/db";
-import { runJobInline, startDetachedJob } from "@/lib/detached-jobs";
-import { DEFAULT_LEGISLATION_JURISDICTIONS, runLegislationSync } from "@/lib/legislation-sync";
+import { runJobInline, startDetachedJob, type JobOutcome } from "@/lib/detached-jobs";
+import { DEFAULT_LEGISLATION_JURISDICTIONS, runLegislationSync, type SyncResult } from "@/lib/legislation-sync";
 import { safeSecretEqual } from "@/lib/secret-compare";
 
 /**
@@ -14,7 +14,11 @@ import { safeSecretEqual } from "@/lib/secret-compare";
  * synchronous route with a bare 500 every time. By default the route now
  * starts the sync DETACHED under the `LEGISLATION_SYNC_LOCK_KEY` advisory
  * lock (single flight across replicas) and answers 202 at once; the caller
- * polls `GET /api/cron/legislation-sync/status` for the outcome.
+ * polls `GET /api/cron/legislation-sync/status` for the outcome. The run's
+ * `cron_job_runs` row records `ok` = no jurisdiction reported an error, and
+ * a summary with each jurisdiction's counts and FIRST error string, so a
+ * credentials failure that leaves `docsChecked=0 errors=1` is readable from
+ * the status route and the workflow log, not just countable.
  *
  * Query params:
  *   ?jurisdiction=CTH,QLD  — comma-separated list (default: all configured)
@@ -51,6 +55,7 @@ export async function GET(req: NextRequest) {
     name: "legislation-sync",
     lockKey: LEGISLATION_SYNC_LOCK_KEY,
     run: () => runLegislationSync(jurisdictions),
+    outcome: legislationOutcome,
   };
 
   if (req.nextUrl.searchParams.get("wait") !== "1") {
@@ -79,4 +84,23 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/** `ok` iff no jurisdiction reported an error; the summary keeps each one's counts and first error text. */
+function legislationOutcome(results: SyncResult[]): JobOutcome {
+  return {
+    ok: results.every(r => r.errors.length === 0),
+    summary: {
+      jurisdictions: results.map(r => ({
+        jurisdiction: r.jurisdiction,
+        docsChecked: r.docsChecked,
+        docsUpdated: r.docsUpdated,
+        sectionsTotal: r.sectionsTotal,
+        errorCount: r.errors.length,
+        firstError: r.errors[0] ?? null,
+        parserCrashCount: r.parserCrashCount,
+        parserAnomalyCount: r.parserAnomalyCount,
+      })),
+    },
+  };
 }

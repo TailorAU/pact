@@ -107,6 +107,11 @@ const _fiscalStatements: string[] = _loadSqlStatements("fiscal-reconstruction-sc
 // fiscal schema (depends on fiscal_sync_log existing).
 const _fiscalMeterStatements: string[] = _loadSqlStatements("fiscal-compute-meter.sql");
 
+// tailor-group#38 — last outcome per detached cron job (cron_job_runs), the
+// common shape every `GET /api/cron/<job>/status` reports as `lastRun`.
+// Written by src/lib/detached-jobs.ts; DDL in sql/cron-job-runs.sql.
+const _cronJobRunsStatements: string[] = _loadSqlStatements("cron-job-runs.sql");
+
 // Return TIMESTAMP / TIMESTAMPTZ as ISO strings (not JS Date objects)
 // so existing code that casts date columns to string keeps working.
 pg.types.setTypeParser(1114, (val: string) => val);
@@ -632,6 +637,11 @@ async function initSchema(db: DbClient) {
     // Per-run token columns on fiscal_sync_log + fiscal_compute_ledger.
     // Loaded after the base fiscal schema (ALTERs depend on it).
     ..._fiscalMeterStatements,
+
+    // ── Detached cron job outcomes (tailor-group#38) ─────────────────
+    // cron_job_runs: one row per job name, upserted by the detached-job
+    // helper at start and stamped at completion. DDL in sql/cron-job-runs.sql.
+    ..._cronJobRunsStatements,
 
     // ── Indexes ─────────────────────────────────────────────────────
     `CREATE INDEX IF NOT EXISTS idx_proposals_topic_status ON proposals(topic_id, status)`,
@@ -1478,8 +1488,14 @@ export async function autoMergeExpired(db: DbClient, sweepOptions: ConsensusSwee
 //
 //   542501  consensus sweep (`runConsensusSweep`, below)
 //   542502  legislation sync (`GET /api/cron/legislation-sync`)
+//   542503  GTFS sync (`GET /api/cron/gtfs-sync`)
+//   542504  fiscal sync (`GET /api/cron/fiscal-sync`)
+//   542505  spatial snapshot (`GET /api/cron/spatial-snapshot`)
 export const CONSENSUS_SWEEP_LOCK_KEY = 542501;
 export const LEGISLATION_SYNC_LOCK_KEY = 542502;
+export const GTFS_SYNC_LOCK_KEY = 542503;
+export const FISCAL_SYNC_LOCK_KEY = 542504;
+export const SPATIAL_SNAPSHOT_LOCK_KEY = 542505;
 
 /**
  * tailor-group#38 — check out ONE dedicated pooled connection for a caller

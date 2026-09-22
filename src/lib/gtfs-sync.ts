@@ -67,26 +67,46 @@ function splitCsvLine(line: string): string[] {
   return result;
 }
 
-async function fetchZipEntries(url: string): Promise<Map<string, string>> {
+// ── ZIP reading ──────────────────────────────────────────────────────────────
+//
+// The SEQ feed is ~37 MB compressed, but its stop_times.txt is ~220 MB
+// uncompressed (millions of rows). Decoding that entry to one string and
+// materialising every row as an object needs several gigabytes, which killed
+// the 1 GiB pact replica on every real run (tailor-group#38 closing dispatch:
+// 202, then the status poll found the app gone). The zip is still read into
+// memory (37 MB), but each entry is decompressed as a stream of chunks and
+// stop_times.txt is parsed line by line, keeping only the rows the sync wants.
+
+export interface ZipEntry {
+  name: string;
+  compression: number;
+  dataOffset: number;
+  compressedSize: number;
+  uncompressedSize: number;
+}
+
+async function fetchZip(url: string): Promise<Uint8Array<ArrayBuffer>> {
   const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
   if (!res.ok) throw new Error(`GTFS fetch failed: ${res.status} ${url}`);
-  const buf = await res.arrayBuffer();
+  return new Uint8Array(await res.arrayBuffer());
+}
 
-  // Parse ZIP using the end-of-central-directory approach
-  const bytes = new Uint8Array(buf);
-  const entries = new Map<string, string>();
+/** Index a ZIP's central directory by entry base name (sizes from the central directory, which is authoritative). */
+export function indexZip(bytes: Uint8Array<ArrayBuffer>): Map<string, ZipEntry> {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const decoder = new TextDecoder("utf-8");
+  const entries = new Map<string, ZipEntry>();
 
-  // Find end-of-central-directory (EOCD) signature: 0x06054b50
+  // End-of-central-directory signature: 0x06054b50
   let eocdOffset = -1;
   for (let i = bytes.length - 22; i >= 0; i--) {
-    if (bytes[i] === 0x50 && bytes[i+1] === 0x4b && bytes[i+2] === 0x05 && bytes[i+3] === 0x06) {
-      eocdOffset = i; break;
+    if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) {
+      eocdOffset = i;
+      break;
     }
   }
   if (eocdOffset === -1) throw new Error("Invalid ZIP: EOCD not found");
 
-  const view = new DataView(buf);
   const centralDirOffset = view.getUint32(eocdOffset + 16, true);
   const totalEntries = view.getUint16(eocdOffset + 10, true);
 
@@ -94,55 +114,99 @@ async function fetchZipEntries(url: string): Promise<Map<string, string>> {
   for (let e = 0; e < totalEntries; e++) {
     // Central directory signature: 0x02014b50
     if (view.getUint32(pos, true) !== 0x02014b50) break;
+    const compression = view.getUint16(pos + 10, true);
+    const compressedSize = view.getUint32(pos + 20, true);
+    const uncompressedSize = view.getUint32(pos + 24, true);
     const filenameLen = view.getUint16(pos + 28, true);
     const extraLen = view.getUint16(pos + 30, true);
     const commentLen = view.getUint16(pos + 32, true);
     const localHeaderOffset = view.getUint32(pos + 42, true);
-    const filename = decoder.decode(bytes.slice(pos + 46, pos + 46 + filenameLen));
+    const filename = decoder.decode(bytes.subarray(pos + 46, pos + 46 + filenameLen));
     pos += 46 + filenameLen + extraLen + commentLen;
 
-    // Only parse the CSV files we need
+    // Local file header: 0x04034b50; only its name/extra lengths locate the data.
+    if (view.getUint32(localHeaderOffset, true) !== 0x04034b50) continue;
+    const lhFilenameLen = view.getUint16(localHeaderOffset + 26, true);
+    const lhExtraLen = view.getUint16(localHeaderOffset + 28, true);
+    const dataOffset = localHeaderOffset + 30 + lhFilenameLen + lhExtraLen;
+
     const base = filename.split("/").pop() ?? filename;
-    if (!["stops.txt", "routes.txt", "trips.txt", "stop_times.txt"].includes(base)) continue;
-
-    // Read local file header
-    const lh = localHeaderOffset;
-    if (view.getUint32(lh, true) !== 0x04034b50) continue;
-    const compression = view.getUint16(lh + 8, true);
-    const compressedSize = view.getUint32(lh + 18, true);
-    const uncompressedSize = view.getUint32(lh + 22, true);
-    const lhFilenameLen = view.getUint16(lh + 26, true);
-    const lhExtraLen = view.getUint16(lh + 28, true);
-    const dataOffset = lh + 30 + lhFilenameLen + lhExtraLen;
-
-    let content: Uint8Array;
-    if (compression === 0) {
-      // Stored
-      content = bytes.slice(dataOffset, dataOffset + uncompressedSize);
-    } else if (compression === 8) {
-      // Deflated — use DecompressionStream
-      const compressed = bytes.slice(dataOffset, dataOffset + compressedSize);
-      const ds = new DecompressionStream("deflate-raw");
-      const writer = ds.writable.getWriter();
-      writer.write(compressed);
-      writer.close();
-      const chunks: Uint8Array[] = [];
-      const reader = ds.readable.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-      }
-      const out = new Uint8Array(uncompressedSize);
-      let off = 0;
-      for (const chunk of chunks) { out.set(chunk, off); off += chunk.length; }
-      content = out;
-    } else {
-      continue; // unsupported compression
-    }
-    entries.set(base, decoder.decode(content));
+    entries.set(base, { name: base, compression, dataOffset, compressedSize, uncompressedSize });
   }
   return entries;
+}
+
+const CHUNK = 1 << 20;
+
+/** The entry's uncompressed bytes as a stream of chunks; never the whole entry at once. */
+export async function* zipEntryChunks(bytes: Uint8Array<ArrayBuffer>, entry: ZipEntry): AsyncGenerator<Uint8Array> {
+  const data = bytes.subarray(entry.dataOffset, entry.dataOffset + entry.compressedSize);
+  if (entry.compression === 0) {
+    for (let off = 0; off < data.length; off += CHUNK) yield data.subarray(off, Math.min(off + CHUNK, data.length));
+    return;
+  }
+  if (entry.compression !== 8) {
+    throw new Error(`Unsupported ZIP compression ${entry.compression} for ${entry.name}`);
+  }
+  const ds = new DecompressionStream("deflate-raw");
+  const writer = ds.writable.getWriter();
+  const writing = (async () => {
+    for (let off = 0; off < data.length; off += CHUNK) {
+      await writer.write(data.subarray(off, Math.min(off + CHUNK, data.length)));
+    }
+    await writer.close();
+  })();
+  const reader = ds.readable.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      yield value;
+    }
+  } finally {
+    await writing.catch(() => undefined);
+  }
+}
+
+/** Small entries (stops, routes, trips) are still read whole. */
+async function zipEntryText(bytes: Uint8Array<ArrayBuffer>, entry: ZipEntry): Promise<string> {
+  const decoder = new TextDecoder("utf-8");
+  let text = "";
+  for await (const chunk of zipEntryChunks(bytes, entry)) text += decoder.decode(chunk, { stream: true });
+  return text + decoder.decode();
+}
+
+/**
+ * Parse CSV rows from a chunked byte stream without holding the file: the
+ * header comes from the first line, each later line becomes one row object,
+ * and only the current chunk plus one partial line are in memory.
+ */
+export async function* csvRowsFromChunks(chunks: AsyncIterable<Uint8Array>): AsyncGenerator<Record<string, string>> {
+  const decoder = new TextDecoder("utf-8");
+  let pending = "";
+  let headers: string[] | null = null;
+  const toRow = (line: string): Record<string, string> => {
+    const vals = splitCsvLine(line);
+    const row: Record<string, string> = {};
+    headers!.forEach((h, i) => { row[h] = (vals[i] ?? "").trim(); });
+    return row;
+  };
+  for await (const chunk of chunks) {
+    const lines = (pending + decoder.decode(chunk, { stream: true })).split("\n");
+    pending = lines.pop() ?? "";
+    for (const raw of lines) {
+      const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+      if (!line) continue;
+      if (headers === null) { headers = splitCsvLine(line).map((h) => h.trim()); continue; }
+      yield toRow(line);
+    }
+  }
+  pending += decoder.decode();
+  const last = pending.endsWith("\r") ? pending.slice(0, -1) : pending;
+  if (last) {
+    if (headers === null) return;
+    yield toRow(last);
+  }
 }
 
 async function batchUpsert(
@@ -188,12 +252,14 @@ export async function runGtfsSync(db: DbClient): Promise<GtfsSyncResult> {
   };
 
   try {
-    const entries = await fetchZipEntries(GTFS_FEED_URL);
+    const zip = await fetchZip(GTFS_FEED_URL);
+    const entries = indexZip(zip);
+    const textOf = (name: string) => zipEntryText(zip, entries.get(name)!);
     const retrievedAt = new Date().toISOString();
 
     // 1. Stops — all stops
     if (entries.has("stops.txt")) {
-      const rows = parseCsv(entries.get("stops.txt")!);
+      const rows = parseCsv(await textOf("stops.txt"));
       const stopRows = rows
         .filter((r) => r.stop_id && r.stop_lat && r.stop_lon)
         .map((r) => ({
@@ -228,7 +294,7 @@ export async function runGtfsSync(db: DbClient): Promise<GtfsSyncResult> {
 
     // 2. Routes — rail only (type=2)
     if (entries.has("routes.txt")) {
-      const rows = parseCsv(entries.get("routes.txt")!);
+      const rows = parseCsv(await textOf("routes.txt"));
       const railRows = rows
         .filter((r) => parseInt(r.route_type ?? "99") === RAIL_ROUTE_TYPE && r.route_id)
         .map((r) => ({
@@ -248,7 +314,7 @@ export async function runGtfsSync(db: DbClient): Promise<GtfsSyncResult> {
       )
     );
     if (entries.has("trips.txt") && railRouteIds.size > 0) {
-      const rows = parseCsv(entries.get("trips.txt")!);
+      const rows = parseCsv(await textOf("trips.txt"));
       const tripRows = rows
         .filter((r) => r.trip_id && railRouteIds.has(r.route_id))
         .map((r) => ({
@@ -265,7 +331,7 @@ export async function runGtfsSync(db: DbClient): Promise<GtfsSyncResult> {
     const keyStopIds = new Set(result.keyStations.map((s) => s.stopId));
     // Also include platform variants (stops whose name contains a key station name)
     if (entries.has("stops.txt")) {
-      const allStops = parseCsv(entries.get("stops.txt")!);
+      const allStops = parseCsv(await textOf("stops.txt"));
       for (const stationName of SEQ_KEY_STATIONS) {
         allStops
           .filter((s) => s.stop_name?.toLowerCase().includes(stationName.toLowerCase()))
@@ -278,16 +344,19 @@ export async function runGtfsSync(db: DbClient): Promise<GtfsSyncResult> {
     );
 
     if (entries.has("stop_times.txt") && keyStopIds.size > 0) {
-      const rows = parseCsv(entries.get("stop_times.txt")!);
-      const stRows = rows
-        .filter((r) => r.trip_id && r.stop_id && keyStopIds.has(r.stop_id) && railTripIds.has(r.trip_id))
-        .map((r) => ({
+      // Streamed and filtered as it is read: the full file is ~220 MB and
+      // millions of rows; only the key stations' rail stop times are kept.
+      const stRows: Record<string, unknown>[] = [];
+      for await (const r of csvRowsFromChunks(zipEntryChunks(zip, entries.get("stop_times.txt")!))) {
+        if (!r.trip_id || !r.stop_id || !keyStopIds.has(r.stop_id) || !railTripIds.has(r.trip_id)) continue;
+        stRows.push({
           trip_id: r.trip_id,
           stop_id: r.stop_id,
           arrival_time: r.arrival_time ?? "",
           departure_time: r.departure_time ?? "",
           stop_sequence: parseInt(r.stop_sequence ?? "0"),
-        }));
+        });
+      }
       result.stopTimesIngested = await batchUpsert(db, "transit_stop_times", stRows, ["trip_id", "stop_sequence"]);
     }
 

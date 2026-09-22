@@ -275,6 +275,24 @@ releases).
   `https://gtfsrt.api.translink.com.au/GTFS/SEQ_GTFS.zip` (verified: 200,
   `application/x-zip-compressed`, last modified 21 Sep 2026). `GTFS_FEED_URL`
   still overrides it.
+- **The GTFS ingest killed the pact replica on the real SEQ feed**
+  (tailor-group#38 closing dispatch, twice: `gtfs-sync` answered 202, then
+  the status poll found the app gone). The feed is ~37 MB compressed but its
+  `stop_times.txt` is ~220 MB uncompressed and millions of rows; the ingest
+  decoded it to one string and materialised every row before filtering,
+  which needs several gigabytes in a 1 GiB replica. `stop_times.txt` is now
+  decompressed as a chunk stream and parsed line by line
+  (`zipEntryChunks`, `csvRowsFromChunks`), keeping only the key stations'
+  rail rows; ZIP entry sizes come from the central directory. The small
+  entries (stops, routes, trips) are read as before. Unit tests build a real
+  deflated ZIP in memory and pin the chunk-boundary parse, the filtered
+  ingest and the fetch-failure path.
+- **A poll that got no answer failed the cron job on the spot.** The
+  composite `poll-cron-job` action now tolerates `max-transient-polls`
+  (default 4, two minutes) consecutive transport failures or proxy 5xx
+  before failing, because a replica that dies mid-run looks exactly like
+  that while Container Apps restarts it; once the app answers, the lock and
+  run row decide (a died run still fails fast).
 - **The weekly CTH legislation sync never wrote a document** (tailor-group#37).
   After tailor-group#7 the parser reached the Acts (10 checked, 0 anomalies)
   and then every ingest batch failed with "Legislation payload validation

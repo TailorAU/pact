@@ -1,34 +1,36 @@
 {
-  "name": "@pact-protocol/mcp",
-  "version": "2.0.3",
-  "description": "MCP server for PACT — like Signal, but for multi-agent and human consensus. Collapses gate reviews from weeks to days. MIT-licensed protocol for multi-agent collaboration over documents, transactions, knowledge, deal rooms, and beyond.",
-  "license": "MIT",
-  "bin": { "pact-mcp": "./bin/pact-mcp.js" },
-  "publishConfig": {
-    "access": "public"
-  },
+  "name": "@source-tailor/mcp",
+  "version": "0.1.0",
+  "description": "MCP server for the Source verified knowledge graph — topics, facts, and Australian legislation",
   "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "source-mcp": "dist/index.js"
+  },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test test/mandate.test.mjs test/wire.test.mjs",
-    "prepublishOnly": "npm run build"
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
   },
-  "files": ["bin/", "dist/"],
-  "engines": { "node": ">=20.0.0" },
-  "keywords": ["pact", "protocol", "mcp", "model-context-protocol", "ai-agents"],
+  "keywords": ["mcp", "source", "knowledge-graph", "pact", "legislation", "ai-agents"],
+  "author": "TailorAU",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TailorAU/tailor-app",
+    "directory": "sites/source/mcp"
+  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "typescript": "^5.7.0",
     "@types/node": "^22.0.0",
-    "typescript": "^5.7.0"
+    "tsx": "^4.19.0"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/TailorAU/pact",
-    "directory": "mcp"
-  },
-  "homepage": "https://github.com/TailorAU/pact"
+  "files": ["dist", "README.md"],
+  "publishConfig": {
+    "access": "public"
+  }
 }

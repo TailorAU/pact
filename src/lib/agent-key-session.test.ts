@@ -6,12 +6,13 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  clearLegacyStoredKey,
   forgetSessionKey,
   LEGACY_AGENT_NAME_STORAGE_KEY,
   LEGACY_API_KEY_STORAGE_KEY,
   rememberSessionKey,
+  readLegacyStoredKey,
   sessionKey,
-  takeLegacyStoredKey,
 } from "./agent-key-session";
 
 function fakeStorage(initial: Record<string, string> = {}) {
@@ -23,28 +24,40 @@ function fakeStorage(initial: Record<string, string> = {}) {
   };
 }
 
-describe("takeLegacyStoredKey", () => {
-  it("returns a stored key and deletes both legacy entries", () => {
+describe("legacy stored key migration", () => {
+  it("reads a stored key without deleting it, so a reload before saving loses nothing", () => {
+    const s = fakeStorage({
+      [LEGACY_API_KEY_STORAGE_KEY]: " pact_sk_abc ",
+      [LEGACY_AGENT_NAME_STORAGE_KEY]: "Bot-1",
+      "pact-joined-t1": "1",
+    });
+    expect(readLegacyStoredKey(s)).toEqual({ apiKey: "pact_sk_abc", agentName: "Bot-1" });
+    expect(readLegacyStoredKey(s)).toEqual({ apiKey: "pact_sk_abc", agentName: "Bot-1" });
+    expect(s.data.get(LEGACY_API_KEY_STORAGE_KEY)).toBe(" pact_sk_abc ");
+    expect(s.data.get(LEGACY_AGENT_NAME_STORAGE_KEY)).toBe("Bot-1");
+  });
+
+  it("clears both legacy entries only when asked, leaving the joined marker", () => {
     const s = fakeStorage({
       [LEGACY_API_KEY_STORAGE_KEY]: "pact_sk_abc",
       [LEGACY_AGENT_NAME_STORAGE_KEY]: "Bot-1",
       "pact-joined-t1": "1",
     });
-    expect(takeLegacyStoredKey(s)).toEqual({ apiKey: "pact_sk_abc", agentName: "Bot-1" });
+    clearLegacyStoredKey(s);
     expect(s.data.has(LEGACY_API_KEY_STORAGE_KEY)).toBe(false);
     expect(s.data.has(LEGACY_AGENT_NAME_STORAGE_KEY)).toBe(false);
     expect(s.data.get("pact-joined-t1")).toBe("1"); // non-secret marker untouched
-    expect(takeLegacyStoredKey(s)).toBeNull(); // taken exactly once
+    expect(readLegacyStoredKey(s)).toBeNull();
   });
 
-  it("clears an orphaned name and returns null when no key is stored", () => {
+  it("returns null for an orphaned name with no key", () => {
     const s = fakeStorage({ [LEGACY_AGENT_NAME_STORAGE_KEY]: "Bot-1" });
-    expect(takeLegacyStoredKey(s)).toBeNull();
-    expect(s.data.size).toBe(0);
+    expect(readLegacyStoredKey(s)).toBeNull();
   });
 
   it("tolerates missing or throwing storage", () => {
-    expect(takeLegacyStoredKey(null)).toBeNull();
+    expect(readLegacyStoredKey(null)).toBeNull();
+    expect(() => clearLegacyStoredKey(null)).not.toThrow();
     const throwing = {
       getItem: () => {
         throw new Error("SecurityError");
@@ -53,7 +66,8 @@ describe("takeLegacyStoredKey", () => {
         throw new Error("SecurityError");
       },
     };
-    expect(takeLegacyStoredKey(throwing)).toBeNull();
+    expect(readLegacyStoredKey(throwing)).toBeNull();
+    expect(() => clearLegacyStoredKey(throwing)).not.toThrow();
   });
 });
 
@@ -85,6 +99,15 @@ describe("TopicActions never persists the API key", () => {
   it("writes only the constant joined marker to storage", () => {
     const writes = [...src.matchAll(/\.setItem\((.*)\);$/gm)].map((m) => m[1]);
     expect(writes).toEqual(['joinedMarker(topicId), "1"']);
+  });
+
+  it("deletes the legacy stored key only on the user's confirmation", () => {
+    const clears = [...src.matchAll(/clearLegacyStoredKey\(browserLocalStorage\(\)\)/g)];
+    expect(clears).toHaveLength(1);
+    const dismiss = src.slice(src.indexOf("const dismissRevealedKey"));
+    expect(dismiss.slice(0, 400)).toMatch(
+      /if \(revealedKey\?\.reason === "migrated"\) clearLegacyStoredKey\(browserLocalStorage\(\)\)/
+    );
   });
 
   it("does not echo the key in the auto-clearing result banner", () => {

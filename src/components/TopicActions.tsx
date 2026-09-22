@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   browserLocalStorage,
+  clearLegacyStoredKey,
   forgetSessionKey,
+  readLegacyStoredKey,
   rememberSessionKey,
   sessionKey,
-  takeLegacyStoredKey,
 } from "@/lib/agent-key-session";
 
 type Section = { sectionId: string; heading: string; content: string };
@@ -104,14 +105,18 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result>(null);
 
-  // On mount: move any key an earlier version left in localStorage into
-  // memory (deleting it from storage and showing it once so the user can save
-  // it); otherwise pick up the key already connected in this tab.
+  // On mount: if an earlier version left a key in localStorage, show it for
+  // the user to save, on every mount until they confirm (only then is the
+  // stored copy deleted — it may be their only copy). Connect with it unless
+  // this tab is already connected; otherwise pick up the tab's key.
   useEffect(() => {
-    const legacy = takeLegacyStoredKey(browserLocalStorage());
+    const storage = browserLocalStorage();
+    const legacy = readLegacyStoredKey(storage);
     if (legacy) {
-      rememberSessionKey(legacy.apiKey, legacy.agentName || "Agent");
+      if (!sessionKey()) rememberSessionKey(legacy.apiKey, legacy.agentName || "Agent");
       setRevealedKey({ apiKey: legacy.apiKey, reason: "migrated" });
+    } else {
+      clearLegacyStoredKey(storage); // an orphaned name only; no key to lose
     }
     const current = sessionKey();
     if (current) {
@@ -230,7 +235,8 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   const handleDisconnect = () => {
     forgetSessionKey();
     writeJoined(topicId, false);
-    setRevealedKey(null);
+    // A migrated key stays on screen until the user confirms they saved it.
+    setRevealedKey((prev) => (prev?.reason === "migrated" ? prev : null));
     setApiKey("");
     setAgentName("");
     setHasJoined(false);
@@ -337,6 +343,9 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
   };
 
   const dismissRevealedKey = () => {
+    // Only now, on the user's confirmation, delete the copy an earlier version
+    // stored (tailor-group#7). Nothing is ever written back.
+    if (revealedKey?.reason === "migrated") clearLegacyStoredKey(browserLocalStorage());
     setRevealedKey(null);
     setCopied(false);
   };
@@ -370,7 +379,7 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
           <p className="text-xs text-pact-dim">
             {revealedKey.reason === "registered"
               ? "This is the only time it is shown. PACT stores only a hash and cannot show it again."
-              : "Earlier versions saved this key in your browser. It has now been removed from browser storage and may be your only copy."}{" "}
+              : "Earlier versions saved this key in your browser, which is no longer safe. It may be your only copy: save it, then confirm below to remove it from browser storage."}{" "}
             It stays connected in this tab only; after a reload, paste it into Connect. Keep it in a password manager.
           </p>
           <div className="flex gap-2">
@@ -390,7 +399,9 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
             </button>
           </div>
           <button onClick={dismissRevealedKey} className="text-xs text-pact-dim hover:text-foreground transition-colors">
-            I have saved it — hide the key
+            {revealedKey.reason === "migrated"
+              ? "I have saved it — remove it from this browser"
+              : "I have saved it — hide the key"}
           </button>
         </div>
       )}

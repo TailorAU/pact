@@ -9,9 +9,10 @@
  * never written to localStorage or sessionStorage. At registration the server
  * returns the plaintext once (it is hashed at rest — lib/auth.ts), so the
  * console shows it in a persistent "copy your key now" panel until the user
- * dismisses it. Keys saved by earlier versions are migrated out: read once
- * into memory, deleted from storage, and shown in the same panel so the user
- * can save the only copy they may have.
+ * dismisses it. Keys saved by earlier versions are migrated out: read into
+ * memory and shown in the same panel so the user can save the only copy they
+ * may have; the stored entry is deleted only when the user confirms they have
+ * saved it, so a reload or navigation before then does not lose the key.
  *
  * Pure and DOM-free so it is unit-tested in the node Vitest environment.
  */
@@ -23,30 +24,40 @@ export const LEGACY_AGENT_NAME_STORAGE_KEY = "pact-agent-name";
 type LegacyStorage = Pick<Storage, "getItem" | "removeItem">;
 
 /**
- * Take (read and delete) a key an earlier console version left in storage.
- * Both entries are removed even when only the name is present. Storage that
- * is missing or throws (private mode, blocked site data) yields null.
+ * Read (without deleting) a key an earlier console version left in storage.
+ * The entry is deliberately kept until the user confirms they have saved the
+ * key (clearLegacyStoredKey): PACT stores only a hash, so this may be the only
+ * copy and deleting it on sight would lose the credential if the user reloads
+ * or navigates away before copying it. Storage that is missing or throws
+ * (private mode, blocked site data) yields null.
  */
-export function takeLegacyStoredKey(
+export function readLegacyStoredKey(
   storage: LegacyStorage | null | undefined
 ): { apiKey: string; agentName: string } | null {
   if (!storage) return null;
-  let apiKey = "";
-  let agentName = "";
   try {
-    apiKey = (storage.getItem(LEGACY_API_KEY_STORAGE_KEY) || "").trim();
-    agentName = (storage.getItem(LEGACY_AGENT_NAME_STORAGE_KEY) || "").trim();
+    const apiKey = (storage.getItem(LEGACY_API_KEY_STORAGE_KEY) || "").trim();
+    const agentName = (storage.getItem(LEGACY_AGENT_NAME_STORAGE_KEY) || "").trim();
+    return apiKey ? { apiKey, agentName } : null;
   } catch {
-    // Unreadable storage: nothing to migrate, but still try to delete below.
+    return null;
   }
+}
+
+/**
+ * Delete both legacy entries. Called only once the user has confirmed they
+ * saved the migrated key (or when there is no key, only an orphaned name).
+ * Best effort: a storage that cannot be written cannot be leaking a new write.
+ */
+export function clearLegacyStoredKey(storage: LegacyStorage | null | undefined): void {
+  if (!storage) return;
   for (const k of [LEGACY_API_KEY_STORAGE_KEY, LEGACY_AGENT_NAME_STORAGE_KEY]) {
     try {
       storage.removeItem(k);
     } catch {
-      // Best effort — a storage that cannot be written cannot be leaking a new write either.
+      // Blocked storage: nothing more to do.
     }
   }
-  return apiKey ? { apiKey, agentName } : null;
 }
 
 /** window.localStorage, or null where it is absent or its accessor throws. */

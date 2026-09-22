@@ -357,8 +357,10 @@ describe("conformance report — every refusal bites (#5567)", () => {
   });
 
   it("a missing record for an executed id — a skipped or aborted suite never yields a document", () => {
+    // Literal substring match: no RegExp is built from the vector id
+    // (tailor-group#7, CodeQL js/incomplete-sanitization).
     expect(() => buildConformanceReport(input({ records: [{ id: first, status: "pass" }] }))).toThrow(
-      new RegExp(`no record for executed vector ${second.replace(/[/.]/g, "\\$&")}`)
+      `no record for executed vector ${second} — `
     );
     expect(() => buildConformanceReport(input({ records: [] }))).toThrow(/no record for executed vector/);
   });

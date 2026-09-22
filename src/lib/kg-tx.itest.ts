@@ -13,7 +13,8 @@
  * representative route per batch gets the atomicity proof:
  *
  *   batch 1 (single-write + emit: join, join-token, salience, intents,
- *            constraints, escalate)               → intents
+ *            constraints, escalate)               → intents (+ join-token,
+ *            tailor-group#63: existing-identity refusal and races)
  *   batch 2 (multi-write: bounty, verify, reject, object, approve,
  *            dependencies)                        → bounty
  *   batch 3 (complex: topics, vote, done, legislation/propose, staleness,
@@ -138,6 +139,7 @@ describeDb("#5599 PR-A — transactional route wrap + catch-site remediation (re
   let bountyPost: PostHandler;
   let votePost: PostHandler;
   let topicsPost: (req: NextRequest) => Promise<Response>;
+  let joinTokenPost: PostHandler;
 
   /** Count helper (int8 already parsed to number by db.ts). */
   async function count(sql: string, args: unknown[]): Promise<number> {
@@ -163,6 +165,7 @@ describeDb("#5599 PR-A — transactional route wrap + catch-site remediation (re
     ({ POST: bountyPost } = await import("@/app/api/pact/[topicId]/bounty/route"));
     ({ POST: votePost } = await import("@/app/api/pact/[topicId]/vote/route"));
     ({ POST: topicsPost } = await import("@/app/api/pact/topics/route"));
+    ({ POST: joinTokenPost } = await import("@/app/api/pact/[topicId]/join-token/route"));
 
     // Seed the acting agent + a peer (FK targets for votes/registrations).
     await db.execute({
@@ -449,6 +452,114 @@ describeDb("#5599 PR-A — transactional route wrap + catch-site remediation (re
       expect(status.rows[0]?.status).toBe("open");
       expect(await count("SELECT count(*) AS n FROM events WHERE topic_id = ? AND type = 'pact.topic.approved'", [t])).toBe(1);
       expect(await count("SELECT count(*) AS n FROM events WHERE topic_id = ? AND type = 'pact.legislation.ingested'", [t])).toBe(0);
+    });
+  });
+
+  // ── tailor-group#63: join-token never acts for an existing identity ───────
+  describe("join-token (tailor-group#63): existing identities refused, new-agent creation atomic", () => {
+    async function seedInvite(t: string, token: string, maxUses = 10): Promise<void> {
+      await seedTopic(t, "open");
+      await db.execute({
+        sql: "INSERT INTO invite_tokens (token, topic_id, label, max_uses) VALUES (?, ?, 'itest', ?)",
+        args: [token, t, maxUses],
+      });
+    }
+    const inviteUses = async (token: string) =>
+      count("SELECT uses AS n FROM invite_tokens WHERE token = ?", [token]);
+
+    it("legacy plaintext and hashed existing agents: 409, no key, no registration, no invite use, no event", async () => {
+      const t = topicId("jt-existing");
+      const token = `jt-existing-${RUN}`;
+      await seedInvite(t, token);
+      // Synthetic keys only; the legacy row stores its plaintext, the other a hash.
+      const legacyKey = `pact_sk_itestlegacy${RUN}`;
+      const legacy = { id: `agent-63-legacy-${RUN}`, name: `itest 63 legacy ${RUN}` };
+      const hashed = { id: `agent-63-hashed-${RUN}`, name: `itest 63 hashed ${RUN}` };
+      const { hashAgentKey } = await import("@/lib/auth");
+      await db.execute({ sql: "INSERT INTO agents (id, name, api_key) VALUES (?, ?, ?)", args: [legacy.id, legacy.name, legacyKey] });
+      await db.execute({
+        sql: "INSERT INTO agents (id, name, api_key) VALUES (?, ?, ?)",
+        args: [hashed.id, hashed.name, hashAgentKey(`pact_sk_itesthashed${RUN}`)],
+      });
+
+      for (const agent of [legacy, hashed]) {
+        const res = await joinTokenPost(postJson(`/api/pact/${t}/join-token`, { agentName: agent.name, token }), params({ topicId: t }));
+        const text = await res.text();
+        expect(res.status).toBe(409);
+        expect(text).not.toContain("pact_sk_");
+      }
+      expect(await count("SELECT count(*) AS n FROM registrations WHERE topic_id = ?", [t])).toBe(0);
+      expect(await count("SELECT count(*) AS n FROM events WHERE topic_id = ?", [t])).toBe(0);
+      expect(await inviteUses(token)).toBe(0);
+      // The legacy row is untouched (still its plaintext: nothing authenticated as it).
+      const row = await db.execute({ sql: "SELECT api_key FROM agents WHERE id = ?", args: [legacy.id] });
+      expect(row.rows[0]?.api_key).toBe(legacyKey);
+    });
+
+    it("mid-region failure at the chain append rolls back the new agent, the registration and the invite use", async () => {
+      const t = topicId("jt-crash");
+      const token = `jt-crash-${RUN}`;
+      const name = `itest 63 crash ${RUN}`;
+      await seedInvite(t, token);
+
+      h.failNextEmit = true;
+      await expect(
+        joinTokenPost(postJson(`/api/pact/${t}/join-token`, { agentName: name, token }), params({ topicId: t }))
+      ).rejects.toThrow("induced mid-region failure");
+
+      expect(await count("SELECT count(*) AS n FROM agents WHERE name = ?", [name])).toBe(0);
+      expect(await count("SELECT count(*) AS n FROM registrations WHERE topic_id = ?", [t])).toBe(0);
+      expect(await inviteUses(token)).toBe(0);
+    });
+
+    it("commit path: a new agent, its registration, one invite use and the chain link land together", async () => {
+      const t = topicId("jt-commit");
+      const token = `jt-commit-${RUN}`;
+      const name = `itest 63 new ${RUN}`;
+      await seedInvite(t, token);
+
+      const res = await joinTokenPost(postJson(`/api/pact/${t}/join-token`, { agentName: name, token }), params({ topicId: t }));
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.apiKey).toMatch(/^pact_sk_/);
+      const stored = await db.execute({ sql: "SELECT id, api_key FROM agents WHERE name = ?", args: [name] });
+      expect(stored.rows[0]?.id).toBe(json.agentId);
+      expect(stored.rows[0]?.api_key).not.toBe(json.apiKey); // hashed at rest
+      expect(await count("SELECT count(*) AS n FROM registrations WHERE topic_id = ? AND agent_id = ?", [t, json.agentId])).toBe(1);
+      expect(await inviteUses(token)).toBe(1);
+      expect(await count("SELECT count(*) AS n FROM events WHERE topic_id = ? AND type = 'pact.agent.joined'", [t])).toBe(1);
+    });
+
+    it("race: two concurrent joins for one new name create ONE agent; the loser gets 409 and no identity", async () => {
+      const t = topicId("jt-race-name");
+      const token = `jt-race-name-${RUN}`;
+      const name = `itest 63 race ${RUN}`;
+      await seedInvite(t, token);
+
+      const results = await Promise.all(
+        [0, 1].map(() => joinTokenPost(postJson(`/api/pact/${t}/join-token`, { agentName: name, token }), params({ topicId: t })))
+      );
+      const statuses = results.map((r) => r.status).sort();
+      expect(statuses).toEqual([200, 409]);
+      const loser = results.find((r) => r.status === 409)!;
+      expect(await loser.json()).not.toHaveProperty("agentId");
+      expect(await count("SELECT count(*) AS n FROM agents WHERE name = ?", [name])).toBe(1);
+      expect(await count("SELECT count(*) AS n FROM registrations WHERE topic_id = ?", [t])).toBe(1);
+      expect(await inviteUses(token)).toBe(1);
+    });
+
+    it("race: the last invite use cannot be redeemed twice; the loser's new agent rolls back", async () => {
+      const t = topicId("jt-race-invite");
+      const token = `jt-race-invite-${RUN}`;
+      await seedInvite(t, token, 1);
+
+      const names = [`itest 63 last a ${RUN}`, `itest 63 last b ${RUN}`];
+      const results = await Promise.all(
+        names.map((agentName) => joinTokenPost(postJson(`/api/pact/${t}/join-token`, { agentName, token }), params({ topicId: t })))
+      );
+      expect(results.map((r) => r.status).sort()).toEqual([200, 403]);
+      expect(await inviteUses(token)).toBe(1);
+      expect(await count("SELECT count(*) AS n FROM agents WHERE name = ANY(?)", [names])).toBe(1);
     });
   });
 

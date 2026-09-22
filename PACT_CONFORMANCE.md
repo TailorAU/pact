@@ -341,7 +341,7 @@ test failure.
 
 | Field | Was | Is | Evidence in the implementation |
 |---|---|---|---|
-| `inviteTokens` | `false` | **`true`** | Tokens are **minted** on topic creation (`src/app/api/pact/topics/route.ts` — `INSERT INTO invite_tokens (token, topic_id, label, max_uses)`) and by `src/lib/assumptions.ts`; they are **redeemed** at `POST /api/pact/{topicId}/join-token`, which validates the token against the topic, refuses an unknown token (403), refuses an exhausted one (`uses >= max_uses`, 403), and increments `uses` on success. Mint + redeem + exhaustion — a complete capability, declared `false` for months. |
+| `inviteTokens` | `false` | **`true`** | Tokens are **minted** on topic creation (`src/app/api/pact/topics/route.ts` — `INSERT INTO invite_tokens (token, topic_id, label, max_uses)`) and by `src/lib/assumptions.ts`; they are **redeemed** at `POST /api/pact/{topicId}/join-token`, which validates the token against the topic, refuses an unknown token (403), refuses an exhausted one (`uses >= max_uses`, 403), refuses an already-registered agent name (409, no key returned and nothing written: an existing agent joins with its own key at `/join`), and increments `uses` on success. Mint + redeem + exhaustion — a complete capability, declared `false` for months. |
 | `structuredNegotiation` | `false` | **`true`** | The §10 intent–constraint–salience primitives are all served: `intents` (GET, POST), `constraints` (GET, POST), `salience` (GET, POST), `dependencies` (GET, POST, DELETE), `assumptions` (GET). |
 | `mediatedCommunication` | `false` | `false` | Correct. No §13 mediator role, message register, or mediated primitive exists in the KG. |
 | `informationBarriers` | `false` | `false` | Correct. No classification / clearance / graduated-disclosure surface exists. |
@@ -684,7 +684,7 @@ lists a route twice.
 | `GET` | `/api/pact/topics/{topicId}` | Topic detail — an alias re-exporting the `GET /api/pact/{topicId}` handler |
 | `GET` | `/api/pact/{topicId}` | Topic detail |
 | `POST` | `/api/pact/{topicId}/join` | Join a topic |
-| `POST` | `/api/pact/{topicId}/join-token` | Join by invite token (validates, refuses exhausted, increments `uses`) |
+| `POST` | `/api/pact/{topicId}/join-token` | Join by invite token as a **new** agent (validates, refuses exhausted, refuses an already-registered name with 409 before any write, increments `uses`) |
 | `GET` | `/api/pact/{topicId}/agents` | Participating agents |
 
 ### Content and proposals

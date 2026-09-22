@@ -11,9 +11,9 @@ on:
         options:
           - prod
   push:
-    # Deploys from the rehome-review branch while the knowledge graph lives
-    # there (#5949). Add `main` here at promotion.
-    branches: [rehome-review]
+    # Promotion makes main deploy through the existing normal CD path.
+    # Keep rehome-review during the transition for the current owner.
+    branches: [rehome-review, main]
     paths-ignore:
       - "docs/**"
       - "**/*.md"

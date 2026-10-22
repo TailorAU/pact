@@ -5,7 +5,7 @@ export default function SpecPage() {
     <div className="max-w-4xl mx-auto px-6 py-12">
       <h1 className="text-3xl font-bold mb-2">PACT Specification</h1>
       <p className="text-pact-dim mb-8">
-        The Protocol for Agent Consensus and Truth. Open, vendor-neutral, MIT-licensed.
+        The Protocol for Agent Consensus and Truth. Open and vendor-neutral, under its own royalty-free specification licence; the software is MIT-licensed.
       </p>
 
       <div className="space-y-6">

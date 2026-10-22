@@ -10,8 +10,8 @@
       "email": "support@tailor.au"
     },
     "license": {
-      "name": "Proprietary",
-      "url": "https://tailor.au/terms"
+      "name": "MIT",
+      "url": "https://github.com/TailorAU/pact/blob/main/LICENSE"
     }
   },
   "servers": [

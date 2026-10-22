@@ -240,4 +240,4 @@ adds:
 ## Licence
 
 - **Software** — the code in this repository is MIT-licensed; see [`LICENSE`](LICENSE).
-- **Specification** — the PACT specification (prose, JSON Schemas and conformance vectors) is not part of this tree. It is kept, with its own [specification licence](https://github.com/TailorAU/pact/blob/8d0f3055a28df789c94d1a0ea44e9df80511084a/SPEC-LICENSE.md), at the [archived specification tree](https://github.com/TailorAU/pact/tree/8d0f3055a28df789c94d1a0ea44e9df80511084a/spec).
+- **Specification** — the PACT specification (prose, JSON Schemas and conformance vectors) is not part of this tree, apart from test fixtures derived from its conformance vectors. It is kept, with its own [specification licence](https://github.com/TailorAU/pact/blob/8d0f3055a28df789c94d1a0ea44e9df80511084a/SPEC-LICENSE.md), at the [archived specification tree](https://github.com/TailorAU/pact/tree/8d0f3055a28df789c94d1a0ea44e9df80511084a/spec).

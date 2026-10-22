@@ -1,0 +1,25 @@
+[project]
+name = "source-tailor-tools"
+version = "0.1.0"
+description = "LangChain/CrewAI tool wrappers for the Source verified knowledge graph"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "TailorAU", email = "pact@tailor.au" }]
+keywords = ["langchain", "crewai", "source", "knowledge-graph", "legislation"]
+dependencies = [
+  "langchain-core>=0.3",
+  "requests>=2.28",
+  "pydantic>=2.0",
+]
+
+[project.urls]
+Homepage = "https://source.tailor.au"
+Repository = "https://github.com/TailorAU/tailor-app/tree/dev/sites/source/connectors/langchain"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["source_tools*"]

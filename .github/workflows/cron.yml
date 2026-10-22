@@ -1,0 +1,345 @@
+name: "Cron — PACT Knowledge Graph Maintenance"
+
+# Scheduled maintenance for the knowledge graph at pact.tailor.au.
+#
+# Re-homed from tailor-app's cron-source.yml, which tailor-app#5954 retired
+# together with its secrets when the KG moved here (tailor-group#9). Same
+# jobs, same cadence. The bearer is the `prod` environment's CRON_SECRET —
+# the same secret cd-kg.yml's build-and-deploy job (environment: prod)
+# deploys into the pact-web container app, so the credential has exactly one
+# source. Every job below declares that environment for the same reason: an
+# environment secret is empty in a job that does not, which is how the first
+# auth-check run answered 401 (tailor-group#9). `prod` has no required
+# reviewers, so scheduled runs never wait on anyone.
+#
+# GitHub runs `schedule` triggers from the DEFAULT branch only. The KG deploys
+# from `rehome-review` until tailor-group#7 step 3 promotes it, so until then
+# the schedules below are inert and every job is reachable by hand:
+#
+#   gh workflow run cron.yml --repo TailorAU/pact --ref rehome-review -f job=auth-check
+#
+# GitHub only lists (and only dispatches) a workflow that has run at least
+# once, or that lives on the default branch — a schedule + dispatch file on
+# rehome-review alone never gets that first run and `workflow run` answers
+# 404. The `push` trigger below, limited to this file's own path, is that
+# first run: every job's `if:` ignores a push, so the run does nothing but
+# register the workflow. Drop it at promotion or leave it; it is harmless.
+#
+# The consensus sweep does not wait for promotion: the server runs its own
+# in-process heartbeat (src/lib/consensus-heartbeat.ts) on the same engine
+# entry point, under the same Postgres advisory lock.
+#
+# The four long jobs — legislation-sync, spatial-snapshot, gtfs-sync,
+# fiscal-sync — take minutes, and pact.tailor.au sits behind a Next.js
+# rewrite proxy with a 30 s timeout, so their routes no longer run the work
+# inside the request (tailor-group#38): each starts it detached under its
+# own Postgres advisory lock, answers 202 at once, and records the outcome
+# in cron_job_runs; GET /api/cron/<job>/status reports it. The shared
+# trigger-then-poll loop lives in .github/actions/poll-cron-job (every job
+# below checks out only that directory to use it): it polls every 30 s to a
+# wall-clock deadline inside the job's timeout-minutes, fails at the first
+# poll that proves the run died, prints each job's own summary line(s), and
+# applies the job's `not-ok` policy to a completed run whose ok is false.
+
+on:
+  push:
+    branches: [rehome-review]
+    paths: [".github/workflows/cron.yml"]
+  schedule:
+    # Cleanup: daily at 3am UTC
+    - cron: "0 3 * * *"
+    # Yield distribution: Sunday at 4am UTC
+    - cron: "0 4 * * 0"
+    # Staleness check: daily at 5am UTC
+    - cron: "0 5 * * *"
+    # Legislation sync: Sunday at 6am UTC (4pm AEST)
+    - cron: "0 6 * * 0"
+    # Logan ArcGIS spatial snapshot: daily at 2am UTC (#874)
+    - cron: "0 2 * * *"
+    # Translink SEQ GTFS sync: Monday at 17:00 UTC (3am AEST Tuesday) (#875)
+    - cron: "0 17 * * 1"
+    # QLD fiscal reconstruction: daily at 18:00 UTC (4am AEST) (#3053)
+    - cron: "0 18 * * *"
+    # Consensus sweep (Silence=Consent auto-merge + topic approve/reject
+    # evaluation): every 30 minutes (#5425 — the engine does not run on GET
+    # traffic; the route holds a Postgres advisory lock so overlapping runs,
+    # including the in-process heartbeat's, skip rather than double-run)
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which cron job to run"
+        required: true
+        type: choice
+        options:
+          - auth-check
+          - cleanup
+          - yield
+          - staleness
+          - legislation-sync
+          - spatial-snapshot
+          - gtfs-sync
+          - fiscal-sync
+          - auto-merge
+          - all
+
+permissions:
+  contents: read
+
+env:
+  # The ONLY base. Never "fix" a redirect here by adding `-L` to a curl: that
+  # would forward the `Authorization: Bearer` cron secret to whatever host
+  # the redirect names (tailor-app#5582). Pin the correct host instead.
+  PACT_URL: https://pact.tailor.au
+
+jobs:
+  auth-check:
+    name: Cron Authentication Check (manual, read-only)
+    runs-on: ubuntu-latest
+    environment: prod
+    if: github.event_name == 'workflow_dispatch' && inputs.job == 'auth-check'
+    steps:
+      - name: Verify deployed cron authentication
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          RESPONSE_FILE="$RUNNER_TEMP/pact-cron-auth-check.json"
+          trap 'rm -f "$RESPONSE_FILE"' EXIT
+          STATUS=$(curl --silent --show-error \
+            --connect-timeout 10 --max-time 30 --max-redirs 0 \
+            --proto '=https' --tlsv1.2 \
+            --output "$RESPONSE_FILE" --write-out '%{http_code}' \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            "${{ env.PACT_URL }}/api/cron/auth-check")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Cron authentication check failed with status $STATUS"
+            exit 1
+          fi
+          if ! jq --exit-status \
+            'type == "object" and length == 1 and .status == "ok"' \
+            "$RESPONSE_FILE" > /dev/null; then
+            echo "::error::Cron authentication check returned an invalid response"
+            exit 1
+          fi
+
+  cleanup:
+    name: Cleanup (daily 3am UTC)
+    runs-on: ubuntu-latest
+    environment: prod
+    if: >-
+      github.event.schedule == '0 3 * * *' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'cleanup' || inputs.job == 'all')
+    steps:
+      - name: Run cleanup cron
+        run: |
+          STATUS=$(curl -s -D "$RUNNER_TEMP/cron-response-headers.txt" -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 300 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.PACT_URL }}/api/cron/cleanup")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Response headers:"
+            cat "$RUNNER_TEMP/cron-response-headers.txt" || true
+            echo "Response body (first 2000 bytes):"
+            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            echo
+          fi
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Cleanup cron failed with status $STATUS"
+            exit 1
+          fi
+
+  yield:
+    name: Yield Distribution (Sunday 4am UTC)
+    runs-on: ubuntu-latest
+    environment: prod
+    if: >-
+      github.event.schedule == '0 4 * * 0' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'yield' || inputs.job == 'all')
+    steps:
+      - name: Run yield cron
+        run: |
+          STATUS=$(curl -s -D "$RUNNER_TEMP/cron-response-headers.txt" -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 300 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.PACT_URL }}/api/cron/yield")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Response headers:"
+            cat "$RUNNER_TEMP/cron-response-headers.txt" || true
+            echo "Response body (first 2000 bytes):"
+            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            echo
+          fi
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Yield cron failed with status $STATUS"
+            exit 1
+          fi
+
+  staleness:
+    name: Staleness Check (daily 5am UTC)
+    runs-on: ubuntu-latest
+    environment: prod
+    if: >-
+      github.event.schedule == '0 5 * * *' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'staleness' || inputs.job == 'all')
+    steps:
+      - name: Run staleness cron
+        run: |
+          STATUS=$(curl -s -D "$RUNNER_TEMP/cron-response-headers.txt" -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 300 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.PACT_URL }}/api/cron/staleness")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Response headers:"
+            cat "$RUNNER_TEMP/cron-response-headers.txt" || true
+            echo "Response body (first 2000 bytes):"
+            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            echo
+          fi
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Staleness cron failed with status $STATUS"
+            exit 1
+          fi
+
+  legislation-sync:
+    name: Legislation Sync (Sunday 6am UTC)
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 30
+    if: >-
+      github.event.schedule == '0 6 * * 0' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'legislation-sync' || inputs.job == 'all')
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
+      # tailor-group#38 — ok is false when any jurisdiction reported an
+      # error; that is a warning here, not a failure (one source erroring
+      # never failed this job), and the summary line prints each
+      # jurisdiction's FIRST error string so a credentials failure that
+      # leaves docsChecked=0 errors=1 is readable in the log, not just a
+      # count. Full per-jurisdiction rows: GET /api/cron/legislation-sync/status.
+      - name: Run legislation sync cron and poll until it completes
+        uses: ./.github/actions/poll-cron-job
+        with:
+          job: legislation-sync
+          base-url: ${{ env.PACT_URL }}
+          cron-secret: ${{ secrets.CRON_SECRET }}
+          deadline-seconds: "1620"
+          not-ok: warn
+          summary-jq: |
+            (.lastRun.summary.jurisdictions // [])[]
+            | "\(.jurisdiction): docsChecked=\(.docsChecked) docsUpdated=\(.docsUpdated) sectionsTotal=\(.sectionsTotal) errors=\(.errorCount) crashes=\(.parserCrashCount) anomalies=\(.parserAnomalyCount) firstError=\((.firstError // "") | .[:160] | tojson)"
+
+  spatial-snapshot:
+    name: Logan ArcGIS Spatial Snapshot (daily 2am UTC) — Refs #874
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 30
+    if: >-
+      github.event.schedule == '0 2 * * *' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'spatial-snapshot' || inputs.job == 'all')
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
+      # Distinguish "we are unreachable" from "ArcGIS throttled a layer". A
+      # transport failure, a redirect, or a 4xx on the trigger is OUR
+      # endpoint being wrong (tailor-app#5582) and fails. Upstream trouble
+      # arrives through the summary: `warning` whenever any layer errored,
+      # ok:false only when every layer did — both stay non-fatal, which is
+      # what the tolerance was always for.
+      - name: Run spatial snapshot cron and poll until it completes
+        uses: ./.github/actions/poll-cron-job
+        with:
+          job: spatial-snapshot
+          base-url: ${{ env.PACT_URL }}
+          cron-secret: ${{ secrets.CRON_SECRET }}
+          deadline-seconds: "1620"
+          not-ok: warn
+          summary-jq: |
+            .lastRun.summary as $s
+            | "layers synced=\($s.layersSynced) errored=\($s.layersErrored) warning=\($s.warning // false)",
+              (($s.results // [])[] | "\(.layerName): \(.status) features=\(.featuresIngested) error=\((.errorDetail // "") | .[:160] | tojson)")
+
+  gtfs-sync:
+    name: Translink SEQ GTFS Sync (Monday 17:00 UTC = 3am AEST Tuesday) — Refs #875
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 30
+    if: >-
+      github.event.schedule == '0 17 * * 1' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'gtfs-sync' || inputs.job == 'all')
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
+      # ok is false when the sync recorded an error (runGtfsSync catches a
+      # failed feed download into `errors` and still answers), which fails
+      # this job: a feed that did not load is not a successful sync.
+      - name: Run GTFS sync cron and poll until it completes
+        uses: ./.github/actions/poll-cron-job
+        with:
+          job: gtfs-sync
+          base-url: ${{ env.PACT_URL }}
+          cron-secret: ${{ secrets.CRON_SECRET }}
+          deadline-seconds: "1620"
+          summary-jq: |
+            .lastRun.summary
+            | "stops=\(.stopsIngested) routes=\(.routesIngested) trips=\(.tripsIngested) stopTimes=\(.stopTimesIngested) keyStations=\(.keyStations) errors=\(.errors // [] | length) firstError=\(((.errors // [])[0] // .error // "") | .[:160] | tojson)"
+
+  auto-merge:
+    name: Consensus Sweep (every 30 min) — Refs #5425
+    runs-on: ubuntu-latest
+    environment: prod
+    if: >-
+      github.event.schedule == '*/30 * * * *' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'auto-merge' || inputs.job == 'all')
+    steps:
+      - name: Run consensus sweep cron
+        run: |
+          STATUS=$(curl -s -D "$RUNNER_TEMP/cron-response-headers.txt" -o "$RUNNER_TEMP/cron-response.json" -w '%{http_code}' --max-time 300 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.PACT_URL }}/api/cron/auto-merge")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Response headers:"
+            cat "$RUNNER_TEMP/cron-response-headers.txt" || true
+            echo "Response body (first 2000 bytes):"
+            head -c 2000 "$RUNNER_TEMP/cron-response.json" || true
+            echo
+          fi
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Consensus sweep failed with status $STATUS"
+            exit 1
+          fi
+
+  fiscal-sync:
+    name: QLD Fiscal Reconstruction (daily 18:00 UTC = 4am AEST) — Refs #3053
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 30
+    if: >-
+      github.event.schedule == '0 18 * * *' ||
+      github.event_name == 'workflow_dispatch' && (inputs.job == 'fiscal-sync' || inputs.job == 'all')
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
+      # ok is `status !== "error"` — the same verdict the synchronous route
+      # used for its 500 (nothing written AND errors) — so this job fails on
+      # exactly what failed it before.
+      - name: Run fiscal sync cron and poll until it completes
+        uses: ./.github/actions/poll-cron-job
+        with:
+          job: fiscal-sync
+          base-url: ${{ env.PACT_URL }}
+          cron-secret: ${{ secrets.CRON_SECRET }}
+          deadline-seconds: "1620"
+          summary-jq: |
+            .lastRun.summary
+            | "\(.jurisdiction): status=\(.status) linesWritten=\(.linesWritten) forecastLinesWritten=\(.forecastLinesWritten) errorDetail=\((.errorDetail // .error // "") | .[:160] | tojson)"

@@ -1,947 +1,717 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { z } from 'zod';
-import { request } from './api.js';
-import { mandateGuard, mandateServerOptions, type ToolResult } from './mandate.js';
-import {
-  loadSessions,
-  loadManifestCache,
-  saveManifestCache,
-  manifestCacheAgeMs,
-  updateSession,
-  type CachedManifest,
-} from './sessions.js';
+#!/usr/bin/env node
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
 
-function jsonResult(data: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
+const BASE_URL = process.env.SOURCE_BASE_URL || "https://source.tailor.au";
+const AXIOM_KEY = process.env.SOURCE_AXIOM_KEY || "";
+const PACT_KEY = process.env.SOURCE_PACT_KEY || "";
+// #1160 Round 5 — agent-scoped key for the reciprocal work economy (claim + submit).
+const AGENT_KEY = process.env.SOURCE_AGENT_KEY || "";
+
+type TextContent = { type: "text"; text: string };
+type ToolResult = { content: TextContent[]; isError?: boolean };
+
+function jsonResult(data: unknown): ToolResult {
+  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
 
-function errorResult(err: unknown) {
+function errorResult(err: unknown): ToolResult {
   const message = err instanceof Error ? err.message : String(err);
-  return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true as const };
+  return { content: [{ type: "text" as const, text: `Error: ${message}` }], isError: true };
 }
 
-/**
- * Spec §25.10 — client terminology boundary. Surfaced as MCP server
- * instructions so the calling model is told, up front and in-band, what the
- * states these tools return do and do not mean. Without it a model reading
- * `status: "auto-merged"` will happily paraphrase it to the user as "both
- * parties agreed and signed off".
- */
-const PACT_BOUNDARY_INSTRUCTIONS = [
-  'PACT coordinates agents over a shared resource. Every state these tools return is a PROTOCOL STATE.',
-  '',
-  'accepted, approved, auto-merged, merged, aligned, consensus_reached, commitment, Settled, Verified,',
-  'Finalized, a done completion, a TTL expiring, and nobody objecting are protocol states ONLY. None of',
-  'them is, by itself, an electronic signature, legal assent, proof of a person\'s identity or capacity,',
-  'proof of authority to bind an organisation, or authority to perform an external or irreversible act.',
-  '',
-  'When reporting PACT state to a user or another system:',
-  '  - Say auto-merged, aligned, merged, consensus reached, objected, or awaiting attestation.',
-  '  - Never say signed, executed, agreed by <person>, or authorised by <person> for a state reached',
-  '    without an explicit authorization_proof from that person.',
-  '  - Describe silence as "no objection was raised within the TTL", never as consent.',
-  '  - A merged contract or NDA is an ALIGNED DRAFT. It is not signed or executed.',
-  '',
-  'Silence, TTL expiry, consensus and your own votes never create a human attestation. If a request would',
-  'move money, leave the system, or purport to bind someone, PACT fails closed and waits for an explicit,',
-  'payload-bound human attestation — do not attempt to work around that, and do not report the effect as',
-  'done. See spec/v2.3/SPECIFICATION.md §25 and §17.14.',
-].join('\n');
-
-const server = new McpServer(
-  {
-    name: 'PACT Protocol',
-    version: '2.0.3',
-  },
-  // `instructions` carries the §25.10 terminology boundary to the calling
-  // model. Spread preserves the mandate extension declaration: capabilities
-  // declares ServerCapabilities.extensions["au.tailor.pact/mandate"] when
-  // PACT_MANDATE_ENFORCEMENT is configured, and is absent otherwise (unchanged
-  // behaviour). See src/mandate.ts and docs/v2-prep/rfc-mcp-mandate-extension.md.
-  { instructions: PACT_BOUNDARY_INSTRUCTIONS, ...(mandateServerOptions() ?? {}) },
-);
-
-/**
- * Registration wrapper: every tool passes the au.tailor.pact/mandate gate
- * before its handler runs, and successful results are stamped with the
- * verification verdict in _meta. With PACT_MANDATE_ENFORCEMENT unset the
- * gate is a pass-through and behaviour is byte-identical to plain
- * tool().
- */
-function tool<S extends z.ZodRawShape>(
-  name: string,
-  description: string,
-  shape: S,
-  handler: (args: z.objectOutputType<S, z.ZodTypeAny>, extra: unknown) => Promise<ToolResult>,
-): void {
-  server.tool(name, description, shape, (async (args: unknown, extra: unknown) => {
-    const meta = (extra as { _meta?: Record<string, unknown> } | undefined)?._meta;
-    const gate = mandateGuard(name, (args ?? {}) as Record<string, unknown>, meta);
-    if (gate.block) return gate.block;
-    const result = await handler(args as z.objectOutputType<S, z.ZodTypeAny>, extra);
-    return gate.stamp(result);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  }) as any);
+async function postAgent(path: string, body: unknown): Promise<unknown> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "x-source-agent-key": AGENT_KEY,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText}: ${txt.slice(0, 200)}`);
+  }
+  return res.json();
 }
 
-// ── Agent Lifecycle ──────────────────────────────────────────────
+async function sourceGet(path: string, axiomAuth = false): Promise<unknown> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (axiomAuth && AXIOM_KEY) {
+    headers["Authorization"] = `Bearer ${AXIOM_KEY}`;
+  }
+  const res = await fetch(`${BASE_URL}${path}`, { headers });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
 
-tool(
-  'pact_join',
-  'Join a resource (document, transaction, topic) as a PACT agent. Required before any other operations.',
-  {
-    documentId: z.string().describe('Document ID'),
-    agentName: z.string().describe('Agent display name'),
-    role: z.string().optional().describe('Role: editor, reviewer, observer'),
-    token: z.string().optional().describe('Invite token for BYOK join (no account needed)'),
-  },
-  async ({ documentId, agentName, role, token }) => {
-    try {
-      if (token) {
-        const result = await request(`/api/pact/${documentId}/join-token`, {
-          method: 'POST',
-          body: JSON.stringify({ agentName, token }),
+function createServer(): McpServer {
+  const server = new McpServer({
+    name: "Source — Verified Knowledge Graph",
+    version: "0.5.0",
+  });
+
+  server.tool(
+    "source_hub_stats",
+    "Get Source knowledge graph overview: topic count, agent count, consensus stats, recent events.",
+    {},
+    async () => {
+      try {
+        return jsonResult(await sourceGet("/api/hub/stats"));
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_browse_topics",
+    "List topics in the Source knowledge graph. Filter by status (open, proposed, consensus, stable, locked) or tier (axiom, empirical, institutional, interpretive, conjecture).",
+    {
+      status: z.string().optional().describe("Filter by topic status"),
+      tier: z.string().optional().describe("Filter by knowledge tier"),
+      jurisdiction: z.string().optional().describe("Filter by jurisdiction (e.g. AU, AU-QLD)"),
+      limit: z.number().optional().describe("Max results (default 50, max 200)"),
+      offset: z.number().optional().describe("Pagination offset"),
+    },
+    async ({ status, tier, jurisdiction, limit, offset }) => {
+      try {
+        const params = new URLSearchParams();
+        if (status) params.set("status", status);
+        if (tier) params.set("tier", tier);
+        if (jurisdiction) params.set("jurisdiction", jurisdiction);
+        if (limit) params.set("limit", String(limit));
+        if (offset) params.set("offset", String(offset));
+        const qs = params.toString();
+        return jsonResult(await sourceGet(`/api/pact/topics${qs ? `?${qs}` : ""}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_get_topic",
+    "Get a topic's full content and section structure from the Source knowledge graph.",
+    {
+      topicId: z.string().describe("Topic UUID"),
+      resolve: z.boolean().optional().describe("If true, include resolved dependency chain"),
+    },
+    async ({ topicId, resolve }) => {
+      try {
+        const contentPath = `/api/pact/${topicId}/content${resolve ? "?resolve=true" : ""}`;
+        const sectionsPath = `/api/pact/${topicId}/sections`;
+        const [content, sections] = await Promise.all([
+          sourceGet(contentPath),
+          sourceGet(sectionsPath),
+        ]);
+        return jsonResult({ content, sections });
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_query_facts",
+    "Query verified facts (consensus/stable topics) from the Axiom API. Requires SOURCE_AXIOM_KEY.",
+    {
+      tier: z.string().optional().describe("Filter by tier (axiom, empirical, etc.)"),
+      jurisdiction: z.string().optional().describe("Filter by jurisdiction"),
+      q: z.string().optional().describe("Full-text search query"),
+      limit: z.number().optional().describe("Max results (default 50, max 200)"),
+      offset: z.number().optional().describe("Pagination offset"),
+    },
+    async ({ tier, jurisdiction, q, limit, offset }) => {
+      try {
+        const params = new URLSearchParams();
+        if (tier) params.set("tier", tier);
+        if (jurisdiction) params.set("jurisdiction", jurisdiction);
+        if (q) params.set("q", q);
+        if (limit) params.set("limit", String(limit));
+        if (offset) params.set("offset", String(offset));
+        const qs = params.toString();
+        return jsonResult(await sourceGet(`/api/axiom/facts${qs ? `?${qs}` : ""}`, true));
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_search_legislation",
+    "Full-text search across Australian legislation sections in the Source knowledge graph. Requires SOURCE_AXIOM_KEY.",
+    {
+      query: z.string().describe("Search query (e.g. 'mine safety', 'unfair dismissal')"),
+      jurisdiction: z.string().optional().describe("Filter by jurisdiction: QLD, CTH, NSW"),
+      type: z.string().optional().describe("Filter by doc type: act, regulation"),
+      limit: z.number().optional().describe("Max results (default 20)"),
+      offset: z.number().optional().describe("Pagination offset"),
+    },
+    async ({ query, jurisdiction, type, limit, offset }) => {
+      try {
+        const params = new URLSearchParams({ q: query });
+        if (jurisdiction) params.set("jurisdiction", jurisdiction);
+        if (type) params.set("type", type);
+        if (limit) params.set("limit", String(limit));
+        if (offset) params.set("offset", String(offset));
+        return jsonResult(await sourceGet(`/api/axiom/legislation/search?${params}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_get_legislation",
+    "Get a specific legislation document with all its sections from Source. Requires SOURCE_AXIOM_KEY.",
+    {
+      id: z.string().describe("Legislation document ID"),
+      section: z.string().optional().describe("Filter to a specific section ID"),
+    },
+    async ({ id, section }) => {
+      try {
+        const params = new URLSearchParams();
+        if (section) params.set("section", section);
+        const qs = params.toString();
+        const encodedId = encodeURIComponent(id);
+        return jsonResult(await sourceGet(`/api/axiom/legislation/${encodedId}${qs ? `?${qs}` : ""}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_list_legislation",
+    "List legislation documents in the Source knowledge graph, filterable by jurisdiction and type. Requires SOURCE_AXIOM_KEY.",
+    {
+      jurisdiction: z.string().optional().describe("Filter: QLD, CTH, NSW"),
+      type: z.string().optional().describe("Filter: act, regulation"),
+      q: z.string().optional().describe("Search by title"),
+      limit: z.number().optional().describe("Max results"),
+      offset: z.number().optional().describe("Pagination offset"),
+    },
+    async ({ jurisdiction, type, q, limit, offset }) => {
+      try {
+        const params = new URLSearchParams();
+        if (jurisdiction) params.set("jurisdiction", jurisdiction);
+        if (type) params.set("type", type);
+        if (q) params.set("q", q);
+        if (limit) params.set("limit", String(limit));
+        if (offset) params.set("offset", String(offset));
+        const qs = params.toString();
+        return jsonResult(await sourceGet(`/api/axiom/legislation${qs ? `?${qs}` : ""}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_get_section",
+    "Get a specific legislation section by ID (e.g. 's 19') across all documents. Free, no API key needed.",
+    {
+      sectionId: z.string().describe("Section identifier (e.g. 's 19', 's 302', 'Schedule 2')"),
+      jurisdiction: z.string().optional().describe("Filter: QLD, CTH, NSW"),
+      doc: z.string().optional().describe("Filter by document title keyword (e.g. 'Coal Mining', 'Work Health')"),
+      format: z.enum(["json", "text"]).optional().describe("Response format (default: json)"),
+    },
+    async ({ sectionId, jurisdiction, doc, format }) => {
+      try {
+        const params = new URLSearchParams();
+        if (jurisdiction) params.set("jurisdiction", jurisdiction);
+        if (doc) params.set("doc", doc);
+        if (format) params.set("format", format);
+        const qs = params.toString();
+        const encoded = encodeURIComponent(sectionId);
+        return jsonResult(await sourceGet(`/api/axiom/legislation/section/${encoded}${qs ? `?${qs}` : ""}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  // ── Fuel Tools ───────────────────────────────────────────────────
+
+  server.tool(
+    "source_cheapest_fuel",
+    "Find the cheapest fuel stations right now. Free, real-time prices from 1,500+ QLD stations.",
+    {
+      fuelType: z.string().optional().describe("Fuel type: U91, U95, U98, E10, Diesel, PremDSL, LPG, E85, AdBlue (default: U91)"),
+      state: z.string().optional().describe("State: QLD, NSW, VIC, WA, SA, ACT, TAS, NT"),
+      limit: z.number().optional().describe("Max results (default: 10)"),
+    },
+    async ({ fuelType, state, limit }) => {
+      try {
+        const params = new URLSearchParams();
+        if (fuelType) params.set("fuelType", fuelType);
+        if (state) params.set("state", state);
+        if (limit) params.set("limit", String(limit));
+        const qs = params.toString();
+        return jsonResult(await sourceGet(`/api/market/fuel/cheapest${qs ? `?${qs}` : ""}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_fuel_near_me",
+    "Find fuel stations near a GPS location. Returns stations sorted by distance with current prices.",
+    {
+      latitude: z.number().describe("GPS latitude"),
+      longitude: z.number().describe("GPS longitude"),
+      fuelType: z.string().optional().describe("Fuel type (default: U91)"),
+      radiusKm: z.number().optional().describe("Search radius in km (default: 10)"),
+      limit: z.number().optional().describe("Max results (default: 10)"),
+    },
+    async ({ latitude, longitude, fuelType, radiusKm, limit }) => {
+      try {
+        const params = new URLSearchParams({
+          latitude: String(latitude),
+          longitude: String(longitude),
         });
-        return jsonResult(result);
-      }
-      const body: Record<string, unknown> = { agentName };
-      if (role) body.role = role;
-      const result = await request(`/api/pact/${documentId}/join`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
+        if (fuelType) params.set("fuelType", fuelType);
+        if (radiusKm) params.set("radiusKm", String(radiusKm));
+        if (limit) params.set("limit", String(limit));
+        return jsonResult(await sourceGet(`/api/market/fuel/near-me?${params}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
 
-tool(
-  'pact_leave',
-  'Leave a document, unregistering as a PACT agent.',
-  { documentId: z.string().describe('Document ID') },
-  async ({ documentId }) => {
-    try {
-      await request(`/api/pact/${documentId}/leave`, { method: 'DELETE' });
-      return jsonResult({ success: true });
-    } catch (err) { return errorResult(err); }
-  },
-);
+  server.tool(
+    "source_fuel_search",
+    "Search fuel stations by type, state, or suburb.",
+    {
+      fuelType: z.string().describe("Fuel type: Diesel, U91, U95, U98, E10, LPG"),
+      state: z.string().optional().describe("State filter"),
+      suburb: z.string().optional().describe("Suburb filter"),
+      limit: z.number().optional().describe("Max results (default: 20)"),
+    },
+    async ({ fuelType, state, suburb, limit }) => {
+      try {
+        const params = new URLSearchParams({ fuelType });
+        if (state) params.set("state", state);
+        if (suburb) params.set("suburb", suburb);
+        if (limit) params.set("limit", String(limit));
+        return jsonResult(await sourceGet(`/api/market/fuel/search?${params}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
 
-tool(
-  'pact_agents',
-  'List all agents registered on a document.',
-  { documentId: z.string().describe('Document ID') },
-  async ({ documentId }) => {
-    try {
-      const result = await request(`/api/pact/${documentId}/agents`);
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
+  server.tool(
+    "source_fuel_summary",
+    "Get a national or state-level fuel price summary — average, min, max prices by fuel type.",
+    {
+      state: z.string().optional().describe("State filter (omit for national summary)"),
+    },
+    async ({ state }) => {
+      try {
+        const qs = state ? `?state=${state}` : "";
+        return jsonResult(await sourceGet(`/api/market/fuel/summary${qs}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
 
-// ── Intent-Constraint-Salience ───────────────────────────────────
+  server.tool(
+    "source_station_prices",
+    "Get all current fuel prices at a specific station.",
+    {
+      stationId: z.string().describe("Station UUID"),
+    },
+    async ({ stationId }) => {
+      try {
+        return jsonResult(await sourceGet(`/api/market/fuel/stations/${stationId}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
 
-tool(
-  'pact_intent',
-  'Declare intent for a section — what you plan to do.',
-  {
-    documentId: z.string().describe('Document ID'),
-    sectionId: z.string().describe('Target section ID'),
-    goal: z.string().describe('What you plan to do'),
-    category: z.string().optional().describe('Intent category'),
-    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof — proof-of-human-intent envelope. Pre-built by the hardware/biometric layer; the MCP just carries it.'),
-  },
-  async ({ documentId, sectionId, goal, category, authorizationProof }) => {
-    try {
-      const body: Record<string, unknown> = { sectionId, goal };
-      if (category) body.category = category;
-      if (authorizationProof) body.authorization_proof = authorizationProof;
-      const result = await request(`/api/pact/${documentId}/intents`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
+  server.tool(
+    "source_fuel_history",
+    "Get price history for a fuel type at a specific station.",
+    {
+      stationId: z.string().describe("Station UUID"),
+      fuelType: z.string().describe("Fuel type"),
+      days: z.number().optional().describe("History period in days (default: 30)"),
+    },
+    async ({ stationId, fuelType, days }) => {
+      try {
+        const params = new URLSearchParams({ stationId, fuelType });
+        if (days) params.set("days", String(days));
+        return jsonResult(await sourceGet(`/api/market/fuel/history?${params}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
 
-tool(
-  'pact_constrain',
-  'Publish a constraint on a section — what must or must not happen.',
-  {
-    documentId: z.string().describe('Document ID'),
-    sectionId: z.string().describe('Target section ID'),
-    boundary: z.string().describe('What must or must not happen'),
-    category: z.string().optional().describe('Constraint category'),
-    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
-  },
-  async ({ documentId, sectionId, boundary, category, authorizationProof }) => {
-    try {
-      const body: Record<string, unknown> = { sectionId, boundary };
-      if (category) body.category = category;
-      if (authorizationProof) body.authorization_proof = authorizationProof;
-      const result = await request(`/api/pact/${documentId}/constraints`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
+  // ── Scenario Tools (#1152) ──────────────────────────────────────
 
-tool(
-  'pact_salience',
-  'Set salience score for a section (0-10: how much you care).',
-  {
-    documentId: z.string().describe('Document ID'),
-    sectionId: z.string().describe('Target section ID'),
-    score: z.number().min(0).max(10).describe('Salience score (0-10)'),
-  },
-  async ({ documentId, sectionId, score }) => {
-    try {
-      await request(`/api/pact/${documentId}/salience`, {
-        method: 'POST',
-        body: JSON.stringify({ sectionId, score }),
-      });
-      return jsonResult({ section: sectionId, score });
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-// ── Objection (silence = no protocol objection; only speak up to block) ─────
-
-tool(
-  'pact_object',
-  'Object to a proposal — blocks auto-merge, forces renegotiation. Only call this when a proposal violates your ' +
-    'constraints. Not objecting means no protocol objection was raised within the TTL (spec §25.3) — it is not ' +
-    'consent, approval, or a signature by anyone, and it never creates a human attestation.',
-  {
-    documentId: z.string().describe('Document ID'),
-    proposalId: z.string().describe('Proposal ID'),
-    reason: z.string().describe('Why this violates your constraints'),
-    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
-  },
-  async ({ documentId, proposalId, reason, authorizationProof }) => {
-    try {
-      const body: Record<string, unknown> = { reason };
-      if (authorizationProof) body.authorization_proof = authorizationProof;
-      await request(`/api/pact/${documentId}/proposals/${proposalId}/object`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      return jsonResult({ status: 'objected', proposalId });
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-// ── Polling & Events ─────────────────────────────────────────────
-
-tool(
-  'pact_poll',
-  'Poll for new events since a cursor (stateless). Returns proposals, objections, escalations, and completions.',
-  {
-    documentId: z.string().describe('Document ID'),
-    since: z.string().optional().describe('Cursor to poll from'),
-    sectionId: z.string().optional().describe('Filter by section'),
-    limit: z.number().optional().describe('Max events to return'),
-  },
-  async ({ documentId, since, sectionId, limit }) => {
-    try {
-      const params = new URLSearchParams();
-      if (since) params.set('since', since);
-      if (sectionId) params.set('sectionId', sectionId);
-      if (limit) params.set('limit', String(limit));
-      const qs = params.toString() ? `?${params}` : '';
-      const result = await request(`/api/pact/${documentId}/poll${qs}`);
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-// ── Completion ───────────────────────────────────────────────────
-
-tool(
-  'pact_done',
-  'Signal that this agent has completed its work. Reports a protocol state only: `aligned` means the agents ' +
-    'converged on the text, NOT that anything was signed, executed, or legally accepted (spec §25.3, §25.8).',
-  {
-    documentId: z.string().describe('Document ID'),
-    status: z
-      .string()
-      .describe(
-        'Completion status: aligned, blocked, or withdrawn. Protocol states only — never report `signed` or `executed` here (§25.8).',
-      ),
-    summary: z.string().optional().describe('Summary of what was accomplished'),
-    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
-  },
-  async ({ documentId, status, summary, authorizationProof }) => {
-    try {
-      const body: Record<string, unknown> = { status, summary };
-      if (authorizationProof) body.authorization_proof = authorizationProof;
-      const result = await request(`/api/pact/${documentId}/done`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-// ── Locking ──────────────────────────────────────────────────────
-
-tool(
-  'pact_lock',
-  'Lock a section for exclusive coordination.',
-  {
-    documentId: z.string().describe('Document ID'),
-    sectionId: z.string().describe('Section ID to lock'),
-    ttlSeconds: z.number().optional().describe('Lock TTL in seconds'),
-  },
-  async ({ documentId, sectionId, ttlSeconds }) => {
-    try {
-      const body: Record<string, unknown> = {};
-      if (ttlSeconds) body.ttlSeconds = ttlSeconds;
-      const result = await request(`/api/pact/${documentId}/sections/${sectionId}/lock`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_unlock',
-  'Unlock a section.',
-  {
-    documentId: z.string().describe('Document ID'),
-    sectionId: z.string().describe('Section ID to unlock'),
-  },
-  async ({ documentId, sectionId }) => {
-    try {
-      await request(`/api/pact/${documentId}/sections/${sectionId}/lock`, { method: 'DELETE' });
-      return jsonResult({ status: 'unlocked', sectionId });
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-// ── Escalation ───────────────────────────────────────────────────
-
-tool(
-  'pact_escalate',
-  'Escalate an issue to human reviewers. Use when agents cannot reach consensus.',
-  {
-    documentId: z.string().describe('Document ID'),
-    message: z.string().describe('Reason for escalation'),
-    sectionId: z.string().optional().describe('Relevant section ID'),
-    disclosure_level: z.number().int().min(1).max(4).optional().describe(
-      'Graduated disclosure level this escalation reveals (§10.3: 1 Constraint, 2 Category, 3 Reasoning, 4 Human). ' +
-        'Guard-facing: checked against an active mandate\'s disclosure_ceiling (au.tailor.pact/mandate); not forwarded upstream.',
-    ),
-    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
-  },
-  async ({ documentId, message, sectionId, authorizationProof }) => {
-    try {
-      const body: Record<string, unknown> = { message };
-      if (sectionId) body.sectionId = sectionId;
-      if (authorizationProof) body.authorization_proof = authorizationProof;
-      await request(`/api/pact/${documentId}/escalate`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      return jsonResult({ status: 'escalated', documentId });
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_ask',
-  'Ask a question of the human custodian — for clarifications PACT cannot resolve via agent consensus. Distinct from escalate: this is a targeted question, not a coordination breakdown.',
-  {
-    documentId: z.string().describe('Document ID'),
-    question: z.string().describe('The question for the human'),
-    sectionId: z.string().optional().describe('Relevant section ID'),
-    context: z.string().optional().describe('Background context for the question'),
-    timeoutSeconds: z.number().optional().describe('How long to wait for an answer (default 60)'),
-    disclosure_level: z.number().int().min(1).max(4).optional().describe(
-      'Graduated disclosure level this question reveals (§10.3: 1 Constraint, 2 Category, 3 Reasoning, 4 Human). ' +
-        'Guard-facing: checked against an active mandate\'s disclosure_ceiling (au.tailor.pact/mandate); not forwarded upstream.',
-    ),
-    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
-  },
-  async ({ documentId, question, sectionId, context, timeoutSeconds, authorizationProof }) => {
-    try {
-      const body: Record<string, unknown> = {
-        question,
-        sectionId: sectionId ?? null,
-        context: context ?? null,
-        timeoutSeconds: timeoutSeconds ?? 60,
-      };
-      if (authorizationProof) body.authorization_proof = authorizationProof;
-      const result = await request(`/api/pact/${documentId}/ask-human`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-// ── Mediated Negotiation (§13) ───────────────────────────────────
-
-tool(
-  'pact_negotiate_list',
-  'List active mediated negotiations on a document (§13 — structured multi-round exchanges facilitated by the Mediator).',
-  { documentId: z.string().describe('Document ID') },
-  async ({ documentId }) => {
-    try {
-      const result = await request(`/api/pact/${documentId}/negotiations`);
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_negotiate_position',
-  'Submit this agent\'s position for the current round of a mediated negotiation. The Mediator synthesises positions across rounds (§13.5.3).',
-  {
-    documentId: z.string().describe('Document ID'),
-    negotiationId: z.string().describe('Negotiation ID'),
-    position: z.string().describe('This agent\'s position for the current round'),
-    authorizationProof: z.record(z.unknown()).optional().describe('Optional §17.6 authorization_proof envelope.'),
-  },
-  async ({ documentId, negotiationId, position, authorizationProof }) => {
-    try {
-      const body: Record<string, unknown> = { position };
-      if (authorizationProof) body.authorization_proof = authorizationProof;
-      const result = await request(`/api/pact/${documentId}/negotiations/${negotiationId}/position`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_negotiate_synthesis',
-  'Get the Mediator\'s synthesis for the latest round of a negotiation — what positions have been received, and what the Mediator has surfaced to each party (subject to graduated-disclosure rules, §10.3 / §13.5.2).',
-  {
-    documentId: z.string().describe('Document ID'),
-    negotiationId: z.string().describe('Negotiation ID'),
-  },
-  async ({ documentId, negotiationId }) => {
-    try {
-      const result = await request(`/api/pact/${documentId}/negotiations/${negotiationId}/synthesis`);
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-// ── Implementation profile (§15) ─────────────────────────────────
-
-tool(
-  'pact_profile',
-  'Fetch a PACT server\'s implementation profile from /.well-known/pact.json (§15). Returns name, version, specVersion, conformanceLevel, resourceTypes, capabilities, retentionPolicy, endpoints. Optionally checks that conformanceLevel meets a minimum.',
-  {
-    serverUrl: z.string().describe('Base URL of the PACT server (e.g. https://tailor.au)'),
-    minimumLevel: z.enum(['core', 'extended', 'authorization-required']).optional().describe('Optional minimum conformance level to assert'),
-  },
-  async ({ serverUrl, minimumLevel }) => {
-    try {
-      const base = serverUrl.replace(/\/+$/, '');
-      const url = `${base}/.well-known/pact.json`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-      if (!res.ok) {
-        return errorResult(new Error(`HTTP ${res.status} fetching ${url}`));
-      }
-      const profile = await res.json() as Record<string, unknown>;
-      if (minimumLevel) {
-        const rank: Record<string, number> = { core: 0, extended: 1, 'authorization-required': 2 };
-        const got = typeof profile.conformanceLevel === 'string' ? rank[profile.conformanceLevel.toLowerCase()] : undefined;
-        const need = rank[minimumLevel];
-        const meets = got !== undefined && need !== undefined && got >= need;
-        return jsonResult({ profile, meetsMinimum: meets, requestedMinimum: minimumLevel });
-      }
-      return jsonResult(profile);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-// ── Tier introspection (§15.5, v2.0.2+) ──────────────────────────
-
-tool(
-  'pact_tier_introspect',
-  'Behaviourally probe a PACT server\'s advertised conformance tier (§15.5). Calls /api/pact/_probe/tier and reports which of the tier\'s required checks the server actually enforces. Use BEFORE extending cross-org trust to a counterparty: a self-asserted tier in /.well-known/pact.json is not behavioural conformance.',
-  {
-    serverUrl: z.string().describe('Base URL of the PACT server.'),
-    advertisedTier: z.enum(['core', 'extended', 'authorization-required']).optional().describe('Tier to probe. Defaults to the tier the server self-advertises in /.well-known/pact.json.'),
-    checks: z.array(z.string()).optional().describe('Specific checks to probe. Defaults to the v2.0.2 well-known set: tombstoned_principal_rejected, revoked_credential_rejected, did_web_ct_check, alg_whitelist_enforced, verifier_id_equality_enforced.'),
-  },
-  async ({ serverUrl, advertisedTier, checks }) => {
-    try {
-      const base = serverUrl.replace(/\/+$/, '');
-      let tier = advertisedTier;
-      if (!tier) {
-        const profRes = await fetch(`${base}/.well-known/pact.json`, { signal: AbortSignal.timeout(15_000) });
-        if (!profRes.ok) return errorResult(new Error(`HTTP ${profRes.status} fetching /.well-known/pact.json`));
-        const profile = await profRes.json() as { conformanceLevel?: string };
-        tier = (profile.conformanceLevel as 'core' | 'extended' | 'authorization-required' | undefined);
-        if (!tier) return errorResult(new Error('profile missing conformanceLevel — supply advertisedTier'));
-      }
-      const probeId = 'mcp-probe-' + Math.random().toString(16).slice(2, 14);
-      const requestedChecks = checks ?? [
-        'tombstoned_principal_rejected',
-        'revoked_credential_rejected',
-        'did_web_ct_check',
-        'alg_whitelist_enforced',
-        'verifier_id_equality_enforced',
-      ];
-      const res = await fetch(`${base}/api/pact/_probe/tier`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ probe_id: probeId, advertised_tier: tier, checks: requestedChecks }),
-        signal: AbortSignal.timeout(30_000),
-      });
-      if (!res.ok) return errorResult(new Error(`HTTP ${res.status} from /api/pact/_probe/tier — server may not expose the v2.0.2 tier probe`));
-      const report = await res.json();
-      return jsonResult(report);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-// ── Fabric Onboarding & Session Awareness (§4.4 / §6.5 / §15.6, v2.0.3) ─
-
-tool(
-  'pact_onboard',
-  'Atomically onboard into a fabric (§15.6, v2.0.3). Use this instead of pact_join when the fabric requires declaring constraints up-front: the server either admits the caller WITH constraints recorded, or rejects with no membership created (no half-joined state).',
-  {
-    fabric_id: z.string().describe('Target fabric identifier.'),
-    constraints: z.unknown().describe('Constraints array (or constraints object) to declare during onboarding.'),
-    verifier_id: z.string().optional().describe('Optional verifier DID to bind the onboarding handshake (mirrors §17 nonce binding).'),
-  },
-  async ({ fabric_id, constraints, verifier_id }) => {
-    try {
-      const body: Record<string, unknown> = { constraints };
-      if (verifier_id) body.verifier_id = verifier_id;
-      const result = await request<Record<string, unknown>>(`/api/pact/${encodeURIComponent(fabric_id)}/_onboard`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      const resolvedId = (result?.fabric_id ?? result?.fabricId ?? fabric_id) as string;
-      const role = typeof result?.role === 'string' ? result.role : undefined;
-      await updateSession(resolvedId, {
-        joinedAt: new Date().toISOString(),
-        role,
-      });
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_status',
-  'Snapshot of a fabric (§4.4, v2.0.3): phase, members, latest event id, pending obligations. If fabric_id is omitted, returns a local-state summary of every fabric this agent is in (no network call).',
-  {
-    fabric_id: z.string().optional().describe('Fabric to snapshot. Omit to return the local cross-fabric summary.'),
-  },
-  async ({ fabric_id }) => {
-    try {
-      if (fabric_id) {
-        const result = await request(`/api/pact/${encodeURIComponent(fabric_id)}/_status`);
-        return jsonResult(result);
-      }
-      const sessions = loadSessions();
-      return jsonResult({ source: 'local', fabrics: sessions });
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_manifest',
-  'Fetch the caller-scoped active-session manifest for a fabric (§4.4, v2.0.3) — members, phase, obligations, and any data this caller is authorised to see. Result is cached under ~/.pact/manifest-<id>.json for pact_session_announce to read.',
-  {
-    fabric_id: z.string().describe('Target fabric identifier.'),
-  },
-  async ({ fabric_id }) => {
-    try {
-      const result = await request(`/api/pact/${encodeURIComponent(fabric_id)}/manifest`);
-      const cached = saveManifestCache(fabric_id, result);
-      await updateSession(fabric_id, { lastManifestFetch: cached.fetchedAt });
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_transcript',
-  'Fetch the event log (transcript) for a fabric since an optional event id (§4.4, v2.0.3). With mark_read=true, also POSTs to /mark-read to acknowledge the printed range.',
-  {
-    fabric_id: z.string().describe('Target fabric identifier.'),
-    since_event_id: z.string().optional().describe('Only return events after this event id.'),
-    mark_read: z.boolean().optional().describe('If true, ack the returned range via POST /mark-read after fetching.'),
-  },
-  async ({ fabric_id, since_event_id, mark_read }) => {
-    try {
-      const params = new URLSearchParams();
-      if (since_event_id) params.set('since', since_event_id);
-      const qs = params.toString() ? `?${params}` : '';
-      const result = await request<Record<string, unknown> | unknown[]>(`/api/pact/${encodeURIComponent(fabric_id)}/transcript${qs}`);
-
-      const events = Array.isArray(result)
-        ? result
-        : ((result as { events?: unknown[]; changes?: unknown[] })?.events ??
-           (result as { changes?: unknown[] })?.changes ?? []);
-
-      const eventIdOf = (e: unknown): string | undefined => {
-        if (!e || typeof e !== 'object') return undefined;
-        const r = e as Record<string, unknown>;
-        return (r.event_id ?? r.eventId ?? r.id) as string | undefined;
-      };
-
-      let lastId: string | undefined;
-      if (Array.isArray(events) && events.length > 0) {
-        lastId = eventIdOf(events[events.length - 1]);
-      }
-      const explicitLast = !Array.isArray(result)
-        ? ((result as Record<string, unknown>).latest_event_id ?? (result as Record<string, unknown>).latestEventId) as string | undefined
-        : undefined;
-      const highWater = explicitLast ?? lastId;
-      if (highWater) {
-        await updateSession(fabric_id, { lastReadEventId: highWater });
-      }
-
-      if (mark_read && Array.isArray(events) && events.length > 0) {
-        const first = eventIdOf(events[0]);
-        const last = eventIdOf(events[events.length - 1]);
-        const markBody: Record<string, unknown> = {};
-        if (first) markBody.from_event_id = first;
-        if (last) markBody.to_event_id = last;
-        await request(`/api/pact/${encodeURIComponent(fabric_id)}/mark-read`, {
-          method: 'POST',
-          body: JSON.stringify(markBody),
+  server.tool(
+    "source_match_scenario",
+    "Match a set of caller predicates against the Source scenario library. Returns ranked scenarios by confidence, plus an LLM fallback if no scenario scores above 0.5. Unauthenticated; free.",
+    {
+      predicates: z.record(z.unknown()).describe("Key/value predicates describing the caller's situation (e.g. { country_of_operation: 'AU', counterparty_country: 'US', product_class: 'defence_dual_use' })"),
+    },
+    async ({ predicates }) => {
+      try {
+        const res = await fetch(`${BASE_URL}/api/scenarios/match`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ predicates }),
         });
-      }
-
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_heartbeat',
-  'Fire a one-shot heartbeat for a fabric (§4.4, v2.0.3) — tells the server this agent is still attending. Optionally signals that attention is required (e.g. waiting on a human, blocked on another agent). Not a daemon; one ping per call.',
-  {
-    fabric_id: z.string().describe('Target fabric identifier.'),
-    attention_required: z.boolean().optional().describe('Signal that this agent is currently blocked / needs attention.'),
-  },
-  async ({ fabric_id, attention_required }) => {
-    try {
-      const body: Record<string, unknown> = { source: 'mcp', oneShot: true };
-      if (attention_required !== undefined) body.attention_required = attention_required;
-      const result = await request(`/api/pact/${encodeURIComponent(fabric_id)}/_heartbeat`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      return jsonResult(result ?? { ok: true });
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_mark_read',
-  'Acknowledge a transcript range on the server (§4.4, v2.0.3). Equivalent to the pact_transcript mark_read flag but standalone, e.g. when ack-ing events that were fetched out-of-band.',
-  {
-    fabric_id: z.string().describe('Target fabric identifier.'),
-    from_event_id: z.string().describe('First event id in the range to ack (inclusive).'),
-    to_event_id: z.string().describe('Last event id in the range to ack (inclusive).'),
-  },
-  async ({ fabric_id, from_event_id, to_event_id }) => {
-    try {
-      const result = await request(`/api/pact/${encodeURIComponent(fabric_id)}/mark-read`, {
-        method: 'POST',
-        body: JSON.stringify({ from_event_id, to_event_id }),
-      });
-      await updateSession(fabric_id, { lastReadEventId: to_event_id });
-      return jsonResult(result ?? { ok: true });
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_session_announce',
-  'COGNITIVE-LAYER HOOK (v2.0.3 §4.4). Returns a structured "you are currently in N fabrics" payload designed for the calling LLM to prepend to its working context — so it does not forget about active fabrics and their pending obligations. By default this is offline: it only reads ~/.pact/sessions.json + cached manifests. Pass refresh_manifests=true to re-fetch each fabric\'s manifest live before announcing.',
-  {
-    refresh_manifests: z.boolean().optional().describe('If true, re-fetch every fabric\'s manifest before building the announcement. Default: false (offline).'),
-  },
-  async ({ refresh_manifests }) => {
-    try {
-      const sessions = loadSessions();
-      const fabricIds = Object.keys(sessions);
-
-      interface Announce {
-        fabricId: string;
-        role?: string;
-        phase?: string;
-        joinedAt?: string;
-        lastReadEventId?: string;
-        manifestSource: 'fresh' | 'cache' | 'none';
-        manifestAgeSeconds?: number;
-        pendingObligations: unknown[];
-      }
-
-      const fabrics: Announce[] = [];
-
-      for (const id of fabricIds) {
-        let cached: CachedManifest | null = loadManifestCache(id);
-        let source: 'fresh' | 'cache' | 'none' = cached ? 'cache' : 'none';
-
-        if (refresh_manifests) {
-          try {
-            const m = await request(`/api/pact/${encodeURIComponent(id)}/manifest`);
-            cached = saveManifestCache(id, m);
-            await updateSession(id, { lastManifestFetch: cached.fetchedAt });
-            source = 'fresh';
-          } catch {
-            // Fall through to cached or none.
-          }
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          throw new Error(`${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
         }
+        return jsonResult(await res.json());
+      } catch (e) { return errorResult(e); }
+    }
+  );
 
-        const m = (cached?.manifest ?? {}) as Record<string, unknown>;
-        const phase = typeof m.phase === 'string' ? m.phase : undefined;
-        const obligationsRaw =
-          (m.pending_obligations ?? m.pendingObligations ?? m.obligations) as unknown;
-        const obligations = Array.isArray(obligationsRaw) ? obligationsRaw : [];
-        const role =
-          sessions[id].role ??
-          (typeof m.caller_role === 'string' ? (m.caller_role as string) : undefined) ??
-          (typeof m.callerRole === 'string' ? (m.callerRole as string) : undefined);
+  server.tool(
+    "source_list_applicable_law",
+    "Given a scenario id, return the full applicability subgraph (scenario + applies_when edges + co_applies edges + resolved topic/legislation metadata) flattened for LLM prompt injection.",
+    {
+      scenarioId: z.string().describe("Scenario id (e.g. 'scn.au-defence-export-to-us')"),
+    },
+    async ({ scenarioId }) => {
+      try {
+        const encoded = encodeURIComponent(scenarioId);
+        return jsonResult(await sourceGet(`/api/scenarios/${encoded}/applicable`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
 
-        const ageMs = manifestCacheAgeMs(cached);
-        fabrics.push({
-          fabricId: id,
-          role,
-          phase,
-          joinedAt: sessions[id].joinedAt,
-          lastReadEventId: sessions[id].lastReadEventId,
-          manifestSource: source,
-          manifestAgeSeconds: ageMs !== null ? Math.round(ageMs / 1000) : undefined,
-          pendingObligations: obligations,
+  // ── Applicability Spot-check Tools (#1160 Round 5) ─────────────
+
+  server.tool(
+    "source_submit_applicability_prediction",
+    "Earn 3 credits by predicting which scenarios apply to a given predicate set BEFORE the graph is consulted (blind_predict mode). Deterministic validator: F1 >= 0.66 vs canonical match or rejected. Requires SOURCE_AGENT_KEY. Wrapper over POST /api/work/claim + POST /api/work/submit.",
+    {
+      predicates: z.record(z.unknown()).describe("Caller predicates (e.g. { country_of_operation: 'AU', handles_personal_information: true })"),
+      predictedScenarioIds: z.array(z.string()).describe("Scenario ids the caller predicts will apply (before looking at the graph)"),
+      rationale: z.string().min(80).describe("80+ chars explaining the prediction reasoning (mandatory — validator rejects short rationales)"),
+    },
+    async ({ predicates, predictedScenarioIds, rationale }) => {
+      try {
+        if (!AGENT_KEY) {
+          return errorResult("SOURCE_AGENT_KEY not configured. Register via POST /api/work/register to get an agent key.");
+        }
+        const claim = await postAgent("/api/work/claim", { workType: "applicability_spotcheck" });
+        const assignmentId = (claim as { assignmentId?: string })?.assignmentId;
+        if (!assignmentId) {
+          throw new Error(`claim did not return assignmentId: ${JSON.stringify(claim).slice(0, 200)}`);
+        }
+        const submit = await postAgent("/api/work/submit", {
+          assignmentId,
+          submission: {
+            mode: "blind_predict",
+            predicates,
+            predictedScenarioIds,
+            rationale,
+          },
         });
-      }
+        return jsonResult({ assignmentId, ...((submit as object) ?? {}) });
+      } catch (e) { return errorResult(e); }
+    }
+  );
 
-      const totalPending = fabrics.reduce((n, f) => n + f.pendingObligations.length, 0);
-      const lines: string[] = [];
-      if (fabrics.length === 0) {
-        lines.push('You are not currently in any PACT fabrics.');
-      } else {
-        lines.push(`You are currently in ${fabrics.length} PACT fabric${fabrics.length === 1 ? '' : 's'}: ${fabrics.map((f) => f.fabricId).join(', ')}.`);
-        if (totalPending > 0) {
-          lines.push(`${totalPending} pending obligation${totalPending === 1 ? '' : 's'} across these fabrics.`);
+  server.tool(
+    "source_review_scenario_applicability",
+    "Earn up to 5 credits per accepted submission by spot-checking an existing scenario's applies_when edges (review_existing mode). Confirm edges (1 credit each, cap 3), flag defects (reject / missing, 3 credits each, DEFERRED until a curator resolves). Requires SOURCE_AGENT_KEY. Findings must cite reasons >= 40 chars; overall rationale >= 120 chars.",
+    {
+      scenarioId: z.string().describe("Scenario id to review (e.g. 'scn.au-privacy-personal-info')"),
+      rationale: z.string().min(120).describe("120+ chars explaining overall assessment"),
+      findings: z.array(z.object({
+        action: z.enum(["confirm", "reject", "missing"]).describe("confirm existing edge | reject existing edge | flag missing edge"),
+        edgeId: z.string().optional().describe("Required for confirm/reject: the applies_when edge id"),
+        targetKind: z.enum(["topic", "legislation"]).optional().describe("Required for missing: what kind of node should be linked"),
+        targetId: z.string().optional().describe("Required for missing: the topic or legislation id"),
+        reason: z.string().min(40).describe("40+ chars justifying this finding"),
+      })).min(1).describe("At least one finding. Confirms-only with reasons < 40 chars are rejected."),
+    },
+    async ({ scenarioId, rationale, findings }) => {
+      try {
+        if (!AGENT_KEY) {
+          return errorResult("SOURCE_AGENT_KEY not configured. Register via POST /api/work/register to get an agent key.");
         }
-        for (const f of fabrics) {
-          const role = f.role ? ` as ${f.role}` : '';
-          const phase = f.phase ? `, phase=${f.phase}` : '';
-          lines.push(`  • ${f.fabricId}${role}${phase} — ${f.pendingObligations.length} pending`);
+        const claim = await postAgent("/api/work/claim", { workType: "applicability_spotcheck" });
+        const assignmentId = (claim as { assignmentId?: string })?.assignmentId;
+        if (!assignmentId) {
+          throw new Error(`claim did not return assignmentId: ${JSON.stringify(claim).slice(0, 200)}`);
         }
+        const submit = await postAgent("/api/work/submit", {
+          assignmentId,
+          submission: {
+            mode: "review_existing",
+            scenarioId,
+            rationale,
+            findings,
+          },
+        });
+        return jsonResult({ assignmentId, ...((submit as object) ?? {}) });
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  // ── Evidence Pack Tools (#876) ─────────────────────────────────
+
+  server.tool(
+    "source_get_evidence_pack",
+    "Assemble a complete, traceable evidence pack for a Queensland property development assessment. Composes statute citations, spatial derived facts (flood/zoning/heritage), TOD catchment membership, and cadastre geometry into a single verified response. Provide lotPlan (e.g. '123RP456789') and/or lat+lon.",
+    {
+      lotPlan: z.string().optional().describe("QLD lot-plan reference (e.g. '123RP456789') — fetches cadastre polygon"),
+      lat: z.number().optional().describe("Parcel centroid latitude (decimal degrees)"),
+      lon: z.number().optional().describe("Parcel centroid longitude (decimal degrees)"),
+      domain: z.string().optional().describe("Evidence domain (default: 'property_development')"),
+      legislationQuery: z.string().optional().describe("Search term for statute citations (default: 'planning development')"),
+    },
+    async ({ lotPlan, lat, lon, domain, legislationQuery }) => {
+      try {
+        if (!lotPlan && (lat == null || lon == null)) {
+          return errorResult("Provide lotPlan or both lat and lon");
+        }
+        const body: Record<string, unknown> = {};
+        if (lotPlan) body.lotPlan = lotPlan;
+        if (lat != null) body.lat = lat;
+        if (lon != null) body.lon = lon;
+        if (domain) body.domain = domain;
+        if (legislationQuery) body.legislationQuery = legislationQuery;
+        const res = await fetch(`${BASE_URL}/api/source/evidence-pack`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          throw new Error(`${res.status} ${res.statusText}: ${txt.slice(0, 200)}`);
+        }
+        return jsonResult(await res.json());
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_verify_claim",
+    "Check a factual claim against the Source knowledge graph — searches legislation sections and institutional topics for supporting or contradicting evidence. Returns ranked evidence with confidence levels and traceability.",
+    {
+      claim: z.string().describe("The factual claim to verify (e.g. 'Development within 400m of a train station requires TOD assessment')"),
+      jurisdiction: z.string().optional().describe("Filter: QLD, CTH, NSW"),
+      domain: z.string().optional().describe("Scope to a domain (e.g. 'property_development')"),
+      limit: z.number().optional().describe("Max evidence items returned (default: 5)"),
+    },
+    async ({ claim, jurisdiction, domain, limit }) => {
+      try {
+        const params = new URLSearchParams({ q: claim });
+        if (jurisdiction) params.set("jurisdiction", jurisdiction);
+        if (limit) params.set("limit", String(limit));
+        const legResults = await sourceGet(`/api/axiom/legislation/search?${params}`);
+        const topicParams = new URLSearchParams({ q: claim });
+        if (jurisdiction) topicParams.set("jurisdiction", jurisdiction);
+        if (domain) topicParams.set("domain", domain);
+        topicParams.set("limit", String(limit ?? 5));
+        let topicResults: unknown = null;
+        try {
+          topicResults = await sourceGet(`/api/pact/topics?${topicParams}`);
+        } catch { /* topics search is best-effort */ }
+        return jsonResult({
+          claim,
+          searchedAt: new Date().toISOString(),
+          legislation: legResults,
+          topics: topicResults,
+          note: "Evidence is ranked by full-text relevance. Review each item's derivedFrom and limitations before citing.",
+        });
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  server.tool(
+    "source_get_source_graph",
+    "Get the dependency graph for a Source topic — resolves builds_on, assumes, and co_applies edges recursively to show the full evidential chain supporting a knowledge claim.",
+    {
+      topicId: z.string().describe("Topic UUID or scenario id"),
+      depth: z.number().optional().describe("Dependency resolution depth (1=direct, 2=transitive, default: 2)"),
+    },
+    async ({ topicId, depth }) => {
+      try {
+        const encoded = encodeURIComponent(topicId);
+        const depthParam = depth != null ? `?depth=${depth}` : "";
+        let graph: unknown = null;
+        try {
+          graph = await sourceGet(`/api/pact/${encoded}/dependencies${depthParam}`);
+        } catch {
+          graph = await sourceGet(`/api/pact/${encoded}/content?resolve=true`);
+        }
+        return jsonResult({ topicId, graph });
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  // ── Market: Quote Rates (#1192) ─────────────────────────────────
+
+  server.tool(
+    "source_quote_rates",
+    "Get canonical retail rates for material item-keys across linked AU retailers. Returns cheapest per key plus all observations for comparison. Used by Traide for live quote pricing (replaces hardcoded TRADE_TEMPLATES rates). Public, unauthenticated. Item-key examples: wall-tile-porcelain, grout-floor, paint-primer, treated-pine-90x45, colorbond-roof-sheet.",
+    {
+      items: z
+        .array(z.string())
+        .min(1)
+        .max(64)
+        .describe("Item keys, e.g. ['wall-tile-porcelain','waterproofing-membrane','grout-floor']"),
+    },
+    async ({ items }) => {
+      try {
+        const qs = new URLSearchParams({ items: items.join(",") }).toString();
+        return jsonResult(await sourceGet(`/api/market/quote-rates?${qs}`));
+      } catch (e) { return errorResult(e); }
+    }
+  );
+
+  // ── Market: Price Observation Mining (#1216) ────────────────────
+
+  server.tool(
+    "source_claim_price_assignment",
+    "Claim an open price_observation_mining assignment for a (item_key, retailer) pair. Daily cron opens assignments for stale (>24h) pairs across the 5 hardware retailers (bunnings, mitre-10, reece, beaumont-tiles, tradelink). Use this then call source_submit_price_observation with the same assignmentId. Requires SOURCE_AGENT_KEY.",
+    {
+      itemKey: z
+        .string()
+        .optional()
+        .describe(
+          "Optional — preferred item key (e.g. 'wall-tile-porcelain'). If omitted, the next stale assignment is claimed.",
+        ),
+      retailerSlug: z
+        .string()
+        .optional()
+        .describe("Optional — preferred retailer slug. Combine with itemKey for a specific pair."),
+      expiresInMinutes: z
+        .number()
+        .optional()
+        .describe("Assignment TTL in minutes (default 60, max 1440)."),
+    },
+    async ({ itemKey, retailerSlug, expiresInMinutes }) => {
+      try {
+        const payload: Record<string, unknown> = {};
+        if (itemKey) payload.itemKey = itemKey;
+        if (retailerSlug) payload.retailerSlug = retailerSlug;
+        return jsonResult(
+          await postAgent("/api/work/claim", {
+            workType: "price_observation_mining",
+            payload,
+            expiresInMinutes,
+          }),
+        );
+      } catch (e) {
+        return errorResult(e);
       }
+    },
+  );
 
-      return jsonResult({
-        prelude: lines.join('\n'),
-        fabricCount: fabrics.length,
-        totalPendingObligations: totalPending,
-        fabrics,
-        source: refresh_manifests ? 'network' : 'local-cache',
-      });
-    } catch (err) { return errorResult(err); }
-  },
-);
+  server.tool(
+    "source_submit_price_observation",
+    "Submit a mined retail price for a price_observation_mining assignment. Two-stage validator: (1) deterministic checks (URL HEAD 200, retailer-domain match, sanity range, unit match); (2) consensus (±10% of running median for same item_key+retailer over last 14 days). Accepted observations earn 2 credits. Outliers / cold-start / range violations land in market.price_observation_defects for curator review. Requires SOURCE_AGENT_KEY.",
+    {
+      assignmentId: z.string().describe("ID of the assignment claimed via source_claim_price_assignment"),
+      itemKey: z.string().describe("Item key (e.g. 'wall-tile-porcelain')"),
+      retailerSlug: z.string().describe("Retailer slug (e.g. 'bunnings')"),
+      productName: z.string().describe("Product name as listed by the retailer (5-250 chars)"),
+      productUrl: z.string().describe("Public product page URL on the retailer's site"),
+      ean: z.string().optional().describe("EAN/GTIN if available — improves product de-duplication"),
+      priceCents: z.number().describe("Total product price in cents AUD (incl. GST)"),
+      unitPriceCents: z
+        .number()
+        .describe("Per-unit price in cents (e.g. cents per m², cents per L) — must match item_key.unit"),
+      unitPriceUnit: z
+        .string()
+        .describe("Unit string matching item_key.unit (e.g. 'm²', 'lm', 'L', 'item', 'kg')"),
+      inStock: z.boolean().optional().describe("Stock availability (default true)"),
+    },
+    async ({
+      assignmentId,
+      itemKey,
+      retailerSlug,
+      productName,
+      productUrl,
+      ean,
+      priceCents,
+      unitPriceCents,
+      unitPriceUnit,
+      inStock,
+    }) => {
+      try {
+        return jsonResult(
+          await postAgent("/api/work/submit", {
+            assignmentId,
+            submission: {
+              itemKey,
+              retailerSlug,
+              productName,
+              productUrl,
+              ean,
+              priceCents,
+              unitPriceCents,
+              unitPriceUnit,
+              inStock,
+            },
+          }),
+        );
+      } catch (e) {
+        return errorResult(e);
+      }
+    },
+  );
 
-// ── Matters (v2.2 draft — docs/v2-prep/rfc-matters-multi-fabric.md) ──
+  // ── Contribution Tools ──────────────────────────────────────────
 
-tool(
-  'pact_matter_open',
-  'Open a multi-fabric "deal-room" Matter. Caller becomes the owner. Matters group N peer fabrics under a shared participant set + typed side-channel + cross-fabric manifest. v2.2 draft.',
-  {
-    name: z.string().describe('Human-readable Matter name (e.g., "Project Atlas acquisition")'),
-    opened_by_display: z.string().optional().describe("Caller's display name within the Matter"),
-  },
-  async ({ name, opened_by_display }) => {
-    try {
-      const body: Record<string, unknown> = { name };
-      if (opened_by_display) body.opened_by_display = opened_by_display;
-      const result = await request('/api/pact/matters', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
+  server.tool(
+    "source_contribute_legislation",
+    "Propose a new legislation document for inclusion in Source. Goes through PACT consensus — 3+ agents must verify the text matches the official gazette before ingestion. Requires a PACT agent API key (SOURCE_PACT_KEY env var).",
+    {
+      title: z.string().describe("Full title of the legislation (e.g. 'Coal Mining Safety and Health Act 1999')"),
+      jurisdiction: z.string().describe("Jurisdiction: QLD, CTH, NSW, VIC, WA, SA, TAS, ACT, NT"),
+      type: z.enum(["act", "regulation", "standard", "guidance"]).describe("Document type"),
+      year: z.number().optional().describe("Year of enactment"),
+      gazetteUrl: z.string().optional().describe("URL to official gazette for verification"),
+      sections: z.array(z.object({
+        sectionId: z.string().describe("Section identifier (e.g. 's 19')"),
+        title: z.string().optional().describe("Section heading"),
+        content: z.string().describe("Full section text"),
+        depth: z.number().optional().describe("Nesting depth (1=top, 2=subsection)"),
+        parentSection: z.string().optional().describe("Parent part/division"),
+      })).describe("Structured sections of the legislation"),
+      summary: z.string().describe("Why this legislation should be added to Source"),
+    },
+    async ({ title, jurisdiction, type, year, gazetteUrl, sections, summary }) => {
+      try {
+        if (!PACT_KEY) {
+          return errorResult("SOURCE_PACT_KEY not configured. Register at POST /api/pact/register to get an API key.");
+        }
+        const body = {
+          document: {
+            id: `${jurisdiction.toLowerCase()}/act-${year || "0000"}-proposed`,
+            jurisdiction: jurisdiction.toUpperCase(),
+            type,
+            title,
+            year,
+            sections: sections.map((s, i) => ({ ...s, order: i, status: "in_force" })),
+          },
+          summary,
+          gazetteUrl,
+        };
+        const res = await fetch(`${BASE_URL}/api/pact/legislation/propose`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${PACT_KEY}`,
+          },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.text().catch(() => "");
+          throw new Error(`${res.status}: ${err.slice(0, 200)}`);
+        }
+        return jsonResult(await res.json());
+      } catch (e) { return errorResult(e); }
+    }
+  );
 
-tool(
-  'pact_matter_list',
-  'List all Matters known to the server (summary view).',
-  {},
-  async () => {
-    try {
-      const result = await request('/api/pact/matters');
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
+  return server;
+}
 
-tool(
-  'pact_matter_show',
-  "Show a Matter's caller-visible state.",
-  { matterId: z.string().describe('Matter ID (e.g., mtr_xxx)') },
-  async ({ matterId }) => {
-    try {
-      const result = await request(`/api/pact/matters/${encodeURIComponent(matterId)}`);
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_matter_add_member',
-  'Add a member to a Matter (owner-only). Matter membership is eligibility, NOT automatic fabric enrollment — members still need to join attached fabrics individually.',
-  {
-    matterId: z.string().describe('Matter ID'),
-    principal_id: z.string().describe('Member principal_id (e.g., did:web:counterparty.example)'),
-    display_name: z.string().optional().describe('Display name within the Matter'),
-    role: z.enum(['owner', 'participant']).optional().describe('Default: participant'),
-  },
-  async ({ matterId, principal_id, display_name, role }) => {
-    try {
-      const body: Record<string, unknown> = { principal_id };
-      if (display_name) body.display_name = display_name;
-      if (role) body.role = role;
-      const result = await request(
-        `/api/pact/matters/${encodeURIComponent(matterId)}/members`,
-        { method: 'POST', body: JSON.stringify(body) },
-      );
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_matter_attach',
-  'Attach an existing fabric to a Matter (owner-only). The fabric retains its own membership and obligations; this just registers the cross-reference. A fabric MAY belong to multiple Matters.',
-  {
-    matterId: z.string().describe('Matter ID'),
-    resourceId: z.string().describe('Fabric / resource ID to attach'),
-  },
-  async ({ matterId, resourceId }) => {
-    try {
-      const result = await request(
-        `/api/pact/matters/${encodeURIComponent(matterId)}/fabrics`,
-        { method: 'POST', body: JSON.stringify({ resourceId }) },
-      );
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_matter_detach',
-  'Detach a fabric from a Matter (owner-only). The fabric itself is NOT closed — it persists and continues to be queryable directly.',
-  {
-    matterId: z.string().describe('Matter ID'),
-    resourceId: z.string().describe('Fabric / resource ID to detach'),
-  },
-  async ({ matterId, resourceId }) => {
-    try {
-      const result = await request(
-        `/api/pact/matters/${encodeURIComponent(matterId)}/fabrics/${encodeURIComponent(resourceId)}`,
-        { method: 'DELETE' },
-      );
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_matter_message',
-  "Post a typed-event message to a Matter's side-channel. The wire format is a structured event (not free-form chat); UIs may render it as chat. Optional `fabric_id` cross-links the message to an attached fabric (and optional `section_id` to a section within it).",
-  {
-    matterId: z.string().describe('Matter ID'),
-    content: z.string().describe('Message content (free text within a structured event)'),
-    fabric_id: z.string().optional().describe('Optional: reference an attached fabric'),
-    section_id: z.string().optional().describe('Optional: reference a section within the fabric'),
-  },
-  async ({ matterId, content, fabric_id, section_id }) => {
-    try {
-      const body: Record<string, unknown> = { content };
-      if (fabric_id) body.fabric_id = fabric_id;
-      if (section_id) body.section_id = section_id;
-      const result = await request(
-        `/api/pact/matters/${encodeURIComponent(matterId)}/messages`,
-        { method: 'POST', body: JSON.stringify(body) },
-      );
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_matter_messages',
-  "List a Matter's side-channel messages.",
-  { matterId: z.string().describe('Matter ID') },
-  async ({ matterId }) => {
-    try {
-      const result = await request(
-        `/api/pact/matters/${encodeURIComponent(matterId)}/messages`,
-      );
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_matter_manifest',
-  'Get the caller-scoped cross-fabric manifest for a Matter — §4.4.2 extended to Matter scope. Aggregates attached-fabric phase, open-proposal counts, caller-specific pending obligations across all attached fabrics, and side-channel summary. Cross-org peers are filtered per §17.13.',
-  { matterId: z.string().describe('Matter ID') },
-  async ({ matterId }) => {
-    try {
-      const result = await request(
-        `/api/pact/matters/${encodeURIComponent(matterId)}/manifest`,
-      );
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-tool(
-  'pact_matter_close',
-  'Close a Matter (owner-only). Per the RFC: closing does NOT cascade to attached fabrics — they persist independently and continue to be queryable directly. Use --outcome to record a free-form close reason ("deal-signed", "walked-away", etc.).',
-  {
-    matterId: z.string().describe('Matter ID'),
-    outcome: z.string().optional().describe('Free-form outcome label'),
-  },
-  async ({ matterId, outcome }) => {
-    try {
-      const body: Record<string, unknown> = {};
-      if (outcome) body.outcome = outcome;
-      const result = await request(
-        `/api/pact/matters/${encodeURIComponent(matterId)}/close`,
-        { method: 'POST', body: JSON.stringify(body) },
-      );
-      return jsonResult(result);
-    } catch (err) { return errorResult(err); }
-  },
-);
-
-// ── Start ────────────────────────────────────────────────────────
-
-async function main(): Promise<void> {
+async function main() {
+  const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
 
 main().catch((err) => {
-  console.error('PACT MCP server failed to start:', err);
+  console.error("Source MCP server failed to start:", err);
   process.exit(1);
 });

@@ -1,7 +1,57 @@
-.vercel
-node_modules/
-dist/
-*.tsbuildinfo
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# Claude Code session state (per-session worktrees, not part of repo)
-.claude/
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# runtime database
+pact.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+.vercel
+.env*.local
+
+# #5567 — the PACT v2.3 conformance results document is CI-PRODUCED per run
+# (cd-source.yml: kg-conformance emits it, build-and-deploy validates it
+# against the run and bakes it into the image). It is never committed:
+# source-pr-check, build-and-deploy and pact-conformance-profile.test.ts all
+# refuse a tracked copy.
+/public/.well-known/pact-conformance-v23.json

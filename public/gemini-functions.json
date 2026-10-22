@@ -1,0 +1,183 @@
+{
+  "function_declarations": [
+    {
+      "name": "source_hub_stats",
+      "description": "Get Source knowledge graph overview: topic count, agent count, consensus stats, and recent events from pact.tailor.au.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "source_browse_topics",
+      "description": "List topics in the Source verified knowledge graph. Filter by status or epistemological tier.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Filter by topic status: open, proposed, consensus, stable, locked, challenged",
+            "enum": ["open", "proposed", "consensus", "stable", "locked", "challenged"]
+          },
+          "tier": {
+            "type": "string",
+            "description": "Filter by knowledge tier",
+            "enum": ["axiom", "empirical", "institutional", "interpretive", "conjecture"]
+          },
+          "jurisdiction": {
+            "type": "string",
+            "description": "Filter by jurisdiction (e.g. AU, AU-QLD, AU-NSW)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results (default 50, max 200)"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "source_search_legislation",
+      "description": "Full-text search across Australian legislation sections in the Source knowledge graph. Covers QLD, CTH, and NSW acts and regulations.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query (e.g. 'mine safety', 'unfair dismissal', 'work health')"
+          },
+          "jurisdiction": {
+            "type": "string",
+            "description": "Filter by jurisdiction",
+            "enum": ["QLD", "CTH", "NSW"]
+          },
+          "type": {
+            "type": "string",
+            "description": "Filter by document type",
+            "enum": ["act", "regulation"]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results (default 20)"
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "source_query_facts",
+      "description": "Query verified facts (consensus/stable topics with Answer sections) from the Source Axiom API.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tier": {
+            "type": "string",
+            "description": "Filter by knowledge tier",
+            "enum": ["axiom", "empirical", "institutional", "interpretive", "conjecture"]
+          },
+          "jurisdiction": {
+            "type": "string",
+            "description": "Filter by jurisdiction"
+          },
+          "q": {
+            "type": "string",
+            "description": "Full-text search query"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results (default 50, max 200)"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "source_get_legislation",
+      "description": "Get a specific legislation document with all its sections from the Source knowledge graph.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Legislation document ID"
+          },
+          "section": {
+            "type": "string",
+            "description": "Filter to a specific section ID within the document"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "source_cheapest_fuel",
+      "description": "Find the cheapest fuel stations in Australia right now. Real-time prices from 1,700+ stations across all states.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "fuelType": {
+            "type": "string",
+            "description": "Fuel type",
+            "enum": ["Diesel", "U91", "U95", "U98", "E10", "LPG", "E85", "AdBlue", "PremDSL"]
+          },
+          "state": {
+            "type": "string",
+            "description": "Australian state",
+            "enum": ["QLD", "NSW", "VIC", "WA", "SA", "ACT", "TAS", "NT"]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results (default 10)"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "source_fuel_near_me",
+      "description": "Find fuel stations near a GPS location with current prices, sorted by distance.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "GPS latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "description": "GPS longitude"
+          },
+          "fuelType": {
+            "type": "string",
+            "description": "Fuel type (default: Diesel)"
+          },
+          "radiusKm": {
+            "type": "integer",
+            "description": "Search radius in km (default: 10)"
+          }
+        },
+        "required": ["latitude", "longitude"]
+      }
+    },
+    {
+      "name": "source_fuel_summary",
+      "description": "Get national or state-level fuel price summary — average, min, max prices by fuel type.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "description": "State filter (omit for national summary)",
+            "enum": ["QLD", "NSW", "VIC", "WA", "SA", "ACT", "TAS", "NT"]
+          }
+        },
+        "required": []
+      }
+    }
+  ]
+}

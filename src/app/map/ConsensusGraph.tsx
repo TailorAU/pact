@@ -1,0 +1,1019 @@
+"use client";
+
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
+import Link from "next/link";
+import { WARRANT_KINDS, warrantKindFromTier } from "@/lib/epistemic";
+
+// Dynamic import — Three.js can't SSR
+const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), { ssr: false });
+
+// ── Types ──────────────────────────────────────────────────────────
+type TopicNode = {
+  id: string;
+  title: string;
+  tier: string;
+  status: string;
+  participantCount: number;
+  mergedCount: number;
+  pendingCount: number;
+  totalProposals: number;
+  locked_at: string | null;
+  consensus_ratio: number | null;
+  consensus_voters: number | null;
+  uniqueProposers: number;
+  uniqueVoters: number;
+  bountyEscrow?: number;
+};
+
+type AgentNode = {
+  id: string;
+  name: string;
+  model: string;
+  proposals_made: number;
+  proposals_approved: number;
+  topicsParticipated: number;
+};
+
+type LinkData = {
+  agent_id: string;
+  topic_id: string;
+  active: number;
+  proposalCount: number;
+  mergedCount: number;
+};
+
+type DepData = {
+  topic_id: string;
+  depends_on: string;
+  relationship: string;
+};
+
+// #1152 Round 5a — tri-entity 3D support.
+type LegislationNodeData = {
+  id: string;
+  jurisdiction: string | null;
+  doc_type: string | null;
+  title: string;
+  short_title: string | null;
+  year: number | null;
+};
+
+type ScenarioNodeData = {
+  id: string;
+  title: string;
+  description: string | null;
+  industry: string | null;
+};
+
+type CiteEdgeData = {
+  topic_id: string;
+  legislation_id: string;
+};
+
+type AppliesEdgeData = {
+  scenario_id: string;
+  topic_id: string | null;
+  legislation_id: string | null;
+};
+
+type CoAppliesEdgeData = {
+  left_topic_id: string | null;
+  left_legislation_id: string | null;
+  right_topic_id: string | null;
+  right_legislation_id: string | null;
+  scenario_ids: string[];
+  relationship: string;
+};
+
+type GraphNode = {
+  id: string;
+  type: "topic" | "agent" | "legislation" | "scenario";
+  label: string;
+  tier?: string;
+  status?: string;
+  domain?: string;
+  /** Dependency depth (0 = no outgoing dependencies). Drives Y layout. */
+  depth?: number;
+  val: number;
+  color: string;
+  emissive: string;
+  emissiveIntensity: number;
+  data: TopicNode | AgentNode | LegislationNodeData | ScenarioNodeData;
+  x?: number;
+  y?: number;
+  z?: number;
+  fx?: number;
+  fy?: number;
+  fz?: number;
+};
+
+type GraphLink = {
+  source: string;
+  target: string;
+  type: "dependency" | "registration" | "cites" | "applies_when" | "co_applies";
+  relationship?: string;
+  color: string;
+  width: number;
+  particles: number;
+  particleColor: string;
+  curvature: number;
+  dashed?: boolean;
+};
+
+// ── Color maps ─────────────────────────────────────────────────────
+// Keyed by the four canonical warrant kinds (#3724) — four UNORDERED
+// peers, one distinct hue each, no ordering cues. Nodes resolve their
+// kind via warrantKindFromTier (the retired "axiom" reads as
+// institutional).
+const WARRANT_HEX: Record<string, string> = {
+  empirical: "#22d3ee",
+  institutional: "#fbbf24",
+  interpretive: "#a78bfa",
+  conjectural: "#f472b6",
+};
+
+function colorForTier(tier: string | undefined): string {
+  return WARRANT_HEX[warrantKindFromTier(tier)] ?? "#6b7280";
+}
+
+// Y axis (#3724): vertical position encodes DEPENDENCY DEPTH only —
+// never certainty. Roots (topics with no outgoing dependencies — the
+// current consensus frontier) sit at the top; each dependency hop steps
+// dependents downward. Computed at load time by BFS over the
+// dependency edges.
+const DEPTH_Y_TOP = 120;
+const DEPTH_Y_STEP = 55;
+const DEPTH_Y_MAX_LEVELS = 5;
+function depthY(depth: number): number {
+  return DEPTH_Y_TOP - Math.min(depth, DEPTH_Y_MAX_LEVELS) * DEPTH_Y_STEP;
+}
+
+// Domain detection: keyword → domain cluster
+const DOMAIN_KEYWORDS: Record<string, string[]> = {
+  mathematics: ["math", "axiom", "proof", "algebra", "calculus", "geometry", "number", "set theory", "zfc", "induction", "hilbert", "godel", "goedel", "incompleteness", "excluded middle", "modus ponens", "non-contradiction", "identity", "probability", "variations", "prime", "collatz", "completeness", "postulate", "euclidean", "euclid"],
+  physics: ["relativity", "quantum", "energy", "light", "gravity", "gravitational", "thermodynamic", "conservation", "speed of light", "spacetime", "newton", "noether", "symmetr", "cosmolog", "big bang", "microwave background", "atomic", "covalent", "molecule", "boils", "boiling", "celsius", "kelvin", "pressure", "h2o", "water molecule"],
+  computing: ["turing", "halting", "computational", "algorithm", "cap theorem", "distributed system", "http", "tls", "quic", "church-turing", "machine learning", "language model", "prompt injection", "rlhf", "ai-generated", "ai system", "ai act", "owasp", "cybersecurity"],
+  biology: ["dna", "mrna", "vaccine", "genome", "molecular biology", "human body", "body core temperature", "thermoregulation", "physiology", "clinical trial", "randomized controlled", "base pairs", "chromosome"],
+  law: ["constitution", "amendment", "article", "gdpr", "hipaa", "ccpa", "section 230", "sox", "fcra", "privacy act", "charter", "refugee", "treaty", "parliamentary", "criminal code", "right to", "data protection", "human rights", "renounce", "war", "act 1", "act 2", "cmsha", "coal mining", "work health", "fair work", "unfair dismissal", "duty of care", "manslaughter", "legislation", "breach notification"],
+  economics: ["inflation", "currency", "purchasing power", "bitcoin", "ethereum", "proof-of-work", "proof-of-stake", "pricing", "price-fixing", "basel", "fatf", "fed", "reserve", "capital ratio", "tier 1"],
+  standards: ["iso 27001", "iso/iec", "wcag", "accessibility", "si base units", "si system", "units", "measurement", "pci dss", "pci security", "nist", "soc"],
+  environment: ["co2", "carbon", "climate", "surface temperature"],
+};
+
+// X-Z positions for each domain (spread in a meaningful ring)
+const DOMAIN_POSITIONS: Record<string, { x: number; z: number }> = {
+  mathematics: { x: -120, z: 0 },
+  physics: { x: -70, z: -100 },
+  computing: { x: 70, z: -100 },
+  biology: { x: 120, z: 0 },
+  law: { x: 70, z: 100 },
+  economics: { x: -70, z: 100 },
+  standards: { x: 0, z: -130 },
+  environment: { x: 0, z: 130 },
+  other: { x: 0, z: 0 },
+};
+
+function detectDomain(title: string): string {
+  const lower = title.toLowerCase();
+  let bestDomain = "other";
+  let bestScore = 0;
+
+  for (const [domain, keywords] of Object.entries(DOMAIN_KEYWORDS)) {
+    let score = 0;
+    for (const kw of keywords) {
+      if (lower.includes(kw)) score++;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestDomain = domain;
+    }
+  }
+  return bestDomain;
+}
+
+// Skip bloom / link particles / long force ticks past this. The intended
+// map (topics + ingested legislation + scenarios) is a few hundred nodes;
+// the ingest-queue flood was 13k+.
+const DENSE_GRAPH_NODES = 800;
+
+const AGENT_COLOR = "#6366f1";
+const LOCKED_GOLD = "#fbbf24";
+const CHALLENGED_RED = "#ef4444";
+const DEPENDENCY_GOLD = "#d97706";
+const ASSUMPTION_PURPLE = "#a855f7";
+
+// #1152 Round 5a — tri-entity palette. Neutral slate for legislation (per-jurisdiction
+// palette TBD by the Source owner), orange for scenarios (matches /scenarios detail
+// accents and InteractiveTree scenario rows), indigo for co_applies cross-links.
+const LEGISLATION_SLATE = "#94a3b8";
+const SCENARIO_ORANGE = "#fb923c";
+const CITES_GREY = "#64748b";
+const APPLIES_ORANGE = "#fb923c";
+const COAPPLIES_INDIGO = "#a5b4fc";
+
+// Consensus thresholds keyed by warrant kind (display heuristic only —
+// the server owns the real gate).
+const THRESHOLDS: Record<string, { ratio: number; minVoters: number }> = {
+  empirical: { ratio: 90, minVoters: 3 },
+  institutional: { ratio: 90, minVoters: 4 },
+  interpretive: { ratio: 90, minVoters: 4 },
+  conjectural: { ratio: 90, minVoters: 5 },
+};
+
+const DOMAIN_COLORS: Record<string, string> = {
+  mathematics: "#4ade80",
+  physics: "#22d3ee",
+  computing: "#60a5fa",
+  biology: "#f472b6",
+  law: "#fbbf24",
+  economics: "#f97316",
+  standards: "#a78bfa",
+  environment: "#34d399",
+  other: "#6b7280",
+};
+
+// ── Component ──────────────────────────────────────────────────────
+export default function ConsensusGraph() {
+  const router = useRouter();
+  const fgRef = useRef<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [graphData, setGraphData] = useState<{ nodes: GraphNode[]; links: GraphLink[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [hovered, setHovered] = useState<GraphNode | null>(null);
+  const [omittedIngest, setOmittedIngest] = useState(0);
+  const [dimensions, setDimensions] = useState({ width: 1200, height: 700 });
+  const threeRef = useRef<typeof import("three") | null>(null);
+  const bloomAdded = useRef(false);
+
+  // Responsive sizing
+  useEffect(() => {
+    function onResize() {
+      const w = Math.min(window.innerWidth - 48, 1400);
+      const h = Math.max(550, window.innerHeight - 220);
+      setDimensions({ width: w, height: h });
+    }
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // Load Three.js dynamically
+  useEffect(() => {
+    import("three").then((mod) => { threeRef.current = mod; });
+  }, []);
+
+  // Fetch graph data
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch("/api/hub/graph");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const allTopics = (data.topics as TopicNode[]) ?? [];
+        const topics = allTopics.filter(
+          (t) => !String(t.title ?? "").startsWith("[Legislation Proposal]"),
+        );
+        setOmittedIngest(
+          Number(data.omittedLegislationProposals ?? allTopics.length - topics.length),
+        );
+
+        // Count topics per domain for offset within cluster
+        const domainCounts: Record<string, number> = {};
+
+        // ── Dependency-depth map (#3724): Y position encodes dependency
+        // depth ONLY, never certainty. Roots = topics with no outgoing
+        // dependencies (the current consensus frontier), depth 0; each
+        // dependent sits one hop below the deepest thing it depends on.
+        const depRows = ((data.dependencies ?? []) as DepData[]);
+        const dependsOnSomething = new Set(depRows.map((d) => d.topic_id));
+        const dependentsOf = new Map<string, string[]>();
+        for (const d of depRows) {
+          const list = dependentsOf.get(d.depends_on) ?? [];
+          list.push(d.topic_id);
+          dependentsOf.set(d.depends_on, list);
+        }
+        const depthMap = new Map<string, number>();
+        const depthQueue: { id: string; depth: number }[] = topics
+          .filter((t) => !dependsOnSomething.has(t.id))
+          .map((t) => ({ id: t.id, depth: 0 }));
+        while (depthQueue.length > 0) {
+          const { id, depth } = depthQueue.shift()!;
+          if (depth > 50) continue; // belt-and-braces cycle guard
+          const existing = depthMap.get(id);
+          if (existing !== undefined && existing >= depth) continue;
+          depthMap.set(id, depth);
+          for (const childId of dependentsOf.get(id) ?? []) {
+            depthQueue.push({ id: childId, depth: depth + 1 });
+          }
+        }
+
+        const topicNodes: GraphNode[] = topics.map((t) => {
+          const isVerified = ["locked", "stable", "consensus"].includes(t.status);
+          const isChallenged = t.status === "challenged";
+          const warrantColor = colorForTier(t.tier);
+          const baseColor = isChallenged ? CHALLENGED_RED : warrantColor;
+          const hasBounty = (t.bountyEscrow ?? 0) > 0;
+          const domain = detectDomain(t.title);
+
+          // Calculate deterministic position within domain cluster
+          const domainIdx = domainCounts[domain] ?? 0;
+          domainCounts[domain] = domainIdx + 1;
+          const domainPos = DOMAIN_POSITIONS[domain] ?? DOMAIN_POSITIONS.other;
+
+          // Spread within cluster: spiral pattern
+          const angle = domainIdx * 2.4; // golden angle in radians
+          const spread = 15 + domainIdx * 4;
+          const depth = depthMap.get(t.id) ?? 0;
+          const layerY = depthY(depth);
+
+          // Consensus strength pushes nodes slightly forward (Z)
+          const consensusZ = isVerified ? 10 : 0;
+
+          return {
+            id: `topic-${t.id}`,
+            type: "topic" as const,
+            label: t.title,
+            tier: t.tier,
+            status: t.status,
+            domain,
+            depth,
+            val: 3 + Math.min(t.participantCount * 1.5, 12) + (hasBounty ? 3 : 0),
+            color: baseColor,
+            emissive: baseColor,
+            emissiveIntensity: isVerified ? 0.9 : isChallenged ? 0.85 : hasBounty ? 0.8 : 0.75,
+            data: t,
+            // Set initial positions — force sim will nudge from here
+            x: domainPos.x + Math.cos(angle) * spread,
+            y: layerY + Math.sin(angle) * spread * 0.5,
+            z: domainPos.z + Math.sin(angle) * spread + consensusZ,
+          };
+        });
+
+        const topicIds = new Set(topics.map(t => t.id));
+        const depLinks: GraphLink[] = ((data.dependencies ?? []) as DepData[])
+          .filter((d) => topicIds.has(d.topic_id) && topicIds.has(d.depends_on))
+          .map((d) => {
+          const isAssumes = d.relationship === "assumes";
+          return {
+            source: `topic-${d.topic_id}`,
+            target: `topic-${d.depends_on}`,
+            type: "dependency" as const,
+            relationship: d.relationship,
+            color: isAssumes ? ASSUMPTION_PURPLE : DEPENDENCY_GOLD,
+            width: 1.5,
+            particles: 4,
+            particleColor: isAssumes ? ASSUMPTION_PURPLE : DEPENDENCY_GOLD,
+            curvature: isAssumes ? 0.2 : 0,
+          };
+        });
+
+        // #1152 Round 5a — legislation + scenario nodes. Graceful-degrade: if
+        // `/api/hub/graph` predates the migration the new arrays are missing and
+        // the graph still renders topics + dependencies only.
+        const legislationList = (data.legislation ?? []) as LegislationNodeData[];
+        const scenarioList = (data.scenarios ?? []) as ScenarioNodeData[];
+
+        const legislationNodes: GraphNode[] = legislationList.map((l, idx) => {
+          // Distribute below the deepest dependency layer in a loose ring.
+          const angle = idx * 2.4;
+          const ringR = 140 + (idx % 5) * 8;
+          return {
+            id: `leg-${l.id}`,
+            type: "legislation" as const,
+            label: l.short_title || l.title,
+            val: 4,
+            color: LEGISLATION_SLATE,
+            emissive: LEGISLATION_SLATE,
+            emissiveIntensity: 0.15,
+            data: l,
+            x: Math.cos(angle) * ringR,
+            y: -160 + (idx % 3) * 12,
+            z: Math.sin(angle) * ringR,
+          };
+        });
+
+        const scenarioNodes: GraphNode[] = scenarioList.map((s, idx) => {
+          // Scenarios sit above every topic layer (they are the entry points).
+          const angle = idx * 2.4;
+          const ringR = 90 + (idx % 4) * 10;
+          return {
+            id: `scn-${s.id}`,
+            type: "scenario" as const,
+            label: s.title,
+            val: 5,
+            color: SCENARIO_ORANGE,
+            emissive: SCENARIO_ORANGE,
+            emissiveIntensity: 0.3,
+            data: s,
+            x: Math.cos(angle) * ringR,
+            y: 200 + (idx % 2) * 10,
+            z: Math.sin(angle) * ringR,
+          };
+        });
+
+        const legIds = new Set(legislationList.map(l => l.id));
+        const scnIds = new Set(scenarioList.map(s => s.id));
+
+        const citeLinks: GraphLink[] = ((data.cites ?? []) as CiteEdgeData[])
+          .filter(c => topicIds.has(c.topic_id) && legIds.has(c.legislation_id))
+          .map(c => ({
+            source: `topic-${c.topic_id}`,
+            target: `leg-${c.legislation_id}`,
+            type: "cites" as const,
+            color: CITES_GREY,
+            width: 0.8,
+            particles: 0,
+            particleColor: CITES_GREY,
+            curvature: 0.1,
+          }));
+
+        const appliesLinks: GraphLink[] = ((data.appliesWhen ?? []) as AppliesEdgeData[])
+          .map((a): GraphLink | null => {
+            if (a.topic_id && topicIds.has(a.topic_id) && scnIds.has(a.scenario_id)) {
+              return {
+                source: `scn-${a.scenario_id}`,
+                target: `topic-${a.topic_id}`,
+                type: "applies_when",
+                color: APPLIES_ORANGE,
+                width: 1.2,
+                particles: 2,
+                particleColor: APPLIES_ORANGE,
+                curvature: 0.2,
+                dashed: true,
+              };
+            }
+            if (a.legislation_id && legIds.has(a.legislation_id) && scnIds.has(a.scenario_id)) {
+              return {
+                source: `scn-${a.scenario_id}`,
+                target: `leg-${a.legislation_id}`,
+                type: "applies_when",
+                color: APPLIES_ORANGE,
+                width: 1.2,
+                particles: 2,
+                particleColor: APPLIES_ORANGE,
+                curvature: 0.2,
+                dashed: true,
+              };
+            }
+            return null;
+          })
+          .filter((l): l is GraphLink => l !== null);
+
+        const coAppliesLinks: GraphLink[] = ((data.coApplies ?? []) as CoAppliesEdgeData[])
+          .map((c): GraphLink | null => {
+            const leftId =
+              c.left_legislation_id && legIds.has(c.left_legislation_id)
+                ? `leg-${c.left_legislation_id}`
+                : c.left_topic_id && topicIds.has(c.left_topic_id)
+                  ? `topic-${c.left_topic_id}`
+                  : null;
+            const rightId =
+              c.right_legislation_id && legIds.has(c.right_legislation_id)
+                ? `leg-${c.right_legislation_id}`
+                : c.right_topic_id && topicIds.has(c.right_topic_id)
+                  ? `topic-${c.right_topic_id}`
+                  : null;
+            if (!leftId || !rightId) return null;
+            return {
+              source: leftId,
+              target: rightId,
+              type: "co_applies",
+              relationship: c.relationship,
+              color: COAPPLIES_INDIGO,
+              width: 1,
+              particles: 0,
+              particleColor: COAPPLIES_INDIGO,
+              curvature: 0.3,
+            };
+          })
+          .filter((l): l is GraphLink => l !== null);
+
+        setGraphData({
+          nodes: [...topicNodes, ...legislationNodes, ...scenarioNodes],
+          links: [...depLinks, ...citeLinks, ...appliesLinks, ...coAppliesLinks],
+        });
+        setLoading(false);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Failed to load graph data");
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  // Bloom postprocessing + camera setup
+  useEffect(() => {
+    if (!fgRef.current || !threeRef.current || bloomAdded.current) return;
+    if (!graphData || graphData.nodes.length === 0) return;
+
+    const fg = fgRef.current;
+    const THREE = threeRef.current;
+
+    // Bloom is a full-frame pass — skip it once the graph is dense.
+    if (graphData.nodes.length <= DENSE_GRAPH_NODES) {
+      try {
+        import("three/examples/jsm/postprocessing/UnrealBloomPass.js").then(({ UnrealBloomPass }) => {
+          if (bloomAdded.current) return;
+          const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(dimensions.width, dimensions.height),
+            0.6,  // strength
+            0.4,  // radius
+            0.3   // threshold
+          );
+          fg.postProcessingComposer().addPass(bloomPass);
+          bloomAdded.current = true;
+        });
+      } catch {
+        console.warn("Bloom postprocessing not available");
+      }
+    }
+
+    // Camera: start from above-right, looking toward center, showing the tier layers
+    fg.cameraPosition({ x: 200, y: 180, z: 350 }, { x: 0, y: 0, z: 0 }, 0);
+    setTimeout(() => {
+      fg.cameraPosition({ x: 150, y: 100, z: 280 }, { x: 0, y: 0, z: 0 }, 2000);
+    }, 300);
+
+    // Lighting — #3895: WHITE ambient (not 0x404040 dark-grey) so the
+    // emissive-lit nodes keep their warrant colour even if react-force-graph
+    // rebuilds its scene on a resize/re-render and the point light is
+    // momentarily absent — the cause of the "graph goes grey on load/tap"
+    // report. Track everything we add and remove it on cleanup so the lights
+    // and grid rings can't accumulate (or leave the scene unlit) across the
+    // graphData/dimensions changes that re-run this effect.
+    const scene = fg.scene();
+    const added: unknown[] = [];
+    if (scene) {
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
+      scene.add(ambientLight);
+      added.push(ambientLight);
+      const pointLight = new THREE.PointLight(0xffffff, 1.2, 900);
+      pointLight.position.set(100, 200, 300);
+      scene.add(pointLight);
+      added.push(pointLight);
+
+      // Add faint grid rings to show the dependency-depth layers
+      // (position = dependency depth, not certainty)
+      const gridMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.03 });
+      for (let depth = 0; depth <= DEPTH_Y_MAX_LEVELS; depth++) {
+        const y = depthY(depth);
+        const points = [];
+        const size = 200;
+        // Circular ring at each depth level
+        for (let i = 0; i <= 64; i++) {
+          const a = (i / 64) * Math.PI * 2;
+          points.push(new THREE.Vector3(Math.cos(a) * size, y, Math.sin(a) * size));
+        }
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const line = new THREE.Line(geometry, gridMaterial);
+        scene.add(line);
+        added.push(line);
+      }
+    }
+    return () => {
+      const sc = fgRef.current?.scene?.();
+      if (!sc) return;
+      added.forEach((obj) => sc.remove(obj as never));
+    };
+  }, [graphData, dimensions]);
+
+  // Custom d3 forces — structured layout
+  useEffect(() => {
+    if (!fgRef.current || !graphData || graphData.nodes.length === 0) return;
+    const fg = fgRef.current;
+
+    // Gentle charge — don't blow nodes apart
+    fg.d3Force("charge")?.strength((node: GraphNode) =>
+      node.type === "topic" ? -80 : -10
+    );
+
+    // Link distance: dependencies create visible arcs
+    fg.d3Force("link")?.distance((link: GraphLink) =>
+      link.type === "dependency" ? 80 : 40
+    );
+
+    // Custom Y force: pull nodes toward their dependency-depth layer
+    import("d3-force-3d").then((d3: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      // Y force: dependency-depth stratification (#3724) — frontier roots
+      // at the top, each dependency hop one layer down. Position encodes
+      // dependency depth ONLY, never certainty. Scenarios sit above every
+      // topic layer; legislation sits below.
+      fg.d3Force("y", d3.forceY((node: GraphNode) => {
+        if (node.type === "scenario") return 200;
+        if (node.type === "legislation") return -160;
+        if (node.type !== "topic") return 0;
+        return depthY(node.depth ?? 0);
+      }).strength(0.15));
+
+      // X force: domain clustering
+      fg.d3Force("x", d3.forceX((node: GraphNode) => {
+        if (node.type !== "topic" || !node.domain) return 0;
+        return (DOMAIN_POSITIONS[node.domain] ?? DOMAIN_POSITIONS.other).x;
+      }).strength(0.08));
+
+      // Z force: domain clustering
+      fg.d3Force("z", d3.forceZ((node: GraphNode) => {
+        if (node.type !== "topic" || !node.domain) return 0;
+        return (DOMAIN_POSITIONS[node.domain] ?? DOMAIN_POSITIONS.other).z;
+      }).strength(0.08));
+
+      // Remove default center force — we want structured layout, not centering
+      fg.d3Force("center", null);
+    }).catch(() => {
+      // d3-force-3d not available
+    });
+
+    fg.d3ReheatSimulation();
+  }, [graphData]);
+
+  // Node Three.js objects
+  const nodeThreeObject = useCallback((node: GraphNode) => {
+    const THREE = threeRef.current;
+    if (!THREE) return undefined;
+
+    if (node.type === "agent") {
+      const geo = new THREE.SphereGeometry(1.5, 8, 8);
+      const mat = new THREE.MeshStandardMaterial({
+        color: node.color,
+        emissive: node.emissive,
+        emissiveIntensity: 0.3,
+        transparent: true,
+        opacity: 0.5,
+      });
+      return new THREE.Mesh(geo, mat);
+    }
+
+    // #1152 Round 5a — legislation renders as a flat box (rectangle in the
+    // 2D tree, cuboid here). Per-jurisdiction colour palette is intentionally
+    // deferred; slate is the neutral placeholder.
+    if (node.type === "legislation") {
+      const geo = new THREE.BoxGeometry(5, 3.5, 0.8);
+      const mat = new THREE.MeshStandardMaterial({
+        color: node.color,
+        emissive: node.emissive,
+        emissiveIntensity: node.emissiveIntensity,
+        transparent: true,
+        opacity: 0.85,
+        roughness: 0.5,
+        metalness: 0.05,
+      });
+      return new THREE.Mesh(geo, mat);
+    }
+
+    // #1152 Round 5a — scenarios render as octahedrons (diamond silhouette in
+    // both top-down and isometric views).
+    if (node.type === "scenario") {
+      const group = new THREE.Group();
+      const geo = new THREE.OctahedronGeometry(3.5, 0);
+      const mat = new THREE.MeshStandardMaterial({
+        color: node.color,
+        emissive: node.emissive,
+        emissiveIntensity: node.emissiveIntensity,
+        transparent: true,
+        opacity: 0.9,
+        roughness: 0.5,
+        metalness: 0.05,
+      });
+      group.add(new THREE.Mesh(geo, mat));
+
+      // Soft halo to emphasise scenarios as "entry points" in the graph.
+      const haloGeo = new THREE.OctahedronGeometry(4.5, 0);
+      const haloMat = new THREE.MeshBasicMaterial({
+        color: node.color,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.25,
+      });
+      group.add(new THREE.Mesh(haloGeo, haloMat));
+      return group;
+    }
+
+    // Topic node
+    const t = node.data as TopicNode;
+    const isVerified = ["locked", "stable", "consensus"].includes(t.status);
+    const isChallenged = t.status === "challenged";
+    const hasBounty = (t.bountyEscrow ?? 0) > 0;
+    const radius = 3 + Math.min(t.participantCount * 0.8, 6) + (hasBounty ? 1.5 : 0);
+
+    const group = new THREE.Group();
+
+    // Main sphere
+    const geo = new THREE.SphereGeometry(radius, 10, 10);
+    const mat = new THREE.MeshStandardMaterial({
+      color: node.color,
+      emissive: node.emissive,
+      emissiveIntensity: node.emissiveIntensity,
+      transparent: true,
+      opacity: isVerified ? 0.9 : 0.7,
+      roughness: 0.5,
+      metalness: 0.05,
+    });
+    group.add(new THREE.Mesh(geo, mat));
+
+    // Verified: subtle wireframe halo in the warrant's own color
+    if (isVerified) {
+      const tierCol = colorForTier((node.data as TopicNode).tier);
+      const haloGeo = new THREE.SphereGeometry(radius + 2, 12, 12);
+      const haloMat = new THREE.MeshBasicMaterial({
+        color: tierCol,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.15,
+      });
+      group.add(new THREE.Mesh(haloGeo, haloMat));
+
+      // Outer ring in tier color
+      const ringGeo = new THREE.RingGeometry(radius + 3, radius + 3.5, 32);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: tierCol,
+        transparent: true,
+        opacity: 0.25,
+        side: THREE.DoubleSide,
+      });
+      group.add(new THREE.Mesh(ringGeo, ringMat));
+    }
+
+    // Challenged: pulsing red outer sphere
+    if (isChallenged) {
+      const pulseGeo = new THREE.SphereGeometry(radius + 2, 16, 16);
+      const pulseMat = new THREE.MeshBasicMaterial({
+        color: CHALLENGED_RED,
+        transparent: true,
+        opacity: 0.15,
+      });
+      group.add(new THREE.Mesh(pulseGeo, pulseMat));
+    }
+
+    // Bounty indicator: glowing outer ring
+    if (hasBounty && !isVerified) {
+      const bountyGeo = new THREE.RingGeometry(radius + 1.5, radius + 2.5, 32);
+      const bountyMat = new THREE.MeshBasicMaterial({
+        color: "#fbbf24",
+        transparent: true,
+        opacity: 0.35,
+        side: THREE.DoubleSide,
+      });
+      group.add(new THREE.Mesh(bountyGeo, bountyMat));
+    }
+
+    return group;
+  }, []);
+
+  // Rich tooltip HTML
+  const nodeLabel = useCallback((node: GraphNode) => {
+    if (node.type === "agent") {
+      const a = node.data as AgentNode;
+      return `<div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:10px 14px;font-size:12px;color:#e2e8f0;max-width:240px;font-family:system-ui">
+        <div style="font-weight:700;font-size:13px;color:#818cf8;margin-bottom:4px">${a.name}</div>
+        <div style="color:#94a3b8;font-size:11px">${a.model} · ${a.topicsParticipated} topics · ${a.proposals_made} proposals</div>
+      </div>`;
+    }
+
+    if (node.type === "legislation") {
+      const l = node.data as LegislationNodeData;
+      const jurisdiction = (l.jurisdiction || "").toUpperCase();
+      const year = l.year ? `(${l.year})` : "";
+      return `<div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:10px 14px;font-size:12px;color:#e2e8f0;max-width:320px;font-family:system-ui;line-height:1.5">
+        <div style="font-weight:700;font-size:13px;color:${LEGISLATION_SLATE};margin-bottom:4px">${l.short_title || l.title} ${year}</div>
+        <div style="color:#94a3b8;font-size:11px">${jurisdiction} · ${l.doc_type ?? "legislation"}</div>
+        <div style="margin-top:6px;font-size:10px;color:#475569">Click to view legislation details</div>
+      </div>`;
+    }
+
+    if (node.type === "scenario") {
+      const s = node.data as ScenarioNodeData;
+      return `<div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:10px 14px;font-size:12px;color:#e2e8f0;max-width:320px;font-family:system-ui;line-height:1.5">
+        <div style="font-weight:700;font-size:13px;color:${SCENARIO_ORANGE};margin-bottom:4px">${s.title}</div>
+        <div style="color:#94a3b8;font-size:11px">Scenario · ${s.industry ?? "general"}</div>
+        ${s.description ? `<div style="color:#cbd5e1;font-size:11px;margin-top:4px">${s.description}</div>` : ""}
+        <div style="margin-top:6px;font-size:10px;color:#475569">Click to view applicability subgraph</div>
+      </div>`;
+    }
+
+    const t = node.data as TopicNode;
+    const ratio = t.totalProposals > 0 ? Math.round((t.mergedCount / t.totalProposals) * 100) : 0;
+    const warrant = warrantKindFromTier(t.tier);
+    const tierColor = colorForTier(t.tier);
+    const domainColor = DOMAIN_COLORS[node.domain ?? "other"] ?? "#6b7280";
+    const threshold = THRESHOLDS[warrant] ?? THRESHOLDS.empirical;
+    const isVerified = ["locked", "stable", "consensus"].includes(t.status);
+    const statusLabel = isVerified ? "VERIFIED" : t.status === "challenged" ? "CHALLENGED" : t.status.toUpperCase();
+    const statusColor = isVerified ? LOCKED_GOLD : t.status === "challenged" ? CHALLENGED_RED : tierColor;
+    const bounty = (t.bountyEscrow ?? 0);
+
+    return `<div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px 16px;font-size:12px;color:#e2e8f0;max-width:320px;font-family:system-ui;line-height:1.5">
+      <div style="font-weight:700;font-size:14px;margin-bottom:6px;color:${statusColor}">${t.title}</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <span title="warrant — one of four unordered kinds" style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid ${tierColor};color:${tierColor};text-transform:uppercase;font-weight:600">${warrant}</span>
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid ${domainColor};color:${domainColor};text-transform:uppercase;font-weight:600">${node.domain ?? "other"}</span>
+        <span style="font-size:11px;font-weight:700;color:${statusColor}">${statusLabel}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;font-size:11px">
+        <span style="color:#64748b">Approval</span><span style="text-align:right;font-weight:600;color:${ratio >= 90 ? LOCKED_GOLD : "#f97316"}">${ratio}% / ${threshold.ratio}%</span>
+        <span style="color:#64748b">Participants</span><span style="text-align:right;font-weight:600">${t.participantCount} / ${threshold.minVoters} min</span>
+        <span style="color:#64748b">Proposals</span><span style="text-align:right">${t.mergedCount} merged / ${t.totalProposals}</span>
+        ${bounty > 0 ? `<span style="color:#64748b">Bounty</span><span style="text-align:right;color:#fbbf24;font-weight:600">${bounty.toLocaleString()} credits</span>` : ""}
+      </div>
+      <div style="margin-top:8px;font-size:10px;color:#475569">Click to view topic details</div>
+    </div>`;
+  }, []);
+
+  // Click handler
+  const onNodeClick = useCallback((node: GraphNode) => {
+    if (node.type === "topic") {
+      const id = node.id.replace("topic-", "");
+      router.push(`/topics/${id}`);
+    } else if (node.type === "legislation") {
+      const id = node.id.replace("leg-", "");
+      router.push(`/legislation/${encodeURIComponent(id)}`);
+    } else if (node.type === "scenario") {
+      const id = node.id.replace("scn-", "");
+      router.push(`/scenarios/${encodeURIComponent(id)}`);
+    } else {
+      const id = node.id.replace("agent-", "");
+      router.push(`/agents/${id}`);
+    }
+  }, [router]);
+
+  // Computed stats
+  const stats = useMemo(() => {
+    if (!graphData) return { topics: 0, agents: 0, verified: 0, challenged: 0, open: 0, deps: 0, domains: {} as Record<string, number> };
+    const topics = graphData.nodes.filter(n => n.type === "topic");
+    const domains: Record<string, number> = {};
+    topics.forEach(n => {
+      const d = n.domain ?? "other";
+      domains[d] = (domains[d] ?? 0) + 1;
+    });
+    return {
+      topics: topics.length,
+      agents: graphData.nodes.filter(n => n.type === "agent").length,
+      verified: topics.filter(n => ["locked", "stable", "consensus"].includes(n.status ?? "")).length,
+      challenged: topics.filter(n => n.status === "challenged").length,
+      open: topics.filter(n => n.status === "open").length,
+      deps: graphData.links.filter(l => l.type === "dependency").length,
+      domains,
+    };
+  }, [graphData]);
+
+  // ── Loading state ──
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[600px] bg-[#07070d] rounded-lg border border-card-border">
+        <div className="text-pact-cyan animate-pulse text-lg">Loading knowledge graph...</div>
+      </div>
+    );
+  }
+
+  // ── Error state ──
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-[600px] bg-[#07070d] rounded-lg border border-card-border">
+        <div className="text-red-400 text-lg">{error}</div>
+      </div>
+    );
+  }
+
+  // ── Empty state ──
+  if (!graphData || graphData.nodes.length === 0) {
+    return (
+      <div className="relative flex flex-col items-center justify-center h-[600px] bg-[#07070d] rounded-lg border border-card-border overflow-hidden">
+        {/* Animated pulsing orb */}
+        <div className="relative mb-8">
+          <div className="w-32 h-32 rounded-full bg-gradient-to-br from-amber-500/20 via-cyan-500/10 to-purple-500/20 animate-pulse" />
+          <div className="absolute inset-4 rounded-full bg-gradient-to-br from-amber-500/30 via-transparent to-cyan-500/20 animate-[pulse_3s_ease-in-out_infinite]" />
+          <div className="absolute inset-8 rounded-full bg-gradient-to-br from-amber-500/40 via-transparent to-transparent animate-[pulse_2s_ease-in-out_infinite]" />
+          <div className="absolute inset-[52px] rounded-full bg-amber-400/60" />
+        </div>
+
+        {/* Concentric ring hints */}
+        {[80, 120, 160, 200, 240].map((r, i) => (
+          <div
+            key={r}
+            className="absolute rounded-full border border-dashed animate-[spin_60s_linear_infinite]"
+            style={{
+              width: r * 2,
+              height: r * 2,
+              borderColor: `${Object.values(WARRANT_HEX)[i % WARRANT_KINDS.length]}15`,
+              animationDirection: i % 2 === 0 ? "normal" : "reverse",
+              animationDuration: `${40 + i * 15}s`,
+            }}
+          />
+        ))}
+
+        <h3 className="text-xl font-bold text-white/80 mb-2 z-10">Awaiting first topic...</h3>
+        <p className="text-sm text-white/40 mb-6 max-w-md text-center z-10">
+          Agents create topics via the API. When topics are created and debated,
+          they appear here as glowing nodes in 3D space.
+        </p>
+        <Link
+          href="/get-started"
+          className="px-5 py-2 text-sm font-semibold rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition-colors z-10"
+        >
+          Get Started
+        </Link>
+      </div>
+    );
+  }
+
+  // ── 3D Graph ──
+  return (
+    <div className="relative rounded-lg overflow-hidden border border-card-border">
+      {/* eslint-disable @typescript-eslint/no-explicit-any */}
+      <ForceGraph3D
+        ref={fgRef}
+        width={dimensions.width}
+        height={dimensions.height}
+        graphData={graphData as any}
+        backgroundColor="#07070d"
+        showNavInfo={false}
+
+        // Node rendering
+        nodeThreeObject={nodeThreeObject as any}
+        nodeLabel={nodeLabel as any}
+        onNodeClick={onNodeClick as any}
+        onNodeHover={((node: GraphNode | null) => setHovered(node)) as any}
+
+        // Link rendering
+        linkColor={((link: any) => link.color) as any}
+        linkWidth={((link: any) => link.width) as any}
+        linkOpacity={0.6}
+        linkCurvature={((link: any) => link.curvature) as any}
+        linkDirectionalArrowLength={((link: any) => link.type === "dependency" ? 5 : 0) as any}
+        linkDirectionalArrowRelPos={1}
+        linkDirectionalParticles={((link: any) =>
+          (graphData?.nodes.length ?? 0) > DENSE_GRAPH_NODES ? 0 : link.particles) as any}
+        linkDirectionalParticleSpeed={0.004}
+        linkDirectionalParticleWidth={1.5}
+        linkDirectionalParticleColor={((link: any) => link.particleColor) as any}
+
+        // Performance — keep the force sim short once the graph is dense
+        warmupTicks={(graphData?.nodes.length ?? 0) > DENSE_GRAPH_NODES ? 40 : 120}
+        cooldownTicks={(graphData?.nodes.length ?? 0) > DENSE_GRAPH_NODES ? 80 : 200}
+      />
+      {/* eslint-enable @typescript-eslint/no-explicit-any */}
+
+      {/* ── Axis labels (floating) — hidden on mobile so the verbose hint
+             doesn't overlap the top-right warrant legend on narrow viewports ── */}
+      <div className="absolute top-3 left-3 hidden sm:flex flex-col gap-1 text-[10px] text-white/30 pointer-events-none">
+        <div className="flex items-center gap-1.5">
+          <span className="text-white/50 font-semibold">Y</span>
+          <span>Dependency depth — position = dependency depth, not certainty</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-white/50 font-semibold">XZ</span>
+          <span>Domain clusters</span>
+        </div>
+      </div>
+
+      {/* ── Warrant legend (color only): four UNORDERED peers — the
+             vertical stacking here is incidental, not a ranking ── */}
+      <div className="absolute top-3 right-3 flex flex-col gap-1.5 text-[10px] pointer-events-none">
+        <span className="text-white/40 uppercase tracking-wider font-semibold">Warrant · unordered</span>
+        {WARRANT_KINDS.map((kind) => (
+          <div key={kind} className="flex items-center gap-1.5 capitalize">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: WARRANT_HEX[kind] }} />
+            <span style={{ color: WARRANT_HEX[kind], opacity: 0.7 }}>{kind}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Legend overlay ── */}
+      <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between text-xs text-white/50 gap-y-2 pointer-events-none">
+        <div className="flex items-center gap-3 flex-wrap">
+          {Object.entries(stats.domains).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([domain, count]) => (
+            <span key={domain} className="flex items-center gap-1 capitalize">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DOMAIN_COLORS[domain] ?? "#6b7280" }} />
+              <span style={{ color: DOMAIN_COLORS[domain] ?? "#6b7280" }}>{domain}</span>
+              <span className="text-white/30">{count}</span>
+            </span>
+          ))}
+          {stats.verified > 0 && (
+            <>
+              <span className="text-white/20">|</span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: LOCKED_GOLD }} />
+                {stats.verified} verified
+              </span>
+            </>
+          )}
+          {stats.deps > 0 && (
+            <>
+              <span className="text-white/20">|</span>
+              <span className="flex items-center gap-1">
+                <span className="w-4 h-0.5 inline-block" style={{ backgroundColor: DEPENDENCY_GOLD }} />
+                {stats.deps} deps
+              </span>
+            </>
+          )}
+        </div>
+        <div className="text-white/30">
+          {omittedIngest > 0
+            ? `${omittedIngest.toLocaleString()} ingest topics omitted · Orbit · Zoom · Click`
+            : "Orbit · Zoom · Click nodes"}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,146 @@
+name: "PR Check"
+
+on:
+  pull_request:
+    branches: [rehome-review, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    name: Source tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      # #5567 — the PACT v2.3 conformance results document is CI-produced per
+      # run and baked into the image by cd-source.yml; a committed copy would
+      # be a hand-authored claim wearing a generated file's name. Refuse it
+      # here so it cannot MERGE (build-and-deploy refuses it again so it
+      # cannot deploy). Same seam as the vitest assertion in
+      # src/lib/pact-conformance-profile.test.ts.
+      - name: Refuse a committed conformance results document (#5567)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files --error-unmatch public/.well-known/pact-conformance-v23.json >/dev/null 2>&1; then
+            echo "::error::public/.well-known/pact-conformance-v23.json is tracked in git — the results document must be CI-produced per run, never committed (#5567)"
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Source dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Test reviewed legislation tooling
+        working-directory: scripts
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Test Source
+        run: npm test
+
+      - name: Build Source
+        run: npm run build
+
+      - name: Install pinned actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=1.7.12
+          archive="actionlint_${version}_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${version}/${archive}"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/$archive" \
+            | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+          install "$RUNNER_TEMP/actionlint" "$RUNNER_TEMP/actionlint-bin"
+
+      - name: Lint Source workflows
+        shell: bash
+        run: |
+          # actionlint v1.7.12 predates GitHub's official concurrency.queue
+          # field. Ignore only that known schema lag; all other findings fail.
+          #
+          # Only the workflows that exist in this repo are linted. The list
+          # used to name the monorepo's source-legislation-ingest.yml,
+          # source-pr-check.yml, cron-source.yml, cd-source.yml and
+          # infra-source-setup.yml, which tailor-app#5949 did not re-root
+          # here, so actionlint exited 3 ("no such file") on every PR
+          # (tailor-group#7). cron.yml is cron-source.yml re-homed
+          # (tailor-group#9).
+          "$RUNNER_TEMP/actionlint-bin" \
+            -ignore 'unexpected key "queue" for "concurrency" section' \
+            .github/workflows/pr-check.yml \
+            .github/workflows/cron.yml
+
+          # cd-kg.yml is the cd-source.yml adaptation and carries that file's
+          # legacy SC2086/SC2129 findings. Keep linting it for YAML /
+          # expression / schema errors while narrowly suppressing only those
+          # two shellcheck codes.
+          "$RUNNER_TEMP/actionlint-bin" \
+            -ignore 'shellcheck reported issue in this script: SC(2086|2129):' \
+            .github/workflows/cd-kg.yml
+
+  # #5599 B-0 — real-Postgres gate for the Source KG. The mock suite above
+  # cannot observe transaction abortion (25P02), savepoint absence,
+  # connection scoping, or initSchema's real DDL; this job runs the
+  # `.itest.ts` canaries in . against a disposable Postgres 16
+  # service container. Those canaries pin TODAY'S transaction semantics as
+  # executable documentation, so every PR in the #5599 series that changes
+  # them has to flip a pinned assertion in the same diff.
+  #
+  # Networking note: this job runs directly on the runner host (not in a
+  # container), so the service is reached via localhost through the mapped
+  # port — the `postgres` hostname form applies only to container jobs.
+  kg-integration:
+    name: Source KG integration (real Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kgtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kgtest"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Source dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run KG integration canaries
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kgtest
+        run: npm run test:integration

@@ -12,6 +12,8 @@ releases).
 
 ### Added
 
+- **MIT `LICENSE` for the software** (tailor-group#7). The code promoted to `main` is MIT-licensed; the PACT specification keeps its own specification licence at the archived specification tree linked from the README.
+
 - **In-process consensus heartbeat** (tailor-group#9). `instrumentation.ts`
   now starts `src/lib/consensus-heartbeat.ts` on every server boot, which
   calls `runConsensusSweep` every `CONSENSUS_SWEEP_INTERVAL_MINUTES` (default

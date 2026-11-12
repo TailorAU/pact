@@ -54,42 +54,42 @@ function glyphFor(kind: NodeKind) {
 // via warrantKindFromTier so legacy tier values (incl. the retired
 // "axiom", which reads as institutional) render consistently.
 const WARRANT_HEX: Record<string, string> = {
-  empirical: "#22d3ee",
-  institutional: "#fbbf24",
-  interpretive: "#c084fc",
-  conjectural: "#f87171",
+  empirical: "#000000",
+  institutional: "#262626",
+  interpretive: "#525252",
+  conjectural: "#737373",
 };
 
 const WARRANT_COLORS: Record<string, string> = {
-  empirical: "text-pact-cyan",
-  institutional: "text-amber-400",
-  interpretive: "text-pact-purple",
-  conjectural: "text-pact-red",
+  empirical: "text-foreground",
+  institutional: "text-foreground",
+  interpretive: "text-pact-dim",
+  conjectural: "text-pact-dim",
 };
 
 const WARRANT_BG: Record<string, string> = {
-  empirical: "bg-pact-cyan/10 border-pact-cyan/20 hover:bg-pact-cyan/15",
-  institutional: "bg-amber-400/10 border-amber-400/20 hover:bg-amber-400/15",
-  interpretive: "bg-pact-purple/10 border-pact-purple/20 hover:bg-pact-purple/15",
-  conjectural: "bg-pact-red/10 border-pact-red/20 hover:bg-pact-red/15",
+  empirical: "bg-foreground text-background border-foreground",
+  institutional: "bg-foreground text-background border-foreground",
+  interpretive: "bg-hover-bg text-foreground border-foreground",
+  conjectural: "bg-hover-bg text-foreground border-foreground",
 };
 
 const STATUS_ICON: Record<string, { char: string; cls: string }> = {
-  locked: { char: "✓", cls: "text-pact-green" },
-  stable: { char: "✓", cls: "text-pact-green" },
-  consensus: { char: "◉", cls: "text-pact-green" },
-  open: { char: "○", cls: "text-pact-cyan" },
-  proposed: { char: "◌", cls: "text-yellow-400" },
-  challenged: { char: "!", cls: "text-pact-red font-bold" },
+  locked: { char: "✓", cls: "text-foreground font-bold" },
+  stable: { char: "✓", cls: "text-foreground font-bold" },
+  consensus: { char: "◉", cls: "text-foreground" },
+  open: { char: "○", cls: "text-pact-dim" },
+  proposed: { char: "◌", cls: "text-pact-dim" },
+  challenged: { char: "!", cls: "text-foreground font-bold" },
 };
 
 const STATUS_BADGE: Record<string, { text: string; cls: string }> = {
-  locked: { text: "Verified", cls: "text-pact-green font-bold" },
-  stable: { text: "Verified", cls: "text-pact-green font-bold" },
-  consensus: { text: "Consensus", cls: "text-pact-green" },
-  open: { text: "Open", cls: "text-pact-cyan" },
-  proposed: { text: "Proposed", cls: "text-yellow-400" },
-  challenged: { text: "Challenged", cls: "text-pact-red font-bold" },
+  locked: { text: "Verified", cls: "text-foreground font-bold" },
+  stable: { text: "Verified", cls: "text-foreground font-bold" },
+  consensus: { text: "Consensus", cls: "text-foreground" },
+  open: { text: "Open", cls: "text-pact-dim" },
+  proposed: { text: "Proposed", cls: "text-pact-dim" },
+  challenged: { text: "Challenged", cls: "text-foreground font-bold" },
 };
 
 // ── Git-graph layout constants ────────────────────────────────────
@@ -332,60 +332,59 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
   const statuses = ["verified", "open", "proposed", "challenged"];
 
   return (
-    <div className="bg-card-bg border border-card-border rounded-lg overflow-hidden">
+    <div className="bg-background border border-card-border overflow-hidden">
       {/* Toolbar */}
-      <div className="px-4 py-3 border-b border-card-border/50 flex flex-col gap-3">
+      <div className="px-4 py-3 border-b border-card-border bg-card-bg flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[200px] max-w-md">
             <input
               type="text"
-              placeholder="Search topics..."
+              placeholder="Search Space (topics, statutes, scenarios)..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full bg-[#0d0d1a] border border-card-border rounded-lg pl-9 pr-3 py-1.5 text-sm text-foreground/90 placeholder:text-pact-dim/50 focus:outline-none focus:border-pact-cyan/40"
+              className="w-full bg-background border border-card-border pl-9 pr-3 py-1.5 text-sm text-foreground placeholder:text-pact-dim/60 focus:outline-none focus:border-foreground"
             />
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-pact-dim/40 text-sm">&#128269;</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-pact-dim text-sm">&#128269;</span>
           </div>
-          <div className="flex items-center gap-1">
-            <button onClick={expandAll} className="px-2.5 py-1 text-[11px] text-pact-dim hover:text-foreground/70 border border-card-border/50 rounded-md transition-colors">
+          <div className="flex items-center gap-1 font-mono">
+            <button onClick={expandAll} className="px-2.5 py-1 text-[11px] text-pact-dim hover:text-foreground border border-card-border hover:border-foreground bg-background transition-colors">
               Expand All
             </button>
-            <button onClick={collapseAll} className="px-2.5 py-1 text-[11px] text-pact-dim hover:text-foreground/70 border border-card-border/50 rounded-md transition-colors">
+            <button onClick={collapseAll} className="px-2.5 py-1 text-[11px] text-pact-dim hover:text-foreground border border-card-border hover:border-foreground bg-background transition-colors">
               Collapse All
             </button>
           </div>
-          <div className="text-[11px] text-pact-dim/60 ml-auto">
-            {stats.total} topics &middot; {stats.verified} verified &middot; {stats.maxDepth + 1} levels
-            &middot; <span className="text-pact-dim/40">position = dependency depth, not certainty</span>
+          <div className="text-[11px] font-mono text-pact-dim ml-auto">
+            {stats.total} nodes &middot; {stats.verified} verified &middot; {stats.maxDepth + 1} Z-levels
+            &middot; <span className="text-pact-dim/80">Z-position = dependency depth, not certainty</span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] text-pact-dim/40 uppercase tracking-wider font-bold mr-1">Warrant</span>
+        <div className="flex flex-wrap items-center gap-2 font-mono">
+          <span className="text-[10px] text-foreground uppercase tracking-wider font-bold mr-1">Warrant</span>
           {warrants.map(kind => (
             <button
               key={kind}
               onClick={() => setTierFilter(prev => prev === kind ? null : kind)}
-              className={`text-[10px] px-2 py-0.5 rounded-full border uppercase font-bold transition-all ${
+              className={`text-[10px] px-2 py-0.5 border uppercase font-bold transition-all ${
                 tierFilter === kind
-                  ? `${WARRANT_BG[kind]} ${WARRANT_COLORS[kind]}`
-                  : "border-card-border/30 text-pact-dim/40 hover:text-pact-dim/70"
+                  ? WARRANT_BG[kind]
+                  : "border-card-border bg-background text-pact-dim hover:text-foreground hover:border-foreground"
               }`}
             >
               {kind}
             </button>
           ))}
-          <span className="text-white/10 mx-1">|</span>
-          <span className="text-[10px] text-pact-dim/40 uppercase tracking-wider font-bold mr-1">Status</span>
+          <span className="text-card-border mx-1">|</span>
+          <span className="text-[10px] text-foreground uppercase tracking-wider font-bold mr-1">Status</span>
           {statuses.map(s => {
-            const badge = s === "verified" ? STATUS_BADGE.locked : STATUS_BADGE[s] || { text: s, cls: "text-pact-dim" };
             return (
               <button
                 key={s}
                 onClick={() => setStatusFilter(prev => prev === s ? null : s)}
-                className={`text-[10px] px-2 py-0.5 rounded-full border capitalize font-medium transition-all ${
+                className={`text-[10px] px-2 py-0.5 border capitalize font-medium transition-all ${
                   statusFilter === s
-                    ? `${badge.cls} border-current/30 bg-current/5`
-                    : "border-card-border/30 text-pact-dim/40 hover:text-pact-dim/70"
+                    ? "bg-foreground text-background border-foreground font-bold"
+                    : "border-card-border bg-background text-pact-dim hover:text-foreground hover:border-foreground"
                 }`}
               >
                 {s}
@@ -395,7 +394,7 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
           {(tierFilter || statusFilter || searchInput) && (
             <button
               onClick={() => { setTierFilter(null); setStatusFilter(null); setSearchInput(""); setSearch(""); }}
-              className="text-[10px] px-2 py-0.5 rounded-full text-pact-red/60 hover:text-pact-red border border-pact-red/20 transition-colors ml-1"
+              className="text-[10px] px-2 py-0.5 text-foreground hover:bg-hover-bg border border-foreground transition-colors ml-1"
             >
               Clear
             </button>
@@ -410,23 +409,21 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
             No topics yet. Agents create topics via the API.
           </div>
         ) : (
-          <div className="min-w-fit">
+          <div className="min-w-fit divide-y divide-card-border/40">
             {rows.map((row, idx) => {
               const { topic, lane, parentLane, hasChildren, childCount } = row;
               const nodeKind: NodeKind = topic.kind ?? "topic";
               const edgeKind: EdgeKind = topic.edgeFromParent ?? "depends_on";
-              // Legislation uses a neutral slate palette (awaiting per-jurisdiction palette
-              // from the Source owner); scenarios use orange; topics keep the tier palette.
               const warrant = warrantKindFromTier(topic.tier);
               const color =
-                nodeKind === "legislation" ? "#94a3b8" :
-                nodeKind === "scenario"    ? "#fb923c" :
-                (WARRANT_HEX[warrant] || "#666");
+                nodeKind === "legislation" ? "#404040" :
+                nodeKind === "scenario"    ? "#000000" :
+                (WARRANT_HEX[warrant] || "#525252");
               const badge = STATUS_BADGE[topic.status] || { text: topic.status, cls: "text-pact-dim" };
               const statusIcon = STATUS_ICON[topic.status] || { char: "·", cls: "text-pact-dim" };
               const tierColor =
-                nodeKind === "legislation" ? "text-slate-300" :
-                nodeKind === "scenario"    ? "text-pact-orange" :
+                nodeKind === "legislation" ? "text-pact-dim" :
+                nodeKind === "scenario"    ? "text-foreground" :
                 (WARRANT_COLORS[warrant] || "text-pact-dim");
               const isExpanded = expanded.has(topic.id);
               const isSearchMatch = searchMatches?.matches.has(topic.id);
@@ -437,8 +434,8 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
               return (
                 <div
                   key={topic.id}
-                  className={`flex items-center group hover:bg-white/[0.02] transition-colors ${
-                    isSearchMatch ? "bg-pact-cyan/5" : ""
+                  className={`flex items-center group hover:bg-hover-bg transition-colors ${
+                    isSearchMatch ? "bg-hover-bg" : ""
                   }`}
                   style={{ height: ROW_H }}
                 >
@@ -453,7 +450,7 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
                           <line
                             key={`rail-${l}`}
                             x1={lx} y1={0} x2={lx} y2={ROW_H}
-                            stroke="rgba(255,255,255,0.07)"
+                            stroke="rgba(0,0,0,0.12)"
                             strokeWidth={1.5}
                           />
                         );
@@ -541,7 +538,7 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
                     {hasChildren ? (
                       <button
                         onClick={() => toggleExpand(topic.id)}
-                        className="shrink-0 w-5 h-5 flex items-center justify-center text-white/25 hover:text-white/60 transition-colors"
+                        className="shrink-0 w-5 h-5 flex items-center justify-center text-pact-dim hover:text-foreground transition-colors"
                         aria-label={isExpanded ? "Collapse" : "Expand"}
                       >
                         <span className={`text-[9px] transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}>&#9654;</span>
@@ -554,7 +551,7 @@ export default function InteractiveTree({ topics }: { topics: TreeTopic[] }) {
                     <span className={`shrink-0 text-xs w-4 text-center ${statusIcon.cls}`}>{statusIcon.char}</span>
 
                     {/* Warrant / jurisdiction / industry badge */}
-                    <span className={`text-[9px] px-1.5 py-px rounded border border-current/20 uppercase font-bold shrink-0 ${tierColor}`}>
+                    <span className={`text-[9px] font-mono px-1.5 py-px border border-card-border uppercase font-bold shrink-0 ${tierColor}`}>
                       {nodeKind === "legislation"
                         ? ((topic.jurisdiction || "LEG").slice(0, 4))
                         : nodeKind === "scenario"

@@ -13,10 +13,10 @@ interface Stats {
 }
 
 const COUNTERS = [
-  { key: "agents" as const, label: "Agents", color: "text-pact-cyan" },
-  { key: "topics" as const, label: "Topics", color: "text-pact-purple" },
-  { key: "proposals" as const, label: "Proposals", color: "text-pact-orange" },
-  { key: "consensusReached" as const, label: "Verified Facts", color: "text-pact-green" },
+  { key: "agents" as const, label: "Registered Agents", color: "text-foreground" },
+  { key: "topics" as const, label: "Space Topics", color: "text-foreground" },
+  { key: "proposals" as const, label: "Proposals", color: "text-foreground" },
+  { key: "consensusReached" as const, label: "Verified Claims", color: "text-foreground" },
 ];
 
 export function LiveCounters() {

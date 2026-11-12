@@ -255,17 +255,78 @@ export default async function MapPage() {
   return (
     <div className="max-w-[1440px] mx-auto px-6 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2">Consensus Map</h1>
-        <p className="text-pact-dim text-sm max-w-3xl">
-          The PACT knowledge graph. Three node types — <span className="text-amber-400 font-semibold">topics</span>{" "}
-          (verified claims, circles), <span className="text-sky-400 font-semibold">legislation</span>{" "}
+        <div className="font-mono text-[11px] uppercase tracking-[0.15em] text-pact-dim mb-1">
+          SPACE &middot; X, Y, Z, T PUBLIC LAW &amp; SHARED REALITY &middot; PACT.TAILOR.AU/MAP
+        </div>
+        <h1 className="text-3xl md:text-4xl font-bold mb-2 text-foreground">The Space.</h1>
+        <p className="text-pact-dim text-sm max-w-4xl leading-relaxed">
+          <strong className="text-foreground">Space</strong> is the 4-dimensional (<span className="font-mono text-xs text-foreground">X, Y, Z, T</span>) public coordinate system above every 2D{" "}
+          <strong className="text-foreground">Fabric</strong> and 1D cross-organisation{" "}
+          <strong className="text-foreground">Seam</strong> (<span className="font-mono text-xs">0D Fibre &rarr; 1D Thread &rarr; 2D Fabric [joined by 1D Seam] &rarr; 4D Space</span>).
+          Three node types &mdash; <span className="text-foreground font-semibold">topics</span>{" "}
+          (verified claims, circles), <span className="text-foreground font-semibold">legislation</span>{" "}
           (government-sourced acts, rectangles), and{" "}
-          <span className="text-fuchsia-400 font-semibold">scenarios</span>{" "}
-          (predicate containers, diamonds). Edges show <em>depends_on</em>, <em>cites</em>,{" "}
-          <em>applies_when</em>, and <em>co_applies</em> (scenario-scoped).
-          Expand nodes to trace the full graph. Pending gazette ingest
-          topics are kept off this map so the graph stays interactive.
+          <span className="text-foreground font-semibold">scenarios</span>{" "}
+          (trigger applicability containers, diamonds). Edges show <em>depends_on</em>, <em>cites</em>,{" "}
+          <em>applies_when</em>, and <em>co_applies</em>. Because legislation and shared facts are verified once in{" "}
+          <strong className="text-foreground">Space</strong>, agents inside any Fabric or Seam inherit them without burning tokens re-proving the law &mdash; delivering{" "}
+          <strong className="text-foreground">cheap, safe, secure, reliable tokens</strong>.
         </p>
+      </div>
+
+      {/* Space / Fabric / Seam 4D Architecture Strip */}
+      <div className="mb-6 border border-card-border bg-card-bg p-4">
+        <div className="border border-foreground bg-foreground text-background p-3.5 mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+            <span className="font-mono text-[11px] uppercase tracking-[0.14em] font-bold">
+              01 &middot; SPACE (X, Y, Z, T PUBLIC LAW &amp; SHARED REALITY &mdash; THIS VIEW)
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-wider border border-background/40 px-2 py-0.5">
+              X, Y Jurisdiction &middot; Z Dependency Depth &middot; T Time &amp; Amendments
+            </span>
+          </div>
+          <p className="text-xs text-background/85 leading-relaxed">
+            Primary statutes, regulations, standards, verified claims, and trigger scenarios. Public, citable, and machine-resolvable by every Fabric and Seam.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="border border-card-border bg-background p-3">
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-pact-dim mb-1">
+              02 &middot; FABRIC (2D &middot; INSIDE AN ORGANISATION)
+            </div>
+            <div className="font-bold text-xs text-foreground mb-1">
+              Private Organisational Surface
+            </div>
+            <p className="text-xs text-pact-dim leading-relaxed">
+              Weaves 0D <strong className="text-foreground">Fibres</strong> and 1D <strong className="text-foreground">Threads</strong> inside one company&apos;s cell while citing public law from <strong className="text-foreground">Space</strong>.
+            </p>
+          </div>
+
+          <div className="border border-foreground bg-background p-3">
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-foreground font-bold mb-1">
+              03 &middot; SEAM (1D &middot; BETWEEN ORGANISATIONS)
+            </div>
+            <div className="font-bold text-xs text-foreground mb-1">
+              Append-Only Seam Record &amp; Neutral Seam Lead
+            </div>
+            <p className="text-xs text-pact-dim leading-relaxed">
+              Joins two 2D Fabrics across cells. PACT holds the third copy of the append-only signed record and runs <strong className="text-foreground">one neutral Seam lead</strong> grounded in <strong className="text-foreground">Space</strong>.
+            </p>
+          </div>
+
+          <div className="border border-card-border bg-background p-3">
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-pact-dim mb-1">
+              04 &middot; PACT GUEST DESK (COUNTERPARTY ACCESS)
+            </div>
+            <div className="font-bold text-xs text-foreground mb-1">
+              Zero-Install Counterparty Review
+            </div>
+            <p className="text-xs text-pact-dim leading-relaxed">
+              Email-only counterparties review, mark up, and sign off on Seam packages through the PACT Guest Desk with the same fingerprint-bound receipt.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* #1152 Round 5a — always-visible legend block */}

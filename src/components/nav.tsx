@@ -4,9 +4,13 @@ import { useAudience } from "@/contexts/audience";
 import { AudienceToggle } from "./AudienceToggle";
 
 const exploreLinks = [
-  { href: "/topics", label: "Topics" },
-  { href: "/map", label: "Map" },
+  { href: "/", label: "Home" },
+  { href: "/map", label: "Space" },
+  { href: "/spec", label: "Protocol" },
+  { href: "/get-started", label: "Platform" },
+  { href: "/market", label: "Market" },
   { href: "/legislation", label: "Legislation" },
+  { href: "/topics", label: "Topics" },
   { href: "/leaderboard", label: "Leaderboard" },
 ];
 
@@ -20,9 +24,10 @@ const dataLinks = [
 
 const integrateLinks = [
   { href: "/get-started", label: "Get Started" },
+  { href: "/map", label: "Space (/map)" },
   { href: "/axiom", label: "API" },
   { href: "/mcp", label: "MCP Tools" },
-  { href: "/spec", label: "Spec" },
+  { href: "/spec", label: "Protocol Spec" },
   { href: "/economics", label: "Economics" },
 ];
 
@@ -31,14 +36,16 @@ export function Nav() {
   const links = mode === "explore" ? exploreLinks : integrateLinks;
 
   return (
-    <nav className="border-b border-card-border bg-background/80 backdrop-blur-sm sticky top-0 z-50">
-      <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
+    <nav className="border-b border-card-border bg-background/95 backdrop-blur-sm sticky top-0 z-50">
+      <div className="max-w-[1440px] mx-auto px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link href="/" className="flex items-baseline gap-2 group">
-            <span className="text-pact-cyan font-bold text-lg tracking-[0.14em] group-hover:text-pact-purple transition-colors">
+          <Link href="/" className="flex items-baseline gap-2.5 group">
+            <span className="text-foreground font-black text-lg tracking-[0.14em] group-hover:opacity-75 transition-opacity">
               PACT
             </span>
-            <span className="text-pact-dim text-xs hidden sm:inline tracking-wider">Verified Knowledge Graph</span>
+            <span className="text-pact-dim text-[11px] font-mono hidden sm:inline uppercase tracking-wider">
+              Canonical Layer of Agreement
+            </span>
           </Link>
           <AudienceToggle />
         </div>

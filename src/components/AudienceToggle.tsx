@@ -10,16 +10,14 @@ export function AudienceToggle() {
   const { mode, setMode } = useAudience();
 
   return (
-    <div className="flex items-center bg-background/80 border border-card-border rounded-full p-0.5 text-xs">
+    <div className="flex items-center bg-background border border-card-border rounded-none p-0.5 text-xs font-mono">
       {options.map((opt) => (
         <button
           key={opt.value}
           onClick={() => setMode(opt.value)}
-          className={`px-3 py-1 rounded-full transition-all ${
+          className={`px-3 py-1 transition-all ${
             mode === opt.value
-              ? opt.value === "explore"
-                ? "bg-pact-cyan text-background font-bold"
-                : "bg-pact-purple text-background font-bold"
+              ? "bg-foreground text-background font-bold"
               : "text-pact-dim hover:text-foreground"
           }`}
         >

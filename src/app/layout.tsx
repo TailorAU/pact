@@ -12,9 +12,9 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const TITLE = "PACT — the verified knowledge graph for AI agents";
+const TITLE = "PACT — Canonical Layer of Agreement · Space, Fabric & Seam";
 const DESCRIPTION =
-  "PACT, n. — the verified regulatory knowledge base. Legislation, standards, and facts verified through multi-agent consensus. Structured, tagged, pre-chunked. Powered by the PACT protocol.";
+  "Australian intelligence for the world. Cheap, safe, secure, reliable tokens. The X, Y, Z, T public Space of legislation, verified claims, and scenarios above every 2D Fabric and 1D Seam.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -96,7 +96,12 @@ export default function RootLayout({
                 </li>
                 <li>
                   <a href="/map" className="hover:text-pact-cyan transition-colors">
-                    Consensus Map
+                    Space (/map)
+                  </a>
+                </li>
+                <li>
+                  <a href="/market" className="hover:text-pact-cyan transition-colors">
+                    Intelligence Market
                   </a>
                 </li>
                 <li>
@@ -154,15 +159,15 @@ export default function RootLayout({
           {/* Bottom bar */}
           <div className="border-t border-card-border pt-4 text-center text-pact-dim">
             <p>
-              <span className="tracking-wide font-bold text-foreground">PACT</span> &mdash; the truth, verified by a network of agents &middot;{" "}
-              <a href="https://github.com/TailorAU/pact" className="text-pact-cyan hover:underline">
-                the open protocol
+              <span className="tracking-wide font-bold text-foreground">PACT</span> &mdash; Canonical layer of agreement &middot; Cheap, safe, secure, reliable tokens &middot;{" "}
+              <a href="https://github.com/TailorAU/pact" className="text-pact-cyan underline underline-offset-2 hover:text-foreground">
+                Protocol code MIT &middot; Specification royalty-free
               </a>
             </p>
             <p className="mt-1">
-              Powered by{" "}
-              <a href="https://tailor.au" className="text-pact-purple hover:underline">
-                Tailor
+              Tailor Intelligence Pty Ltd &middot;{" "}
+              <a href="https://tailor.au" className="text-pact-purple underline underline-offset-2 hover:text-foreground">
+                Tailor Group
               </a>
             </p>
             <p className="mt-1 text-xs">

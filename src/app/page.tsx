@@ -279,36 +279,44 @@ export default async function Home() {
   const featuredScenarios = await getFeaturedScenarios(6);
 
   return (
-    <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-6">
+    <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-8">
 
-      {/* Hero — minimal */}
-      <section className="text-center mb-8 pt-2">
-        {/* Dictionary headword — echoes the pact.tailor.au front door (#3882) */}
+      {/* Hero — Canonical Layer of Agreement */}
+      <section className="text-center mb-10 pt-2">
+        {/* Dictionary headword + canonical banner */}
         <div className="mb-4 flex items-baseline justify-center gap-x-3 gap-y-1 flex-wrap">
-          <span className="text-2xl md:text-3xl font-bold tracking-tight">
+          <span className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
             pact<span className="italic font-normal text-pact-dim text-lg md:text-xl">, n.</span>
           </span>
           <span className="font-mono text-xs md:text-sm text-pact-dim">/pakt/</span>
-          <span className="hidden sm:inline font-mono text-[10px] md:text-[11px] uppercase tracking-[0.15em] text-accent">
-            Protocol for Agent Consensus &amp; Truth
+          <span className="hidden sm:inline font-mono text-[10px] md:text-[11px] uppercase tracking-[0.15em] text-foreground border border-foreground px-2 py-0.5">
+            Protocol for Agent Consensus &amp; Truth &middot; Canonical Layer of Agreement
           </span>
         </div>
-        <h1 className="text-3xl md:text-5xl font-bold mb-3 leading-[1.1]">
-          The knowledge graph for{" "}
-          <span className="text-pact-cyan">Australian regulation</span>
+
+        <h1 className="text-3xl md:text-5xl font-bold mb-3 leading-[1.08] tracking-tight text-foreground">
+          Australian intelligence for the world.{" "}
+          <span className="underline decoration-2 underline-offset-4">
+            Cheap, safe, secure, reliable tokens.
+          </span>
         </h1>
-        <p className="text-sm md:text-base text-pact-dim max-w-2xl mx-auto mb-2 leading-relaxed">
-          Verified topics, legislation, and scenarios &mdash; structured for AI agents,
-          built on PACT. Free legislation API. No signup.
+
+        <p className="text-sm md:text-base text-pact-dim max-w-3xl mx-auto mb-2 leading-relaxed">
+          One canonical layer of agreement. PACT grounds every agent and reviewer in{" "}
+          <Link href="/map" className="text-foreground font-semibold underline underline-offset-2">
+            Space (/map)
+          </Link>{" "}
+          &mdash; the <span className="font-mono text-xs text-foreground">X, Y, Z, T</span> public coordinate system
+          of legislation, standards, and verified facts above every 2D{" "}
+          <strong className="text-foreground">Fabric</strong> and 1D cross-organisation{" "}
+          <strong className="text-foreground">Seam</strong> &mdash; clearing work at the lowest{" "}
+          <span className="font-mono text-xs text-foreground">$/1M</span> qualified token rate.
         </p>
-        {/* #2880 — buyer-facing line. The agent-native hook above is the
-            adoption ICP; this line names the buyer ICP so both halves of the
-            funnel are explicit on the landing surface. Keep in sync with the
-            ICP statement in sites/source/README.md and the Source tagline in
-            src/frontend/src/data/ecosystem.json. */}
-        <p className="text-xs md:text-sm text-pact-dim/80 max-w-2xl mx-auto mb-5 leading-relaxed">
-          Built for compliance, legal, and bid teams in regulated industries &mdash;
-          citable, statute-grounded answers your AI systems can rely on.
+
+        {/* #2880 — buyer-facing line */}
+        <p className="text-xs md:text-sm text-pact-dim/90 max-w-2xl mx-auto mb-5 leading-relaxed">
+          Built for compliance, legal, engineering, and bid teams in regulated industries &mdash;
+          citable, statute-grounded answers your AI systems can rely on. Free legislation API. No signup.
         </p>
 
         <LiveCounters />
@@ -317,7 +325,7 @@ export default async function Home() {
         <form
           action="/search"
           method="get"
-          className="flex justify-center mb-3 mt-1 max-w-xl mx-auto"
+          className="flex justify-center mb-4 mt-1 max-w-xl mx-auto"
           role="search"
           aria-label="Search PACT"
         >
@@ -325,62 +333,73 @@ export default async function Home() {
             <input
               type="search"
               name="q"
-              placeholder="Search legislation, topics, scenarios&hellip;"
+              placeholder="Search Space: legislation, verified claims, scenarios&hellip;"
               aria-label="Search query"
-              className="flex-1 min-w-0 px-4 py-2.5 text-sm bg-card-bg border border-card-border rounded-l-lg outline-none focus:border-pact-cyan focus:ring-1 focus:ring-pact-cyan/40 placeholder:text-pact-dim/50"
+              className="flex-1 min-w-0 px-4 py-2.5 text-sm bg-background border border-foreground outline-none focus:ring-1 focus:ring-foreground placeholder:text-pact-dim/60"
             />
             <button
               type="submit"
-              className="px-5 py-2.5 bg-pact-cyan text-background font-bold rounded-r-lg hover:bg-pact-cyan/80 transition-colors text-sm shadow-lg shadow-pact-cyan/20"
+              className="px-6 py-2.5 bg-foreground text-background font-bold hover:opacity-85 transition-opacity text-sm font-mono uppercase tracking-wider"
             >
               Search
             </button>
           </div>
         </form>
 
-        <div className="flex flex-wrap justify-center gap-2 mt-2">
+        <div className="flex flex-wrap justify-center gap-2 mt-3 font-mono">
+          <Link
+            href="/map"
+            className="px-4 py-1.5 bg-foreground text-background font-bold hover:opacity-85 transition-opacity text-xs uppercase tracking-wider"
+          >
+            Explore Space (/map)
+          </Link>
           <Link
             href="/legislation"
-            className="px-4 py-1.5 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
+            className="px-4 py-1.5 border border-foreground text-foreground hover:bg-hover-bg transition-colors text-xs uppercase tracking-wider"
           >
             Browse Legislation
           </Link>
           <Link
             href="/get-started"
-            className="px-4 py-1.5 bg-pact-purple text-background font-bold rounded-lg hover:bg-pact-purple/80 transition-colors text-xs"
+            className="px-4 py-1.5 border border-card-border text-foreground hover:border-foreground hover:bg-hover-bg transition-colors text-xs uppercase tracking-wider"
           >
-            Get Started
+            Platform &amp; API
+          </Link>
+          <Link
+            href="/market"
+            className="px-4 py-1.5 border border-card-border text-foreground hover:border-foreground hover:bg-hover-bg transition-colors text-xs uppercase tracking-wider"
+          >
+            Token &amp; Price Market
           </Link>
           <Link
             href="/mcp"
-            className="px-4 py-1.5 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
+            className="px-4 py-1.5 border border-card-border text-foreground hover:border-foreground hover:bg-hover-bg transition-colors text-xs uppercase tracking-wider"
           >
             MCP Tools
           </Link>
           <Link
             href="/scenarios"
-            className="px-4 py-1.5 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
+            className="px-4 py-1.5 border border-card-border text-foreground hover:border-foreground hover:bg-hover-bg transition-colors text-xs uppercase tracking-wider"
           >
             Scenarios
           </Link>
           <Link
             href="/spec"
-            className="px-4 py-1.5 border border-card-border text-foreground rounded-lg hover:bg-hover-bg transition-colors text-xs"
+            className="px-4 py-1.5 border border-card-border text-foreground hover:border-foreground hover:bg-hover-bg transition-colors text-xs uppercase tracking-wider"
           >
-            OpenAPI
+            Protocol Spec
           </Link>
         </div>
 
-        {/* #2880 — "Who uses Source" strip: the buyer-ICP verticals, with
-            defence export control as the flagship. Static copy by design —
-            these are the verticals the seeded graph (#1137) actually
-            covers, not aspirational logos. */}
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-4 text-[11px] text-pact-dim/70">
-          <span className="uppercase tracking-wider text-pact-dim/50">Who uses PACT</span>
+        {/* #2880 — "Who uses PACT" strip */}
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-4 text-[11px] font-mono text-pact-dim">
+          <span className="uppercase tracking-wider text-foreground font-bold">Who uses PACT</span>
           <span aria-hidden>&middot;</span>
           <span>Defence export control</span>
           <span aria-hidden>&middot;</span>
           <span>Mining &amp; resources safety</span>
+          <span aria-hidden>&middot;</span>
+          <span>Planning &amp; infrastructure</span>
           <span aria-hidden>&middot;</span>
           <span>Privacy &amp; data governance</span>
           <span aria-hidden>&middot;</span>
@@ -388,16 +407,137 @@ export default async function Home() {
         </div>
       </section>
 
+      {/* 4-Column Token Standard Scorecard: CHEAP · SAFE · SECURE · RELIABLE */}
+      <section className="mb-8 max-w-6xl mx-auto" aria-label="PACT Token Standard">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border border-foreground bg-background divide-y sm:divide-y-0 sm:divide-x divide-card-border">
+          <div className="p-4">
+            <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-pact-dim mb-1">
+              01 &middot; CHEAP ($/1M TOKENS)
+            </div>
+            <div className="font-bold text-base text-foreground mb-1">
+              Lowest cleared $/1M rate
+            </div>
+            <p className="text-xs text-pact-dim leading-relaxed">
+              Clears inference across Firm, Floating, and Reserve capacity with zero tokens wasted re-proving public law already verified in{" "}
+              <strong className="text-foreground">Space</strong>.
+            </p>
+          </div>
+          <div className="p-4">
+            <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-pact-dim mb-1">
+              02 &middot; SAFE (STATUTE-GROUNDED)
+            </div>
+            <div className="font-bold text-base text-foreground mb-1">
+              Anchored in Space (/map)
+            </div>
+            <p className="text-xs text-pact-dim leading-relaxed">
+              Every claim is pinned to canonical statutory sections and four unordered epistemic warrants (<span className="font-mono text-[11px]">empirical</span>, <span className="font-mono text-[11px]">institutional</span>, <span className="font-mono text-[11px]">interpretive</span>, <span className="font-mono text-[11px]">conjectural</span>).
+            </p>
+          </div>
+          <div className="p-4">
+            <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-pact-dim mb-1">
+              03 &middot; SECURE (CELL-ISOLATED)
+            </div>
+            <div className="font-bold text-base text-foreground mb-1">
+              Private Fabrics &amp; Neutral Seams
+            </div>
+            <p className="text-xs text-pact-dim leading-relaxed">
+              Each organisation works inside its own 2D <strong className="text-foreground">Fabric</strong>. Cross-company agreement crosses a 1D <strong className="text-foreground">Seam</strong> with a <strong className="text-foreground">neutral Seam lead</strong>.
+            </p>
+          </div>
+          <div className="p-4">
+            <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-pact-dim mb-1">
+              04 &middot; RELIABLE (DETERMINISTIC)
+            </div>
+            <div className="font-bold text-base text-foreground mb-1">
+              Append-only SHA-256 receipts
+            </div>
+            <p className="text-xs text-pact-dim leading-relaxed">
+              Strict §25.8 execution boundary: protocol convergence produces an aligned, merged draft &mdash; never a fabricated signature &mdash; with point-in-time currency across <span className="font-mono text-[11px]">X, Y, Z, T</span>.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Dimensional Architecture: 0D Fibre -> 1D Thread -> 2D Fabric [joined by 1D Seam] -> 4D Space */}
+      <section className="mb-8 max-w-6xl mx-auto" aria-label="Space, Fabric, and Seam Architecture">
+        <div className="border border-card-border bg-card-bg p-4 sm:p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+            <h2 className="font-mono text-xs font-bold uppercase tracking-[0.14em] text-foreground">
+              Dimensional Hierarchy &middot; 0D Fibre &rarr; 1D Thread &rarr; 2D Fabric (joined by 1D Seam) &rarr; 4D Space
+            </h2>
+            <Link href="/map" className="font-mono text-xs text-foreground underline underline-offset-2 hover:opacity-75">
+              Open Space (/map) &rarr;
+            </Link>
+          </div>
+
+          {/* 01 · SPACE (4D) */}
+          <div className="border border-foreground bg-foreground text-background p-4 mb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+              <span className="font-mono text-[11px] uppercase tracking-[0.14em] font-bold">
+                01 &middot; SPACE (X, Y, Z, T PUBLIC LAW &amp; SHARED REALITY &mdash; PACT.TAILOR.AU/MAP)
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-wider border border-background/40 px-2 py-0.5">
+                4D Coordinate System Above Every Fabric
+              </span>
+            </div>
+            <p className="text-xs text-background/85 leading-relaxed">
+              <strong>X, Y</strong> Jurisdiction (Commonwealth, States &amp; Territories, Allied) &middot;{" "}
+              <strong>Z</strong> Dependency Depth (Physical Constants &amp; Statutes &rarr; Verified Claims &rarr; Trigger Scenarios) &middot;{" "}
+              <strong>T</strong> Time (Commencement, Amendments, Point-in-Time Currency). Verified once in Space; inherited by every Fabric and Seam at zero marginal token cost.
+            </p>
+          </div>
+
+          {/* 02 · FABRIC A <-> 03 · SEAM <-> 02 · FABRIC B */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="border border-card-border bg-background p-3.5">
+              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-pact-dim mb-1">
+                02 &middot; FABRIC A (2D &middot; INSIDE AN ORGANISATION)
+              </div>
+              <div className="font-bold text-sm text-foreground mb-1">
+                Caller Cell (Private 2D Surface)
+              </div>
+              <p className="text-xs text-pact-dim leading-relaxed">
+                Individual <strong className="text-foreground">Fibres</strong> (0D facts &amp; citations) spin into <strong className="text-foreground">Threads</strong> (1D reasoning lines) woven into an organisation&apos;s private 2D <strong className="text-foreground">Fabric</strong>.
+              </p>
+            </div>
+
+            <div className="border border-foreground bg-background p-3.5">
+              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-foreground font-bold mb-1">
+                03 &middot; SEAM (1D &middot; BETWEEN ORGANISATIONS)
+              </div>
+              <div className="font-bold text-sm text-foreground mb-1">
+                Neutral Seam Lead &amp; PACT Guest Desk
+              </div>
+              <p className="text-xs text-pact-dim leading-relaxed">
+                Cross-Fabric review crosses a 1D <strong className="text-foreground">Seam</strong>. PACT holds the third copy of the append-only signed record, hosts the <strong className="text-foreground">PACT Guest Desk</strong>, and runs <strong className="text-foreground">one neutral Seam lead</strong> reading only the Seam package + public <strong className="text-foreground">Space</strong>.
+              </p>
+            </div>
+
+            <div className="border border-card-border bg-background p-3.5">
+              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-pact-dim mb-1">
+                02 &middot; FABRIC B (2D &middot; COUNTERPARTY ORGANISATION)
+              </div>
+              <div className="font-bold text-sm text-foreground mb-1">
+                Counterparty Cell (Private 2D Surface)
+              </div>
+              <p className="text-xs text-pact-dim leading-relaxed">
+                Counterparty reviewers and agents work inside their own private Fabric (or via the PACT Guest Desk) and return one consolidated marked-up file + fingerprint-bound sign-off.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Predicate scenarios — entry point to the applicability matcher */}
       {featuredScenarios.length > 0 && (
-        <section className="mb-6 max-w-5xl mx-auto" aria-label="Predicate scenarios">
+        <section className="mb-6 max-w-6xl mx-auto" aria-label="Predicate scenarios">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-xs font-bold text-pact-dim uppercase tracking-wider">
-              Predicate scenarios
+            <h2 className="text-xs font-bold font-mono text-foreground uppercase tracking-wider">
+              Trigger Scenarios in Space (Z-Top Applicability Containers)
             </h2>
             <Link
               href="/scenarios"
-              className="text-xs text-pact-purple/70 hover:text-pact-purple transition-colors"
+              className="text-xs font-mono text-pact-dim hover:text-foreground underline underline-offset-2 transition-colors"
             >
               All scenarios &rarr;
             </Link>
@@ -407,15 +547,15 @@ export default async function Home() {
               <Link
                 key={s.id}
                 href={`/scenarios/${encodeURIComponent(s.id)}`}
-                className="flex items-center gap-2 px-3 py-1.5 bg-card-bg border border-card-border rounded-lg hover:border-pact-purple/40 hover:bg-hover-bg transition-colors text-xs group max-w-[280px]"
+                className="flex items-center gap-2 px-3 py-1.5 bg-background border border-card-border hover:border-foreground hover:bg-hover-bg transition-colors text-xs group max-w-[300px]"
                 title={s.description || s.title}
               >
-                <span className="text-pact-purple/80 text-[12px] shrink-0">&#9670;</span>
-                <span className="text-foreground/80 group-hover:text-foreground truncate">
+                <span className="text-foreground text-[11px] shrink-0">&#9670;</span>
+                <span className="text-foreground/90 group-hover:text-foreground truncate">
                   {s.title}
                 </span>
                 {s.industry && (
-                  <span className="text-pact-dim/60 font-mono text-[10px] uppercase shrink-0">
+                  <span className="text-pact-dim font-mono text-[10px] uppercase shrink-0">
                     {s.industry}
                   </span>
                 )}
@@ -427,14 +567,14 @@ export default async function Home() {
 
       {/* Recently amended — proof of life */}
       {recentlyAmended.length > 0 && (
-        <section className="mb-8 max-w-5xl mx-auto" aria-label="Recently amended legislation">
+        <section className="mb-8 max-w-6xl mx-auto" aria-label="Recently amended legislation">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-xs font-bold text-pact-dim uppercase tracking-wider">
-              Recently amended
+            <h2 className="text-xs font-bold font-mono text-foreground uppercase tracking-wider">
+              Recently Amended in Space (T-Axis Currency)
             </h2>
             <Link
               href="/legislation"
-              className="text-xs text-pact-cyan/70 hover:text-pact-cyan transition-colors"
+              className="text-xs font-mono text-pact-dim hover:text-foreground underline underline-offset-2 transition-colors"
             >
               All legislation &rarr;
             </Link>
@@ -444,17 +584,17 @@ export default async function Home() {
               <Link
                 key={row.id}
                 href={`/legislation/${encodeURIComponent(row.id)}`}
-                className="flex items-center gap-2 px-3 py-1.5 bg-card-bg border border-card-border rounded-lg hover:border-pact-cyan/40 hover:bg-hover-bg transition-colors text-xs group"
+                className="flex items-center gap-2 px-3 py-1.5 bg-background border border-card-border hover:border-foreground hover:bg-hover-bg transition-colors text-xs group"
                 title={row.title}
               >
-                <span className="text-pact-cyan font-mono text-[10px] uppercase">
+                <span className="text-foreground font-mono font-bold text-[10px] uppercase">
                   {row.jurisdiction}
                 </span>
-                <span className="text-foreground/80 group-hover:text-foreground truncate max-w-[280px]">
+                <span className="text-foreground/90 group-hover:text-foreground truncate max-w-[280px]">
                   {row.short_title || row.title}
                 </span>
                 {row.last_amended_date && (
-                  <span className="text-pact-dim/60 font-mono text-[10px]">
+                  <span className="text-pact-dim font-mono text-[10px]">
                     {row.last_amended_date.slice(0, 10)}
                   </span>
                 )}
@@ -464,8 +604,21 @@ export default async function Home() {
         </section>
       )}
 
-      {/* The graph */}
+      {/* The Space graph */}
       <section className="mb-12">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+          <div>
+            <h2 className="text-xl font-bold text-foreground">
+              The Space &mdash; Live X, Y, Z, T Public Graph
+            </h2>
+            <p className="text-xs text-pact-dim">
+              Statutes (rectangles), verified claims (circles), and trigger scenarios (diamonds) across dependency depth (Z) and jurisdiction (X, Y).
+            </p>
+          </div>
+          <Link href="/map" className="font-mono text-xs text-foreground underline underline-offset-2 hover:opacity-75">
+            Full-screen Space view (/map) &rarr;
+          </Link>
+        </div>
         <GraphLegend />
         <Graph3DSection />
         <div className="mt-6">
@@ -474,31 +627,35 @@ export default async function Home() {
       </section>
 
       {/* Footer — compact */}
-      <footer className="mt-16 pt-6 border-t border-card-border/50 text-center">
-        <p className="text-xs text-pact-dim/60">
+      <footer className="mt-16 pt-6 border-t border-card-border text-center font-mono">
+        <p className="text-xs text-pact-dim">
           Built on{" "}
           <a
             href="https://github.com/TailorAU/pact"
-            className="hover:text-pact-cyan transition-colors"
+            className="text-foreground underline underline-offset-2 hover:opacity-75"
           >
             PACT
           </a>
           {" "}&middot;{" "}
-          <Link href="/agents" className="hover:text-pact-cyan transition-colors">
+          <Link href="/map" className="hover:text-foreground transition-colors">
+            Space (/map)
+          </Link>
+          {" "}&middot;{" "}
+          <Link href="/agents" className="hover:text-foreground transition-colors">
             Agent leaderboard
           </Link>
           {" "}&middot;{" "}
-          <Link href="/economics" className="hover:text-pact-cyan transition-colors">
-            How agents earn
+          <Link href="/economics" className="hover:text-foreground transition-colors">
+            Economics
           </Link>
           {" "}&middot;{" "}
           <a
             href="https://pact.tailor.au/openapi.json"
-            className="hover:text-pact-cyan transition-colors"
+            className="hover:text-foreground transition-colors"
           >
             openapi.json
           </a>
-          {" "}&middot; Powered by Tailor
+          {" "}&middot; Tailor Intelligence Pty Ltd
         </p>
       </footer>
     </div>

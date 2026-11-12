@@ -23,10 +23,10 @@ import { CREDENCE_ASYMPTOTE, WARRANT_KINDS, type WarrantKind } from "@/lib/epist
 // gradient from "good" to "bad") — these are four peer ways of being
 // justified, matched to the site's existing tier palette hues.
 export const WARRANT_STYLES: Record<WarrantKind, string> = {
-  empirical: "text-pact-cyan border-pact-cyan/30 bg-pact-cyan/5",
-  institutional: "text-amber-400 border-amber-400/30 bg-amber-400/5",
-  interpretive: "text-pact-purple border-pact-purple/30 bg-pact-purple/5",
-  conjectural: "text-pact-red border-pact-red/30 bg-pact-red/5",
+  empirical: "text-foreground border-foreground bg-card-bg",
+  institutional: "text-foreground border-foreground bg-card-bg",
+  interpretive: "text-pact-dim border-card-border bg-card-bg",
+  conjectural: "text-pact-dim border-card-border bg-card-bg",
 };
 
 export const WARRANT_DESCRIPTIONS: Record<WarrantKind, string> = {
@@ -81,11 +81,11 @@ export function WarrantPeerRow({
 
 // ── Axis B — consensus state ─────────────────────────────────────────
 const STATE_STYLES: Record<string, string> = {
-  proposed: "text-yellow-400 border-yellow-400/30 bg-yellow-400/5",
-  open: "text-pact-cyan border-pact-cyan/30 bg-pact-cyan/5",
-  contested: "text-pact-red border-pact-red/30 bg-pact-red/5",
-  aligned: "text-pact-green border-pact-green/30 bg-pact-green/5",
-  verified: "text-pact-green border-pact-green/40 bg-pact-green/10 font-bold",
+  proposed: "text-pact-dim border-card-border bg-card-bg",
+  open: "text-pact-dim border-card-border bg-card-bg",
+  contested: "text-foreground border-foreground bg-card-bg font-bold",
+  aligned: "text-foreground border-card-border bg-card-bg",
+  verified: "text-background border-foreground bg-foreground font-bold",
 };
 
 const STATE_ICONS: Record<string, string> = {
@@ -176,7 +176,7 @@ export function ConventionStopFlag({
   const pad = size === "xs" ? "text-[9px] px-1.5 py-px" : "text-[10px] px-2 py-0.5";
   return (
     <span
-      className={`${pad} rounded border border-amber-400/30 bg-amber-400/5 text-amber-400 shrink-0`}
+      className={`${pad} rounded border border-foreground bg-card-bg text-foreground shrink-0`}
       title="Convention stop: the community agreed to stop digging here — challengeable like every other node"
     >
       ⚑ held by convention · challengeable

@@ -40,35 +40,35 @@ type TreeNode = {
 
 // ── Colors ─────────────────────────────────────────────────────────
 // Keyed by the four canonical warrant kinds (#3724) — four UNORDERED
-// peers, one distinct hue each. Rows resolve their kind via
+// peers in monochrome. Rows resolve their kind via
 // warrantKindFromTier (the retired "axiom" reads as institutional).
 const WARRANT_HEX: Record<string, string> = {
-  empirical: "#22d3ee",
-  institutional: "#fbbf24",
-  interpretive: "#a78bfa",
-  conjectural: "#f472b6",
+  empirical: "#ffffff",
+  institutional: "#e5e5e5",
+  interpretive: "#a3a3a3",
+  conjectural: "#737373",
 };
 
 function colorForTier(tier: string | undefined): string {
-  return WARRANT_HEX[warrantKindFromTier(tier)] ?? "#6b7280";
+  return WARRANT_HEX[warrantKindFromTier(tier)] ?? "#737373";
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  locked: "#fbbf24",
-  stable: "#fbbf24",
-  consensus: "#22c55e",
-  open: "#22d3ee",
-  proposed: "#a78bfa",
-  challenged: "#ef4444",
+  locked: "#ffffff",
+  stable: "#ffffff",
+  consensus: "#e5e5e5",
+  open: "#a3a3a3",
+  proposed: "#737373",
+  challenged: "#d4d4d4",
 };
 
-const SHARED_COLOR = "#f59e0b"; // Amber for shared dependencies (2+ dependents)
-const KEYSTONE_COLOR = "#ef4444"; // Red for keystone dependencies (3+ dependents)
-const BG_COLOR = 0x07070d;
-const LINE_COLOR = 0x334155;
-const LINE_HIGHLIGHT = 0xd97706;
-const TEXT_COLOR = "#e2e8f0";
-const DIM_TEXT = "#64748b";
+const SHARED_COLOR = "#d4d4d4"; // Monochrome for shared dependencies (2+ dependents)
+const KEYSTONE_COLOR = "#ffffff"; // White for keystone dependencies (3+ dependents)
+const BG_COLOR = 0x000000;
+const LINE_COLOR = 0x404040;
+const LINE_HIGHLIGHT = 0xa3a3a3;
+const TEXT_COLOR = "#ffffff";
+const DIM_TEXT = "#a3a3a3";
 
 // ── Layout constants ───────────────────────────────────────────────
 const NODE_WIDTH = 340;
@@ -247,7 +247,7 @@ export default function ConsensusTree() {
 
         // Color lines to shared/keystone deps differently
         const childDepCount = dependentCountMapRef.current.get(child.topic.id) || 0;
-        const lineColorVal = childDepCount >= 3 ? 0xef4444 : childDepCount >= 2 ? 0xf59e0b : LINE_COLOR;
+        const lineColorVal = childDepCount >= 3 ? 0xffffff : childDepCount >= 2 ? 0xa3a3a3 : LINE_COLOR;
         const lineOpacity = childDepCount >= 2 ? 0.7 : 0.5;
 
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
@@ -282,7 +282,7 @@ export default function ConsensusTree() {
 
       // Background — shared/keystone deps get special background
       const borderColor = isKeystone ? KEYSTONE_COLOR : isShared ? SHARED_COLOR : tierColor;
-      ctx.fillStyle = isKeystone ? "#1a0f0f" : isShared ? "#1a1a0f" : isVerified ? "#1a1a0f" : "#0d0d1a";
+      ctx.fillStyle = isKeystone ? "#171717" : isShared ? "#121212" : isVerified ? "#121212" : "#0a0a0a";
       ctx.roundRect(2, 2, canvas.width - 4, canvas.height - 4, 12);
       ctx.fill();
 
@@ -648,20 +648,20 @@ export default function ConsensusTree() {
 
       {/* Loading / error overlays */}
       {loading && (
-        <div className="flex items-center justify-center h-[600px] bg-[#07070d]">
-          <div className="text-pact-cyan animate-pulse text-lg">Building dependency tree...</div>
+        <div className="flex items-center justify-center h-[600px] bg-black">
+          <div className="text-white animate-pulse text-lg font-mono">Building dependency tree...</div>
         </div>
       )}
       {error && !loading && (
-        <div className="flex items-center justify-center h-[600px] bg-[#07070d]">
-          <div className="text-red-400 text-lg">{error}</div>
+        <div className="flex items-center justify-center h-[600px] bg-black">
+          <div className="text-white font-mono text-lg">{error}</div>
         </div>
       )}
 
       {/* Legend overlay */}
-      <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between text-xs text-white/50 gap-y-2 pointer-events-none">
+      <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between text-xs text-white/60 gap-y-2 pointer-events-none">
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-white/30 uppercase text-[10px] tracking-wider">warrant (unordered)</span>
+          <span className="text-white/40 uppercase text-[10px] tracking-wider">warrant (unordered)</span>
           {WARRANT_KINDS.map((kind) => (
             <span key={kind} className="flex items-center gap-1 capitalize">
               <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: WARRANT_HEX[kind] }} />
@@ -669,7 +669,7 @@ export default function ConsensusTree() {
             </span>
           ))}
           <span className="text-white/20">|</span>
-          <span className="text-white/30">position = dependency depth, not certainty</span>
+          <span className="text-white/40">position = dependency depth, not certainty</span>
           <span className="text-white/20">|</span>
           <span className="flex items-center gap-1">
             <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: SHARED_COLOR }} />
@@ -684,14 +684,14 @@ export default function ConsensusTree() {
           <span className="text-white/20">|</span>
           <span>{stats.maxDepth + 1} levels deep</span>
         </div>
-        <div className="text-white/30">
+        <div className="text-white/40">
           Click to expand/collapse · Double-click to open · Scroll to zoom · Drag to pan
         </div>
       </div>
 
       {/* Hover tooltip */}
       {hovered && (
-        <div className="absolute top-3 right-3 bg-[#1a1a2e] border border-card-border rounded-lg px-4 py-3 text-sm text-white/80 max-w-xs pointer-events-none">
+        <div className="absolute top-3 right-3 bg-black border border-white/30 rounded-lg px-4 py-3 text-sm text-white max-w-xs pointer-events-none">
           {flatNodesRef.current.find(n => n.topic.id === hovered)?.topic.title}
         </div>
       )}

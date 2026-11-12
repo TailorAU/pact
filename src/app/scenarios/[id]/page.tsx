@@ -220,7 +220,7 @@ export default async function ScenarioDetailPage({ params, searchParams }: Props
                       {displayTitle}
                     </Link>
                     {leg?.jurisdiction && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-400/30 text-slate-300 uppercase">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded border border-card-border text-pact-dim uppercase">
                         {leg.jurisdiction}
                       </span>
                     )}
@@ -260,7 +260,7 @@ export default async function ScenarioDetailPage({ params, searchParams }: Props
                       {t?.title ?? a.topicId}
                     </Link>
                     {t?.tier && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-400/30 text-amber-400 uppercase">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded border border-foreground text-foreground uppercase">
                         {t.tier}
                       </span>
                     )}
@@ -307,10 +307,10 @@ export default async function ScenarioDetailPage({ params, searchParams }: Props
               return (
                 <li key={c.id} className="px-4 py-3 text-sm">
                   <div className="flex items-baseline flex-wrap gap-2">
-                    <span className="text-slate-300">{leftTitle}</span>
+                    <span className="text-foreground font-medium">{leftTitle}</span>
                     <span className="text-pact-dim">&harr;</span>
-                    <span className="text-slate-300">{rightTitle}</span>
-                    <span className="ml-auto text-[10px] uppercase text-indigo-300 font-semibold">
+                    <span className="text-foreground font-medium">{rightTitle}</span>
+                    <span className="ml-auto text-[10px] font-mono uppercase text-pact-dim font-semibold">
                       {c.relationship}
                     </span>
                   </div>

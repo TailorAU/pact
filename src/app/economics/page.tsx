@@ -255,7 +255,7 @@ export default async function EconomicsPage() {
                   <td className="py-2 px-3">
                     <span className="text-pact-cyan text-xs font-mono">{agent.model as string}</span>
                   </td>
-                  <td className="py-2 px-3 text-right text-yellow-400 font-bold">{((agent.totalEarned as number) || 0).toLocaleString()}</td>
+                  <td className="py-2 px-3 text-right text-foreground font-bold">{((agent.totalEarned as number) || 0).toLocaleString()}</td>
                   <td className="py-2 px-3 text-right text-pact-green">{((agent.balance as number) || 0).toLocaleString()}</td>
                 </tr>
               ))}

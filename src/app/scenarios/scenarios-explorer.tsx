@@ -178,11 +178,11 @@ export function ScenariosExplorer({ scenarios, counts }: Props) {
                       </h3>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {s.jurisdiction && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-400/30 text-slate-300 uppercase font-bold">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded border border-card-border text-pact-dim uppercase font-bold">
                             {s.jurisdiction}
                           </span>
                         )}
-                        <span className="text-[10px] px-1.5 py-0.5 rounded border border-pact-orange/30 text-pact-orange uppercase font-bold">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded border border-foreground text-foreground uppercase font-bold">
                           scenario
                         </span>
                       </div>
@@ -207,12 +207,12 @@ export function ScenariosExplorer({ scenarios, counts }: Props) {
                     <div className="flex flex-wrap items-center gap-2 text-[10px] text-pact-dim/70">
                       {c && c.legislation > 0 && (
                         <span>
-                          <span className="text-slate-300">{c.legislation}</span> legislation
+                          <span className="text-foreground font-bold">{c.legislation}</span> legislation
                         </span>
                       )}
                       {c && c.topics > 0 && (
                         <span>
-                          <span className="text-amber-400">{c.topics}</span> topic
+                          <span className="text-foreground font-bold">{c.topics}</span> topic
                           {c.topics === 1 ? "" : "s"}
                         </span>
                       )}

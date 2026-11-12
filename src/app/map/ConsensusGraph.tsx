@@ -128,10 +128,10 @@ type GraphLink = {
 // kind via warrantKindFromTier (the retired "axiom" reads as
 // institutional).
 const WARRANT_HEX: Record<string, string> = {
-  empirical: "#22d3ee",
-  institutional: "#fbbf24",
-  interpretive: "#a78bfa",
-  conjectural: "#f472b6",
+  empirical: "#ffffff",
+  institutional: "#e5e5e5",
+  interpretive: "#a3a3a3",
+  conjectural: "#737373",
 };
 
 function colorForTier(tier: string | undefined): string {
@@ -198,20 +198,18 @@ function detectDomain(title: string): string {
 // the ingest-queue flood was 13k+.
 const DENSE_GRAPH_NODES = 800;
 
-const AGENT_COLOR = "#6366f1";
-const LOCKED_GOLD = "#fbbf24";
-const CHALLENGED_RED = "#ef4444";
-const DEPENDENCY_GOLD = "#d97706";
-const ASSUMPTION_PURPLE = "#a855f7";
+const AGENT_COLOR = "#a3a3a3";
+const LOCKED_GOLD = "#ffffff";
+const CHALLENGED_RED = "#737373";
+const DEPENDENCY_GOLD = "#d4d4d4";
+const ASSUMPTION_PURPLE = "#a3a3a3";
 
-// #1152 Round 5a — tri-entity palette. Neutral slate for legislation (per-jurisdiction
-// palette TBD by the Source owner), orange for scenarios (matches /scenarios detail
-// accents and InteractiveTree scenario rows), indigo for co_applies cross-links.
-const LEGISLATION_SLATE = "#94a3b8";
-const SCENARIO_ORANGE = "#fb923c";
-const CITES_GREY = "#64748b";
-const APPLIES_ORANGE = "#fb923c";
-const COAPPLIES_INDIGO = "#a5b4fc";
+// #1152 Round 5a — tri-entity monochrome palette (#586).
+const LEGISLATION_SLATE = "#a3a3a3";
+const SCENARIO_ORANGE = "#ffffff";
+const CITES_GREY = "#737373";
+const APPLIES_ORANGE = "#e5e5e5";
+const COAPPLIES_INDIGO = "#a3a3a3";
 
 // Consensus thresholds keyed by warrant kind (display heuristic only —
 // the server owns the real gate).
@@ -223,15 +221,15 @@ const THRESHOLDS: Record<string, { ratio: number; minVoters: number }> = {
 };
 
 const DOMAIN_COLORS: Record<string, string> = {
-  mathematics: "#4ade80",
-  physics: "#22d3ee",
-  computing: "#60a5fa",
-  biology: "#f472b6",
-  law: "#fbbf24",
-  economics: "#f97316",
-  standards: "#a78bfa",
-  environment: "#34d399",
-  other: "#6b7280",
+  mathematics: "#ffffff",
+  physics: "#e5e5e5",
+  computing: "#d4d4d4",
+  biology: "#a3a3a3",
+  law: "#ffffff",
+  economics: "#d4d4d4",
+  standards: "#a3a3a3",
+  environment: "#e5e5e5",
+  other: "#737373",
 };
 
 // ── Component ──────────────────────────────────────────────────────
@@ -750,7 +748,7 @@ export default function ConsensusGraph() {
     if (hasBounty && !isVerified) {
       const bountyGeo = new THREE.RingGeometry(radius + 1.5, radius + 2.5, 32);
       const bountyMat = new THREE.MeshBasicMaterial({
-        color: "#fbbf24",
+        color: "#ffffff",
         transparent: true,
         opacity: 0.35,
         side: THREE.DoubleSide,
@@ -765,9 +763,9 @@ export default function ConsensusGraph() {
   const nodeLabel = useCallback((node: GraphNode) => {
     if (node.type === "agent") {
       const a = node.data as AgentNode;
-      return `<div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:10px 14px;font-size:12px;color:#e2e8f0;max-width:240px;font-family:system-ui">
-        <div style="font-weight:700;font-size:13px;color:#818cf8;margin-bottom:4px">${a.name}</div>
-        <div style="color:#94a3b8;font-size:11px">${a.model} · ${a.topicsParticipated} topics · ${a.proposals_made} proposals</div>
+      return `<div style="background:#000000;border:1px solid #ffffff;padding:10px 14px;font-size:12px;color:#ffffff;max-width:240px;font-family:monospace">
+        <div style="font-weight:700;font-size:13px;color:#ffffff;margin-bottom:4px">${a.name}</div>
+        <div style="color:#a3a3a3;font-size:11px">${a.model} · ${a.topicsParticipated} topics · ${a.proposals_made} proposals</div>
       </div>`;
     }
 
@@ -775,20 +773,20 @@ export default function ConsensusGraph() {
       const l = node.data as LegislationNodeData;
       const jurisdiction = (l.jurisdiction || "").toUpperCase();
       const year = l.year ? `(${l.year})` : "";
-      return `<div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:10px 14px;font-size:12px;color:#e2e8f0;max-width:320px;font-family:system-ui;line-height:1.5">
-        <div style="font-weight:700;font-size:13px;color:${LEGISLATION_SLATE};margin-bottom:4px">${l.short_title || l.title} ${year}</div>
-        <div style="color:#94a3b8;font-size:11px">${jurisdiction} · ${l.doc_type ?? "legislation"}</div>
-        <div style="margin-top:6px;font-size:10px;color:#475569">Click to view legislation details</div>
+      return `<div style="background:#000000;border:1px solid #ffffff;padding:10px 14px;font-size:12px;color:#ffffff;max-width:320px;font-family:monospace;line-height:1.5">
+        <div style="font-weight:700;font-size:13px;color:#ffffff;margin-bottom:4px">${l.short_title || l.title} ${year}</div>
+        <div style="color:#a3a3a3;font-size:11px">${jurisdiction} · ${l.doc_type ?? "legislation"}</div>
+        <div style="margin-top:6px;font-size:10px;color:#737373">Click to view legislation details</div>
       </div>`;
     }
 
     if (node.type === "scenario") {
       const s = node.data as ScenarioNodeData;
-      return `<div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:10px 14px;font-size:12px;color:#e2e8f0;max-width:320px;font-family:system-ui;line-height:1.5">
-        <div style="font-weight:700;font-size:13px;color:${SCENARIO_ORANGE};margin-bottom:4px">${s.title}</div>
-        <div style="color:#94a3b8;font-size:11px">Scenario · ${s.industry ?? "general"}</div>
-        ${s.description ? `<div style="color:#cbd5e1;font-size:11px;margin-top:4px">${s.description}</div>` : ""}
-        <div style="margin-top:6px;font-size:10px;color:#475569">Click to view applicability subgraph</div>
+      return `<div style="background:#000000;border:1px solid #ffffff;padding:10px 14px;font-size:12px;color:#ffffff;max-width:320px;font-family:monospace;line-height:1.5">
+        <div style="font-weight:700;font-size:13px;color:#ffffff;margin-bottom:4px">${s.title}</div>
+        <div style="color:#a3a3a3;font-size:11px">Scenario · ${s.industry ?? "general"}</div>
+        ${s.description ? `<div style="color:#d4d4d4;font-size:11px;margin-top:4px">${s.description}</div>` : ""}
+        <div style="margin-top:6px;font-size:10px;color:#737373">Click to view applicability subgraph</div>
       </div>`;
     }
 
@@ -796,27 +794,27 @@ export default function ConsensusGraph() {
     const ratio = t.totalProposals > 0 ? Math.round((t.mergedCount / t.totalProposals) * 100) : 0;
     const warrant = warrantKindFromTier(t.tier);
     const tierColor = colorForTier(t.tier);
-    const domainColor = DOMAIN_COLORS[node.domain ?? "other"] ?? "#6b7280";
+    const domainColor = DOMAIN_COLORS[node.domain ?? "other"] ?? "#a3a3a3";
     const threshold = THRESHOLDS[warrant] ?? THRESHOLDS.empirical;
     const isVerified = ["locked", "stable", "consensus"].includes(t.status);
     const statusLabel = isVerified ? "VERIFIED" : t.status === "challenged" ? "CHALLENGED" : t.status.toUpperCase();
     const statusColor = isVerified ? LOCKED_GOLD : t.status === "challenged" ? CHALLENGED_RED : tierColor;
     const bounty = (t.bountyEscrow ?? 0);
 
-    return `<div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px 16px;font-size:12px;color:#e2e8f0;max-width:320px;font-family:system-ui;line-height:1.5">
+    return `<div style="background:#000000;border:1px solid #ffffff;padding:12px 16px;font-size:12px;color:#ffffff;max-width:320px;font-family:monospace;line-height:1.5">
       <div style="font-weight:700;font-size:14px;margin-bottom:6px;color:${statusColor}">${t.title}</div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <span title="warrant — one of four unordered kinds" style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid ${tierColor};color:${tierColor};text-transform:uppercase;font-weight:600">${warrant}</span>
-        <span style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid ${domainColor};color:${domainColor};text-transform:uppercase;font-weight:600">${node.domain ?? "other"}</span>
+        <span title="warrant — one of four unordered kinds" style="font-size:10px;padding:2px 6px;border:1px solid ${tierColor};color:${tierColor};text-transform:uppercase;font-weight:600">${warrant}</span>
+        <span style="font-size:10px;padding:2px 6px;border:1px solid ${domainColor};color:${domainColor};text-transform:uppercase;font-weight:600">${node.domain ?? "other"}</span>
         <span style="font-size:11px;font-weight:700;color:${statusColor}">${statusLabel}</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;font-size:11px">
-        <span style="color:#64748b">Approval</span><span style="text-align:right;font-weight:600;color:${ratio >= 90 ? LOCKED_GOLD : "#f97316"}">${ratio}% / ${threshold.ratio}%</span>
-        <span style="color:#64748b">Participants</span><span style="text-align:right;font-weight:600">${t.participantCount} / ${threshold.minVoters} min</span>
-        <span style="color:#64748b">Proposals</span><span style="text-align:right">${t.mergedCount} merged / ${t.totalProposals}</span>
-        ${bounty > 0 ? `<span style="color:#64748b">Bounty</span><span style="text-align:right;color:#fbbf24;font-weight:600">${bounty.toLocaleString()} credits</span>` : ""}
+        <span style="color:#a3a3a3">Approval</span><span style="text-align:right;font-weight:600;color:#ffffff">${ratio}% / ${threshold.ratio}%</span>
+        <span style="color:#a3a3a3">Participants</span><span style="text-align:right;font-weight:600">${t.participantCount} / ${threshold.minVoters} min</span>
+        <span style="color:#a3a3a3">Proposals</span><span style="text-align:right">${t.mergedCount} merged / ${t.totalProposals}</span>
+        ${bounty > 0 ? `<span style="color:#a3a3a3">Bounty</span><span style="text-align:right;color:#ffffff;font-weight:600">${bounty.toLocaleString()} credits</span>` : ""}
       </div>
-      <div style="margin-top:8px;font-size:10px;color:#475569">Click to view topic details</div>
+      <div style="margin-top:8px;font-size:10px;color:#737373">Click to view topic details</div>
     </div>`;
   }, []);
 
@@ -860,8 +858,10 @@ export default function ConsensusGraph() {
   // ── Loading state ──
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-[600px] bg-[#07070d] rounded-lg border border-card-border">
-        <div className="text-pact-cyan animate-pulse text-lg">Loading knowledge graph...</div>
+      <div className="flex items-center justify-center h-[600px] bg-black border border-foreground">
+        <div className="text-white font-mono animate-pulse text-sm uppercase tracking-wider">
+          Loading 3D Space graph...
+        </div>
       </div>
     );
   }
@@ -869,8 +869,8 @@ export default function ConsensusGraph() {
   // ── Error state ──
   if (error) {
     return (
-      <div className="flex items-center justify-center h-[600px] bg-[#07070d] rounded-lg border border-card-border">
-        <div className="text-red-400 text-lg">{error}</div>
+      <div className="flex items-center justify-center h-[600px] bg-black border border-foreground">
+        <div className="text-white font-mono text-sm">{error}</div>
       </div>
     );
   }
@@ -878,38 +878,17 @@ export default function ConsensusGraph() {
   // ── Empty state ──
   if (!graphData || graphData.nodes.length === 0) {
     return (
-      <div className="relative flex flex-col items-center justify-center h-[600px] bg-[#07070d] rounded-lg border border-card-border overflow-hidden">
-        {/* Animated pulsing orb */}
-        <div className="relative mb-8">
-          <div className="w-32 h-32 rounded-full bg-gradient-to-br from-amber-500/20 via-cyan-500/10 to-purple-500/20 animate-pulse" />
-          <div className="absolute inset-4 rounded-full bg-gradient-to-br from-amber-500/30 via-transparent to-cyan-500/20 animate-[pulse_3s_ease-in-out_infinite]" />
-          <div className="absolute inset-8 rounded-full bg-gradient-to-br from-amber-500/40 via-transparent to-transparent animate-[pulse_2s_ease-in-out_infinite]" />
-          <div className="absolute inset-[52px] rounded-full bg-amber-400/60" />
-        </div>
-
-        {/* Concentric ring hints */}
-        {[80, 120, 160, 200, 240].map((r, i) => (
-          <div
-            key={r}
-            className="absolute rounded-full border border-dashed animate-[spin_60s_linear_infinite]"
-            style={{
-              width: r * 2,
-              height: r * 2,
-              borderColor: `${Object.values(WARRANT_HEX)[i % WARRANT_KINDS.length]}15`,
-              animationDirection: i % 2 === 0 ? "normal" : "reverse",
-              animationDuration: `${40 + i * 15}s`,
-            }}
-          />
-        ))}
-
-        <h3 className="text-xl font-bold text-white/80 mb-2 z-10">Awaiting first topic...</h3>
-        <p className="text-sm text-white/40 mb-6 max-w-md text-center z-10">
+      <div className="relative flex flex-col items-center justify-center h-[600px] bg-black border border-foreground overflow-hidden">
+        <h3 className="text-xl font-bold text-white mb-2 z-10 font-mono uppercase tracking-wider">
+          Awaiting first Space node...
+        </h3>
+        <p className="text-sm text-white/60 mb-6 max-w-md text-center z-10">
           Agents create topics via the API. When topics are created and debated,
-          they appear here as glowing nodes in 3D space.
+          they appear here as nodes in 3D Space.
         </p>
         <Link
           href="/get-started"
-          className="px-5 py-2 text-sm font-semibold rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition-colors z-10"
+          className="px-5 py-2 text-xs font-mono uppercase tracking-wider font-bold bg-white text-black border border-white hover:opacity-85 transition-opacity z-10"
         >
           Get Started
         </Link>
@@ -919,14 +898,14 @@ export default function ConsensusGraph() {
 
   // ── 3D Graph ──
   return (
-    <div className="relative rounded-lg overflow-hidden border border-card-border">
+    <div className="relative overflow-hidden border border-foreground">
       {/* eslint-disable @typescript-eslint/no-explicit-any */}
       <ForceGraph3D
         ref={fgRef}
         width={dimensions.width}
         height={dimensions.height}
         graphData={graphData as any}
-        backgroundColor="#07070d"
+        backgroundColor="#000000"
         showNavInfo={false}
 
         // Node rendering

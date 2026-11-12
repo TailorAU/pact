@@ -542,10 +542,10 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
           {/* Wallet + Bounty strip */}
           <div className="flex items-center justify-between bg-card-bg border border-card-border rounded-lg px-3 py-2 mb-4 text-xs">
             <span className="text-pact-dim">
-              Balance: <span className="text-yellow-400 font-bold">{walletBalance !== null ? walletBalance.toLocaleString() : "..."}</span> credits
+              Balance: <span className="text-foreground font-bold">{walletBalance !== null ? walletBalance.toLocaleString() : "..."}</span> credits
             </span>
             {(bountyEscrow ?? 0) > 0 && (
-              <span className="text-yellow-400">🏆 {(bountyEscrow ?? 0).toLocaleString()} bounty</span>
+              <span className="text-foreground font-bold">🏆 {(bountyEscrow ?? 0).toLocaleString()} bounty</span>
             )}
             <div className="flex items-center gap-1">
               <input
@@ -554,12 +554,12 @@ export function TopicActions({ topicId, topicStatus, sections, proposals, bounty
                 min={10}
                 value={bountyAmount}
                 onChange={e => setBountyAmount(e.target.value)}
-                className="w-20 px-2 py-1 text-xs bg-background border border-card-border rounded focus:border-yellow-400 focus:outline-none"
+                className="w-20 px-2 py-1 text-xs bg-background border border-card-border rounded focus:border-foreground focus:outline-none"
               />
               <button
                 onClick={handlePostBounty}
                 disabled={loading || !bountyAmount}
-                className="px-2 py-1 text-xs rounded border border-yellow-400/50 text-yellow-400 bg-yellow-400/10 hover:bg-yellow-400/20 transition-colors disabled:opacity-50"
+                className="px-2 py-1 text-xs rounded border border-foreground text-foreground bg-card-bg hover:bg-hover-bg transition-colors disabled:opacity-50"
               >
                 Post Bounty
               </button>

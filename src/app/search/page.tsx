@@ -102,10 +102,10 @@ interface TopicClaim {
 }
 
 const JURISDICTION_COLOR: Record<string, string> = {
-  CTH: "text-pact-cyan border-pact-cyan/30",
-  QLD: "text-pact-purple border-pact-purple/30",
-  NSW: "text-green-600 border-green-500/30",
-  AU: "text-pact-cyan border-pact-cyan/30",
+  CTH: "text-foreground border-foreground",
+  QLD: "text-foreground border-card-border",
+  NSW: "text-foreground border-card-border",
+  AU: "text-foreground border-foreground",
 };
 
 function jurisdictionBadge(jurisdiction: string): { text: string; border: string } {
@@ -398,7 +398,7 @@ function SearchPageInner() {
                     <CredenceBar value={c.credence} compact />
                     <ConventionStopFlag value={c.conventionStop} size="xs" />
                     {c.jurisdiction && (
-                      <span className="text-[9px] px-1.5 py-px rounded border border-amber-400/30 text-amber-400">
+                      <span className="text-[9px] font-mono px-1.5 py-px rounded border border-foreground text-foreground">
                         {c.jurisdiction}
                       </span>
                     )}

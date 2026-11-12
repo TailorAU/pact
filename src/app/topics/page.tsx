@@ -202,7 +202,7 @@ export default async function TopicsPage({
                     <CredenceBar value={topic.credenceValue} compact />
                     <ConventionStopFlag value={topic.convention_stop} />
                     {topic.jurisdiction && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-400/30 text-amber-400 shrink-0">
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-foreground text-foreground shrink-0">
                         {topic.jurisdiction}
                       </span>
                     )}
@@ -231,7 +231,7 @@ export default async function TopicsPage({
                       <span className="text-pact-red text-xs font-bold">&#9888; {topic.blockingAssumptions} blocking</span>
                     )}
                     {topic.state === "proposed" && (
-                      <span className="text-yellow-400 text-xs">
+                      <span className="text-pact-dim text-xs">
                         {Math.max(0, 3 - (topic.topicApprovals || 0))} more vote{3 - (topic.topicApprovals || 0) === 1 ? "" : "s"} to open
                       </span>
                     )}

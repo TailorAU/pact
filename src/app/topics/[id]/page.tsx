@@ -107,12 +107,12 @@ export default async function TopicDetailPage({ params }: { params: Promise<{ id
             <ConventionStopFlag value={conventionStop} />
           </div>
           {topic.canonical_claim && (
-            <div className="mt-2 bg-[#0d1117] border border-pact-cyan/20 rounded-lg px-4 py-3">
-              <span className="text-[10px] uppercase tracking-wider text-pact-cyan/60 font-bold">Canonical Claim</span>
+            <div className="mt-2 bg-background border border-card-border rounded-lg px-4 py-3">
+              <span className="text-[10px] uppercase tracking-wider text-foreground font-bold">Canonical Claim</span>
               <p className="text-sm text-foreground/90 font-mono mt-1">{topic.canonical_claim}</p>
               {topic.claim_support && (
-                <p className="text-xs text-foreground/50 mt-2 border-t border-card-border/40 pt-2">
-                  <span className="text-[9px] uppercase tracking-wider text-pact-dim/60 font-bold mr-1.5">support</span>
+                <p className="text-xs text-foreground/60 mt-2 border-t border-card-border pt-2">
+                  <span className="text-[9px] uppercase tracking-wider text-pact-dim font-bold mr-1.5">support</span>
                   {topic.claim_support}
                 </p>
               )}
@@ -126,19 +126,19 @@ export default async function TopicDetailPage({ params }: { params: Promise<{ id
 
         {/* Jurisdiction metadata panel — for institutional/interpretive warrants */}
         {topic.jurisdiction && (
-          <div className="mb-4 bg-amber-400/5 border border-amber-400/20 rounded-lg px-4 py-3">
-            <span className="text-[10px] uppercase tracking-wider text-amber-400/60 font-bold">
-              Jurisdiction-Scoped Fact
+          <div className="mb-4 bg-card-bg border border-card-border rounded-lg px-4 py-3">
+            <span className="text-[10px] uppercase tracking-wider text-foreground font-bold">
+              Jurisdiction-Scoped Fact in Space
             </span>
             <div className="grid grid-cols-2 gap-2 mt-2 text-sm">
-              <div><span className="text-pact-dim">Jurisdiction:</span> <span className="text-amber-400 font-medium">{topic.jurisdiction}</span></div>
+              <div><span className="text-pact-dim">Jurisdiction:</span> <span className="text-foreground font-medium">{topic.jurisdiction}</span></div>
               {topic.authority && <div><span className="text-pact-dim">Authority:</span> {topic.authority}</div>}
               {topic.source_ref && <div className="col-span-2"><span className="text-pact-dim">Source:</span> <span className="font-mono text-xs">{topic.source_ref}</span></div>}
               {topic.effective_date && <div><span className="text-pact-dim">Effective:</span> {topic.effective_date}</div>}
               {topic.expiry_date && <div><span className="text-pact-dim">Expires:</span> <span className="text-pact-red">{topic.expiry_date}</span></div>}
             </div>
-            <p className="text-[10px] text-amber-400/50 mt-2">
-              This is a human-established fact. It holds within {topic.jurisdiction} as enacted by {topic.authority || "the relevant authority"}.
+            <p className="text-[10px] text-pact-dim mt-2">
+              This is a human-established fact in Space. It holds within {topic.jurisdiction} as enacted by {topic.authority || "the relevant authority"}.
             </p>
           </div>
         )}
@@ -150,7 +150,7 @@ export default async function TopicDetailPage({ params }: { params: Promise<{ id
           <span className="text-pact-green">{topic.mergedCount} merged</span>
           {topic.pendingCount > 0 && <span className="text-pact-orange">{topic.pendingCount} pending</span>}
           {bounty.escrow > 0 && (
-            <span className="text-yellow-400 font-bold">
+            <span className="text-foreground font-bold">
               🏆 {bounty.escrow.toLocaleString()} credits bounty
             </span>
           )}
@@ -163,10 +163,10 @@ export default async function TopicDetailPage({ params }: { params: Promise<{ id
 
         {/* Proposed topic banner */}
         {topic.status === "proposed" && (
-          <div className="mt-4 bg-yellow-400/10 border border-yellow-400/30 rounded-lg p-4">
+          <div className="mt-4 bg-card-bg border border-card-border rounded-lg p-4">
             <div className="flex items-center gap-3 mb-2">
-              <span className="text-yellow-400 font-bold text-lg">Awaiting Approval</span>
-              <span className="text-yellow-400/70 text-sm">
+              <span className="text-foreground font-bold text-lg">Awaiting Approval</span>
+              <span className="text-pact-dim text-sm">
                 {(topic.topicApprovals || 0)}/3 approvals
               </span>
             </div>
@@ -183,8 +183,8 @@ Headers: X-Api-Key: YOUR_KEY
 
         {/* Aligned / verified banner */}
         {(topic.status === "locked" || topic.status === "consensus" || topic.status === "stable") && (
-          <div className={`mt-4 rounded-lg p-4 ${topic.jurisdiction ? "bg-amber-400/10 border border-amber-400/30" : "bg-pact-green/10 border border-pact-green/30"}`}>
-            <span className={topic.jurisdiction ? "text-amber-400 font-bold" : "text-pact-green font-bold"}>
+          <div className="mt-4 rounded-lg p-4 bg-card-bg border border-foreground">
+            <span className="text-foreground font-bold">
               {topic.jurisdiction ? `Verified Jurisdictional Fact — ${topic.jurisdiction}` : `${state === "verified" ? "Verified" : "Aligned"} Claim — held by consensus`}
             </span>
             <p className="text-pact-dim text-sm mt-1">
@@ -310,10 +310,10 @@ Headers: X-Api-Key: YOUR_KEY
              Never a "bedrock/axiom/end" leaf — the chain stops here because
              the community agreed to stop, and that agreement is reopenable. ── */}
       {isFrontier && (
-        <div className="mb-6 bg-amber-400/5 border border-amber-400/30 rounded-lg p-6">
+        <div className="mb-6 bg-card-bg border border-card-border rounded-lg p-6">
           <div className="flex flex-wrap items-center gap-3 mb-2">
-            <h2 className="text-lg font-bold text-amber-400">Consensus Frontier</h2>
-            <span className="text-[10px] px-2 py-0.5 rounded border border-amber-400/30 bg-amber-400/5 text-amber-400">
+            <h2 className="text-lg font-bold text-foreground">Consensus Frontier</h2>
+            <span className="text-[10px] px-2 py-0.5 rounded border border-foreground bg-background text-foreground">
               ⚑ held by convention · challengeable
             </span>
           </div>
@@ -352,7 +352,7 @@ Headers: X-Api-Key: YOUR_KEY
           <div className="flex flex-wrap items-center gap-3">
             <a
               href="#agent-console"
-              className="px-4 py-1.5 text-xs font-bold rounded-lg border border-amber-400/40 text-amber-400 hover:bg-amber-400/10 transition-colors"
+              className="px-4 py-1.5 text-xs font-bold rounded-lg border border-foreground text-foreground hover:bg-hover-bg transition-colors"
             >
               Challenge / Reopen &darr;
             </a>

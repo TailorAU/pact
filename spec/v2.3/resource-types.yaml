@@ -1,0 +1,73 @@
+# PACT resource-type registry (v2.0)
+#
+# Machine-readable index of well-known resource types, referenced from
+# PACT_SPECIFICATION.md §14.3. Each entry conforms to the table in §14.3:
+# type / field_schema / proposal_payload / apply_semantics / terminal_states
+# / content_format / maintainer / status.
+#
+# To register a custom resource type: open a PR against this file. Custom
+# types SHOULD use reverse-domain notation (com.example.case-file). An
+# implementation that supports a type MUST declare it in its
+# /.well-known/pact.json profile (§15).
+
+version: "1"
+spec_version: "v2.0"
+last_updated: "2026-05-13"
+
+types:
+
+  # ─── Built-in (defined in §14.2) ────────────────────────────────────────
+
+  - type: document
+    status: built-in
+    field_schema: "sec:{slug}  — heading-derived section path; child sections use sec:{slug}/{child-slug}"
+    proposal_payload: "{ sectionId, newContent, summary, reasoning? }"
+    apply_semantics: Text replacement within the addressed Markdown section.
+    terminal_states: [Merged]
+    content_format: "text/markdown (also html, docx, pdf via section projection — §8)"
+    maintainer: TailorAU
+    notes: The default resource type. Proposals without an explicit `type` field are treated as document proposals.
+
+  - type: transaction
+    status: built-in
+    field_schema: "txn:{field}  — structured transaction fields (txn:amount, txn:recipient, txn:method, …)"
+    proposal_payload: "{ amount, recipient, method, reference }"
+    apply_semantics: Payment settled.
+    terminal_states: [Settled]
+    content_format: application/json
+    maintainer: TailorAU
+    notes: Reference impl (planned) — Baink.
+
+  - type: fact
+    status: built-in
+    field_schema: "claim:{id}  — knowledge-claim identifier"
+    proposal_payload: "{ claim, evidence, tier, sources }"
+    apply_semantics: Fact verified into the knowledge graph.
+    terminal_states: [Verified]
+    content_format: application/json
+    maintainer: TailorAU
+    notes: Reference impl — Source.
+
+  - type: record
+    status: built-in
+    field_schema: "rec:{field}  — structured record fields (e.g. clinical record fields)"
+    proposal_payload: "{ field, value, justification }"
+    apply_semantics: Record finalised.
+    terminal_states: [Finalized]
+    content_format: application/json
+    maintainer: TailorAU
+
+  # ─── Registered custom types ────────────────────────────────────────────
+
+  # (none yet — first community PRs land here)
+
+registration_process:
+  - Open a PR against this file with the entry filled out.
+  - The PR's description SHOULD link to a reference implementation (running or in progress) that uses the new type.
+  - Maintainer review: confirms uniqueness of `type`, that the entry has the required fields, that apply_semantics is unambiguous, and that the type is genuinely new (not duplicating a built-in).
+  - On merge the type is `registered`. Implementations that support it advertise it in their /.well-known/pact.json profile.
+  - Lifecycle: a `registered` type can be moved to `deprecated` by the original maintainer or by maintainer review (e.g. superseded by a better type); deprecated types remain in the registry for citation stability.
+
+custom_type_naming:
+  rule: "Reverse-domain notation: e.g. com.example.case-file, au.gov.mygovid-document. Bare identifiers are reserved for built-ins."
+  case: "lower-kebab segments separated by dots."

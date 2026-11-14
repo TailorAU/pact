@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.0/fabric-manifest.json",
+  "title": "PACT Fabric Manifest",
+  "description": "Response body for GET /api/pact/{fabricId}/manifest. Caller-scoped view of a fabric: the caller's own role, constraints, obligations, and the counterparties visible to it. Subject to §17.13 'Manifest visibility' rules — never a privacy bypass. Added in PACT v2.0.3 (§4.4.2).",
+  "type": "object",
+  "required": ["fabric_id", "spec_version", "caller", "snapshot_at"],
+  "properties": {
+    "fabric_id": { "type": "string" },
+    "spec_version": { "type": "string", "description": "PACT spec version this response conforms to." },
+    "caller": {
+      "type": "object",
+      "description": "Who the caller is, as the server resolved them.",
+      "required": ["agent_id"],
+      "properties": {
+        "agent_id": { "type": "string" },
+        "agent_name": { "type": "string" },
+        "registration_id": { "type": "string", "format": "uuid" },
+        "principal_id": { "type": "string", "description": "Caller's HumanPrincipal DID (§17.4)." },
+        "trust_level": { "type": "string", "enum": ["Observer", "Suggester", "Collaborator", "Autonomous"] },
+        "clearance_level": { "type": ["string", "null"] },
+        "context_mode": { "type": "string", "enum": ["full", "section-scoped", "neighbourhood", "summary-only"] },
+        "allowed_sections": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "Section IDs the caller can access (only set when context_mode is 'section-scoped')."
+        }
+      },
+      "additionalProperties": false
+    },
+    "constraints_on_caller": {
+      "type": "array",
+      "description": "Constraints either published by the caller or that the caller is bound by.",
+      "items": {
+        "type": "object",
+        "required": ["constraint_id", "section_id", "boundary"],
+        "properties": {
+          "constraint_id": { "type": "string" },
+          "section_id": { "type": "string", "maxLength": 256 },
+          "boundary": { "type": "string" },
+          "category": { "type": ["string", "null"] },
+          "published_by_self": {
+            "type": "boolean",
+            "description": "True if the caller published this constraint. False if another member published it and the caller is subject to it (e.g. as an information-barrier hard constraint)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "pending_obligations": {
+      "type": "array",
+      "description": "Only the caller's own pending obligations. Counterparty obligation counts appear under counterparties[].pending_obligation_count.",
+      "items": { "$ref": "https://pact-spec.dev/schemas/v2.0/pending-obligation.json" }
+    },
+    "counterparties": {
+      "type": "array",
+      "description": "Other members visible to the caller. PII fields (agent_name, principal_id, etc.) are elided where the caller is not entitled to see them under §17.13. Elision is by key omission, not null.",
+      "items": {
+        "type": "object",
+        "required": ["agent_id", "disclosure_level"],
+        "properties": {
+          "agent_id": { "type": "string" },
+          "agent_name": { "type": "string" },
+          "principal_id": { "type": "string" },
+          "trust_level": { "type": "string", "enum": ["Observer", "Suggester", "Collaborator", "Autonomous"] },
+          "last_seen": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Coarse-grained liveness timestamp. RECOMMENDED second-precision or coarser (§17.13)."
+          },
+          "attention_required": { "type": "boolean", "default": false },
+          "pending_obligation_count": { "type": "integer", "minimum": 0 },
+          "disclosure_level": {
+            "type": "string",
+            "enum": ["constraint", "category", "reasoning", "human"],
+            "description": "The §10.3 graduated-disclosure level under which this counterparty is exposed to the caller. 'constraint' = caller sees only the existence and constraints; higher levels expose more."
+          },
+          "shared_sections": {
+            "type": ["array", "null"],
+            "items": { "type": "string" },
+            "description": "Sections the caller and this counterparty are both interested in (overlap of allowed_sections / non-zero salience), where the implementation chooses to surface this."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "unread_event_id_from": {
+      "type": ["string", "null"],
+      "description": "Lowest event id the caller has not yet acknowledged via /mark-read (§4.4.4). Null if everything is acknowledged."
+    },
+    "unread_event_id_to": {
+      "type": ["string", "null"],
+      "description": "Highest event id the caller has not yet acknowledged."
+    },
+    "unread_count": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Count of unacknowledged events. Implementations MAY return null if computing this is expensive."
+    },
+    "snapshot_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the manifest was constructed."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "fabric_id": "doc_xyz",
+      "spec_version": "2.0.3",
+      "caller": {
+        "agent_id": "urn:pact:agent:b-1",
+        "agent_name": "Agent-Finance",
+        "registration_id": "f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+        "principal_id": "did:web:bridget.example",
+        "trust_level": "Collaborator",
+        "clearance_level": "Confidential",
+        "context_mode": "section-scoped",
+        "allowed_sections": ["sec:budget", "sec:risk"]
+      },
+      "constraints_on_caller": [
+        {
+          "constraint_id": "con_42",
+          "section_id": "sec:risk",
+          "boundary": "Must not name specific instruments",
+          "category": "regulatory",
+          "published_by_self": true
+        }
+      ],
+      "pending_obligations": [
+        {
+          "id": "obl_001",
+          "fabric_id": "doc_xyz",
+          "member_id": "urn:pact:agent:b-1",
+          "kind": "vote",
+          "event_ref": "evt_5a2c",
+          "created_at": "2026-05-15T18:15:00Z",
+          "due_by": "2026-05-15T18:20:00Z",
+          "overdue": false,
+          "discharged_at": null,
+          "discharge_kind": null,
+          "discharge_event_ref": null
+        }
+      ],
+      "counterparties": [
+        {
+          "agent_id": "urn:pact:agent:k-1",
+          "agent_name": "Agent-Legal",
+          "principal_id": "did:web:knox.example",
+          "trust_level": "Collaborator",
+          "last_seen": "2026-05-15T18:14:33Z",
+          "attention_required": false,
+          "pending_obligation_count": 0,
+          "disclosure_level": "reasoning",
+          "shared_sections": ["sec:risk"]
+        }
+      ],
+      "unread_event_id_from": "evt_5a08",
+      "unread_event_id_to": "evt_5a2c",
+      "unread_count": 5,
+      "snapshot_at": "2026-05-15T18:14:40Z"
+    }
+  ]
+}

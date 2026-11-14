@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.0/mark-read-request.json",
+  "title": "PACT Mark-Read Request",
+  "description": "Request body for POST /api/pact/{fabricId}/mark-read. The caller acknowledges that it has received and processed events in the range [from, to] (inclusive). Either the _event_id pair OR the _sequence_number pair is sufficient; if both are provided they MUST be consistent. Added in PACT v2.0.3 (§4.4.4).",
+  "type": "object",
+  "anyOf": [
+    { "required": ["from_event_id", "to_event_id"] },
+    { "required": ["from_sequence_number", "to_sequence_number"] }
+  ],
+  "properties": {
+    "from_event_id": {
+      "type": "string",
+      "description": "Inclusive lower bound of the acknowledged event range, by event id."
+    },
+    "to_event_id": {
+      "type": "string",
+      "description": "Inclusive upper bound of the acknowledged event range, by event id."
+    },
+    "from_sequence_number": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Inclusive lower bound, by per-fabric sequence number."
+    },
+    "to_sequence_number": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Inclusive upper bound, by per-fabric sequence number."
+    },
+    "authorization_proof": {
+      "description": "Optional. Cross-org calls at Authorization-Required MUST carry a valid proof; verifier_id MUST equal the server's DID.",
+      "$ref": "https://pact-spec.dev/schemas/v2.0/authorization-proof.json"
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "from_event_id": "evt_5a08",
+      "to_event_id": "evt_5a2c"
+    },
+    {
+      "from_sequence_number": 400,
+      "to_sequence_number": 412
+    },
+    {
+      "from_event_id": "evt_5a08",
+      "to_event_id": "evt_5a2c",
+      "from_sequence_number": 400,
+      "to_sequence_number": 412
+    }
+  ]
+}

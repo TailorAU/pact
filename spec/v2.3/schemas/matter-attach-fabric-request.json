@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.2/matter-attach-fabric-request.json",
+  "title": "Matter — Attach Fabric Request",
+  "description": "Request body for POST /api/pact/matters/{id}/fabrics. Owner-only. Attaches an existing fabric to the Matter; the fabric is NOT modified (§24.6).",
+  "type": "object",
+  "required": ["resourceId"],
+  "additionalProperties": false,
+  "properties": {
+    "resourceId": {
+      "type": "string",
+      "description": "ID of the fabric to attach. Production implementations SHOULD reject attachment of a non-existent fabric; the reference server lazily creates."
+    }
+  }
+}

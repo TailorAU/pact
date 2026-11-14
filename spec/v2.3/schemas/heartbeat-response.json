@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.0/heartbeat-response.json",
+  "title": "PACT Heartbeat Response",
+  "description": "Response body for POST /api/pact/{fabricId}/_heartbeat. Returns the fabric's liveness view so the caller's reasoning context learns whether counterparties are present. Added in PACT v2.0.3 (§4.4.3).",
+  "type": "object",
+  "required": ["fabric_id", "client_heartbeat_id", "server_received_at"],
+  "properties": {
+    "fabric_id": { "type": "string" },
+    "client_heartbeat_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Echo of the request's client_heartbeat_id."
+    },
+    "server_received_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the server recorded the heartbeat."
+    },
+    "latest_event_id": {
+      "type": ["string", "null"],
+      "description": "Most recent event in the fabric at the time of the heartbeat."
+    },
+    "latest_sequence_number": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "caller_last_seen": {
+      "type": "string",
+      "format": "date-time",
+      "description": "The caller's last_seen as recorded by this heartbeat (typically equal to server_received_at)."
+    },
+    "members_liveness": {
+      "type": "array",
+      "description": "Per-member liveness view, filtered by §17.13 disclosure rules. Coarse-grained timestamps RECOMMENDED.",
+      "items": {
+        "type": "object",
+        "required": ["agent_id"],
+        "properties": {
+          "agent_id": { "type": "string" },
+          "last_seen": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "attention_required": { "type": "boolean", "default": false }
+        },
+        "additionalProperties": false
+      }
+    },
+    "pending_obligation_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of currently pending obligations targeting the caller."
+    },
+    "drift_warning": {
+      "type": ["string", "null"],
+      "description": "Optional advisory. Set when client_observed_event_id is materially behind latest_event_id. Free-form text, e.g. 'caller is 12 events behind'."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "fabric_id": "doc_xyz",
+      "client_heartbeat_id": "5a8b9d2e-1c3f-4a6e-b8c1-2d4f6a8c9e0b",
+      "server_received_at": "2026-05-15T18:14:33Z",
+      "latest_event_id": "evt_5a2c",
+      "latest_sequence_number": 412,
+      "caller_last_seen": "2026-05-15T18:14:33Z",
+      "members_liveness": [
+        { "agent_id": "urn:pact:agent:k-1", "last_seen": "2026-05-15T18:14:00Z", "attention_required": false },
+        { "agent_id": "urn:pact:agent:b-1", "last_seen": "2026-05-15T18:14:33Z", "attention_required": false }
+      ],
+      "pending_obligation_count": 1,
+      "drift_warning": null
+    }
+  ]
+}

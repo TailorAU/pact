@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.0/pending-obligation.json",
+  "title": "PACT Pending Obligation",
+  "description": "A first-class record of something the protocol expects a specific member to do next on a fabric. Surfaced via GET /_status and GET /manifest (Section 4.4); registered and resolved via pact.obligation.created and pact.obligation.discharged events (Section 6.5). Added in PACT v2.0.3.",
+  "type": "object",
+  "required": ["id", "fabric_id", "member_id", "kind", "event_ref", "created_at"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Obligation identifier, server-minted. Stable across the obligation's lifecycle."
+    },
+    "fabric_id": {
+      "type": "string",
+      "description": "Fabric (resource) identifier the obligation belongs to."
+    },
+    "member_id": {
+      "type": "string",
+      "description": "The agentId (or registration ID, per implementation convention) expected to act. Exactly one member per obligation."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["vote", "respond", "sign", "ack"],
+      "description": "What kind of action discharges the obligation. See Section 6.5 for the discharge rules per kind."
+    },
+    "event_ref": {
+      "type": "string",
+      "description": "Event id of the event that created the obligation (e.g. the pact.proposal.created event for which a vote is owed)."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the obligation was registered."
+    },
+    "due_by": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Optional deadline. After this, the obligation MAY be flagged in the manifest as overdue. Absent or null = no implicit deadline."
+    },
+    "overdue": {
+      "type": "boolean",
+      "description": "True if due_by has passed and the obligation has not been discharged. Implementations compute this server-side at response time."
+    },
+    "discharged_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "When the obligation was resolved. Null while pending."
+    },
+    "discharge_kind": {
+      "type": ["string", "null"],
+      "enum": ["fulfilled", "superseded", "timed_out", "escalated", null],
+      "description": "How the obligation was discharged. Null while pending."
+    },
+    "discharge_event_ref": {
+      "type": ["string", "null"],
+      "description": "Event id of the event that discharged the obligation. Null while pending."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "obl_001",
+      "fabric_id": "doc_xyz",
+      "member_id": "urn:pact:agent:b-1",
+      "kind": "vote",
+      "event_ref": "evt_5a2c",
+      "created_at": "2026-05-15T18:15:00Z",
+      "due_by": "2026-05-15T18:20:00Z",
+      "overdue": false,
+      "discharged_at": null,
+      "discharge_kind": null,
+      "discharge_event_ref": null
+    },
+    {
+      "id": "obl_002",
+      "fabric_id": "doc_xyz",
+      "member_id": "urn:pact:agent:k-1",
+      "kind": "respond",
+      "event_ref": "evt_5a30",
+      "created_at": "2026-05-15T18:16:10Z",
+      "due_by": null,
+      "discharged_at": "2026-05-15T18:18:42Z",
+      "discharge_kind": "fulfilled",
+      "discharge_event_ref": "evt_5a44"
+    }
+  ]
+}

@@ -1,0 +1,341 @@
+# Conformance test vector — Extended: canonical two-agent negotiation smoke.
+#
+# Closes issue #11 ("Agent feedback: define canonical two-agent negotiation
+# smoke"). The issue asked for ONE runnable end-to-end transcript a tool /
+# agent author can point at: two agents onboard, one proposes, the other
+# objects and counter-proposes, the first accepts, the negotiation converges.
+#
+# kind: session — eight sequenced HTTP calls against a live server. Each
+# agent is identified by an explicit `X-Pact-Principal` header (the portable
+# multi-agent affordance issue #11 §3 asked for: a CLI/test user simulating
+# two agents needs a way to act AS a specific principal per call).
+#
+# The scenario mirrors the issue's worked example:
+#   - Alpha (supplier side) wants a strict Net-7 payment term to protect
+#     supplier cashflow.
+#   - Beta (customer side) objects: 7 days is too tight for customer
+#     approval cycles.
+#   - Beta counter-proposes the compromise from the issue: 21-day payment,
+#     capped late fee, hardship extension by written approval.
+#   - Alpha accepts the compromise and declares done; the fabric converges.
+#
+# This is the protocol-level "happy path of a real disagreement" — not a
+# trivial join+leave. It exercises: atomic onboarding (§4.4.5), proposal
+# creation with auto-registered vote obligations (§6.5), the objection-based
+# stop (§10.5), counter-proposal, affirmative vote + obligation discharge
+# (§6.5), and convergence on `done`.
+
+kind: session
+
+metadata:
+  id: extended/sessions/two-agent-negotiation-smoke
+  description: "Canonical two-agent negotiation: Alpha and Beta each atomically onboard a fabric; Alpha proposes a strict payment term; Beta objects (blocking, §10.5) and counter-proposes a compromise; Alpha approves the counter, discharging its vote obligation; Alpha declares done and the fabric converges. The canonical runnable transcript requested in issue #11."
+  spec_section: "§4.4, §6.5, §10.5, §15.6"
+  conformance_level: extended
+  track: T3
+
+preconditions:
+  server_state:
+    resource_id: fab_neg_smoke
+    registered_agents: []                  # both agents join via _onboard below
+  request_context:
+    auth: bearer
+    # Two principals; each step carries the acting principal explicitly in
+    # the X-Pact-Principal header (issue #11 §3 portable agent identity).
+    principal_id: did:web:alpha.example
+
+steps:
+  # 1. Alpha onboards with its supplier-cashflow constraint (§4.4.5).
+  - id: alpha-onboards
+    request:
+      method: POST
+      path: /api/pact/fab_neg_smoke/_onboard
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:alpha.example
+      body:
+        agentName: alpha-bot
+        role: proposer
+        constraints:
+          - sectionId: sec:payment-terms
+            boundary: Supplier cashflow must be protected
+            category: commercial
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          status: onboarded
+          fabric_id: fab_neg_smoke
+          role: proposer
+      body_ignore_fields:
+        - registration
+        - constraints
+        - accepted_constraints
+        - membership_id
+        - onboarded_event_id
+        - onboarded_at
+
+  # 2. Beta onboards with its customer-approval constraint (§4.4.5).
+  - id: beta-onboards
+    request:
+      method: POST
+      path: /api/pact/fab_neg_smoke/_onboard
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:beta.example
+      body:
+        agentName: beta-bot
+        role: proposer
+        constraints:
+          - sectionId: sec:payment-terms
+            boundary: Customer approval cycle needs slack
+            category: operational
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          status: onboarded
+          fabric_id: fab_neg_smoke
+          role: proposer
+      body_ignore_fields:
+        - registration
+        - constraints
+        - accepted_constraints
+        - membership_id
+        - onboarded_event_id
+        - onboarded_at
+
+  # 3. Alpha proposes the strict Net-7 term. A caller-supplied proposalId is
+  #    used as a deterministic correlation handle (like a heartbeat's
+  #    client_heartbeat_id) so later steps can reference it. Creating the
+  #    proposal auto-registers a §6.5 vote obligation against Beta.
+  - id: alpha-proposes-strict
+    request:
+      method: POST
+      path: /api/pact/fab_neg_smoke/proposals
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:alpha.example
+      body:
+        proposalId: prop_strict
+        sectionId: sec:payment-terms
+        summary: "Net-7 payment term (supplier cashflow protection)"
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          proposalId: prop_strict
+          status: open
+          created: true
+          proposer: did:web:alpha.example
+      body_ignore_fields:
+        - required_voters
+        - created_at
+        - event_id
+
+  # 4. Beta lodges a blocking objection — 7 days is too tight. Per §10.5 the
+  #    objection stops the proposal; it transitions out of `open`.
+  - id: beta-objects
+    request:
+      method: POST
+      path: /api/pact/fab_neg_smoke/proposals/prop_strict/object
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:beta.example
+      body:
+        decision: object
+        reason: "Net-7 is too tight for our customer approval cycle"
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          proposalId: prop_strict
+          recorded: true
+          decision: object
+      body_ignore_fields:
+        - vote_id
+        - recorded_at
+
+  # 5. Beta counter-proposes the compromise from issue #11: 21-day payment,
+  #    capped late fee, hardship extension by written approval. This
+  #    auto-registers a §6.5 vote obligation against Alpha.
+  - id: beta-counter-proposes
+    request:
+      method: POST
+      path: /api/pact/fab_neg_smoke/proposals
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:beta.example
+      body:
+        proposalId: prop_compromise
+        sectionId: sec:payment-terms
+        summary: "Net-21, capped late fee, hardship extension by written approval"
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          proposalId: prop_compromise
+          status: open
+          created: true
+          proposer: did:web:beta.example
+      body_ignore_fields:
+        - required_voters
+        - created_at
+        - event_id
+
+  # 6. Alpha verifies via its manifest that it now owes a vote on the
+  #    counter-proposal (§6.5 obligation surfacing, caller-scoped).
+  - id: alpha-manifest-shows-vote-obligation
+    request:
+      method: GET
+      path: /api/pact/fab_neg_smoke/manifest
+      headers:
+        X-Pact-Principal: did:web:alpha.example
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          fabric_id: fab_neg_smoke
+          caller:
+            principal_id: did:web:alpha.example
+            obligations_by_ref:
+              prop_compromise:
+                kind: vote
+                event_ref: prop_compromise
+                status: pending
+      body_ignore_fields:
+        - generated_at
+        - last_event_seq
+        - snapshot_at
+
+  # 7. Alpha approves the compromise. This records the vote AND discharges
+  #    Alpha's §6.5 vote obligation on prop_compromise.
+  - id: alpha-approves-compromise
+    request:
+      method: POST
+      path: /api/pact/fab_neg_smoke/proposals/prop_compromise/approve
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:alpha.example
+      body:
+        decision: approve
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          proposalId: prop_compromise
+          recorded: true
+          decision: approve
+      body_ignore_fields:
+        - vote_id
+        - recorded_at
+
+  # 8. Alpha declares done. With no proposal still `open` (strict objected,
+  #    compromise approved) the fabric converges. The post-vote manifest
+  #    obligation MUST be gone — the negative_obligation cross-call asserts
+  #    Alpha no longer owes a pending vote on prop_compromise.
+  - id: alpha-done-fabric-converges
+    request:
+      method: POST
+      path: /api/pact/fab_neg_smoke/done
+      headers:
+        Content-Type: application/json
+        X-Pact-Principal: did:web:alpha.example
+    expected_response:
+      status: 200
+      body_match:
+        mode: subset
+        value:
+          fabric_id: fab_neg_smoke
+          principal_id: did:web:alpha.example
+          done: true
+          phase: converged
+      body_ignore_fields:
+        - completed_at
+        - event_id
+
+# Event-log assertions are documentation: the runner does not subscribe to
+# the event stream (deferred — see runner/src/index.ts). The expected ordered
+# sequence is recorded here so a future event-aware runner can enforce it.
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.fabric.onboarded            # step 1, Alpha
+      match: { mode: subset, value: { actorDisplay: alpha-bot, entityType: pact-fabric } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId, membership_id]
+    - event_type: pact.fabric.onboarded            # step 2, Beta
+      match: { mode: subset, value: { actorDisplay: beta-bot, entityType: pact-fabric } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId, membership_id]
+    - event_type: pact.proposal.created            # step 3, strict
+      match: { mode: subset, value: { proposalId: prop_strict, proposer: did:web:alpha.example } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.obligation.created          # step 3, Beta owes a vote
+      match: { mode: subset, value: { kind: vote, event_ref: prop_strict, principal_id: did:web:beta.example } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.proposal.voted              # step 4, Beta objects
+      match: { mode: subset, value: { proposalId: prop_strict, voter: did:web:beta.example, decision: object } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.obligation.discharged       # step 4, Beta's vote obligation discharged by the objection
+      match: { mode: subset, value: { principalId: did:web:beta.example } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId, discharged_at]
+    - event_type: pact.proposal.created            # step 5, compromise
+      match: { mode: subset, value: { proposalId: prop_compromise, proposer: did:web:beta.example } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.obligation.created          # step 5, Alpha owes a vote
+      match: { mode: subset, value: { kind: vote, event_ref: prop_compromise, principal_id: did:web:alpha.example } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.proposal.voted              # step 7, Alpha approves
+      match: { mode: subset, value: { proposalId: prop_compromise, voter: did:web:alpha.example, decision: approve } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+    - event_type: pact.obligation.discharged       # step 7, Alpha's vote obligation discharged
+      match: { mode: subset, value: { principalId: did:web:alpha.example } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId, discharged_at]
+    - event_type: pact.agent.done                  # step 8, Alpha done
+      match: { mode: subset, value: { principalId: did:web:alpha.example } }
+      body_ignore_fields: [id, epochMs, sequenceNumber, actorId]
+
+postconditions:
+  server_state:
+    events_added: 11
+    resource_modified: true                # two members, two proposals, obligations created+discharged
+
+notes: |
+  This vector is the canonical answer to issue #11. Mapping to the issue's
+  protocol/tooling questions:
+  - Q1/Q2 ("is Negotiation a first-class primitive / does it need a canonical
+    open operation?"): this smoke shows the negotiation is expressible with
+    the EXISTING §4.x primitives — _onboard, POST /proposals, the
+    approve/reject/object verbs (§4.3 / §7.1), POST /done. No new
+    "open negotiation" operation is required at the protocol layer; the
+    "negotiation" is the emergent proposal/objection/counter loop.
+  - Q3 ("portable multi-agent identity"): each step carries an explicit
+    `X-Pact-Principal: <did>` header. That is the portable affordance — a
+    CLI / test harness simulating N agents acts AS a principal per call by
+    setting this header. (Bearer auth in production resolves the principal
+    from the token; the header is the conformance-harness analogue.)
+  - Q4 ("minimal canonical transcript"): the eight steps ARE that transcript
+    — onboard ×2 → propose → object → counter-propose → (manifest shows the
+    obligation) → approve → done → converged.
+  - The blocking-objection semantics (§10.5): an `object` vote stops the
+    proposal (status leaves `open`); it does not silently linger. This is
+    why `done` converges — no proposal is left `open`.
+  - `caller.obligations_by_ref` is the additive event_ref-keyed obligation
+    index (same rationale as the other reconciled session vectors: the
+    runner's subset matcher compares arrays by exact JSON equality, so a
+    per-obligation assertion needs a keyed path).
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - _onboard not atomic, so a second agent cannot cleanly join (negotiation never starts)
+    - POST /proposals does not register a vote obligation on counterparties (§6.5 not wired — the manifest can't show what an agent owes)
+    - An objection leaves the proposal `open` forever (§10.5 stop not implemented — fabric never converges)
+    - Approving the counter-proposal does not discharge the proposer-side vote obligation (agents keep re-prompting to vote)
+    - /done does not transition the fabric to `converged` when no proposal is open (callers cannot detect a finished negotiation)

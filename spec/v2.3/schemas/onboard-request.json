@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pact-spec.dev/schemas/v2.0/onboard-request.json",
+  "title": "PACT Onboard Request",
+  "description": "Request body for POST /api/pact/{fabricId}/_onboard. Atomic join + constraint declaration. Either both commit or neither; constraint rejection rolls back any partial join state. The request is the union of join-request.json (or join-token-request.json) and one or more constraint-request.json items. See §4.4.5 and §15.6. Added in PACT v2.0.3.",
+  "type": "object",
+  "required": ["agentName", "constraints"],
+  "properties": {
+    "agentName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Display name for this agent (carries join-request.json semantics)."
+    },
+    "role": {
+      "type": "string",
+      "maxLength": 100,
+      "description": "Optional role descriptor."
+    },
+    "contextMode": {
+      "type": "string",
+      "enum": ["full", "section-scoped", "neighbourhood", "summary-only"],
+      "default": "full",
+      "description": "How much of the resource the agent can see."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$",
+      "description": "Preferred PACT protocol version (e.g. '2.0', '2.0.3'). Server negotiates the actual version."
+    },
+    "orgId": {
+      "type": "string",
+      "maxLength": 100,
+      "description": "Organisation identifier for information-barrier enforcement (§13)."
+    },
+    "invite_token": {
+      "type": ["string", "null"],
+      "description": "BYOK invite token, when onboarding via the join-token flow. Single-use; a failed _onboard MUST NOT consume the token (§4.4.5)."
+    },
+    "constraints": {
+      "type": "array",
+      "description": "Constraints to publish atomically with the join. MAY be empty for 'join only, no constraints declared up front' — the operation is still atomic, just trivially so. Each item has the shape of constraint-request.json.",
+      "items": {
+        "type": "object",
+        "required": ["sectionId", "boundary"],
+        "properties": {
+          "sectionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Target section identifier."
+          },
+          "boundary": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What must or must not happen in this section."
+          },
+          "category": {
+            "type": "string",
+            "description": "Optional category (e.g. 'legal', 'style', 'factual', 'regulatory', 'commercial')."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "authorization_proof": {
+      "description": "Cross-org calls at the Authorization-Required tier MUST carry a valid proof. The envelope's verifier_id MUST equal the server's DID per §17.7 step 5. The proof witnesses 'the human authorized joining this fabric with these constraints.'",
+      "$ref": "https://pact-spec.dev/schemas/v2.0/authorization-proof.json"
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "agentName": "Agent-Finance",
+      "role": "reviewer",
+      "contextMode": "section-scoped",
+      "protocolVersion": "2.0",
+      "orgId": "bridget-co",
+      "invite_token": "tok_a1b2c3d4",
+      "constraints": [
+        { "sectionId": "sec:risk", "boundary": "Must not name specific instruments", "category": "regulatory" },
+        { "sectionId": "sec:budget", "boundary": "Must not commit beyond Q3 forecast", "category": "commercial" }
+      ]
+    },
+    {
+      "agentName": "Agent-Observer",
+      "contextMode": "summary-only",
+      "constraints": []
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+# Conformance test vector — Matter open happy path (v2.2 draft).
+# kind: http — single POST to /api/pact/matters; asserts response shape + emitted event.
+#
+# DRAFT — moves to spec/v2.2/conformance/matters/matter-open-success.yaml
+# when v2.2 is properly opened. See docs/v2-prep/matters-spec-draft.md §24.5.
+
+kind: http
+
+metadata:
+  id: extended/matters/matter-open-success
+  description: A caller opens a new Matter; the caller becomes the first member with role=owner; pact.matter.opened is emitted.
+  spec_section: "§24.5"
+  conformance_level: extended
+  track: T-matters
+
+preconditions:
+  server_state:
+    matters: []                              # no matters open yet
+  request_context:
+    principal_id: did:web:knox.example
+
+request:
+  method: POST
+  path: /api/pact/matters
+  headers:
+    Content-Type: application/json
+    X-Pact-Principal: did:web:knox.example
+  body:
+    name: Project Atlas acquisition
+    opened_by_display: Knox
+
+expected_response:
+  status: 200
+  body_match:
+    mode: subset
+    value:
+      spec_version: "2.2"
+      name: Project Atlas acquisition
+      phase: open
+      opened_by: did:web:knox.example
+      members:
+        - principal_id: did:web:knox.example
+          display_name: Knox
+          role: owner
+      fabrics: []
+  body_ignore_fields:
+    - matter_id                              # server-assigned
+    - opened_at                              # server timestamp
+    - opened_event_id                        # server-assigned
+    - members.*.joined_at                    # server timestamp
+    - members.*.org_eTLD_plus_1              # additive
+
+expected_events:
+  ordered: true
+  sequence:
+    - event_type: pact.matter.opened
+      match:
+        mode: subset
+        value:
+          name: Project Atlas acquisition
+          opened_by: did:web:knox.example
+      body_ignore_fields:
+        - matter_id
+        - id
+        - epochMs
+        - sequenceNumber
+        - actorId
+
+postconditions:
+  server_state:
+    matters_count: 1
+    matter_phase: open
+    matter_member_count: 1
+    matter_fabric_count: 0
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Implementation does not expose POST /api/pact/matters (returns 404)
+    - Caller not auto-added as owner (member array empty or role != owner)
+    - phase set to active/closed instead of open
+    - pact.matter.opened event not emitted

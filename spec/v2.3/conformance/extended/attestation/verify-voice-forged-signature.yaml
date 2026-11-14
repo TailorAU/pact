@@ -1,0 +1,67 @@
+# Conformance test vector — Extended: voice-biometric forged signature.
+# kind: verification — exercises §17.7 step 3 + §18.3. The A1 mutation test,
+# voice edition.
+#
+# SCAFFOLD (v2.0.4 lockdown). Ships fail-closed: until HMAN's #3 PR lands the
+# crypto verifier, a `signature_check: real` voice proof is `unverifiable` at
+# step 3 (verifier not implemented). The point of THIS vector is that once
+# the verifier exists, a byte-flipped signature MUST be `rejected` at step 3
+# — never `verified`.
+#
+# hman_3_flip: replace `signature` with a real signature that has had one
+#   byte flipped; change expected.result -> rejected (still failing_step 3,
+#   verification_mode cryptographic). Mirrors verify-fido2-forged-signature.
+
+kind: verification
+
+metadata:
+  id: extended/attestation/verify-voice-forged-signature
+  description: "A voice-biometric proof with a forged (byte-flipped) signature. SCAFFOLD — fails closed (unverifiable, step 3) now; becomes the A1 rejected-on-forge mutation test once HMAN's #3 PR lands."
+  spec_section: "§17.6, §17.7, §18.3, §18.6"
+  conformance_level: extended
+  track: T1
+
+verification:
+  proof:
+    type: voice-biometric
+    principal_id: did:web:knox.example
+    credential_id: voice_ref_001
+    challenge_nonce: nonce-voice-forge-001
+    asserted_at: "2026-05-16T10:00:00Z"
+    signature: "<HMAN #3: a real signature with exactly one byte flipped — MUST be rejected at step 3>"
+    alg: resemblyzer-v1
+    alg_version: "1.0"
+    match:
+      alg: resemblyzer-v1
+      alg_version: "1.0"
+      score: 0.93
+      threshold: 0.75
+    utterance_hash: "dXR0ZXJhbmNlLWhhc2gtcGxhY2Vob2xkZXItMDAx"
+    verifier_id: did:web:bridget.example
+    attestation_chain: []
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:knox.example
+        display_name: Knox Hart
+        credentials:
+          - id: voice_ref_001
+            type: voice-biometric
+            public_key: "<HMAN #3: enrolled voice-reference verification material>"
+            enrolled_at: "2026-05-16T09:00:00Z"
+            revoked: false
+  verifier_clock: "2026-05-16T10:00:30Z"
+  issued_nonces:
+    - nonce-voice-forge-001
+  receiving_verifier_id: did:web:bridget.example
+  signature_check: real
+  expected:
+    result: unverifiable
+    failing_step: 3
+    emits_trust_violation: false
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Runner accepted a forged voice signature (the A1 attack, voice edition)
+    - Runner passed voice-biometric structurally instead of failing closed pre-crypto

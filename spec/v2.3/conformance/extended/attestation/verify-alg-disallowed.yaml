@@ -1,0 +1,56 @@
+# Conformance test vector — Extended: alg outside the v2.0.2 whitelist is rejected.
+# kind: verification — exercises §17.6 alg whitelist + §17.7 step 3.
+#
+# Attack scenario: an adversary submits a proof with `alg: HS256` (HMAC, a shared-secret
+# algorithm) — broken for the public-key proof-of-human-intent model PACT relies on.
+# v2.0.2's alg whitelist forbids non-public-key signatures for fido2-assertion. The
+# verifier MUST reject at step 3 before even attempting signature verification.
+
+kind: verification
+
+metadata:
+  id: extended/attestation/verify-alg-disallowed
+  description: "A fido2-assertion proof with alg=HS256 (outside the v2.0.2 whitelist) — rejected at step 3 by the alg-whitelist rule."
+  spec_section: "§17.6, §17.7, §18.2"
+  conformance_level: extended
+  track: T1
+
+verification:
+  proof:
+    type: fido2-assertion
+    principal_id: did:web:knox.example
+    credential_id: cred_abc123
+    challenge_nonce: nonce-001-fresh
+    verifier_id: did:web:bridget.example
+    asserted_at: "2026-05-15T10:30:00Z"
+    signature: "<not inspected — alg check fails before signature verification>"
+    alg: HS256                                     # HMAC — explicitly disallowed for fido2-assertion (§17.6)
+    alg_version: "1"
+    attestation_chain: []
+  registry:
+    version: "1.0"
+    principals:
+      - id: did:web:knox.example
+        display_name: Knox Hart
+        credentials:
+          - id: cred_abc123
+            type: fido2-assertion
+            public_key: "<not used — alg fails before lookup>"
+            enrolled_at: "2026-01-01T00:00:00Z"
+            revoked: false
+  verifier_clock: "2026-05-15T10:30:30Z"
+  issued_nonces:
+    - nonce-001-fresh
+  receiving_verifier_id: did:web:bridget.example
+  signature_check: real                            # vector opts into real crypto so the alg-whitelist enforcement is exercised
+  expected:
+    result: rejected
+    failing_step: 3
+    emits_trust_violation: true
+
+failure_classification:
+  severity: blocker
+  common_causes:
+    - Verifier doesn't enforce the §17.6 alg whitelist
+    - Verifier accepts HMAC / symmetric-key algorithms for fido2-assertion (public-key contract violated)
+    - Verifier defers alg check until after attempting signature verification (it should reject earlier)

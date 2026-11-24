@@ -7,23 +7,13 @@
  * match plus a short rationale. The matcher's output — not this LLM call —
  * is the primary signal; this is a graceful-degradation fallback only.
  */
-import { AzureOpenAI } from "openai";
+import { log } from "@/lib/logger";
+import {
+  getSovrgnClient,
+  getSovrgnModel,
+  supportsCustomTemperature,
+} from "../sovrgn-client";
 import type { Scenario } from "./types";
-
-let _client: AzureOpenAI | null = null;
-
-function getClient(): AzureOpenAI | null {
-  if (_client) return _client;
-  const key = process.env.AZURE_OPENAI_KEY;
-  if (!key) return null; // graceful: no key → skip fallback
-  _client = new AzureOpenAI({
-    endpoint: process.env.AZURE_OPENAI_ENDPOINT
-      ?? "https://oai-tailor-app-prod.openai.azure.com/",
-    apiKey: key,
-    apiVersion: "2025-01-01-preview",
-  });
-  return _client;
-}
 
 const SYSTEM_PROMPT = `You are a regulatory-scenario matcher. Given a JSON list of scenarios and a caller's predicates, pick the single best-matching scenario id or return null if none reasonably fit. Respond ONLY with JSON of shape {"scenarioId": string|null, "rationale": string}. Do not invent scenario ids.`;
 
@@ -37,12 +27,13 @@ export async function llmMatch(
   scenarios: Pick<Scenario, "id" | "title" | "predicates">[],
   callerPredicates: Record<string, unknown>,
 ): Promise<LlmFallbackResult | null> {
-  const client = getClient();
+  const client = getSovrgnClient();
   if (!client) return null;
 
+  const requestedModel = getSovrgnModel();
   try {
     const completion = await client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model: requestedModel,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
@@ -53,20 +44,44 @@ export async function llmMatch(
           }),
         },
       ],
-      temperature: 0.1,
-      max_tokens: 400,
+      ...(supportsCustomTemperature(requestedModel) ? { temperature: 0.1 } : {}),
+      max_tokens: 3072,
       response_format: { type: "json_object" },
     });
-    const raw = completion.choices[0]?.message?.content ?? "{}";
-    const parsed = JSON.parse(raw) as { scenarioId?: string | null; rationale?: string };
-    const valid = scenarios.some((s) => s.id === parsed.scenarioId);
+    const choice = completion.choices[0];
+    const raw = typeof choice?.message?.content === "string" ? choice.message.content.trim() : "";
+    if (!raw) {
+      log.warn(
+        { op: "scenarios.llm_match.empty", finishReason: choice?.finish_reason ?? null },
+        "[scenarios/llm-match] empty completion content",
+      );
+      return null;
+    }
+
+    const parsedUnknown: unknown = JSON.parse(raw);
+    if (!parsedUnknown || typeof parsedUnknown !== "object" || Array.isArray(parsedUnknown)) {
+      log.warn(
+        { op: "scenarios.llm_match.invalid_shape", finishReason: choice?.finish_reason ?? null },
+        "[scenarios/llm-match] non-object completion payload",
+      );
+      return null;
+    }
+
+    const parsed = parsedUnknown as Record<string, unknown>;
+    const candidateId = typeof parsed.scenarioId === "string" ? parsed.scenarioId : null;
+    const valid = candidateId !== null && scenarios.some((s) => s.id === candidateId);
+    const rationale =
+      typeof parsed.rationale === "string" && parsed.rationale.trim()
+        ? parsed.rationale.trim()
+        : "(no rationale)";
+
     return {
-      model: "gpt-4.1-mini",
-      scenarioId: valid ? parsed.scenarioId ?? null : null,
-      rationale: parsed.rationale ?? "(no rationale)",
+      model: completion.model || requestedModel,
+      scenarioId: valid ? candidateId : null,
+      rationale,
     };
   } catch (err) {
-    console.error("[scenarios/llm-match] fallback error:", err);
+    log.error({ op: "scenarios.llm_match.error", err }, "[scenarios/llm-match] fallback error");
     return null;
   }
 }

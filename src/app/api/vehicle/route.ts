@@ -1,19 +1,11 @@
 import { NextResponse } from "next/server";
-import { AzureOpenAI } from "openai";
 import { log } from "@/lib/logger";
 import { readBodyBounded } from "@/lib/read-body-bounded";
-
-let _client: AzureOpenAI | null = null;
-function getClient(): AzureOpenAI {
-  if (!_client) {
-    _client = new AzureOpenAI({
-      endpoint: "https://oai-tailor-app-prod.openai.azure.com/",
-      apiKey: process.env.AZURE_OPENAI_KEY,
-      apiVersion: "2025-01-01-preview",
-    });
-  }
-  return _client;
-}
+import {
+  getSovrgnClient,
+  getSovrgnModel,
+  supportsCustomTemperature,
+} from "@/lib/sovrgn-client";
 
 const SYSTEM_PROMPT = `You are a vehicle fuel efficiency database. Given a vehicle description (make, model, year, or nickname), return its specs as JSON.
 
@@ -31,38 +23,92 @@ Respond ONLY with JSON, no markdown fences.`;
 export async function POST(req: Request) {
   const bounded = await readBodyBounded(req);
   if (!bounded.ok) return bounded.response;
+
+  let body: unknown;
   try {
-    const { query } = JSON.parse(bounded.text);
-    if (!query || typeof query !== "string" || query.trim().length < 2) {
-      return NextResponse.json({ error: "Vehicle query too short" }, { status: 400 });
+    body = JSON.parse(bounded.text);
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const query =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>).query
+      : undefined;
+  if (!query || typeof query !== "string" || query.trim().length < 2) {
+    return NextResponse.json({ error: "Vehicle query too short" }, { status: 400 });
+  }
+
+  try {
+    const client = getSovrgnClient();
+    if (!client) {
+      return NextResponse.json(
+        { error: "Vehicle identification service is not configured" },
+        { status: 503 },
+      );
     }
 
-    const completion = await getClient().chat.completions.create({
-      model: "gpt-4.1-mini",
+    const model = getSovrgnModel();
+    const completion = await client.chat.completions.create({
+      model,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: query.trim() },
       ],
-      temperature: 0.1,
-      max_tokens: 300,
+      ...(supportsCustomTemperature(model) ? { temperature: 0.1 } : {}),
+      max_tokens: 2048,
       response_format: { type: "json_object" },
     });
 
-    const raw = completion.choices[0]?.message?.content ?? "{}";
-    const parsed = JSON.parse(raw);
+    const choice = completion.choices[0];
+    const raw = typeof choice?.message?.content === "string" ? choice.message.content.trim() : "";
+    if (!raw) {
+      log.warn(
+        { op: "vehicle.lookup.post.empty", finishReason: choice?.finish_reason ?? null },
+        "[vehicle] Empty LLM completion content",
+      );
+      return NextResponse.json({ error: "Failed to identify vehicle" }, { status: 502 });
+    }
+
+    const parsedUnknown: unknown = JSON.parse(raw);
+    if (!parsedUnknown || typeof parsedUnknown !== "object" || Array.isArray(parsedUnknown)) {
+      log.warn(
+        { op: "vehicle.lookup.post.invalid_shape", finishReason: choice?.finish_reason ?? null },
+        "[vehicle] Non-object LLM completion payload",
+      );
+      return NextResponse.json({ error: "Failed to identify vehicle" }, { status: 502 });
+    }
+
+    const parsed = parsedUnknown as Record<string, unknown>;
+    const hasCoreField =
+      typeof parsed.fuel_type === "string" ||
+      typeof parsed.consumption_l_per_100km === "number" ||
+      typeof parsed.make === "string" ||
+      typeof parsed.display_name === "string";
+    if (!hasCoreField) {
+      log.warn(
+        { op: "vehicle.lookup.post.missing_fields", finishReason: choice?.finish_reason ?? null },
+        "[vehicle] LLM completion missing core vehicle fields",
+      );
+      return NextResponse.json({ error: "Failed to identify vehicle" }, { status: 502 });
+    }
+
+    const rawDisplayName =
+      typeof parsed.display_name === "string" ? parsed.display_name.trim() : "";
+    const fallbackDisplayName = parsed.make
+      ? `${parsed.year ?? ""} ${parsed.make ?? ""} ${parsed.model ?? ""}`.trim()
+      : query.trim();
 
     const result = {
       make: parsed.make ?? null,
       model: parsed.model ?? null,
       year: parsed.year ?? null,
       variant: parsed.variant ?? null,
-      fuel_type: parsed.fuel_type ?? "petrol",
+      fuel_type: typeof parsed.fuel_type === "string" && parsed.fuel_type.trim() ? parsed.fuel_type.trim() : "petrol",
       consumption_l_per_100km: clamp(parsed.consumption_l_per_100km, 1, 40),
       tank_litres: clamp(parsed.tank_litres, 20, 200),
-      confidence: parsed.confidence ?? "high",
-      display_name: parsed.display_name ?? parsed.make
-        ? `${parsed.year ?? ""} ${parsed.make ?? ""} ${parsed.model ?? ""}`.trim()
-        : query.trim(),
+      confidence: typeof parsed.confidence === "string" && parsed.confidence.trim() ? parsed.confidence.trim() : "high",
+      display_name: rawDisplayName || fallbackDisplayName,
     };
 
     return NextResponse.json(result, {

@@ -1,19 +1,11 @@
 import { NextResponse } from "next/server";
-import { AzureOpenAI } from "openai";
 import { log } from "@/lib/logger";
 import { readBodyBounded } from "@/lib/read-body-bounded";
-
-let _client: AzureOpenAI | null = null;
-function getClient(): AzureOpenAI {
-  if (!_client) {
-    _client = new AzureOpenAI({
-      endpoint: "https://oai-tailor-app-prod.openai.azure.com/",
-      apiKey: process.env.AZURE_OPENAI_KEY,
-      apiVersion: "2025-01-01-preview",
-    });
-  }
-  return _client;
-}
+import {
+  getSovrgnClient,
+  getSovrgnModel,
+  supportsCustomTemperature,
+} from "@/lib/sovrgn-client";
 
 const SYSTEM_PROMPT = `You are a vehicle fuel efficiency database. Given a vehicle description (make, model, year, or nickname), return its specs as JSON.
 
@@ -37,14 +29,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Vehicle query too short" }, { status: 400 });
     }
 
-    const completion = await getClient().chat.completions.create({
-      model: "gpt-4.1-mini",
+    const client = getSovrgnClient();
+    if (!client) {
+      return NextResponse.json(
+        { error: "Vehicle identification service is not configured" },
+        { status: 503 },
+      );
+    }
+
+    const model = getSovrgnModel();
+    const completion = await client.chat.completions.create({
+      model,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: query.trim() },
       ],
-      temperature: 0.1,
-      max_tokens: 300,
+      ...(supportsCustomTemperature(model) ? { temperature: 0.1 } : {}),
+      max_tokens: 800,
       response_format: { type: "json_object" },
     });
 
@@ -60,9 +61,11 @@ export async function POST(req: Request) {
       consumption_l_per_100km: clamp(parsed.consumption_l_per_100km, 1, 40),
       tank_litres: clamp(parsed.tank_litres, 20, 200),
       confidence: parsed.confidence ?? "high",
-      display_name: parsed.display_name ?? parsed.make
-        ? `${parsed.year ?? ""} ${parsed.make ?? ""} ${parsed.model ?? ""}`.trim()
-        : query.trim(),
+      display_name:
+        parsed.display_name ??
+        (parsed.make
+          ? `${parsed.year ?? ""} ${parsed.make ?? ""} ${parsed.model ?? ""}`.trim()
+          : query.trim()),
     };
 
     return NextResponse.json(result, {

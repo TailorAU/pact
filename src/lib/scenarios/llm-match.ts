@@ -7,23 +7,12 @@
  * match plus a short rationale. The matcher's output — not this LLM call —
  * is the primary signal; this is a graceful-degradation fallback only.
  */
-import { AzureOpenAI } from "openai";
+import {
+  getSovrgnClient,
+  getSovrgnModel,
+  supportsCustomTemperature,
+} from "../sovrgn-client";
 import type { Scenario } from "./types";
-
-let _client: AzureOpenAI | null = null;
-
-function getClient(): AzureOpenAI | null {
-  if (_client) return _client;
-  const key = process.env.AZURE_OPENAI_KEY;
-  if (!key) return null; // graceful: no key → skip fallback
-  _client = new AzureOpenAI({
-    endpoint: process.env.AZURE_OPENAI_ENDPOINT
-      ?? "https://oai-tailor-app-prod.openai.azure.com/",
-    apiKey: key,
-    apiVersion: "2025-01-01-preview",
-  });
-  return _client;
-}
 
 const SYSTEM_PROMPT = `You are a regulatory-scenario matcher. Given a JSON list of scenarios and a caller's predicates, pick the single best-matching scenario id or return null if none reasonably fit. Respond ONLY with JSON of shape {"scenarioId": string|null, "rationale": string}. Do not invent scenario ids.`;
 
@@ -37,12 +26,13 @@ export async function llmMatch(
   scenarios: Pick<Scenario, "id" | "title" | "predicates">[],
   callerPredicates: Record<string, unknown>,
 ): Promise<LlmFallbackResult | null> {
-  const client = getClient();
+  const client = getSovrgnClient();
   if (!client) return null;
 
+  const requestedModel = getSovrgnModel();
   try {
     const completion = await client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model: requestedModel,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
@@ -53,15 +43,15 @@ export async function llmMatch(
           }),
         },
       ],
-      temperature: 0.1,
-      max_tokens: 400,
+      ...(supportsCustomTemperature(requestedModel) ? { temperature: 0.1 } : {}),
+      max_tokens: 1000,
       response_format: { type: "json_object" },
     });
     const raw = completion.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(raw) as { scenarioId?: string | null; rationale?: string };
     const valid = scenarios.some((s) => s.id === parsed.scenarioId);
     return {
-      model: "gpt-4.1-mini",
+      model: completion.model || requestedModel,
       scenarioId: valid ? parsed.scenarioId ?? null : null,
       rationale: parsed.rationale ?? "(no rationale)",
     };

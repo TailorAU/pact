@@ -14,7 +14,7 @@ import OpenAI from "openai";
 export const DEFAULT_SOVRGN_API_URL = "https://api.sovrgn.ai/v1";
 export const DEFAULT_SOVRGN_MODEL = "tailor-fast";
 export const SOVRGN_TENANT_HEADER = "pact";
-const REQUEST_TIMEOUT_MS = 20_000;
+const REQUEST_TIMEOUT_MS = 45_000;
 
 /**
  * Validates and normalizes `SOVRGN_API_URL` into an OpenAI-SDK `baseURL`

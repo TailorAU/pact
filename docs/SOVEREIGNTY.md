@@ -56,30 +56,30 @@ per-contract conversation and lands as a separate Requirement.
 
 ## LLM provider region
 
-Source uses Azure OpenAI for the LLM-fallback path on
-`/api/scenarios/match` (and a small set of scoring helpers under
-`src/lib/scenarios/llm-match.ts`). The endpoint is:
+Source routes all server-side LLM calls (`/api/scenarios/match` fallback in
+`src/lib/scenarios/llm-match.ts` and `/api/vehicle` in `src/app/api/vehicle/route.ts`)
+through **Tailor Routing (`SOVRGN`)** via `src/lib/sovrgn-client.ts`:
 
 ```
-https://oai-tailor-app-prod.openai.azure.com/
+https://api.sovrgn.ai/v1
 ```
 
-This is the **`oai-tailor-app-prod` Azure OpenAI deployment hosted in
-`australiaeast`**, shared with Tailor's main app. Inference happens
-in-region on Microsoft-operated infrastructure.
+Tailor Routing is hosted on Azure Container Apps in **`australiaeast`** and
+authenticates Source with a server-side Bearer key (`SOVRGN_API_KEY`) plus
+`X-Sovrgn-Tenant: pact` (fail-closed HTTPS, redirects blocked).
 
 Caveats:
 
-- We are dependent on Microsoft's OpenAI region commitment. If Microsoft
-  changes the region for this deployment, we will move.
-- Prompt + completion content is subject to Microsoft's Azure OpenAI
-  abuse-monitoring policy. Customers who require Azure OpenAI
-  abuse-monitoring opt-out (Microsoft form-gated) are accommodated on a
-  per-contract basis.
-- Source does not call non-Azure OpenAI endpoints. There is no path to
-  OpenAI public API, no Anthropic, no Google, no third-party LLM
-  provider. The `openai` npm package is used only as a SDK to talk to
-  the Azure-hosted endpoint.
+- Processing residency depends on the configured tier (`SOVRGN_MODEL`, default
+  `tailor-fast`) and gateway tenant policy. Default `tailor-fast` may route to
+  global Azure OpenAI capacity; customers requiring strict AU-in-region
+  inference pin `SOVRGN_MODEL` to an AU-in-region tier (e.g.
+  `au-inregion-gpt-41-mini` / `tailor-sovereign`) and enable `InCountry=true`
+  on the gateway tenant profile.
+- Source does not hold direct vendor keys (`AZURE_OPENAI_KEY` removed) and
+  never calls `api.openai.com`, Anthropic, or Google directly from Source. The
+  `openai` npm package is used solely as an OpenAI-compatible SDK talking to
+  `SOVRGN_API_URL`.
 
 ## Cloudflare-edge sovereignty footnote
 
@@ -119,7 +119,7 @@ catalogued below. The columns are:
 | Destination | Direction | Trigger | Data sent | Leaves AU? | Notes |
 |---|---|---|---|---|---|
 | `maps.googleapis.com` | outbound | Browser-side; CSP allow-list at [`next.config.ts:11-15`](../next.config.ts) | None from Source server. The CSP permits the **client browser** to call Google Maps; Source's own server does not. | **Server: no.** Browser: yes (Google's region). | Source's CSP permits `script-src` and `connect-src` to Google's domains for client-rendered maps in some pages. The Source backend never calls Google Maps. If a customer's browser is in AU, the request still hits Google's geo-DNS-routed endpoint, which may be served from Google's AU region or US/SG. |
-| `https://oai-tailor-app-prod.openai.azure.com/` | outbound | Server-side, on `/api/scenarios/match` LLM-fallback path | Predicate text + scenario context | **No.** Endpoint is in `australiaeast`. | See § LLM provider region above. Microsoft platform; in-region. |
+| `https://api.sovrgn.ai/v1` | outbound | Server-side, on `/api/scenarios/match` LLM-fallback and `/api/vehicle` | Predicate text + scenario context, or vehicle query string | **Tier-dependent.** Gateway is in `australiaeast`; upstream residency depends on `SOVRGN_MODEL` / tenant `InCountry` profile. | See § LLM provider region above. Replaces direct `oai-tailor-app-prod.openai.azure.com` calls; `X-Sovrgn-Tenant: pact`, no redirects. |
 | `https://www.legislation.gov.au/` (CTH) | outbound | Server-side, weekly cron `cron/legislation-sync` | None — read-only fetch | **No.** AU government API. | CTH legislation parser; see `src/lib/parsers/cth-parser.ts`. Public dataset, no API key required. |
 | `https://www.legislation.qld.gov.au/` (QLD) | outbound | Server-side, weekly cron `cron/legislation-sync` | Basic auth credentials (`QLD_LEGISLATION_USERNAME` / `QLD_LEGISLATION_PASSWORD`) | **No.** QLD government API. | QLD legislation parser; see `src/lib/parsers/qld-parser.ts`. Authenticated read. |
 | Translink SEQ GTFS feed (`www.data.qld.gov.au/dataset/general-transit-feed-specification-gtfs-seq/...`) | outbound | Server-side, on GTFS sync invocations | None — read-only fetch | **No.** QLD government open data. CC BY 4.0. | See `src/lib/gtfs-sync.ts:6-7`. |

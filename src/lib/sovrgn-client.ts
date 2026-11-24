@@ -23,6 +23,9 @@ const REQUEST_TIMEOUT_MS = 20_000;
  */
 export function normalizeSovrgnBaseUrl(raw?: string | null): string | null {
   const input = (raw ?? "").trim() || DEFAULT_SOVRGN_API_URL;
+  // Reject explicit query, fragment, or userinfo markers even when empty (e.g. "?", "#", ":@").
+  if (input.includes("?") || input.includes("#") || input.includes("@")) return null;
+
   let parsed: URL;
   try {
     parsed = new URL(input);
@@ -37,7 +40,7 @@ export function normalizeSovrgnBaseUrl(raw?: string | null): string | null {
 
   const path = parsed.pathname.replace(/\/+$/, "");
   if (path.endsWith("/chat/completions")) {
-    const base = path.slice(0, -"/chat/completions".length);
+    const base = path.slice(0, -"/chat/completions".length).replace(/\/+$/, "");
     return `${parsed.origin}${base || "/v1"}`;
   }
   if (path.endsWith("/v1")) {
@@ -91,8 +94,10 @@ export function getSovrgnClient(env: Record<string, string | undefined> = proces
   const client = new OpenAI({
     apiKey,
     baseURL,
+    organization: null,
+    project: null,
     timeout: REQUEST_TIMEOUT_MS,
-    maxRetries: 1,
+    maxRetries: 0,
     fetch: noRedirectFetch,
     defaultHeaders: {
       "X-Sovrgn-Tenant": SOVRGN_TENANT_HEADER,

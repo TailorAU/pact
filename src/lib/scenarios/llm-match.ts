@@ -7,6 +7,7 @@
  * match plus a short rationale. The matcher's output — not this LLM call —
  * is the primary signal; this is a graceful-degradation fallback only.
  */
+import { log } from "@/lib/logger";
 import {
   getSovrgnClient,
   getSovrgnModel,
@@ -44,19 +45,43 @@ export async function llmMatch(
         },
       ],
       ...(supportsCustomTemperature(requestedModel) ? { temperature: 0.1 } : {}),
-      max_tokens: 1000,
+      max_tokens: 3072,
       response_format: { type: "json_object" },
     });
-    const raw = completion.choices[0]?.message?.content ?? "{}";
-    const parsed = JSON.parse(raw) as { scenarioId?: string | null; rationale?: string };
-    const valid = scenarios.some((s) => s.id === parsed.scenarioId);
+    const choice = completion.choices[0];
+    const raw = typeof choice?.message?.content === "string" ? choice.message.content.trim() : "";
+    if (!raw) {
+      log.warn(
+        { op: "scenarios.llm_match.empty", finishReason: choice?.finish_reason ?? null },
+        "[scenarios/llm-match] empty completion content",
+      );
+      return null;
+    }
+
+    const parsedUnknown: unknown = JSON.parse(raw);
+    if (!parsedUnknown || typeof parsedUnknown !== "object" || Array.isArray(parsedUnknown)) {
+      log.warn(
+        { op: "scenarios.llm_match.invalid_shape", finishReason: choice?.finish_reason ?? null },
+        "[scenarios/llm-match] non-object completion payload",
+      );
+      return null;
+    }
+
+    const parsed = parsedUnknown as Record<string, unknown>;
+    const candidateId = typeof parsed.scenarioId === "string" ? parsed.scenarioId : null;
+    const valid = candidateId !== null && scenarios.some((s) => s.id === candidateId);
+    const rationale =
+      typeof parsed.rationale === "string" && parsed.rationale.trim()
+        ? parsed.rationale.trim()
+        : "(no rationale)";
+
     return {
       model: completion.model || requestedModel,
-      scenarioId: valid ? parsed.scenarioId ?? null : null,
-      rationale: parsed.rationale ?? "(no rationale)",
+      scenarioId: valid ? candidateId : null,
+      rationale,
     };
   } catch (err) {
-    console.error("[scenarios/llm-match] fallback error:", err);
+    log.error({ op: "scenarios.llm_match.error", err }, "[scenarios/llm-match] fallback error");
     return null;
   }
 }
